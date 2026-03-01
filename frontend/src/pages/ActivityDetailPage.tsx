@@ -350,13 +350,16 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
 
     const applyZoom = () => {
       if (zoomRange) {
-        const segCoords = streams
-          .filter(s => s.lat != null && s.lng != null && s.distance_m != null)
-          .filter(s => {
-            const km = s.distance_m! / 1000
-            return km >= zoomRange.startKm && km <= zoomRange.endKm
-          })
-          .map(s => [s.lng!, s.lat!] as [number, number])
+        // Use percentage-based index slicing so the selection works even when
+        // individual stream points lack distance_m (e.g. pure GPS tracks).
+        const allGps = streams
+          .filter((s): s is StreamPoint & { lat: number; lng: number } =>
+            s.lat != null && s.lng != null)
+        const n = allGps.length
+        const si = Math.max(0, Math.floor(n * zoomRange.startPct / 100))
+        const ei = Math.min(n - 1, Math.ceil(n * zoomRange.endPct / 100))
+        const segCoords = allGps.slice(si, ei + 1)
+          .map(s => [s.lng, s.lat] as [number, number])
 
         // Grey out the full track
         map.setPaintProperty('track-line', 'line-color', '#999999')
