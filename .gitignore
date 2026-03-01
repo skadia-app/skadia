@@ -20,5 +20,11 @@ services/api/cmd/*/main
 .DS_Store
 Thumbs.db
 
-# Claude
-.claude/
+# Claude (keep skills and agents, ignore session data)
+.claude/*
+!.claude/skills/
+!.claude/agents/
+CLAUDE.md
+CLAUDE.MD
+frontend/CLAUDE.md
+frontend/CLAUDE.MD
