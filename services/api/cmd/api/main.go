@@ -147,6 +147,24 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	// Background: recalculate PMC for all active users on startup.
+	// Ensures historical data is populated after service changes or fresh deploys.
+	go func() {
+		time.Sleep(2 * time.Second)
+		userIDs, err := db.ListActiveUserIDs(ctx)
+		if err != nil {
+			slog.Warn("startup PMC recalc: failed to list users", "error", err)
+			return
+		}
+		pmcSvc := &pmc.Service{DB: db}
+		for _, uid := range userIDs {
+			if err := pmcSvc.RecalculatePMC(ctx, uid, time.Now()); err != nil {
+				slog.Warn("startup PMC recalc failed", "user_id", uid, "error", err)
+			}
+		}
+		slog.Info("startup PMC recalculation complete", "users", len(userIDs))
+	}()
+
 	// Start server in goroutine
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr)

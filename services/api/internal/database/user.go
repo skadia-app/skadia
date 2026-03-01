@@ -9,6 +9,24 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// ListActiveUserIDs returns the IDs of all active users.
+func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `SELECT id FROM users WHERE is_active = true`)
+	if err != nil {
+		return nil, fmt.Errorf("list active user ids: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // GetOrCreateUserByOIDCSubject finds a user by their OIDC subject ID,
 // creating a new user row if none exists yet.
 func (db *DB) GetOrCreateUserByOIDCSubject(ctx context.Context, legacyOIDCSubject, username, email string) (*model.User, error) {

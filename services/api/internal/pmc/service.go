@@ -16,8 +16,19 @@ type Service struct {
 // RecalculatePMC recalculates PMC from the user's earliest activity up to 90 days from now.
 // This satisfies the event.ActivityHandler interface.
 func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDate time.Time) error {
-	// Calculate from 180 days ago to 90 days from now (covers full CTL window)
+	// Start from the user's earliest activity (minus 42 days for CTL seeding window).
+	// Fall back to 180 days if no activities exist.
+	earliest, err := s.DB.GetEarliestActivityDate(ctx, userID)
+	if err != nil {
+		return err
+	}
 	from := time.Now().AddDate(0, 0, -180)
+	if !earliest.IsZero() {
+		seed := earliest.AddDate(0, 0, -42)
+		if seed.Before(from) {
+			from = seed
+		}
+	}
 	to := time.Now().AddDate(0, 0, 90)
 
 	// Get previous day's CTL/ATL to seed the calculation

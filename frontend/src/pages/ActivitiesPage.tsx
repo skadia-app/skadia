@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
@@ -17,12 +17,14 @@ const PAGE_SIZES = [20, 50, 100] as const
 type PageSize = 20 | 50 | 100 | 0
 
 export default function ActivitiesPage() {
+  const queryClient = useQueryClient()
   const [pageSize, setPageSize] = useState<PageSize>(20)
   // cursors[i] = cursor um Seite i+1 zu laden (cursors[0] = undefined = erste Seite)
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const [pageIndex, setPageIndex] = useState(0)
   const [pageInput, setPageInput] = useState('1')
   const [total, setTotal] = useState<number | null>(null)
+  const [isJumping, setIsJumping] = useState(false)
 
   const isInfinite = pageSize === 0
   const cursor = cursors[pageIndex]
@@ -96,15 +98,44 @@ export default function ActivitiesPage() {
     setPageInput('1')
   }
 
+  // Jumps to an arbitrary page index, fetching intermediate cursors as needed.
+  async function jumpToPage(targetIdx: number) {
+    if (targetIdx < 0) targetIdx = 0
+
+    // Fast path: cursor already in cache
+    if (targetIdx < cursors.length) {
+      goToPage(targetIdx)
+      return
+    }
+
+    // Sequentially prefetch pages until we have the cursor for targetIdx
+    setIsJumping(true)
+    let localCursors = [...cursors]
+    try {
+      while (localCursors.length <= targetIdx) {
+        const cursor = localCursors[localCursors.length - 1]
+        const data = await queryClient.fetchQuery({
+          queryKey: ['activities', cursor, pageSize],
+          queryFn: () => fetchActivities(cursor, pageSize as number),
+        })
+        if (!data.next_cursor) {
+          targetIdx = localCursors.length - 1 // clamp to last available page
+          break
+        }
+        localCursors = [...localCursors, data.next_cursor]
+      }
+      setCursors(localCursors)
+      setPageIndex(targetIdx)
+      setPageInput(String(targetIdx + 1))
+    } finally {
+      setIsJumping(false)
+    }
+  }
+
   function submitPageInput(raw: string) {
     const n = parseInt(raw, 10)
     if (isNaN(n)) { setPageInput(String(pageIndex + 1)); return }
-    const idx = n - 1
-    if (idx >= 0 && idx < cursors.length) {
-      goToPage(idx)
-    } else {
-      setPageInput(String(pageIndex + 1)) // revert, Seite noch nicht geladen
-    }
+    void jumpToPage(n - 1)
   }
 
   // ── Daten ──────────────────────────────────────────────────────────────────
@@ -207,7 +238,7 @@ export default function ActivitiesPage() {
         <div className="flex items-center justify-between mt-4 gap-4">
           <button
             onClick={() => goToPage(pageIndex - 1)}
-            disabled={pageIndex === 0}
+            disabled={isJumping || pageIndex === 0}
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
@@ -240,9 +271,13 @@ export default function ActivitiesPage() {
             )}
           </div>
 
+          {isJumping && (
+            <span className="text-xs text-neutral-400 px-2">Lade…</span>
+          )}
+
           <button
             onClick={() => goToPage(pageIndex + 1)}
-            disabled={pageData?.next_cursor == null && pageIndex + 1 >= cursors.length}
+            disabled={isJumping || (pageData?.next_cursor == null && pageIndex + 1 >= cursors.length)}
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
