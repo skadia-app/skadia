@@ -52,7 +52,7 @@ function getDateRange(range: TimeRange, customFrom: string, customTo: string): {
     case '3m': from.setMonth(from.getMonth() - 3); break
     case '6m': from.setMonth(from.getMonth() - 6); break
     case '1y': from.setFullYear(from.getFullYear() - 1); break
-    case 'all': from.setFullYear(2000); break
+    case 'all': return { from: '0001-01-01', to: to.toISOString().split('T')[0] }
   }
   return {
     from: from.toISOString().split('T')[0],

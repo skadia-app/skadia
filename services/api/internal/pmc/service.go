@@ -22,13 +22,11 @@ func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDat
 	if err != nil {
 		return err
 	}
-	from := time.Now().AddDate(0, 0, -180)
-	if !earliest.IsZero() {
-		seed := earliest.AddDate(0, 0, -42)
-		if seed.Before(from) {
-			from = seed
-		}
+	if earliest.IsZero() {
+		return nil // no activities yet, nothing to calculate
 	}
+	// Start 42 days before the first activity so CTL/ATL can seed properly.
+	from := earliest.AddDate(0, 0, -42)
 	to := time.Now().AddDate(0, 0, 90)
 
 	// Get previous day's CTL/ATL to seed the calculation
