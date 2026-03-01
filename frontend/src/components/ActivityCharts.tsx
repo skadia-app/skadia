@@ -126,9 +126,9 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
 export interface ZoomRange {
   startKm: number
   endKm: number
-  /** Prozentualer Start des Zooms (0–100), direkt aus dem Brush-Ereignis */
+  /** Value-based percentage (0–100) of the X-axis range */
   startPct: number
-  /** Prozentuales Ende des Zooms (0–100), direkt aus dem Brush-Ereignis */
+  /** Value-based percentage (0–100) of the X-axis range */
   endPct: number
 }
 
@@ -146,7 +146,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
   const [xMode, setXMode] = useState<XMode>('distance')
 
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
-  // Prevents infinite loops when syncing mouse-wheel zoom across charts
   const isSyncingRef = useRef(false)
 
   const registerChart = useCallback((id: string, chart: echarts.ECharts) => {
@@ -159,40 +158,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
     chartInstancesRef.current.delete(id)
   }, [])
 
-  // Sync mouse-wheel (or programmatic) zoom from one chart to all others.
-  // Guards against infinite loops with isSyncingRef.
-  const syncZoom = useCallback((start: number, end: number, sourceId: string) => {
-    if (isSyncingRef.current) return
-    isSyncingRef.current = true
-    chartInstancesRef.current.forEach((chart, id) => {
-      if (id !== sourceId) {
-        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start, end })
-      }
-    })
-    // Mark as zoomed if not at full range
-    if (start > 0 || end < 100) setIsZoomed(true)
-    isSyncingRef.current = false
-  }, [])
-
-  // Clear brushes on every chart except the one currently being drawn on.
-  // This prevents multiple independent selections from appearing simultaneously.
-  const clearOtherBrushes = useCallback((sourceChartId: string) => {
-    chartInstancesRef.current.forEach((chart, id) => {
-      if (id !== sourceChartId) {
-        chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
-      }
-    })
-  }, [])
-
-  // Latest brush-zoom handler, kept current via a ref so ChartPanel closures
-  // always call the most recent version (avoids stale-closure with xMode/data).
-  const handleBrushZoomFn = useCallback((startPct: number, endPct: number) => {
-    // Derive absolute values for current mode
+  // ── Helper: convert percentage-based zoom range to km for map ─────────────
+  const pctToZoomRange = useCallback((startPct: number, endPct: number): ZoomRange => {
     const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
     const startVal = (startPct / 100) * xMax
     const endVal = (endPct / 100) * xMax
 
-    // Convert to km for the map (in time mode we look up the nearest point)
     let startKm: number, endKm: number
     if (xMode === 'distance') {
       startKm = startVal
@@ -203,33 +174,95 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
       startKm = data.distanceKm[si] ?? 0
       endKm = data.distanceKm[ei] ?? data.maxDist
     }
+    return { startKm, endKm, startPct, endPct }
+  }, [xMode, data])
 
-    // Zoom all charts to the selected range (percentage-based is most reliable)
+  // ── Sync zoom across charts (mouse wheel / pan) ──────────────────────────
+  // Also updates the map via onZoomChange so the map follows any zoom or pan.
+  const syncZoom = useCallback((start: number, end: number, sourceId: string) => {
+    if (isSyncingRef.current) return
+    isSyncingRef.current = true
+
+    chartInstancesRef.current.forEach((chart, id) => {
+      if (id !== sourceId) {
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start, end })
+      }
+    })
+
+    const zoomed = start > 0.5 || end < 99.5
+    setIsZoomed(zoomed)
+    onZoomChange?.(zoomed ? pctToZoomRange(start, end) : null)
+
+    isSyncingRef.current = false
+  }, [onZoomChange, pctToZoomRange])
+
+  // ── Clear brush on every chart except the source ──────────────────────────
+  const clearOtherBrushes = useCallback((sourceChartId: string) => {
+    chartInstancesRef.current.forEach((chart, id) => {
+      if (id !== sourceChartId) {
+        chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+      }
+    })
+  }, [])
+
+  // ── Brush zoom: receives DATA VALUES from brushEnd, dispatches to all ─────
+  // After zooming, brush mode is deactivated so drag-to-pan works.
+  const handleBrushZoomFn = useCallback((startVal: number, endVal: number) => {
+    const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+    const startPct = Math.max(0, (startVal / xMax) * 100)
+    const endPct = Math.min(100, (endVal / xMax) * 100)
+
+    isSyncingRef.current = true
     chartInstancesRef.current.forEach(chart => {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: startPct, end: endPct })
       chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+      // Deactivate brush → drag now pans the zoomed view
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
     })
-    setIsZoomed(true)
-    onZoomChange?.({ startKm, endKm, startPct, endPct })
-  }, [xMode, data, onZoomChange])
+    isSyncingRef.current = false
 
+    setIsZoomed(true)
+    onZoomChange?.(pctToZoomRange(startPct, endPct))
+  }, [xMode, data, onZoomChange, pctToZoomRange])
+
+  // Stable ref so ChartPanel closures always call the latest version
   const brushHandlerRef = useRef(handleBrushZoomFn)
   useEffect(() => { brushHandlerRef.current = handleBrushZoomFn }, [handleBrushZoomFn])
   const stableBrushZoom = useCallback((s: number, e: number) => brushHandlerRef.current(s, e), [])
 
+  // ── Reset zoom: restore full view, reactivate brush ─────────────────────
   const handleResetZoom = useCallback(() => {
+    isSyncingRef.current = true
     chartInstancesRef.current.forEach(chart => {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+      // Reactivate brush so the user can draw a new selection
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
     })
+    isSyncingRef.current = false
     setIsZoomed(false)
     onZoomChange?.(null)
   }, [onZoomChange])
 
   const switchXMode = useCallback((mode: XMode) => {
     if (isZoomed) {
+      isSyncingRef.current = true
       chartInstancesRef.current.forEach(chart => {
         chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+        chart.dispatchAction({
+          type: 'takeGlobalCursor',
+          key: 'brush',
+          brushOption: { brushType: 'lineX', brushMode: 'single' },
+        })
       })
+      isSyncingRef.current = false
       setIsZoomed(false)
       onZoomChange?.(null)
     }
@@ -313,7 +346,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
       </div>
       {panels}
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
-        Ziehen zum Auswählen · Mausrad zum Zoomen
+        Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
       </p>
     </div>
   )
@@ -330,7 +363,7 @@ interface ChartPanelProps {
   color: string
   area?: boolean
   onHover: (index: number | null) => void
-  onBrushZoom: (startPct: number, endPct: number) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
   onClearOtherBrushes: (sourceChartId: string) => void
   onSyncZoom: (start: number, end: number, sourceId: string) => void
   onRegister: (id: string, chart: echarts.ECharts) => void
@@ -373,11 +406,9 @@ function ChartPanel({
     }
     const mlData: MarkLineEntry[] = []
     if (markLines === 'max' || markLines === 'minmax') {
-      // Max line: label goes BELOW the line (inside chart body) to avoid top clipping
       mlData.push({ type: 'max', name: 'Max', label: { position: 'insideMiddleBottom' } })
     }
     if (markLines === 'minmax') {
-      // Min line: label goes ABOVE the line (inside chart body) since data is above
       mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
     }
 
@@ -484,16 +515,16 @@ function ChartPanel({
           itemStyle: { color },
           areaStyle: area ? { color: `${color}20` } : undefined,
           connectNulls: false,
-          // Note: 'large' mode is intentionally NOT used here — it breaks
-          // programmatic dataZoom dispatch and leaves charts blank after zoom.
-          sampling: 'lttb',
+          // No 'sampling' — all data points are rendered directly.
+          // Typical activity files have 3K–36K points, well within
+          // canvas performance limits.
+          // No 'large' — it breaks programmatic dataZoom dispatch.
           ...(mlData.length > 0 ? {
             markLine: {
               silent: true,
               symbol: ['none', 'none'],
               label: {
                 show: true,
-                // per-item label.position overrides this; this is the base style
                 backgroundColor: 'rgba(255,255,255,0.88)',
                 padding: [2, 5],
                 borderRadius: 3,
@@ -513,9 +544,10 @@ function ChartPanel({
         {
           type: 'inside',
           xAxisIndex: 0,
-          // 'weakFilter': ECharts re-samples only the visible data range, giving
-          // full resolution when zoomed in. Safe to use now that large:true is removed.
-          filterMode: 'weakFilter',
+          // 'none': axis range changes, data is never filtered.
+          // All points stay in the series, canvas clips to the visible window.
+          // This is the safest mode and preserves altitude smart-Y scaling.
+          filterMode: 'none',
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
           moveOnMouseWheel: false,
@@ -539,8 +571,7 @@ function ChartPanel({
     })
     chart.on('hideTip', () => onHover(null))
 
-    // Brush draw started on THIS chart → clear all other charts' selections
-    // so only one selection rectangle is ever visible at a time.
+    // Brush draw started → clear all other charts' selections
     chart.on('brush', (params: unknown) => {
       const typed = params as { batch?: Array<{ areas?: Array<unknown> }> }
       const areas = typed.batch?.[0]?.areas
@@ -549,28 +580,27 @@ function ChartPanel({
       }
     })
 
-    // Brush selection complete → zoom all charts.
-    // ECharts sends areas[].range in PIXEL coordinates, not data coordinates.
-    // Use convertFromPixel to map pixel → data value (km or minutes).
+    // Brush selection complete → zoom all charts + map.
+    // ECharts sends areas[].range in PIXEL coordinates.
+    // convertFromPixel maps pixel → data value (km or minutes).
     chart.on('brushEnd', (params: unknown) => {
       const typed = params as {
         areas?: Array<{
-          range?: [number, number]      // pixel coords (what ECharts actually sends)
-          coordRange?: [number, number] // data coords (documented but not always present)
+          range?: [number, number]
+          coordRange?: [number, number]
         }>
       }
       const areas = typed.areas
       if (!areas || areas.length === 0) return
 
       const area = areas[0]
-      let startData: number, endData: number
+      let startData: number
+      let endData: number
 
       if (area.coordRange) {
-        // Data coordinates available directly
         startData = area.coordRange[0]
         endData = area.coordRange[1]
       } else if (area.range) {
-        // Convert pixel range to data values via ECharts API
         const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
         const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
         if (s == null || e == null) return
@@ -582,14 +612,12 @@ function ChartPanel({
 
       if (endData <= startData) return
 
-      // Convert to percentages for reliable cross-chart dataZoom dispatch
-      const startPct = Math.max(0, (startData / xMax) * 100)
-      const endPct = Math.min(100, (endData / xMax) * 100)
-      onBrushZoom(startPct, endPct)
+      // Clamp to axis range and pass data values to parent
+      onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
     })
 
-    // Mouse-wheel / pan zoom → sync all other charts to the same range.
-    // ECharts fires dataZoom after inside-zoom; the batch field holds start/end.
+    // Mouse-wheel / pan → sync all other charts + update map.
+    // Inside dataZoom events use the batch format.
     chart.on('dataZoom', (params: unknown) => {
       const p = params as { batch?: Array<{ start: number; end: number }> }
       const z = p.batch?.[0]
