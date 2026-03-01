@@ -29,13 +29,16 @@ func (db *DB) GetOrCreateUserByOIDCSubject(ctx context.Context, legacyOIDCSubjec
 		return nil, fmt.Errorf("get user by legacy_oidc_subject: %w", err)
 	}
 
-	// User does not exist yet – insert, handle race via ON CONFLICT.
+	// User does not exist yet – insert.
+	// ON CONFLICT (username): link the existing user to this OIDC ID
+	// (covers dev users pre-created without legacy_oidc_subject).
 	err = db.Pool.QueryRow(ctx,
 		`INSERT INTO users (username, email, legacy_oidc_subject)
 		 VALUES ($1, $2, $3)
-		 ON CONFLICT (legacy_oidc_subject) DO UPDATE
-		   SET username = EXCLUDED.username,
-		       updated_at = NOW()
+		 ON CONFLICT (username) DO UPDATE
+		   SET legacy_oidc_subject = EXCLUDED.legacy_oidc_subject,
+		       email        = COALESCE(EXCLUDED.email, users.email),
+		       updated_at   = NOW()
 		 RETURNING id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at`,
 		username, nilIfEmpty(email), legacyOIDCSubject,
 	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
