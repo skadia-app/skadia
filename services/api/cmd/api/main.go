@@ -128,10 +128,12 @@ func main() {
 
 		r.Route("/api/v1", func(r chi.Router) {
 			r.Post("/activities/upload", h.Upload)
+			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities", h.ListActivities)
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)
 			r.Delete("/activities/{id}", h.DeleteActivity)
+			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
 			r.Get("/activities/{id}/streams", h.GetStreams)
 			r.Get("/activities/{id}/sensors", h.GetSensors)
 			r.Get("/stats/pmc", h.GetPMC)

@@ -16,7 +16,7 @@ export function formatDuration(seconds: number): string {
 
 export function formatDistance(meters: number | null): string {
   if (meters === null || isNaN(meters) || meters < 0) return '—'
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`
+  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`
   return `${Math.round(meters)} m`
 }
 

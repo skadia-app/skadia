@@ -283,39 +283,38 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Track line
+      // Full track — greyed out when a segment is highlighted
       map.addSource('track', {
         type: 'geojson',
         data: {
           type: 'Feature',
           properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates,
-          },
+          geometry: { type: 'LineString', coordinates },
         },
       })
-
       map.addLayer({
         id: 'track-line',
         type: 'line',
         source: 'track',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': sportColor,
-          'line-width': 3,
-          'line-opacity': 0.85,
-        },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
       })
 
-      // Fit bounds
+      // Highlight segment — shown on top in sport color when a zoom range is active
+      map.addSource('highlight', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+      })
+      map.addLayer({
+        id: 'highlight-line',
+        type: 'line',
+        source: 'highlight',
+        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
+      })
+
       const bounds = new maplibregl.LngLatBounds()
-      for (const c of coordinates) {
-        bounds.extend(c)
-      }
+      for (const c of coordinates) bounds.extend(c)
       map.fitBounds(bounds, { padding: 40, maxZoom: 15 })
     })
 
@@ -344,31 +343,58 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
     }
   }, [hoverIndex, coordinates, hasTrack])
 
-  // Zoom chart range → fit map to corresponding GPS segment
+  // Chart brush selection → grey out full track, highlight selected segment, fit bounds
   useEffect(() => {
     const map = mapRef.current
     if (!map || !hasTrack) return
 
-    if (zoomRange) {
-      // Filter streams that fall within the zoomed km range and have GPS
-      const segCoords = streams
-        .filter(s => s.lat != null && s.lng != null && s.distance_m != null)
-        .filter(s => {
-          const km = s.distance_m! / 1000
-          return km >= zoomRange.startKm && km <= zoomRange.endKm
-        })
-        .map(s => [s.lng!, s.lat!] as [number, number])
+    const applyZoom = () => {
+      if (zoomRange) {
+        const segCoords = streams
+          .filter(s => s.lat != null && s.lng != null && s.distance_m != null)
+          .filter(s => {
+            const km = s.distance_m! / 1000
+            return km >= zoomRange.startKm && km <= zoomRange.endKm
+          })
+          .map(s => [s.lng!, s.lat!] as [number, number])
 
-      if (segCoords.length >= 2) {
+        // Grey out the full track
+        map.setPaintProperty('track-line', 'line-color', '#999999')
+        map.setPaintProperty('track-line', 'line-opacity', 0.3)
+
+        // Update and show the highlight segment
+        ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: segCoords },
+        })
+        map.setLayoutProperty('highlight-line', 'visibility', 'visible')
+
+        // Fit the map to the highlighted segment
+        if (segCoords.length >= 2) {
+          const bounds = new maplibregl.LngLatBounds()
+          for (const c of segCoords) bounds.extend(c)
+          map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
+        }
+      } else {
+        // Restore full track
+        map.setPaintProperty('track-line', 'line-color', sportColor)
+        map.setPaintProperty('track-line', 'line-opacity', 0.85)
+        map.setLayoutProperty('highlight-line', 'visibility', 'none')
+        ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
+          type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] },
+        })
+
         const bounds = new maplibregl.LngLatBounds()
-        for (const c of segCoords) bounds.extend(c)
-        map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
+        for (const c of coordinates) bounds.extend(c)
+        map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 600 })
       }
+    }
+
+    if (map.isStyleLoaded()) {
+      applyZoom()
     } else {
-      // Reset to full track
-      const bounds = new maplibregl.LngLatBounds()
-      for (const c of coordinates) bounds.extend(c)
-      map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 600 })
+      map.once('load', applyZoom)
     }
   }, [zoomRange]) // eslint-disable-line react-hooks/exhaustive-deps
 

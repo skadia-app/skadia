@@ -507,6 +507,74 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 	return streams, nil
 }
 
+// GetStreamPoints loads stream data for an activity as StreamPoint slices,
+// which is the type required by activityutil.CalcMovingTime.
+func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.StreamPoint, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT time, lat, lng, altitude_m, speed_ms, distance_m,
+			heart_rate, power_w, cadence, temperature_c
+		FROM activity_streams
+		WHERE activity_id = $1
+		ORDER BY time ASC`,
+		activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get stream points: %w", err)
+	}
+	defer rows.Close()
+
+	var streams []model.StreamPoint
+	for rows.Next() {
+		var s model.StreamPoint
+		if err := rows.Scan(
+			&s.Time, &s.Lat, &s.Lng, &s.AltitudeM, &s.SpeedMS, &s.DistanceM,
+			&s.HeartRate, &s.PowerW, &s.Cadence, &s.TemperatureC,
+		); err != nil {
+			return nil, fmt.Errorf("scan stream point: %w", err)
+		}
+		streams = append(streams, s)
+	}
+	return streams, nil
+}
+
+// ListActivityIDsForUser returns all activity IDs belonging to the given user.
+func (db *DB) ListActivityIDsForUser(ctx context.Context, userID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id FROM activities WHERE user_id = $1 ORDER BY started_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list activity ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan activity id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// UpdateMovingTime sets moving_time_s for a single activity, scoped by user_id
+// to prevent cross-user mutations.
+func (db *DB) UpdateMovingTime(ctx context.Context, activityID, userID string, movingTimeS int) error {
+	result, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET moving_time_s = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+		movingTimeS, activityID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("update moving time: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("activity not found or access denied")
+	}
+	return nil
+}
+
 func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.SensorResponse, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, device_index, source_type, antplus_device_type, all_device_types,
