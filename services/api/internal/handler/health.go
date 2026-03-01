@@ -14,6 +14,7 @@ type Handler struct {
 	DB      *database.DB
 	Storage *storage.S3Client
 	Events  *event.Publisher
+	Auth    *AuthConfig // nil when auth is not configured
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

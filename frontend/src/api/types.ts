@@ -19,17 +19,35 @@ export interface Activity {
   id: string
   user_id: string
   title: string | null
+  description?: string | null
   sport_type: SportType
   sub_type: string | null
   is_ebike: boolean
   started_at: string
+  ended_at?: string
   elapsed_time_s: number
+  moving_time_s?: number
   distance_m: number | null
   elevation_gain_m: number | null
   elevation_loss_m: number | null
+  max_elevation_m?: number | null
+  min_elevation_m?: number | null
+  avg_speed_ms?: number | null
+  max_speed_ms?: number | null
+  avg_heart_rate?: number | null
+  max_heart_rate?: number | null
+  avg_power_w?: number | null
+  max_power_w?: number | null
+  normalized_power_w?: number | null
+  avg_cadence?: number | null
+  avg_temperature_c?: number | null
+  tss?: number | null
+  trimp?: number | null
   is_indoor: boolean
   tags: string[]
   visibility: Visibility
+  source?: string | null
+  source_device?: string | null
   enrichment_status: string
   needs_classification: boolean
   has_gps: boolean
@@ -41,4 +59,31 @@ export interface ActivitiesResponse {
   activities: Activity[]
   next_cursor: string | null
   total: number  // Gesamtzahl aller Aktivitäten des Nutzers
+}
+
+export interface StreamPoint {
+  time: string
+  lat?: number
+  lng?: number
+  altitude_m?: number
+  speed_ms?: number
+  distance_m?: number
+  heart_rate?: number
+  power_w?: number
+  cadence?: number
+  temperature_c?: number
+}
+
+export interface Sensor {
+  id: string
+  device_index: number
+  source_type: string
+  primary_type: string
+  primary_type_label: string
+  all_types: string[]
+  manufacturer?: string
+  product_name?: string
+  serial_number?: number
+  software_version?: string
+  battery_status?: string
 }

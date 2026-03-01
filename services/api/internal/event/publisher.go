@@ -65,6 +65,11 @@ func (p *Publisher) PublishActivityUploaded(event ActivityUploadedEvent) error {
 	return nil
 }
 
+// JetStream returns the JetStream context for creating consumers.
+func (p *Publisher) JetStream() natsgo.JetStreamContext {
+	return p.js
+}
+
 func (p *Publisher) Close() {
 	if p.nc != nil {
 		p.nc.Close()

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchActivities } from '@/api/activities'
@@ -262,11 +263,13 @@ function ActivityRow({ activity }: { activity: Activity }) {
   const loss = formatElevationLoss(activity.elevation_loss_m)
 
   return (
-    <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-900/40 transition-colors">
+    <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-900/40 transition-colors cursor-pointer group">
       <td className="px-4 py-3 text-neutral-800 dark:text-neutral-200 font-medium">
-        {activity.title ?? (
-          <span className="text-neutral-400 font-normal italic">Kein Titel</span>
-        )}
+        <Link to={`/activities/${activity.id}`} className="group-hover:text-orange-500 transition-colors">
+          {activity.title ?? (
+            <span className="text-neutral-400 font-normal italic">Kein Titel</span>
+          )}
+        </Link>
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">

@@ -181,6 +181,22 @@ type SensorResponse struct {
 	BatteryStatus    string   `json:"battery_status,omitempty"`
 }
 
+// UploadResponse wraps the activity with optional warnings.
+type UploadResponse struct {
+	Activity *Activity `json:"activity"`
+	Warnings []string  `json:"warnings,omitempty"`
+}
+
+// PMCDay represents a single day in the Performance Management Chart.
+type PMCDay struct {
+	UserID string  `json:"-"`
+	Date   string  `json:"date"` // YYYY-MM-DD
+	TSS    float64 `json:"tss"`
+	CTL    float64 `json:"ctl"`
+	ATL    float64 `json:"atl"`
+	TSB    float64 `json:"tsb"`
+}
+
 // ProblemDetail is an RFC 7807 error response.
 type ProblemDetail struct {
 	Type     string `json:"type"`

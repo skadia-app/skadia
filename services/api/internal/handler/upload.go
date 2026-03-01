@@ -91,6 +91,19 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Time overlap check
+	var warnings []string
+	if !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+		overlap, err := h.DB.CheckTimeOverlap(r.Context(), userID, data.StartedAt, data.EndedAt)
+		if err != nil {
+			slog.Error("time overlap check failed", "error", err)
+		} else if overlap != nil {
+			warnings = append(warnings, "time_overlap:"+overlap.ID)
+			slog.Warn("activity time overlaps with existing",
+				"existing_id", overlap.ID, "filename", filename)
+		}
+	}
+
 	data.FileHash = hashStr
 
 	// Warn if sport type could not be determined
@@ -184,7 +197,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		"has_gps", data.HasGPS,
 	)
 
-	writeJSON(w, http.StatusCreated, full)
+	resp := model.UploadResponse{
+		Activity: full,
+		Warnings: warnings,
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func detectFormat(data []byte, filename string) string {

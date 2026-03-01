@@ -55,6 +55,26 @@ func (db *DB) CheckDuplicate(ctx context.Context, userID, fileHash string) (*mod
 	return &a, nil
 }
 
+func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, endedAt time.Time) (*model.Activity, error) {
+	row := db.Pool.QueryRow(ctx,
+		`SELECT id, sport_type, started_at FROM activities
+		 WHERE user_id = $1
+		   AND started_at < $3
+		   AND ended_at > $2
+		 LIMIT 1`,
+		userID, startedAt, endedAt,
+	)
+	var a model.Activity
+	err := row.Scan(&a.ID, &a.SportType, &a.StartedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check time overlap: %w", err)
+	}
+	return &a, nil
+}
+
 func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.ActivityData) (*model.Activity, error) {
 	var id string
 	var createdAt, updatedAt time.Time

@@ -1,10 +1,25 @@
-import type { ActivitiesResponse } from './types'
+import { apiClient } from './client'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor } from './types'
 
 export async function fetchActivities(cursor?: string, limit = 20): Promise<ActivitiesResponse> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) params.set('cursor', cursor)
 
-  const res = await fetch(`/api/v1/activities?${params}`)
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  return res.json() as Promise<ActivitiesResponse>
+  return apiClient<ActivitiesResponse>(`/activities?${params}`)
+}
+
+export async function fetchActivity(id: string): Promise<Activity> {
+  return apiClient<Activity>(`/activities/${id}`)
+}
+
+export async function fetchActivityStreams(id: string): Promise<StreamPoint[]> {
+  return apiClient<StreamPoint[]>(`/activities/${id}/streams`)
+}
+
+export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
+  return apiClient<Sensor[]>(`/activities/${id}/sensors`)
+}
+
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility'>>): Promise<Activity> {
+  return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }

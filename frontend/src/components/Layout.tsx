@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
 
 const navItems = [
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/activities', label: 'Aktivitäten' },
 ]
 

@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -56,6 +57,35 @@ func main() {
 		pub = nil
 	} else {
 		defer pub.Close()
+
+		// Start PMC consumer
+		pmcService := &pmc.Service{DB: db}
+		consumer := event.NewConsumer(pub.JetStream(), pmcService)
+		if err := consumer.Start(); err != nil {
+			slog.Warn("PMC consumer failed to start", "error", err)
+		} else {
+			defer consumer.Stop()
+		}
+	}
+
+	// Auth config (optional – only when OIDC is configured)
+	var authCfg *handler.AuthConfig
+	if cfg.OIDCClientID != "" && cfg.JWTSecret != "" {
+		authCfg = &handler.AuthConfig{
+			OIDCBaseURL:      cfg.OIDCBaseURL,
+			OIDCClientID:     cfg.OIDCClientID,
+			OIDCClientSecret: cfg.OIDCClientSecret,
+			OIDCAppSlug:      cfg.OIDCAppSlug,
+			AppRedirectURI:        cfg.AppRedirectURI,
+			FrontendURL:           cfg.FrontendURL,
+			JWTSecret:             []byte(cfg.JWTSecret),
+		}
+		slog.Info("OIDC OIDC configured",
+			"base_url", cfg.OIDCBaseURL,
+			"redirect_uri", cfg.AppRedirectURI,
+		)
+	} else {
+		slog.Warn("OIDC OIDC not configured (OIDC_CLIENT_ID or JWT_SECRET missing)")
 	}
 
 	// Handler
@@ -63,25 +93,49 @@ func main() {
 		DB:      db,
 		Storage: s3Client,
 		Events:  pub,
+		Auth:    authCfg,
 	}
 
 	// Router
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger)
-	r.Use(middleware.DevAuth)
 	r.Use(chimiddleware.Recoverer)
 
+	// Public routes (no authentication required)
 	r.Get("/health", h.Health)
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Get("/login", h.AuthLogin)
+		r.Get("/callback", h.AuthCallback)
+		r.Post("/refresh", h.AuthRefresh)
+		r.Post("/logout", h.AuthLogout)
+	})
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/activities/upload", h.Upload)
-		r.Get("/activities", h.ListActivities)
-		r.Get("/activities/{id}", h.GetActivity)
-		r.Patch("/activities/{id}", h.UpdateActivity)
-		r.Delete("/activities/{id}", h.DeleteActivity)
-		r.Get("/activities/{id}/streams", h.GetStreams)
-		r.Get("/activities/{id}/sensors", h.GetSensors)
+	// Protected routes
+	r.Group(func(r chi.Router) {
+		if cfg.DevAuth {
+			slog.Warn("DEV_AUTH enabled – using fixed dev user ID, NOT for production")
+			r.Use(middleware.DevAuthMiddleware)
+		} else {
+			var jwtSecret []byte
+			if cfg.JWTSecret != "" {
+				jwtSecret = []byte(cfg.JWTSecret)
+			}
+			jwtAuth := middleware.NewJWTAuth(cfg.OIDCJWKSURL, jwtSecret)
+			r.Use(jwtAuth.Middleware)
+			slog.Info("JWT auth enabled", "jwks_url", cfg.OIDCJWKSURL, "hs256", cfg.JWTSecret != "")
+		}
+
+		r.Route("/api/v1", func(r chi.Router) {
+			r.Post("/activities/upload", h.Upload)
+			r.Get("/activities", h.ListActivities)
+			r.Get("/activities/{id}", h.GetActivity)
+			r.Patch("/activities/{id}", h.UpdateActivity)
+			r.Delete("/activities/{id}", h.DeleteActivity)
+			r.Get("/activities/{id}/streams", h.GetStreams)
+			r.Get("/activities/{id}/sensors", h.GetSensors)
+			r.Get("/stats/pmc", h.GetPMC)
+		})
 	})
 
 	// Server with graceful shutdown
