@@ -8,6 +8,9 @@ export type SportType =
   | 'paddling'
   | 'walking'
   | 'strength'
+  | 'rock_climbing'
+  | 'stand_up_paddleboarding'
+  | 'generic'
   | 'unknown'
 
 export type Visibility = 'private' | 'bekannte' | 'instanz' | 'federation' | 'public'

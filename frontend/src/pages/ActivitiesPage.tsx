@@ -6,7 +6,7 @@ import { fetchActivities } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import {
   formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, sportLabel,
+  formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
 } from '@/lib/utils'
 import { SportIcon } from '@/components/SportIcon'
 
@@ -272,11 +272,11 @@ function ActivityRow({ activity }: { activity: Activity }) {
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
-          {activity.is_indoor && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
+          {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
         </span>
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-        {format(date, 'EEE, d. MMM yyyy', { locale: de })}
+        {format(date, 'EEE, dd. MMM yyyy', { locale: de })}
         <span className="ml-2 text-neutral-400 dark:text-neutral-600 text-xs">{format(date, 'HH:mm')}</span>
       </td>
       <td className="px-4 py-3 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
@@ -299,7 +299,9 @@ function ActivityRow({ activity }: { activity: Activity }) {
               {loss ?? ''}
             </span>
           </div>
-        ) : null}
+        ) : (
+          <div className="text-right text-neutral-400 dark:text-neutral-600">—</div>
+        )}
       </td>
     </tr>
   )

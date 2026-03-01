@@ -25,6 +25,9 @@ export function SportIcon({ sport, subType, className = 'w-4 h-4' }: Props) {
     paddling: PaddleIcon,
     walking: WalkIcon,
     strength: StrengthIcon,
+    rock_climbing: RockClimbingIcon,
+    stand_up_paddleboarding: SupIcon,
+    generic: GenericIcon,
   }
 
   const Icon = icons[sport] ?? UnknownIcon
@@ -212,6 +215,71 @@ function StrengthIcon({ className }: { className?: string }) {
       <rect x="18" y="5" width="4" height="4" rx="1" />
       <rect x="18" y="15" width="4" height="4" rx="1" />
       <path d="M6.5 12h11" />
+    </svg>
+  )
+}
+
+/**
+ * Klettern / Bouldern — Kletterer an Wand mit Griffen
+ */
+function RockClimbingIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {/* Wand */}
+      <line x1="22" y1="2" x2="22" y2="22" />
+      {/* Griffe */}
+      <line x1="20" y1="4" x2="22" y2="4" strokeWidth="2.2" />
+      <line x1="20" y1="13" x2="22" y2="13" strokeWidth="2.2" />
+      {/* Kopf */}
+      <circle cx="15" cy="4.5" r="1.5" />
+      {/* Rumpf */}
+      <line x1="15" y1="6" x2="13" y2="12" />
+      {/* Rechter Arm — greift oberen Griff */}
+      <path d="M15 7.5 L20 4" />
+      {/* Linker Arm — Balance */}
+      <path d="M15 7.5 L11 8.5" />
+      {/* Rechtes Bein — Fuß an Wand */}
+      <path d="M13 12 L19 16" />
+      {/* Linkes Bein */}
+      <path d="M13 12 L11 17" />
+    </svg>
+  )
+}
+
+/**
+ * Stand-Up Paddleboarding — stehende Figur auf Board mit Paddel
+ */
+function SupIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {/* Kopf */}
+      <circle cx="11" cy="6" r="1.5" />
+      {/* Rumpf */}
+      <line x1="11" y1="7.5" x2="11" y2="14" />
+      {/* Beine */}
+      <line x1="11" y1="14" x2="10" y2="18" />
+      <line x1="11" y1="14" x2="12" y2="18" />
+      {/* Paddelschaft — diagonal */}
+      <line x1="15" y1="4" x2="8" y2="21" />
+      {/* Paddelblatt */}
+      <path d="M7 19.5 L8.5 22 L10 19.5" />
+      {/* Obere Hand */}
+      <line x1="11" y1="9" x2="13.5" y2="7" />
+      {/* Untere Hand */}
+      <line x1="11" y1="12" x2="9.5" y2="13" />
+      {/* Board */}
+      <path d="M4 20 Q11.5 18 19 20" />
+    </svg>
+  )
+}
+
+/**
+ * Sonstige / Generic — Aktivitäts-Pulslinie
+ */
+function GenericIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12 L6 12 L8 6 L11 18 L14 9 L16 14 L18 12 L22 12" />
     </svg>
   )
 }
