@@ -323,10 +323,17 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	var rows pgx.Rows
 	var err error
 
+	var total int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activities WHERE user_id = $1`, userID,
+	).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count activities: %w", err)
+	}
+
 	if hasCursor {
 		rows, err = db.Pool.Query(ctx, `
 			SELECT id, sport_type, sub_type, title, started_at, distance_m,
-				elapsed_time_s, elevation_gain_m, is_indoor, is_ebike, visibility,
+				elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
 				created_at, updated_at
 			FROM activities
 			WHERE user_id = $1
@@ -338,7 +345,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	} else {
 		rows, err = db.Pool.Query(ctx, `
 			SELECT id, sport_type, sub_type, title, started_at, distance_m,
-				elapsed_time_s, elevation_gain_m, is_indoor, is_ebike, visibility,
+				elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
 				created_at, updated_at
 			FROM activities
 			WHERE user_id = $1
@@ -357,7 +364,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		var a model.Activity
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
-			&a.ElapsedTimeS, &a.ElevationGainM, &a.IsIndoor, &a.IsEbike, &a.Visibility,
+			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.Visibility,
 			&a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
@@ -369,6 +376,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	result := &model.ActivityList{
 		Activities: activities,
+		Total:      total,
 	}
 
 	if len(activities) > limit {
