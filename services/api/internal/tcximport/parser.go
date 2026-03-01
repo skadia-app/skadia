@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -204,9 +205,24 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 	data.StartedAt = startTime
 	data.ElapsedTimeS = int(totalTime)
-	data.MovingTimeS = int(totalTime)
 	if len(streams) > 0 {
 		data.EndedAt = streams[len(streams)-1].Time
+	}
+
+	// TCX laps provide TotalTimeSeconds which already excludes pauses recorded
+	// by the device. Use stream-based calculation when speed or GPS data is
+	// available to additionally filter stop-and-go situations the device did
+	// not pause for. Take the minimum to stay conservative.
+	deviceMoving := int(totalTime)
+	if activityutil.HasSpeedData(streams) || activityutil.HasGPSData(streams) {
+		streamMoving := activityutil.CalcMovingTime(streams, sport)
+		if streamMoving > 0 {
+			data.MovingTimeS = activityutil.MinMovingTime(deviceMoving, streamMoving)
+		} else {
+			data.MovingTimeS = deviceMoving
+		}
+	} else {
+		data.MovingTimeS = deviceMoving
 	}
 
 	// Distance / Elevation

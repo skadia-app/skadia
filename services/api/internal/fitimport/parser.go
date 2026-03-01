@@ -11,6 +11,7 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 	"github.com/muktihari/fit/proto"
 
+	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -267,6 +268,19 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.Streams = ExtractStreams(records)
 	data.TrackPoints = ExtractTrackPoints(records)
 	data.Sensors = ExtractSensors(deviceInfos)
+
+	// Refine MovingTimeS using stream data when speed or GPS information is
+	// available. The device's TotalTimerTime (already set above) is a valid
+	// upper bound because the device itself excluded manual/auto-pause periods.
+	// Our stream-based calculation may produce a lower value when the device
+	// did not pause but the athlete was actually stopped (e.g. red lights,
+	// waiting at a summit). We take the minimum of both to stay conservative.
+	if activityutil.HasSpeedData(data.Streams) || activityutil.HasGPSData(data.Streams) {
+		streamMoving := activityutil.CalcMovingTime(data.Streams, data.SportType)
+		if streamMoving > 0 {
+			data.MovingTimeS = activityutil.MinMovingTime(data.MovingTimeS, streamMoving)
+		}
+	}
 
 	// GPS info
 	data.HasGPS = len(data.TrackPoints) >= 2

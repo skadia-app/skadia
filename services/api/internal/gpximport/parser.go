@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -189,7 +190,16 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.EndedAt = lastTime
 	elapsed := int(lastTime.Sub(firstTime).Seconds())
 	data.ElapsedTimeS = elapsed
-	data.MovingTimeS = elapsed
+
+	// GPX files have speed values computed from position deltas above (sp.SpeedMS).
+	// Use the stream-based moving time; fall back to elapsed time if no
+	// usable data is present.
+	streamMoving := activityutil.CalcMovingTime(streams, sport)
+	if streamMoving > 0 {
+		data.MovingTimeS = streamMoving
+	} else {
+		data.MovingTimeS = elapsed
+	}
 
 	data.DistanceM = totalDistance
 	data.ElevationGainM = elevGain

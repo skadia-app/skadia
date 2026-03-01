@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity } from '@/api/activities'
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
-import ActivityCharts from '@/components/ActivityCharts'
+import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportLabel, sportColor, showIndoorBadge,
@@ -36,6 +36,7 @@ export default function ActivityDetailPage() {
   })
 
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -70,11 +71,17 @@ export default function ActivityDetailPage() {
       {activity.tags.length > 0 && <TagsBadges tags={activity.tags} />}
 
       {/* Map */}
-      <TrackMap streams={streams ?? []} hoverIndex={hoverIndex} sportColor={sportColor(activity.sport_type)} hasGps={activity.has_gps} />
+      <TrackMap
+        streams={streams ?? []}
+        hoverIndex={hoverIndex}
+        sportColor={sportColor(activity.sport_type)}
+        hasGps={activity.has_gps}
+        zoomRange={zoomRange}
+      />
 
       {/* Charts */}
       {streams && streams.length > 0 && (
-        <ActivityCharts streams={streams} onHover={setHoverIndex} />
+        <ActivityCharts streams={streams} onHover={setHoverIndex} onZoomChange={setZoomRange} />
       )}
 
       {/* Sensors */}
@@ -226,11 +233,12 @@ function TagsBadges({ tags }: { tags: string[] }) {
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
-function TrackMap({ streams, hoverIndex, sportColor, hasGps }: {
+function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
   hasGps: boolean
+  zoomRange: import('@/components/ActivityCharts').ZoomRange | null
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -335,6 +343,34 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps }: {
       markerRef.current = null
     }
   }, [hoverIndex, coordinates, hasTrack])
+
+  // Zoom chart range → fit map to corresponding GPS segment
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !hasTrack) return
+
+    if (zoomRange) {
+      // Filter streams that fall within the zoomed km range and have GPS
+      const segCoords = streams
+        .filter(s => s.lat != null && s.lng != null && s.distance_m != null)
+        .filter(s => {
+          const km = s.distance_m! / 1000
+          return km >= zoomRange.startKm && km <= zoomRange.endKm
+        })
+        .map(s => [s.lng!, s.lat!] as [number, number])
+
+      if (segCoords.length >= 2) {
+        const bounds = new maplibregl.LngLatBounds()
+        for (const c of segCoords) bounds.extend(c)
+        map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
+      }
+    } else {
+      // Reset to full track
+      const bounds = new maplibregl.LngLatBounds()
+      for (const c of coordinates) bounds.extend(c)
+      map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 600 })
+    }
+  }, [zoomRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasGps) {
     return (
