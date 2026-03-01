@@ -1,0 +1,4 @@
+-- Extensions cannot be safely dropped without risking data loss
+-- Uncomment only if you understand the implications:
+-- DROP EXTENSION IF EXISTS timescaledb CASCADE;
+-- DROP EXTENSION IF EXISTS postgis CASCADE;

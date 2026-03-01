@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Data / temp
+data/
+temp/
+
+# Go binaries
+services/api/api
+services/api/cmd/*/main
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

@@ -1,0 +1,455 @@
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg18
+    restart: unless-stopped
+    # IMPORTANT: 120s grace period for clean shutdown. PostgreSQL needs time to flush
+    # shared_buffers (checkpoint). Default (10s) causes SIGKILL mid-checkpoint.
+    # See: docs/operations/POSTGRES_INTEGRITY.md
+    stop_grace_period: 120s
+    mem_limit: ${POSTGRES_MEM_LIMIT:-8g}
+    volumes:
+      - ${SKADIA_DATA_ROOT:-./data}/postgres:/home/postgres/pgdata${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ./postgres/initdb.d:/docker-entrypoint-initdb.d${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: skadia
+      POSTGRES_USER: skadia
+    ports:
+      - "127.0.0.1:5432:5432"
+    shm_size: ${POSTGRES_SHM_SIZE:-1gb}
+    # SSD-specific: random_page_cost=1.1 and effective_cache_size=4GB fit NVMe/SSD systems.
+    # HDD deployments should set random_page_cost=4.0 and effective_cache_size=2GB.
+    #
+    # Keep shared_buffers/checkpoints bounded on btrfs. The timescaledb-ha auto-tune
+    # default can allocate roughly RAM/4, which is too large for the self-hosted
+    # multi-container target and extends crash recovery/checkpoint blast radius.
+    command: >
+      postgres
+      -c max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+      -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-4GB}
+      -c work_mem=${POSTGRES_WORK_MEM:-64MB}
+      -c maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-512MB}
+      -c max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-4}
+      -c random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
+      -c effective_io_concurrency=${POSTGRES_EFFECTIVE_IO_CONCURRENCY:-200}
+      -c effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-4GB}
+      -c checkpoint_timeout=${POSTGRES_CHECKPOINT_TIMEOUT:-60s}
+      -c max_wal_size=${POSTGRES_MAX_WAL_SIZE:-512MB}
+      -c archive_mode=${POSTGRES_ARCHIVE_MODE:-off}
+      -c wal_level=${POSTGRES_WAL_LEVEL:-minimal}
+      -c max_wal_senders=${POSTGRES_MAX_WAL_SENDERS:-0}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skadia"]
+      interval: 5s
+      retries: 5
+
+  # Garage S3 storage — MUST stay running during migration period.
+  # Can be removed AFTER 000233 cleanup migration has run successfully.
+  garage:
+    image: dxflrs/garage:v2.2.0
+    profiles: ["s3"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ${SKADIA_DATA_ROOT:-./data}/garage/meta:/var/lib/garage/meta${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${SKADIA_DATA_ROOT:-./data}/garage/data:/var/lib/garage/data${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ./garage/garage.toml:/etc/garage.toml${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+    environment:
+      GARAGE_CONFIG_FILE: /etc/garage.toml
+    ports:
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3903:3903"
+
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    command: -js -sd /data -m 8222
+    volumes:
+      - ${SKADIA_DATA_ROOT:-./data}/nats:/data${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+      args:
+        SKADIA_GIT_COMMIT: ${SKADIA_GIT_COMMIT:-unknown}
+        SKADIA_GIT_COMMIT_TIME: ${SKADIA_GIT_COMMIT_TIME:-unknown}
+        SKADIA_BUILD_TIME: ${SKADIA_BUILD_TIME:-unknown}
+        SKADIA_IMAGE_DIGEST: ${SKADIA_IMAGE_DIGEST:-}
+        SKADIA_CONFIG_VERSION: ${SKADIA_CONFIG_VERSION:-1}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    userns_mode: ${SKADIA_API_USERNS_MODE:-}
+    user: ${SKADIA_CONTAINER_USER:-}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.app.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.app.tls=${TRAEFIK_TLS_ENABLED:-true}"
+      - "traefik.http.routers.app.tls.certresolver=${TRAEFIK_CERTRESOLVER-letsencrypt}"
+      - "traefik.http.services.app.loadbalancer.server.port=8080"
+    environment:
+      GOMEMLIMIT: 8GiB
+      DATABASE_URL: postgres://skadia:${POSTGRES_PASSWORD}@postgres:5432/skadia?sslmode=disable
+      READONLY_DATABASE_URL: postgres://skadia_readonly:${READONLY_PASSWORD:-skadia_readonly_password}@postgres:5432/skadia?sslmode=disable
+      NATS_URL: nats://nats:4222
+      SKADIA_DEPLOYMENT_PROFILE: ${SKADIA_DEPLOYMENT_PROFILE:-}
+      SKADIA_REPLICA_COUNT: ${SKADIA_REPLICA_COUNT:-1}
+      SKADIA_SHARED_STORAGE: ${SKADIA_SHARED_STORAGE:-false}
+      SKADIA_STORAGE_MODE: ${SKADIA_STORAGE_MODE:-}
+      SKADIA_S3_PROVIDER: ${SKADIA_S3_PROVIDER:-}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-}
+      LIBRARY_BASE_PATH: /data/library
+      GDPR_ARTIFACT_BACKEND: ${GDPR_ARTIFACT_BACKEND:-auto}
+      EXPORTS_BASE_PATH: /data/exports
+      IMPORTS_BASE_PATH: /data/imports
+      # S3-compatible storage.
+      GARAGE_ENDPOINT: ${GARAGE_ENDPOINT:-}
+      GARAGE_ACCESS_KEY: ${GARAGE_ACCESS_KEY:-}
+      GARAGE_SECRET_KEY: ${GARAGE_SECRET_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-${GARAGE_ENDPOINT:-}}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${GARAGE_ACCESS_KEY:-}}
+      S3_ACCESS_KEY_FILE: ${S3_ACCESS_KEY_FILE:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-${GARAGE_SECRET_KEY:-}}
+      S3_SECRET_KEY_FILE: ${S3_SECRET_KEY_FILE:-}
+      GARAGE_ACCESS_KEY_FILE: ${GARAGE_ACCESS_KEY_FILE:-}
+      GARAGE_SECRET_KEY_FILE: ${GARAGE_SECRET_KEY_FILE:-}
+      S3_BUCKET: ${S3_BUCKET:-skadia-originals}
+      S3_BUCKET_EXPORTS: ${S3_BUCKET_EXPORTS:-skadia-exports}
+      S3_BUCKET_IMPORTS: ${S3_BUCKET_IMPORTS:-skadia-imports}
+      S3_EXPORTS_PREFIX: ${S3_EXPORTS_PREFIX:-gdpr/exports}
+      S3_IMPORTS_PREFIX: ${S3_IMPORTS_PREFIX:-gdpr/imports}
+      S3_REGION: ${S3_REGION:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+      S3_BUCKET_ACTIVITY: ${S3_BUCKET_ACTIVITY:-}
+      S3_BUCKET_MEDIA: ${S3_BUCKET_MEDIA:-}
+      GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES: ${GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES:-2147483648}
+      GDPR_EXPORT_PART_TARGET_BYTES: ${GDPR_EXPORT_PART_TARGET_BYTES:-2147483648}
+      GDPR_EXPORT_PART_WARN_BYTES: ${GDPR_EXPORT_PART_WARN_BYTES:-4294967296}
+      GDPR_MULTIPART_MAX_PARTS: ${GDPR_MULTIPART_MAX_PARTS:-256}
+      LISTEN_ADDR: ":8080"
+      SKADIA_METRICS_ADDR: ${SKADIA_METRICS_ADDR:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-invite}
+      OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
+      OAUTH_ENCRYPTION_KEY_FILE: ${OAUTH_ENCRYPTION_KEY_FILE:-}
+      STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
+      STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
+      STRAVA_CLIENT_SECRET_FILE: ${STRAVA_CLIENT_SECRET_FILE:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_SECRET_FILE: ${GOOGLE_CLIENT_SECRET_FILE:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      APP_NAME: ${APP_NAME:-Skadia}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      MOBILE_REDIRECT_URI: ${MOBILE_REDIRECT_URI:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      FRONTEND_STATIC_DIR: ${FRONTEND_STATIC_DIR:-/app/frontend}
+      SHADOW_FS_BASE_PATH: /data/shadow-fs
+      HOTFOLDER_PATH: /data/hotfolder
+      HOTFOLDER_ENABLED: ${HOTFOLDER_ENABLED:-false}
+      OSM_DATA_DIR: ${OSM_DATA_DIR:-/data/osm}
+      BROUTER_URL: http://brouter:17777
+      BROUTER_SEGMENTS_DIR: /data/brouter/segments
+      DEM_DATA_DIR: ${DEM_DATA_DIR:-/data/dem}
+      BROUTER_PROFILES_DIR: /data/brouter/profiles
+      TILES_DIR: ${TILES_DIR:-/data/tiles}
+      ROUTING_GRAPH_PATH: ${ROUTING_GRAPH_PATH:-}
+      LITELLM_CONFIG_PATH: /data/litellm/config.yaml
+      LITELLM_INTERNAL_URL: http://litellm:4000
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-}
+      LLM_ENCRYPTION_KEY_FILE: ${LLM_ENCRYPTION_KEY_FILE:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://litellm:4000/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_KEY_FILE: ${LLM_API_KEY_FILE:-}
+      LLM_CONTEXT_WINDOW: ${LLM_CONTEXT_WINDOW:-8000}
+      ML_CALLBACK_SECRET: ${ML_CALLBACK_SECRET:-}
+      ML_CALLBACK_SECRET_FILE: ${ML_CALLBACK_SECRET_FILE:-}
+      KOMOOT_ENCRYPTION_KEY: ${KOMOOT_ENCRYPTION_KEY:-${LLM_ENCRYPTION_KEY:-}}
+      KOMOOT_ENCRYPTION_KEY_FILE: ${KOMOOT_ENCRYPTION_KEY_FILE:-}
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-}
+      SETTINGS_ENCRYPTION_KEY_FILE: ${SETTINGS_ENCRYPTION_KEY_FILE:-}
+      HOTFOLDER_MODE: ${HOTFOLDER_MODE:-}
+      BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_PASSWORD_FILE: ${BOOTSTRAP_ADMIN_PASSWORD_FILE:-}
+      DEV_AUTH: ${DEV_AUTH:-false}
+      ROUTING_BIDIRECTIONAL: ${ROUTING_BIDIRECTIONAL:-false}
+      ROUTING_VALLE_SEG: ${ROUTING_VALLE_SEG:-false}
+      LANDMARK_STRATEGY: ${LANDMARK_STRATEGY:-}
+      BADROUTER_PROFILE_DIR: ${BADROUTER_PROFILE_DIR:-config/badrouter}
+    volumes:
+      - ${SHADOW_FS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/shadow-fs}:/data/shadow-fs${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${HOTFOLDER_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/hotfolder}:/data/hotfolder${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      # ${SKADIA_VOLUME_OPTS_RW_SHARED:-:z} (shared) because api writes the generated config and litellm reads it.
+      - ${SKADIA_DATA_ROOT:-./data}/litellm:/data/litellm${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+      - ${IMPORT_DATA_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/import}:/data/import${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - ${OSM_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/osm}:/data/osm${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${ROUTING_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/routing}:/data/routing${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      # ${SKADIA_VOLUME_OPTS_RW_SHARED:-:z} (shared) because brouter container also mounts this path — ${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z} would cause SELinux permission denied
+      - ${BROUTER_SEGMENTS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/brouter/segments}:/data/brouter/segments${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+      - ${BROUTER_PROFILES_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/brouter/profiles}:/data/brouter/profiles${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+      - ${DEM_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/dem}:/data/dem${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${TILES_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/tiles}:/data/tiles${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      # Shared with the ML container; ${SKADIA_VOLUME_OPTS_RW_SHARED:-:z} is required so both containers can read
+      # document inputs and sidecars under rootless SELinux.
+      - ${LIBRARY_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/library}:/data/library${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+      - ${EXPORTS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/exports}:/data/exports${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${IMPORTS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/imports}:/data/imports${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ./config/agent:/config/agent${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - ${BADROUTER_CONFIG_HOST_PATH:-./config/badrouter}:/config/badrouter${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+    ports:
+      - "127.0.0.1:${SKADIA_APP_PORT:-8080}:8080"
+    mem_limit: 16g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      brouter-profile-init:
+        condition: service_completed_successfully
+
+  brouter-profile-init:
+    image: ghcr.io/abrensch/brouter:v1.7.8
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        mkdir -p /data/brouter/profiles
+        for file in /config/brouter/profiles/*; do
+          [ -f "$$file" ] || continue
+          target="/data/brouter/profiles/$$(basename "$$file")"
+          [ -e "$$target" ] || cp "$$file" "$$target"
+        done
+    volumes:
+      - ./config/brouter/profiles:/config/brouter/profiles${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - ${BROUTER_PROFILES_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/brouter/profiles}:/data/brouter/profiles${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+
+  martin:
+    image: ghcr.io/maplibre/martin:v0.18.0
+    profiles: ["full-local-data"]
+    command: --config /config/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    # Martin is NOT exposed via Traefik — all tile requests are routed through the
+    # Go API at /api/v1/tiles/ which enforces JWT auth and per-user heatmap isolation.
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - ./services/martin/config.yaml:/config/config.yaml${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - ${TILES_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/tiles}:/data/tiles${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+    environment:
+      DATABASE_URL: postgres://skadia:${POSTGRES_PASSWORD}@postgres:5432/skadia?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  brouter:
+    image: ghcr.io/abrensch/brouter:v1.7.8
+    restart: unless-stopped
+    depends_on:
+      brouter-profile-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "timeout 2 bash -c ': < /dev/tcp/127.0.0.1/17777'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "127.0.0.1:17777:17777"
+    volumes:
+      # ${SKADIA_VOLUME_OPTS_RW_SHARED:-:z} (shared) because api container also mounts segments — ${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z} would cause SELinux permission denied
+      - ${BROUTER_SEGMENTS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/brouter/segments}:/segments4${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+      - ${BROUTER_PROFILES_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/brouter/profiles}:/profiles2${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+    environment:
+      - JAVA_OPTS=-Xmx512m -Xss256k
+
+  # ── ML / AI Service (Phase 4b+) ─────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.5.7
+    profiles: ["llm"]
+    volumes:
+      - ${OLLAMA_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/ollama}:/root/.ollama${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      - ${MODELS_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/models}:/imported-models${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+    ports:
+      - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3@sha256:f12d528d4a05add56cb09e54c5126088f2edc6bdf3a2f943bcd3a32b08769da2
+    profiles: ["llm"]
+    command: --config /app/litellm/config.yaml --port 4000 --num_workers 1
+    volumes:
+      - ${SKADIA_DATA_ROOT:-./data}/litellm:/app/litellm${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+    environment:
+      LITELLM_LOG: INFO
+    expose:
+      - "4000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  ml:
+    build:
+      context: ./services/ml
+      dockerfile: Dockerfile
+      args:
+        TORCH_PACKAGE: ${ML_TORCH_PACKAGE:-torch==2.10.0+cpu}
+        TORCH_INDEX_URL: ${ML_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        SKADIA_GIT_COMMIT: ${SKADIA_GIT_COMMIT:-unknown}
+        SKADIA_GIT_COMMIT_TIME: ${SKADIA_GIT_COMMIT_TIME:-unknown}
+        SKADIA_BUILD_TIME: ${SKADIA_BUILD_TIME:-unknown}
+        SKADIA_IMAGE_DIGEST: ${SKADIA_IMAGE_DIGEST:-}
+    profiles: ["ml"]
+    userns_mode: ${SKADIA_ML_USERNS_MODE:-}
+    user: ${SKADIA_CONTAINER_USER:-}
+    environment:
+      DATABASE_URL: postgres://skadia:${POSTGRES_PASSWORD}@postgres:5432/skadia?sslmode=disable
+      READONLY_DATABASE_URL: postgres://skadia_readonly:${READONLY_PASSWORD:-skadia_readonly_password}@postgres:5432/skadia?sslmode=disable
+      NATS_URL: nats://nats:4222
+      SKADIA_DEPLOYMENT_PROFILE: ${SKADIA_DEPLOYMENT_PROFILE:-}
+      ML_LLM_BROKER_URL: http://api:8080/internal/ai-broker
+      ML_CALLBACK_SECRET: ${ML_CALLBACK_SECRET:-}
+      ML_CALLBACK_SECRET_FILE: ${ML_CALLBACK_SECRET_FILE:-}
+      ML_LLM_BROKER_TOKEN: ${ML_LLM_BROKER_TOKEN:-${ML_CALLBACK_SECRET:-}}
+      ML_LLM_BROKER_TOKEN_FILE: ${ML_LLM_BROKER_TOKEN_FILE:-}
+      ML_DOCUMENT_ROLE: document_extract
+      ML_MARKDOWN_ROLE: markdown_extract
+      ML_VISION_ROLE: vision
+      LIBRARY_BASE_PATH: /data/library
+      SKADIA_STORAGE_MODE: ${SKADIA_STORAGE_MODE:-}
+      SKADIA_S3_PROVIDER: ${SKADIA_S3_PROVIDER:-}
+      GARAGE_ENDPOINT: ${GARAGE_ENDPOINT:-}
+      GARAGE_ACCESS_KEY: ${GARAGE_ACCESS_KEY:-}
+      GARAGE_SECRET_KEY: ${GARAGE_SECRET_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-${GARAGE_ENDPOINT:-}}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${GARAGE_ACCESS_KEY:-}}
+      S3_ACCESS_KEY_FILE: ${S3_ACCESS_KEY_FILE:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-${GARAGE_SECRET_KEY:-}}
+      S3_SECRET_KEY_FILE: ${S3_SECRET_KEY_FILE:-}
+      GARAGE_ACCESS_KEY_FILE: ${GARAGE_ACCESS_KEY_FILE:-}
+      GARAGE_SECRET_KEY_FILE: ${GARAGE_SECRET_KEY_FILE:-}
+      S3_BUCKET: ${S3_BUCKET:-skadia-originals}
+      S3_BUCKET_MEDIA: ${S3_BUCKET_MEDIA:-}
+      S3_BUCKET_ACTIVITY: ${S3_BUCKET_ACTIVITY:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+      HF_HOME: /data/hf_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # Liveness only: a fresh install may enable the ML profile before AI roles
+      # are configured in the UI. /readyz still exposes broker/readiness detail.
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/livez"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ${ML_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/ml}:/data${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}
+      # Shared with the API container; ${SKADIA_VOLUME_OPTS_RW_SHARED:-:z} is required so both containers can read
+      # document inputs and sidecars under rootless SELinux.
+      - ${LIBRARY_HOST_PATH:-${SKADIA_DATA_ROOT:-./data}/library}:/data/library${SKADIA_VOLUME_OPTS_RW_SHARED:-:z}
+
+  # ── Traefik Reverse Proxy ────────────────────────────────────────────────
+  proxy:
+    image: traefik:v3.3.0
+    profiles: ["proxy"]
+    depends_on:
+      api:
+        condition: service_started
+    command:
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-noreply@localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8082/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - ./traefik/dynamic:/etc/traefik/dynamic${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+      - traefik-acme:/acme
+      # NOTE: Mounting the container runtime socket gives Traefik read access to all
+      # container metadata (including env vars). For hardened deployments, replace
+      # this with a read-only proxy that exposes only the container and service
+      # APIs Traefik needs.
+      - ${DOCKER_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # ── WAL-G PostgreSQL Backup (deaktiviert, für später) ─────────────────
+  # walg-backup:
+  #   image: ghcr.io/wal-g/wal-g-pg:latest
+  #   profiles: ["backup"]
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     PGHOST: postgres
+  #     PGPORT: "5432"
+  #     PGUSER: skadia
+  #     PGPASSWORD: ${POSTGRES_PASSWORD}
+  #     PGDATABASE: skadia
+  #     WALG_S3_PREFIX: s3://skadia-backups/postgres
+  #     AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+  #     AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+  #     AWS_ENDPOINT: http://garage:3900
+  #     AWS_S3_FORCE_PATH_STYLE: "true"
+  #     WALG_COMPRESSION_METHOD: lz4
+  #     WALG_DELTA_MAX_STEPS: "6"
+  #   volumes:
+  #     - wal-archive:/tmp/wal_archive:ro
+  #     - ${SKADIA_DATA_ROOT:-./data}/postgres:/home/postgres/pgdata${SKADIA_VOLUME_OPTS_RO_PRIVATE:-:ro,Z}
+  #   restart: unless-stopped
+
+volumes:
+  traefik-acme:
