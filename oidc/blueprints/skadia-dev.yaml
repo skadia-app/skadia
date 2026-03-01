@@ -1,0 +1,47 @@
+# Skadia Entwicklungsumgebung – OIDC OIDC Blueprint
+# Wird beim Start automatisch von OIDC eingelesen und angewendet.
+# NUR FÜR ENTWICKLUNG – nicht für Produktionseinsatz geeignet.
+version: 1
+metadata:
+  name: Skadia Dev OIDC
+  labels:
+    blueprints.gooidc.io/instantiate: "true"
+entries:
+  # OAuth2/OIDC Provider
+  - model: oidc_providers_oauth2.oauth2provider
+    id: skadia-dev-provider
+    state: present
+    identifiers:
+      name: Skadia Dev
+    attrs:
+      name: Skadia Dev
+      authorization_flow: !Find [oidc_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [oidc_flows.flow, [slug, default-provider-invalidation-flow]]
+      client_type: confidential
+      client_id: skadia-dev
+      client_secret: skadia-dev-secret
+      redirect_uris:
+        - url: "http://localhost:8080/api/v1/auth/callback"
+          matching_mode: strict
+      sub_mode: user_uuid
+      access_token_validity: "minutes=15"
+      refresh_token_validity: "days=7"
+      signing_key: !Find [oidc_crypto.certificatekeypair, [name, "oidc Self-signed Certificate"]]
+      property_mappings:
+        - !Find [oidc_providers_oauth2.scopemapping, [scope_name, openid]]
+        - !Find [oidc_providers_oauth2.scopemapping, [scope_name, email]]
+        - !Find [oidc_providers_oauth2.scopemapping, [scope_name, profile]]
+        - !Find [oidc_providers_oauth2.scopemapping, [scope_name, offline_access]]
+      include_claims_in_id_token: true
+
+  # Application
+  - model: oidc_core.application
+    id: skadia-dev-app
+    state: present
+    identifiers:
+      slug: skadia
+    attrs:
+      name: Skadia
+      slug: skadia
+      provider: !KeyOf skadia-dev-provider
+      policy_engine_mode: any
