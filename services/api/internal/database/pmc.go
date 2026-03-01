@@ -12,7 +12,7 @@ import (
 
 func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time) ([]model.PMCDay, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT date, tss, ctl, atl, tsb FROM pmc_daily
+		`SELECT date::text, tss, ctl, atl, tsb FROM pmc_daily
 		 WHERE user_id = $1 AND date >= $2 AND date <= $3
 		 ORDER BY date ASC`,
 		userID, from, to,
