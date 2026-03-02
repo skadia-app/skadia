@@ -31,7 +31,8 @@ const timeOfDayStyles: Record<string, { label: string; classes: string }> = {
   },
 }
 
-const hiddenTimeOfDay = new Set(['tag', 'goldene-stunde', 'buergerliche-daemmerung'])
+// Alle Tageszeit-Tags ausblenden außer "nacht" (als Auto-Tag "Nacht" in tags[] sichtbar)
+const hiddenTimeOfDay = new Set(['tag', 'goldene-stunde', 'buergerliche-daemmerung', 'astronomische-daemmerung', 'nautische-daemmerung'])
 
 export default function EnrichmentTags({ timeOfDay, isRoundTrip, weatherTags }: EnrichmentTagsProps) {
   const badges: { key: string; label: string; classes: string }[] = []
@@ -67,7 +68,7 @@ export default function EnrichmentTags({ timeOfDay, isRoundTrip, weatherTags }: 
   if (badges.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <>
       {badges.map(({ key, label, classes }) => (
         <span
           key={key}
@@ -76,6 +77,6 @@ export default function EnrichmentTags({ timeOfDay, isRoundTrip, weatherTags }: 
           {label}
         </span>
       ))}
-    </div>
+    </>
   )
 }

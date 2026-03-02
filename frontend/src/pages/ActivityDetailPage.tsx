@@ -72,15 +72,15 @@ export default function ActivityDetailPage() {
       {/* Header */}
       <ActivityHeader activity={activity} />
 
-      {/* Tags */}
-      <TagsBadges tags={activity.tags} activityId={activity.id} />
-
-      {/* Enrichment Tags */}
-      <EnrichmentTags
-        timeOfDay={activity.time_of_day}
-        isRoundTrip={activity.is_round_trip}
-        weatherTags={activity.weather_tags}
-      />
+      {/* Tags (user + enrichment) in one row */}
+      <div className="flex flex-wrap items-center gap-2">
+        <TagsBadges tags={activity.tags} activityId={activity.id} />
+        <EnrichmentTags
+          timeOfDay={activity.time_of_day}
+          isRoundTrip={activity.is_round_trip}
+          weatherTags={activity.weather_tags}
+        />
+      </div>
 
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
@@ -396,7 +396,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
   const showCreate = searchTrimmed.length > 0 && !exactMatch
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
       {/* Add tag button — left of first tag */}
       <div className="relative" ref={popoverRef}>
         <button
@@ -461,7 +461,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
           </button>
         </span>
       ))}
-    </div>
+    </>
   )
 }
 
