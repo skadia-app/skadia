@@ -573,15 +573,15 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	var sportType string
 	var distanceM, avgSpeedMS *float64
 	var elapsedTimeS *int
-	var isIndoor, hasGPS bool
+	var isIndoor bool
 	var intensity, timeOfDay *string
 
 	err := db.Pool.QueryRow(ctx,
 		`SELECT sport_type, distance_m, elapsed_time_s, avg_speed_ms,
-		 is_indoor, has_gps, intensity, time_of_day
+		 is_indoor, intensity, time_of_day
 		 FROM activities WHERE id = $1`, activityID,
 	).Scan(&sportType, &distanceM, &elapsedTimeS, &avgSpeedMS,
-		&isIndoor, &hasGPS, &intensity, &timeOfDay)
+		&isIndoor, &intensity, &timeOfDay)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -592,7 +592,6 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	m := map[string]any{
 		"sport_type": sportType,
 		"is_indoor":  isIndoor,
-		"has_gps":    hasGPS,
 	}
 	if distanceM != nil {
 		m["distance_m"] = *distanceM

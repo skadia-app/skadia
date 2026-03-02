@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -223,7 +224,12 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 8. Publish NATS event (triggers PMC recalculation).
+	// 8. Stage 1 Enrichment (synchronous, ~50ms).
+	if data.HasGPS && data.StartLat != 0 {
+		enrichment.RunStage1(ctx, h.DB, activityID, data)
+	}
+
+	// 9. Publish NATS event (triggers PMC recalculation).
 	if h.Events != nil {
 		evt := event.ActivityUploadedEvent{
 			ActivityID: activityID,
