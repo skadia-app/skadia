@@ -126,8 +126,19 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// reprocessActivity is the shared core logic: download → parse → delete old → insert new.
-func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string) error {
+// reprocessActivity is the shared core logic: download → parse → selectively replace data.
+// scope controls which categories to reprocess (nil = all):
+//   - "streams": streams + track
+//   - "sensors": sensor records
+//   - "metrics": all computed metrics (times, distances, HR, power, etc.)
+//   - "sport_type": sport_type + sub_type (only if not manually set)
+func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool) error {
+	allScope := len(scope) == 0 // nil/empty = reprocess everything
+	doStreams := allScope || scope["streams"]
+	doSensors := allScope || scope["sensors"]
+	doMetrics := allScope || scope["metrics"]
+	doSportType := allScope || scope["sport_type"]
+
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
 	if err != nil {
@@ -159,31 +170,38 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		return fmt.Errorf("parse %s: %w", info.FileFormat, err)
 	}
 
-	// 4. Delete old derived data.
-	if err := h.DB.DeleteStreams(ctx, activityID); err != nil {
-		return fmt.Errorf("delete streams: %w", err)
-	}
-	if err := h.DB.DeleteTrack(ctx, activityID); err != nil {
-		return fmt.Errorf("delete track: %w", err)
-	}
-	if err := h.DB.DeleteSensors(ctx, activityID); err != nil {
-		return fmt.Errorf("delete sensors: %w", err)
+	// 4. Delete + re-insert streams & track.
+	if doStreams {
+		if err := h.DB.DeleteStreams(ctx, activityID); err != nil {
+			return fmt.Errorf("delete streams: %w", err)
+		}
+		if err := h.DB.DeleteTrack(ctx, activityID); err != nil {
+			return fmt.Errorf("delete track: %w", err)
+		}
+		if err := h.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
+			return fmt.Errorf("insert streams: %w", err)
+		}
+		if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
+			return fmt.Errorf("insert track: %w", err)
+		}
 	}
 
-	// 5. Update metrics (preserve sport_type if manually set).
-	if err := h.DB.UpdateActivityMetrics(ctx, activityID, data, info.SportTypeIsManual); err != nil {
-		return fmt.Errorf("update metrics: %w", err)
+	// 5. Delete + re-insert sensors.
+	if doSensors {
+		if err := h.DB.DeleteSensors(ctx, activityID); err != nil {
+			return fmt.Errorf("delete sensors: %w", err)
+		}
+		if err := h.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
+			return fmt.Errorf("insert sensors: %w", err)
+		}
 	}
 
-	// 6. Insert new derived data.
-	if err := h.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
-		return fmt.Errorf("insert streams: %w", err)
-	}
-	if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
-		return fmt.Errorf("insert track: %w", err)
-	}
-	if err := h.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
-		return fmt.Errorf("insert sensors: %w", err)
+	// 6. Update metrics. skipSportType = manual OR user didn't select sport_type scope.
+	if doMetrics || doSportType {
+		skipSport := info.SportTypeIsManual || !doSportType
+		if err := h.DB.UpdateActivityMetrics(ctx, activityID, data, skipSport); err != nil {
+			return fmt.Errorf("update metrics: %w", err)
+		}
 	}
 
 	// 7. Rewrite sidecar metadata.
