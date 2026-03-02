@@ -26,6 +26,11 @@ type Config struct {
 
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret string
+
+	// Shadow File System
+	ShadowFSBasePath string
+	HotfolderPath    string
+	HotfolderEnabled bool
 }
 
 func Load() (*Config, error) {
@@ -47,6 +52,10 @@ func Load() (*Config, error) {
 		AppRedirectURI:        getEnvDefault("APP_REDIRECT_URI", "http://localhost:8080/api/v1/auth/callback"),
 		FrontendURL:           getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
 		JWTSecret:             os.Getenv("JWT_SECRET"),
+
+		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
+		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
+		HotfolderEnabled: os.Getenv("HOTFOLDER_ENABLED") == "true",
 	}
 
 	if cfg.DatabaseURL == "" {

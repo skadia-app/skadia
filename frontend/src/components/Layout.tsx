@@ -5,6 +5,8 @@ import { useTheme } from '@/lib/theme'
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/activities', label: 'Aktivitäten' },
+  { to: '/heatmap', label: 'Heatmap' },
+  { to: '/settings', label: 'Einstellungen' },
 ]
 
 export default function Layout() {

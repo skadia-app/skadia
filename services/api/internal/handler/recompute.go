@@ -184,6 +184,15 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
 			return fmt.Errorf("insert track: %w", err)
 		}
+		// Refresh heatmap line
+		if err := h.DB.DeleteHeatmapLines(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete heatmap lines failed", "id", activityID, "error", err)
+		}
+		if len(data.TrackPoints) >= 2 {
+			if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, data.StartedAt); err != nil {
+				slog.Error("reprocess: insert heatmap line failed", "id", activityID, "error", err)
+			}
+		}
 	}
 
 	// 5. Delete + re-insert sensors.

@@ -7,14 +7,16 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 type Handler struct {
-	DB      *database.DB
-	Storage *storage.S3Client
-	Events  *event.Publisher
-	Auth    *AuthConfig // nil when auth is not configured
+	DB       *database.DB
+	Storage  *storage.S3Client
+	Events   *event.Publisher
+	Auth     *AuthConfig              // nil when auth is not configured
+	ShadowFS *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

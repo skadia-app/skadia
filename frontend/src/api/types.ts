@@ -74,6 +74,17 @@ export interface StreamPoint {
   temperature_c?: number
 }
 
+// Privacy / Visibility – Felder die vom Backend noch nicht geliefert werden (Type-Stubs)
+// TODO: Backend muss hide_map und data_visibility in Activity-Response aufnehmen
+export interface DataVisibility {
+  speed: boolean
+  heart_rate: boolean
+  power: boolean
+  cadence: boolean
+  temperature: boolean
+  altitude: boolean
+}
+
 export interface Sensor {
   id: string
   device_index: number

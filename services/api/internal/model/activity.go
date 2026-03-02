@@ -137,12 +137,14 @@ type Activity struct {
 
 // ActivityUpdate is the PATCH request body for updating an activity.
 type ActivityUpdate struct {
-	Title       *string  `json:"title,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	SportType   *string  `json:"sport_type,omitempty"`
-	SubType     *string  `json:"sub_type,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Visibility  *string  `json:"visibility,omitempty"`
+	Title          *string                `json:"title,omitempty"`
+	Description    *string                `json:"description,omitempty"`
+	SportType      *string                `json:"sport_type,omitempty"`
+	SubType        *string                `json:"sub_type,omitempty"`
+	Tags           []string               `json:"tags,omitempty"`
+	Visibility     *string                `json:"visibility,omitempty"`
+	HideMap        *bool                  `json:"hide_map,omitempty"`
+	DataVisibility map[string]interface{} `json:"data_visibility,omitempty"`
 }
 
 // ActivityList is the paginated list response.
@@ -204,4 +206,48 @@ type ProblemDetail struct {
 	Status   int    `json:"status"`
 	Detail   string `json:"detail"`
 	Instance string `json:"instance,omitempty"`
+}
+
+// ActivityWithPath is a lightweight struct used for shadow FS rename operations.
+type ActivityWithPath struct {
+	ID                 string    `json:"id"`
+	StartedAt          time.Time `json:"started_at"`
+	SportType          string    `json:"sport_type"`
+	Title              *string   `json:"title,omitempty"`
+	DistanceM          *float64  `json:"distance_m,omitempty"`
+	ElapsedTimeS       *int      `json:"elapsed_time_s,omitempty"`
+	OriginalFileFormat *string   `json:"original_file_format,omitempty"`
+	LocalFilePath      *string   `json:"local_file_path,omitempty"`
+}
+
+// HotfolderImport represents a record in the hotfolder_imports table.
+type HotfolderImport struct {
+	ID         string    `json:"id"`
+	UserID     string    `json:"user_id"`
+	Filename   string    `json:"filename"`
+	Status     string    `json:"status"`
+	ErrorMsg   *string   `json:"error_msg,omitempty"`
+	ActivityID *string   `json:"activity_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// PrivacyZone represents a user-defined privacy zone (e.g. home, work).
+type PrivacyZone struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Name      string    `json:"name"`
+	Lat       float64   `json:"lat"`
+	Lng       float64   `json:"lng"`
+	RadiusM   int       `json:"radius_m"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PrivacyZoneUpdate is the request body for updating a privacy zone.
+type PrivacyZoneUpdate struct {
+	Name     *string  `json:"name,omitempty"`
+	Lat      *float64 `json:"lat,omitempty"`
+	Lng      *float64 `json:"lng,omitempty"`
+	RadiusM  *int     `json:"radius_m,omitempty"`
+	IsActive *bool    `json:"is_active,omitempty"`
 }

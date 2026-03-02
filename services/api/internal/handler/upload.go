@@ -148,6 +148,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert track failed", "error", err)
 	}
 
+	// Insert heatmap line (uses track_full or track_public if privacy zones exist)
+	if len(data.TrackPoints) >= 2 {
+		if err := h.DB.InsertHeatmapLine(r.Context(), userID, activity.ID, data.SportType, data.StartedAt); err != nil {
+			slog.Error("insert heatmap line failed", "error", err)
+		}
+	}
+
 	// Insert sensors
 	if err := h.DB.InsertSensors(r.Context(), activity.ID, data.Sensors); err != nil {
 		slog.Error("insert sensors failed", "error", err)
@@ -179,6 +186,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("event publish failed", "error", err)
+		}
+	}
+
+	// Write to Shadow FS (best-effort, don't fail upload)
+	if h.ShadowFS != nil {
+		if err := h.WriteShadowForActivity(r.Context(), userID, activity.ID, data, fileBytes); err != nil {
+			slog.Error("shadow fs write failed", "id", activity.ID, "error", err)
 		}
 	}
 

@@ -1,0 +1,16 @@
+postgres:
+  connection_string: ${DATABASE_URL}
+  auto_publish:
+    tables: false
+    functions: false
+  tables:
+    heatmap_lines:
+      schema: public
+      table: heatmap_lines
+      srid: 4326
+      geometry_column: geom
+      geometry_type: LINESTRING
+      properties:
+        user_id: uuid
+        sport_type: text
+        activity_date: date

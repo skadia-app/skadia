@@ -18,6 +18,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -88,12 +89,24 @@ func main() {
 		slog.Warn("OIDC OIDC not configured (OIDC_CLIENT_ID or JWT_SECRET missing)")
 	}
 
+	// Shadow File System (optional)
+	var shadowFSCfg *shadowfs.ShadowFSConfig
+	if cfg.ShadowFSBasePath != "" {
+		shadowFSCfg = &shadowfs.ShadowFSConfig{
+			BasePath:         cfg.ShadowFSBasePath,
+			HotfolderPath:    cfg.HotfolderPath,
+			HotfolderEnabled: cfg.HotfolderEnabled,
+		}
+		slog.Info("shadow file system configured", "base_path", cfg.ShadowFSBasePath)
+	}
+
 	// Handler
 	h := &handler.Handler{
-		DB:      db,
-		Storage: s3Client,
-		Events:  pub,
-		Auth:    authCfg,
+		DB:       db,
+		Storage:  s3Client,
+		Events:   pub,
+		Auth:     authCfg,
+		ShadowFS: shadowFSCfg,
 	}
 
 	// Router
@@ -137,6 +150,18 @@ func main() {
 			r.Get("/activities/{id}/streams", h.GetStreams)
 			r.Get("/activities/{id}/sensors", h.GetSensors)
 			r.Get("/stats/pmc", h.GetPMC)
+
+			r.Get("/privacy-zones", h.ListPrivacyZones)
+			r.Post("/privacy-zones", h.CreatePrivacyZone)
+			r.Put("/privacy-zones/{id}", h.UpdatePrivacyZone)
+			r.Delete("/privacy-zones/{id}", h.DeletePrivacyZone)
+
+			r.Get("/settings/shadow-fs", h.GetShadowFSSettings)
+			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettings)
+			r.Post("/shadow-fs/preview-rename", h.PreviewRename)
+			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
+
+			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 		})
 	})
 
@@ -166,6 +191,22 @@ func main() {
 		}
 		slog.Info("startup PMC recalculation complete", "users", len(userIDs))
 	}()
+
+	// Start hotfolder watcher if configured
+	var hotfolderWatcher *shadowfs.Watcher
+	if shadowFSCfg != nil && shadowFSCfg.HotfolderEnabled && shadowFSCfg.HotfolderPath != "" {
+		hotfolderWatcher = shadowfs.NewWatcher(shadowFSCfg.HotfolderPath, func(filePath string) error {
+			slog.Info("hotfolder import triggered", "path", filePath)
+			// The actual import logic would use the upload pipeline here.
+			// For now, log and return nil (placeholder for hotfolder import).
+			return nil
+		})
+		if err := hotfolderWatcher.Start(); err != nil {
+			slog.Warn("hotfolder watcher failed to start", "error", err)
+		} else {
+			defer hotfolderWatcher.Stop()
+		}
+	}
 
 	// Start server in goroutine
 	go func() {

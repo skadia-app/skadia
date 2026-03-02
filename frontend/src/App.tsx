@@ -5,6 +5,9 @@ import AuthGuard from '@/components/AuthGuard'
 import ActivitiesPage from '@/pages/ActivitiesPage'
 import ActivityDetailPage from '@/pages/ActivityDetailPage'
 import DashboardPage from '@/pages/DashboardPage'
+import HeatmapPage from '@/pages/HeatmapPage'
+import SettingsPage from '@/pages/SettingsPage'
+import PrivacySettingsPage from '@/pages/PrivacySettingsPage'
 import LoginPage from '@/pages/LoginPage'
 import CallbackPage from '@/pages/CallbackPage'
 
@@ -23,6 +26,9 @@ export default function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="activities" element={<ActivitiesPage />} />
             <Route path="activities/:id" element={<ActivityDetailPage />} />
+            <Route path="heatmap" element={<HeatmapPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="settings/privacy" element={<PrivacySettingsPage />} />
           </Route>
         </Route>
       </Routes>

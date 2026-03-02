@@ -563,6 +563,16 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 		args = append(args, *update.Visibility)
 		argIdx++
 	}
+	if update.HideMap != nil {
+		sets = append(sets, fmt.Sprintf("hide_map = $%d", argIdx))
+		args = append(args, *update.HideMap)
+		argIdx++
+	}
+	if update.DataVisibility != nil {
+		sets = append(sets, fmt.Sprintf("data_visibility = $%d", argIdx))
+		args = append(args, update.DataVisibility)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		return db.GetActivity(ctx, id)
@@ -1067,4 +1077,410 @@ func ptrString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ── Shadow File System ──────────────────────────────────────────────────────
+
+// GetUserFileNamingSchema returns the file naming schema for a user.
+// Returns empty string if not set.
+func (db *DB) GetUserFileNamingSchema(ctx context.Context, userID string) (string, error) {
+	var schema *string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT file_naming_schema FROM users WHERE id = $1`,
+		userID,
+	).Scan(&schema)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get file naming schema: %w", err)
+	}
+	if schema == nil {
+		return "", nil
+	}
+	return *schema, nil
+}
+
+// UpdateUserFileNamingSchema updates the file naming schema for a user.
+func (db *DB) UpdateUserFileNamingSchema(ctx context.Context, userID, schema string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET file_naming_schema = $2, updated_at = NOW() WHERE id = $1`,
+		userID, schema,
+	)
+	if err != nil {
+		return fmt.Errorf("update file naming schema: %w", err)
+	}
+	return nil
+}
+
+// UpdateActivityLocalFilePath sets the local_file_path for an activity.
+func (db *DB) UpdateActivityLocalFilePath(ctx context.Context, activityID, path string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET local_file_path = $2, updated_at = NOW() WHERE id = $1`,
+		activityID, path,
+	)
+	if err != nil {
+		return fmt.Errorf("update local file path: %w", err)
+	}
+	return nil
+}
+
+// UpdateActivityLocalFilePathByOldPath updates local_file_path from oldPath to newPath
+// for activities belonging to the given user.
+func (db *DB) UpdateActivityLocalFilePathByOldPath(ctx context.Context, userID, oldPath, newPath string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET local_file_path = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND local_file_path = $2`,
+		userID, oldPath, newPath,
+	)
+	if err != nil {
+		return fmt.Errorf("update local file path by old path: %w", err)
+	}
+	return nil
+}
+
+// ListActivitiesWithLocalPath returns activities that have a local_file_path set.
+func (db *DB) ListActivitiesWithLocalPath(ctx context.Context, userID string) ([]model.ActivityWithPath, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, started_at, sport_type, title, distance_m, elapsed_time_s,
+			original_file_format, local_file_path
+		FROM activities
+		WHERE user_id = $1 AND local_file_path IS NOT NULL
+		ORDER BY started_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list activities with local path: %w", err)
+	}
+	defer rows.Close()
+
+	var activities []model.ActivityWithPath
+	for rows.Next() {
+		var a model.ActivityWithPath
+		if err := rows.Scan(
+			&a.ID, &a.StartedAt, &a.SportType, &a.Title, &a.DistanceM,
+			&a.ElapsedTimeS, &a.OriginalFileFormat, &a.LocalFilePath,
+		); err != nil {
+			return nil, fmt.Errorf("scan activity with path: %w", err)
+		}
+		activities = append(activities, a)
+	}
+	return activities, nil
+}
+
+// InsertHotfolderImport creates a new hotfolder import record.
+func (db *DB) InsertHotfolderImport(ctx context.Context, userID, filename, status string) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO hotfolder_imports (user_id, filename, status)
+		VALUES ($1, $2, $3)
+		RETURNING id`,
+		userID, filename, status,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("insert hotfolder import: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateHotfolderImport updates the status of a hotfolder import record.
+func (db *DB) UpdateHotfolderImport(ctx context.Context, importID, status string, errorMsg *string, activityID *string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE hotfolder_imports
+		SET status = $2, error_msg = $3, activity_id = $4, updated_at = NOW()
+		WHERE id = $1`,
+		importID, status, errorMsg, activityID,
+	)
+	if err != nil {
+		return fmt.Errorf("update hotfolder import: %w", err)
+	}
+	return nil
+}
+
+// ListHotfolderImports returns recent hotfolder imports for a user.
+func (db *DB) ListHotfolderImports(ctx context.Context, userID string, limit int) ([]model.HotfolderImport, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, user_id, filename, status, error_msg, activity_id, created_at
+		FROM hotfolder_imports
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list hotfolder imports: %w", err)
+	}
+	defer rows.Close()
+
+	var imports []model.HotfolderImport
+	for rows.Next() {
+		var h model.HotfolderImport
+		if err := rows.Scan(&h.ID, &h.UserID, &h.Filename, &h.Status, &h.ErrorMsg, &h.ActivityID, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan hotfolder import: %w", err)
+		}
+		imports = append(imports, h)
+	}
+	if imports == nil {
+		imports = []model.HotfolderImport{}
+	}
+	return imports, nil
+}
+
+// ── Heatmap ─────────────────────────────────────────────────────────────────
+
+// InsertHeatmapLine copies the track geometry into heatmap_lines.
+// Uses COALESCE(track_public, track_full) so privacy zones are respected.
+func (db *DB) InsertHeatmapLine(ctx context.Context, userID, activityID, sportType string, startedAt time.Time) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, geom, activity_date)
+		SELECT $1, $2, $3, COALESCE(track_public, track_full), $4::date
+		FROM activity_tracks
+		WHERE activity_id = $2
+		  AND track_full IS NOT NULL`,
+		userID, activityID, sportType, startedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert heatmap line: %w", err)
+	}
+	return nil
+}
+
+// DeleteHeatmapLines removes heatmap entries for an activity.
+func (db *DB) DeleteHeatmapLines(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM heatmap_lines WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete heatmap lines: %w", err)
+	}
+	return nil
+}
+
+// BackfillHeatmap populates heatmap_lines for all existing activities of a user.
+// Returns the number of rows inserted.
+func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
+	result, err := db.Pool.Exec(ctx, `
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, geom, activity_date)
+		SELECT a.user_id, a.id, a.sport_type, COALESCE(t.track_public, t.track_full), a.started_at::date
+		FROM activities a
+		JOIN activity_tracks t ON t.activity_id = a.id
+		WHERE a.user_id = $1
+		  AND t.track_full IS NOT NULL
+		  AND NOT EXISTS (
+		      SELECT 1 FROM heatmap_lines h WHERE h.activity_id = a.id
+		  )`,
+		userID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("backfill heatmap: %w", err)
+	}
+	return int(result.RowsAffected()), nil
+}
+
+// ── Privacy Zones ───────────────────────────────────────────────────────────
+
+// ListPrivacyZones returns all privacy zones for a user.
+func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.PrivacyZone, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, user_id, name,
+			ST_Y(center) AS lat, ST_X(center) AS lng,
+			radius_m, is_active, created_at
+		FROM user_privacy_zones
+		WHERE user_id = $1
+		ORDER BY created_at`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list privacy zones: %w", err)
+	}
+	defer rows.Close()
+
+	var zones []model.PrivacyZone
+	for rows.Next() {
+		var z model.PrivacyZone
+		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan privacy zone: %w", err)
+		}
+		zones = append(zones, z)
+	}
+	if zones == nil {
+		zones = []model.PrivacyZone{}
+	}
+	return zones, nil
+}
+
+// CreatePrivacyZone creates a new privacy zone.
+func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, lng float64, radiusM int) (*model.PrivacyZone, error) {
+	var z model.PrivacyZone
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO user_privacy_zones (user_id, name, center, radius_m)
+		VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5)
+		RETURNING id, user_id, name,
+			ST_Y(center) AS lat, ST_X(center) AS lng,
+			radius_m, is_active, created_at`,
+		userID, name, lat, lng, radiusM,
+	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create privacy zone: %w", err)
+	}
+	return &z, nil
+}
+
+// UpdatePrivacyZone updates an existing privacy zone.
+func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, update *model.PrivacyZoneUpdate) (*model.PrivacyZone, error) {
+	var sets []string
+	var args []any
+	argIdx := 3
+	args = append(args, zoneID, userID) // $1 = zoneID, $2 = userID
+
+	if update.Name != nil {
+		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
+		args = append(args, *update.Name)
+		argIdx++
+	}
+	if update.Lat != nil && update.Lng != nil {
+		sets = append(sets, fmt.Sprintf("center = ST_SetSRID(ST_MakePoint($%d, $%d), 4326)", argIdx+1, argIdx))
+		args = append(args, *update.Lat, *update.Lng)
+		argIdx += 2
+	}
+	if update.RadiusM != nil {
+		sets = append(sets, fmt.Sprintf("radius_m = $%d", argIdx))
+		args = append(args, *update.RadiusM)
+		argIdx++
+	}
+	if update.IsActive != nil {
+		sets = append(sets, fmt.Sprintf("is_active = $%d", argIdx))
+		args = append(args, *update.IsActive)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		return db.getPrivacyZone(ctx, zoneID, userID)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE user_privacy_zones SET %s
+		WHERE id = $1 AND user_id = $2
+		RETURNING id, user_id, name,
+			ST_Y(center) AS lat, ST_X(center) AS lng,
+			radius_m, is_active, created_at`,
+		strings.Join(sets, ", "),
+	)
+
+	var z model.PrivacyZone
+	err := db.Pool.QueryRow(ctx, query, args...).Scan(
+		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update privacy zone: %w", err)
+	}
+	return &z, nil
+}
+
+func (db *DB) getPrivacyZone(ctx context.Context, zoneID, userID string) (*model.PrivacyZone, error) {
+	var z model.PrivacyZone
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id, user_id, name,
+			ST_Y(center) AS lat, ST_X(center) AS lng,
+			radius_m, is_active, created_at
+		FROM user_privacy_zones
+		WHERE id = $1 AND user_id = $2`,
+		zoneID, userID,
+	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get privacy zone: %w", err)
+	}
+	return &z, nil
+}
+
+// DeletePrivacyZone deletes a privacy zone.
+func (db *DB) DeletePrivacyZone(ctx context.Context, zoneID, userID string) error {
+	result, err := db.Pool.Exec(ctx,
+		`DELETE FROM user_privacy_zones WHERE id = $1 AND user_id = $2`,
+		zoneID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete privacy zone: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("privacy zone not found")
+	}
+	return nil
+}
+
+// ── Track Public (Privacy) ──────────────────────────────────────────────────
+
+// ComputeTrackPublic calculates the public track by removing privacy zone areas.
+// Uses PostGIS ST_Difference to subtract buffered privacy zones from the full track.
+func (db *DB) ComputeTrackPublic(ctx context.Context, activityID, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activity_tracks SET track_public = (
+			SELECT ST_Difference(
+				t.track_full,
+				COALESCE(
+					(SELECT ST_Union(
+						ST_Buffer(z.center::geography, z.radius_m)::geometry
+					)
+					FROM user_privacy_zones z
+					WHERE z.user_id = $2 AND z.is_active = true),
+					ST_GeomFromText('GEOMETRYCOLLECTION EMPTY', 4326)
+				)
+			)
+			FROM activity_tracks t
+			WHERE t.activity_id = $1
+		)
+		WHERE activity_id = $1`,
+		activityID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("compute track public: %w", err)
+	}
+	return nil
+}
+
+// RecomputeAllTrackPublic recalculates track_public for all activities of a user.
+// Also refreshes heatmap_lines to use the updated track_public.
+func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error {
+	// Step 1: Recompute track_public for all user activities
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activity_tracks SET track_public = (
+			SELECT ST_Difference(
+				activity_tracks.track_full,
+				COALESCE(
+					(SELECT ST_Union(
+						ST_Buffer(z.center::geography, z.radius_m)::geometry
+					)
+					FROM user_privacy_zones z
+					WHERE z.user_id = $1 AND z.is_active = true),
+					ST_GeomFromText('GEOMETRYCOLLECTION EMPTY', 4326)
+				)
+			)
+		)
+		WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("recompute all track public: %w", err)
+	}
+
+	// Step 2: Refresh heatmap_lines with updated geometries
+	_, err = db.Pool.Exec(ctx, `
+		UPDATE heatmap_lines h SET geom = COALESCE(t.track_public, t.track_full)
+		FROM activity_tracks t
+		WHERE t.activity_id = h.activity_id
+		  AND h.user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("refresh heatmap lines: %w", err)
+	}
+
+	return nil
 }
