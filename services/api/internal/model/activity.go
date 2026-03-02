@@ -146,7 +146,7 @@ type Activity struct {
 	WeatherTags        []string   `json:"weather_tags,omitempty"`
 	IsRoundTrip        bool       `json:"is_round_trip"`
 	Intensity          *string    `json:"intensity,omitempty"`
-	TimeOfDay          *string    `json:"time_of_day,omitempty"`
+	TimeOfDay          []string   `json:"time_of_day,omitempty"`
 	OriginalFilename   *string    `json:"original_filename,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`

@@ -104,6 +104,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 			EndLat:       a.EndLat,
 			EndLng:       a.EndLng,
 			StartedAt:    a.StartedAt,
+			EndedAt:      a.EndedAt,
 			SportType:    a.SportType,
 			AvgHeartRate: a.AvgHR,
 			MaxHeartRate: a.MaxHR,

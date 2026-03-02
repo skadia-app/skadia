@@ -1,30 +1,34 @@
 interface EnrichmentTagsProps {
-  timeOfDay?: string | null
+  timeOfDay?: string[] | null
   intensity?: string | null
   isRoundTrip?: boolean
   weatherTags?: string[]
 }
 
 const timeOfDayStyles: Record<string, { label: string; classes: string }> = {
-  'vor-sonnenaufgang': {
-    label: 'Vor Sonnenaufgang',
+  'nacht': {
+    label: 'Nacht',
+    classes: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+  },
+  'astronomische-daemmerung': {
+    label: 'Astro. Dämmerung',
+    classes: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+  },
+  'nautische-daemmerung': {
+    label: 'Naut. Dämmerung',
     classes: 'bg-blue-900/20 text-blue-300 dark:bg-blue-900/30 dark:text-blue-300',
+  },
+  'buergerliche-daemmerung': {
+    label: 'Bürgerl. Dämmerung',
+    classes: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   },
   'goldene-stunde': {
     label: 'Goldene Stunde',
     classes: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   },
-  'tagestour': {
-    label: 'Tagestour',
+  'tag': {
+    label: 'Tag',
     classes: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
-  },
-  'nach-sonnenuntergang': {
-    label: 'Nach Sonnenuntergang',
-    classes: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  },
-  'nacht': {
-    label: 'Nacht',
-    classes: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
   },
 }
 
@@ -46,9 +50,13 @@ const intensityStyles: Record<string, { label: string; classes: string }> = {
 export default function EnrichmentTags({ timeOfDay, intensity, isRoundTrip, weatherTags }: EnrichmentTagsProps) {
   const badges: { key: string; label: string; classes: string }[] = []
 
-  if (timeOfDay && timeOfDayStyles[timeOfDay]) {
-    const s = timeOfDayStyles[timeOfDay]
-    badges.push({ key: `tod-${timeOfDay}`, label: s.label, classes: s.classes })
+  if (timeOfDay) {
+    for (const tod of timeOfDay) {
+      const s = timeOfDayStyles[tod]
+      if (s) {
+        badges.push({ key: `tod-${tod}`, label: s.label, classes: s.classes })
+      }
+    }
   }
 
   if (intensity && intensityStyles[intensity]) {

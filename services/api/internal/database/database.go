@@ -84,6 +84,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO activities (
 			user_id, file_hash, sport_type, sub_type,
+			parsed_sport_type, parsed_sub_type,
 			fit_sport_id, fit_sub_sport_id,
 			started_at, ended_at, elapsed_time_s, moving_time_s,
 			distance_m, elevation_gain_m, elevation_loss_m,
@@ -98,6 +99,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			source, source_device
 		) VALUES (
 			$1, $2, $3, $4,
+			$3, $4,
 			$5, $6,
 			$7, $8, $9, $10,
 			$11, $12, $13,
@@ -549,15 +551,32 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 		args = append(args, *update.Description)
 		argIdx++
 	}
-	if update.SportType != nil {
-		sets = append(sets, fmt.Sprintf("sport_type = $%d, sport_type_is_manual = true", argIdx))
-		args = append(args, *update.SportType)
-		argIdx++
-	}
-	if update.SubType != nil {
-		sets = append(sets, fmt.Sprintf("sub_type = $%d, sport_type_is_manual = true", argIdx))
-		args = append(args, *update.SubType)
-		argIdx++
+	if update.SportType != nil || update.SubType != nil {
+		// Load parsed values to compare — sport_type_is_manual should only be
+		// true when the manual value differs from the parser-detected value.
+		var parsedSportType, parsedSubType *string
+		_ = db.Pool.QueryRow(ctx,
+			`SELECT parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1`, id,
+		).Scan(&parsedSportType, &parsedSubType)
+
+		if update.SportType != nil {
+			sets = append(sets, fmt.Sprintf("sport_type = $%d", argIdx))
+			args = append(args, *update.SportType)
+			argIdx++
+		}
+		if update.SubType != nil {
+			sets = append(sets, fmt.Sprintf("sub_type = $%d", argIdx))
+			args = append(args, *update.SubType)
+			argIdx++
+		}
+
+		// Determine if the effective values differ from parsed values.
+		newST := derefOr(update.SportType, derefOr(parsedSportType, ""))
+		newSub := derefOr(update.SubType, derefOr(parsedSubType, ""))
+		parsedST := derefOr(parsedSportType, "")
+		parsedSub := derefOr(parsedSubType, "")
+		isManual := newST != parsedST || newSub != parsedSub
+		sets = append(sets, fmt.Sprintf("sport_type_is_manual = %t", isManual))
 	}
 	if update.Tags != nil {
 		sets = append(sets, fmt.Sprintf("tags = $%d", argIdx))
@@ -849,6 +868,13 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 
 	var sets []string
 
+	// Always update the parsed reference values so sport_type_is_manual
+	// can be correctly determined on future PATCH requests.
+	sets = append(sets, fmt.Sprintf("parsed_sport_type = %s", idx()))
+	args = append(args, data.SportType)
+	sets = append(sets, fmt.Sprintf("parsed_sub_type = %s", idx()))
+	args = append(args, nilIfEmpty(data.SubType))
+
 	if !skipSportType {
 		sets = append(sets, fmt.Sprintf("sport_type = %s", idx()))
 		args = append(args, data.SportType)
@@ -1035,6 +1061,13 @@ func (db *DB) ListActivityIDsFiltered(ctx context.Context, userID string, filter
 }
 
 // Helper functions
+
+func derefOr(p *string, fallback string) string {
+	if p != nil {
+		return *p
+	}
+	return fallback
+}
 
 func nilIfEmpty(s string) *string {
 	if s == "" {
@@ -1614,6 +1647,7 @@ type BackfillActivity struct {
 	EndLat    float64
 	EndLng    float64
 	StartedAt time.Time
+	EndedAt   time.Time
 	SportType string
 	AvgHR     float64
 	MaxHR     int
@@ -1627,7 +1661,7 @@ func (db *DB) ListActivitiesForBackfill(ctx context.Context, userID string) ([]B
 			COALESCE(ST_X(a.start_location), 0) AS lng,
 			COALESCE(ST_Y(a.end_location), 0) AS end_lat,
 			COALESCE(ST_X(a.end_location), 0) AS end_lng,
-			a.started_at, a.sport_type,
+			a.started_at, COALESCE(a.ended_at, a.started_at), a.sport_type,
 			COALESCE(a.avg_heart_rate, 0), COALESCE(a.max_heart_rate, 0)
 		FROM activities a
 		WHERE a.user_id = $1
@@ -1644,7 +1678,7 @@ func (db *DB) ListActivitiesForBackfill(ctx context.Context, userID string) ([]B
 		var a BackfillActivity
 		if err := rows.Scan(
 			&a.ID, &a.Lat, &a.Lng, &a.EndLat, &a.EndLng,
-			&a.StartedAt, &a.SportType, &a.AvgHR, &a.MaxHR,
+			&a.StartedAt, &a.EndedAt, &a.SportType, &a.AvgHR, &a.MaxHR,
 		); err != nil {
 			return nil, fmt.Errorf("scan backfill activity: %w", err)
 		}

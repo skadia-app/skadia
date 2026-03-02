@@ -63,7 +63,7 @@ export interface Activity {
   weather_tags?: string[]
   is_round_trip?: boolean
   intensity?: string | null
-  time_of_day?: string | null
+  time_of_day?: string[] | null
   gear_id?: string | null
   created_at: string
   updated_at: string

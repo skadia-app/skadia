@@ -574,7 +574,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	var distanceM, avgSpeedMS *float64
 	var elapsedTimeS *int
 	var isIndoor bool
-	var intensity, timeOfDay *string
+	var intensity *string
+	var timeOfDay []string
 
 	err := db.Pool.QueryRow(ctx,
 		`SELECT sport_type, distance_m, elapsed_time_s, avg_speed_ms,
@@ -605,8 +606,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	if intensity != nil {
 		m["intensity"] = *intensity
 	}
-	if timeOfDay != nil {
-		m["time_of_day"] = *timeOfDay
+	if len(timeOfDay) > 0 {
+		m["time_of_day"] = timeOfDay
 	}
 	return m, nil
 }

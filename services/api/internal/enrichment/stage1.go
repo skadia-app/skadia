@@ -17,10 +17,10 @@ import (
 func RunStage1(ctx context.Context, db *database.DB, activityID string, data *model.ActivityData) {
 	fields := make(map[string]any)
 
-	// Time of day (requires GPS)
-	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() {
-		if tod := TimeOfDay(data.StartLat, data.StartLng, data.StartedAt); tod != "" {
-			fields["time_of_day"] = tod
+	// Time of day (requires GPS + start/end time)
+	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+		if periods := TimeOfDayPeriods(data.StartLat, data.StartLng, data.StartedAt, data.EndedAt); len(periods) > 0 {
+			fields["time_of_day"] = periods
 		}
 	}
 
@@ -77,34 +77,93 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 	}
 }
 
-// TimeOfDay returns the time-of-day category based on sun position.
-// Categories: vor-sonnenaufgang, goldene-stunde, tagestour, nach-sonnenuntergang, nacht
-func TimeOfDay(lat, lng float64, t time.Time) string {
-	times := suncalc.GetTimes(t, lat, lng)
+// dayPeriod defines a named time-of-day period with its boundaries.
+type dayPeriod struct {
+	name  string
+	start time.Time // inclusive
+	end   time.Time // exclusive
+}
 
-	dawn := times[suncalc.Dawn].Value
+// TimeOfDayPeriods returns all time-of-day periods an activity passes through,
+// based on astronomical sun position at the given coordinates.
+//
+// Periods (chronological order for a day):
+//   - nacht:               astronomical night (sun below -18°)
+//   - astronomische-daemmerung: astronomical twilight (-18° to -12°)
+//   - nautische-daemmerung:     nautical twilight (-12° to -6°)
+//   - buergerliche-daemmerung:  civil twilight (-6° to sunrise/sunset)
+//   - goldene-stunde:           golden hour (sun 0° to 6°)
+//   - tag:                      full daylight (sun above 6°)
+//
+// Morning and evening periods of the same type are merged (e.g. only one
+// "goldene-stunde" even if both morning and evening golden hour are touched).
+func TimeOfDayPeriods(lat, lng float64, start, end time.Time) []string {
+	times := suncalc.GetTimes(start, lat, lng)
+
+	// Build ordered periods for the day. Some times can be zero (polar regions);
+	// we skip those and let the surrounding periods absorb the gap.
+	nightEnd := times[suncalc.NightEnd].Value       // astro dawn
+	nauticalDawn := times[suncalc.NauticalDawn].Value
+	dawn := times[suncalc.Dawn].Value                // civil dawn
 	sunrise := times[suncalc.Sunrise].Value
 	goldenHourEnd := times[suncalc.GoldenHourEnd].Value
 	goldenHourStart := times[suncalc.GoldenHour].Value
 	sunset := times[suncalc.Sunset].Value
-	dusk := times[suncalc.Dusk].Value
+	dusk := times[suncalc.Dusk].Value                // civil dusk
+	nauticalDusk := times[suncalc.NauticalDusk].Value
+	night := times[suncalc.Night].Value              // astro night
 
-	switch {
-	case t.Before(dawn):
-		return "nacht"
-	case t.Before(sunrise):
-		return "vor-sonnenaufgang"
-	case t.Before(goldenHourEnd):
-		return "goldene-stunde"
-	case t.Before(goldenHourStart):
-		return "tagestour"
-	case t.Before(sunset):
-		return "goldene-stunde"
-	case t.Before(dusk):
-		return "nach-sonnenuntergang"
-	default:
-		return "nacht"
+	// sentinel far-future time for the last period's end
+	farFuture := start.Add(48 * time.Hour)
+
+	// Build the period list; skip periods where boundaries are zero (polar)
+	var periods []dayPeriod
+
+	addPeriod := func(name string, s, e time.Time) {
+		if s.IsZero() || e.IsZero() {
+			return
+		}
+		if !e.After(s) {
+			return
+		}
+		periods = append(periods, dayPeriod{name, s, e})
 	}
+
+	// Morning half
+	morningNightEnd := nightEnd
+	if morningNightEnd.IsZero() {
+		morningNightEnd = start.Truncate(24 * time.Hour) // midnight
+	}
+	addPeriod("nacht", start.Add(-24*time.Hour), morningNightEnd)
+	addPeriod("astronomische-daemmerung", nightEnd, nauticalDawn)
+	addPeriod("nautische-daemmerung", nauticalDawn, dawn)
+	addPeriod("buergerliche-daemmerung", dawn, sunrise)
+	addPeriod("goldene-stunde", sunrise, goldenHourEnd)
+
+	// Daytime
+	addPeriod("tag", goldenHourEnd, goldenHourStart)
+
+	// Evening half
+	addPeriod("goldene-stunde", goldenHourStart, sunset)
+	addPeriod("buergerliche-daemmerung", sunset, dusk)
+	addPeriod("nautische-daemmerung", dusk, nauticalDusk)
+	addPeriod("astronomische-daemmerung", nauticalDusk, night)
+	addPeriod("nacht", night, farFuture)
+
+	// Find which periods the activity [start, end] overlaps
+	seen := make(map[string]bool)
+	var result []string
+	for _, p := range periods {
+		// overlap: activity [start, end] ∩ period [p.start, p.end)
+		if start.Before(p.end) && end.After(p.start) {
+			if !seen[p.name] {
+				seen[p.name] = true
+				result = append(result, p.name)
+			}
+		}
+	}
+
+	return result
 }
 
 // Intensity returns intensity category based on heart rate zones.
