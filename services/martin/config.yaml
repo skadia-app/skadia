@@ -14,3 +14,13 @@ postgres:
         user_id: uuid
         sport_type: text
         activity_date: date
+    heatmap_points:
+      schema: public
+      table: heatmap_points
+      srid: 4326
+      geometry_column: geom
+      geometry_type: POINT
+      properties:
+        user_id: uuid
+        sport_type: text
+        activity_date: date

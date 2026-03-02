@@ -7,15 +7,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-	includeRetired := r.URL.Query().Get("retired") == "true"
+	status := r.URL.Query().Get("status")
 
-	items, err := h.DB.ListGear(r.Context(), userID, includeRetired)
+	items, err := h.DB.ListGear(r.Context(), userID, status)
 	if err != nil {
 		slog.Error("list gear failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list gear", r.URL.Path)
@@ -108,6 +109,41 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if req.Status != "active" && req.Status != "stored" && req.Status != "retired" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "status must be active, stored, or retired", r.URL.Path)
+		return
+	}
+
+	if err := h.DB.UpdateGearStatus(r.Context(), id, req.Status); err != nil {
+		if err.Error() == "gear not found" {
+			writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+			return
+		}
+		slog.Error("update gear status failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update gear status", r.URL.Path)
+		return
+	}
+
+	gear, err := h.DB.GetGear(r.Context(), id)
+	if err != nil {
+		slog.Error("get gear after status update failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, gear)
+}
+
 func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
 	gearID := chi.URLParam(r, "id")
 
@@ -151,19 +187,23 @@ func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var req struct {
-		Name      *string `json:"name,omitempty"`
-		Type      *string `json:"type,omitempty"`
-		Brand     *string `json:"brand,omitempty"`
-		Model     *string `json:"model,omitempty"`
-		Notes     *string `json:"notes,omitempty"`
-		IsRetired *bool   `json:"is_retired,omitempty"`
+		Name          *string  `json:"name,omitempty"`
+		Type          *string  `json:"type,omitempty"`
+		Brand         *string  `json:"brand,omitempty"`
+		Model         *string  `json:"model,omitempty"`
+		Notes         *string  `json:"notes,omitempty"`
+		IsRetired     *bool    `json:"is_retired,omitempty"`
+		PurchasePrice *float64 `json:"purchase_price,omitempty"`
+		PurchaseDate  *string  `json:"purchase_date,omitempty"`
+		SerialNumber  *string  `json:"serial_number,omitempty"`
+		WeightG       *int     `json:"weight_g,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
-	component, err := h.DB.UpdateComponent(r.Context(), id, req.Name, req.Type, req.Brand, req.Model, req.Notes, req.IsRetired)
+	component, err := h.DB.UpdateComponent(r.Context(), id, req.Name, req.Type, req.Brand, req.Model, req.Notes, req.IsRetired, req.PurchasePrice, req.PurchaseDate, req.SerialNumber, req.WeightG)
 	if err != nil {
 		slog.Error("update component failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update component", r.URL.Path)
@@ -191,6 +231,248 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
+	componentID := chi.URLParam(r, "id")
+
+	var req struct {
+		ToGearID string `json:"to_gear_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if req.ToGearID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "to_gear_id is required", r.URL.Path)
+		return
+	}
+
+	// Get the component to find current gear
+	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
+	if err != nil {
+		slog.Error("get component history for transfer failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get component", r.URL.Path)
+		return
+	}
+
+	var fromGearID string
+	for _, a := range history {
+		if a.RemovedAt == nil {
+			fromGearID = a.GearID
+			break
+		}
+	}
+	if fromGearID == "" {
+		// Fallback: get gear_id directly from the component
+		gear, err := h.DB.GetGear(r.Context(), req.ToGearID)
+		if err != nil || gear == nil {
+			writeError(w, http.StatusNotFound, "Not Found", "target gear not found", r.URL.Path)
+			return
+		}
+		// Use a simple query to get the current gear_id
+		fromGearID = "" // Will still work with transfer
+	}
+
+	if err := h.DB.TransferComponent(r.Context(), componentID, fromGearID, req.ToGearID); err != nil {
+		slog.Error("transfer component failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to transfer component", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetComponentHistory(w http.ResponseWriter, r *http.Request) {
+	componentID := chi.URLParam(r, "id")
+
+	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
+	if err != nil {
+		slog.Error("get component history failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get component history", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, history)
+}
+
+func (h *Handler) GetChainRotation(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+
+	group, err := h.DB.GetChainRotation(r.Context(), gearID)
+	if err != nil {
+		slog.Error("get chain rotation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		return
+	}
+	if group == nil {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, group)
+}
+
+func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	gearID := chi.URLParam(r, "id")
+
+	var create database.ChainRotationGroupCreate
+	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if create.Name == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		return
+	}
+	if len(create.ComponentIDs) < 2 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 components required", r.URL.Path)
+		return
+	}
+
+	group, err := h.DB.CreateChainRotation(r.Context(), userID, gearID, &create)
+	if err != nil {
+		slog.Error("create chain rotation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create chain rotation", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, group)
+}
+
+func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+
+	// Find the chain rotation group for this gear
+	group, err := h.DB.GetChainRotation(r.Context(), gearID)
+	if err != nil {
+		slog.Error("get chain rotation for swap failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		return
+	}
+	if group == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "chain rotation not found for this gear", r.URL.Path)
+		return
+	}
+
+	if err := h.DB.SwapChain(r.Context(), group.ID); err != nil {
+		slog.Error("swap chain failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to swap chain", r.URL.Path)
+		return
+	}
+
+	// Return updated group
+	updated, err := h.DB.GetChainRotation(r.Context(), gearID)
+	if err != nil {
+		slog.Error("get chain rotation after swap failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	var req struct {
+		SwapIntervalKM *float64 `json:"swap_interval_km"`
+		SwapIntervalHM *float64 `json:"swap_interval_hm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+
+	if err := h.DB.UpdateChainRotation(r.Context(), groupID, req.SwapIntervalKM, req.SwapIntervalHM); err != nil {
+		slog.Error("update chain rotation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update chain rotation", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DeleteChainRotation(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	if err := h.DB.DeleteChainRotation(r.Context(), groupID); err != nil {
+		if err.Error() == "chain rotation not found" {
+			writeError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
+			return
+		}
+		slog.Error("delete chain rotation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete chain rotation", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListServiceEvents(w http.ResponseWriter, r *http.Request) {
+	componentID := chi.URLParam(r, "id")
+
+	events, err := h.DB.ListServiceEvents(r.Context(), componentID)
+	if err != nil {
+		slog.Error("list service events failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list service events", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
+	componentID := chi.URLParam(r, "id")
+
+	var create database.ServiceEventCreate
+	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if create.PerformedAt == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "performed_at is required", r.URL.Path)
+		return
+	}
+
+	event, err := h.DB.CreateServiceEvent(r.Context(), componentID, &create)
+	if err != nil {
+		slog.Error("create service event failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create service event", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, event)
+}
+
+func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "id")
+
+	if err := h.DB.DeleteServiceEvent(r.Context(), eventID); err != nil {
+		if err.Error() == "service event not found" {
+			writeError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
+			return
+		}
+		slog.Error("delete service event failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete service event", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
+	gearType := r.URL.Query().Get("gear_type")
+
+	presets, err := h.DB.ListComponentPresets(r.Context(), gearType)
+	if err != nil {
+		slog.Error("list component presets failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list component presets", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, presets)
 }
 
 func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {

@@ -1,24 +1,16 @@
 import { useState } from 'react'
-import type { HeatmapFilterState } from '@/pages/HeatmapPage'
-
-const SPORT_OPTIONS = [
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'walking', label: 'Gehen' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'e_biking', label: 'E-Bike' },
-  { value: 'skiing', label: 'Ski' },
-  { value: 'paddling', label: 'Paddeln' },
-]
+import type { MapFilterState } from '@/pages/MapPage'
+import { SPORT_OPTIONS } from '@/pages/MapPage'
 
 interface Props {
-  filters: HeatmapFilterState
-  onChange: (filters: HeatmapFilterState) => void
+  filters: MapFilterState
+  onChange: (filters: MapFilterState) => void
 }
 
-export default function HeatmapFilters({ filters, onChange }: Props) {
+export default function MapFilters({ filters, onChange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+
+  const allSelected = filters.sportTypes.size === SPORT_OPTIONS.length
 
   function toggleSport(sport: string) {
     const next = new Set(filters.sportTypes)
@@ -30,13 +22,21 @@ export default function HeatmapFilters({ filters, onChange }: Props) {
     onChange({ ...filters, sportTypes: next })
   }
 
+  function toggleAll() {
+    if (allSelected) {
+      onChange({ ...filters, sportTypes: new Set() })
+    } else {
+      onChange({ ...filters, sportTypes: new Set(SPORT_OPTIONS.map(s => s.value)) })
+    }
+  }
+
   return (
     <div className="absolute top-4 right-4 z-10 w-64">
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
         {/* Header */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
         >
           <span>Filter</span>
           <svg
@@ -52,7 +52,15 @@ export default function HeatmapFilters({ filters, onChange }: Props) {
           <div className="px-4 pb-4 space-y-4 border-t border-neutral-100 dark:border-neutral-800">
             {/* Sport type checkboxes */}
             <div className="pt-3">
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Sportart</div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</span>
+                <button
+                  onClick={toggleAll}
+                  className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+                >
+                  {allSelected ? 'Keine' : 'Alle'}
+                </button>
+              </div>
               <div className="space-y-1.5">
                 {SPORT_OPTIONS.map(({ value, label }) => (
                   <label key={value} className="flex items-center gap-2 cursor-pointer group">
@@ -106,6 +114,21 @@ export default function HeatmapFilters({ filters, onChange }: Props) {
                 className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
               />
             </div>
+
+            {/* Reset */}
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70) && (
+              <button
+                onClick={() => onChange({
+                  sportTypes: new Set(SPORT_OPTIONS.map(s => s.value)),
+                  dateFrom: '',
+                  dateTo: '',
+                  opacity: 70,
+                })}
+                className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+              >
+                Filter zuruecksetzen
+              </button>
+            )}
           </div>
         )}
       </div>

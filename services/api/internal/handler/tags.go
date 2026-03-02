@@ -37,9 +37,12 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name      string `json:"name"`
-		Color     string `json:"color"`
-		TextColor string `json:"text_color"`
+		Name        string          `json:"name"`
+		Color       string          `json:"color"`
+		TextColor   string          `json:"text_color"`
+		IsAuto      *bool           `json:"is_auto,omitempty"`
+		Conditions  json.RawMessage `json:"conditions,omitempty"`
+		Description *string         `json:"description,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -58,7 +61,12 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		req.TextColor = "#FFFFFF"
 	}
 
-	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor)
+	isAuto := false
+	if req.IsAuto != nil {
+		isAuto = *req.IsAuto
+	}
+
+	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), req.Description)
 	if err != nil {
 		slog.Error("create tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create tag", r.URL.Path)
@@ -78,16 +86,25 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 	tagID := chi.URLParam(r, "id")
 
 	var req struct {
-		Name      string `json:"name"`
-		Color     string `json:"color"`
-		TextColor string `json:"text_color"`
+		Name        string           `json:"name"`
+		Color       string           `json:"color"`
+		TextColor   string           `json:"text_color"`
+		IsAuto      *bool            `json:"is_auto,omitempty"`
+		Conditions  *json.RawMessage `json:"conditions,omitempty"`
+		Description *string          `json:"description,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
-	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor)
+	var condBytes *[]byte
+	if req.Conditions != nil {
+		b := []byte(*req.Conditions)
+		condBytes = &b
+	}
+
+	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, req.IsAuto, condBytes, req.Description)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
@@ -121,4 +138,28 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// SeedDefaultTags creates the default autotag definitions if they don't exist.
+func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	if err := h.DB.SeedDefaultAutoTags(r.Context(), userID); err != nil {
+		slog.Error("seed default tags failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to seed default tags", r.URL.Path)
+		return
+	}
+
+	tags, err := h.DB.ListTags(r.Context(), userID)
+	if err != nil {
+		slog.Error("list tags after seed failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list tags", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tags)
 }

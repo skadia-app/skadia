@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
-import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports } from '@/api/settings'
+import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 
@@ -208,8 +208,84 @@ export default function SettingsPage() {
         </Link>
       </section>
 
+      {/* Karte */}
+      <HeatmapSettingsSection />
+
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} />
     </div>
+  )
+}
+
+function HeatmapSettingsSection() {
+  const queryClient = useQueryClient()
+  const [localInterval, setLocalInterval] = useState<number | null>(null)
+
+  const { data: heatmapSettings } = useQuery({
+    queryKey: ['heatmap-settings'],
+    queryFn: getHeatmapSettings,
+  })
+
+  const updateHeatmapMut = useMutation({
+    mutationFn: updateHeatmapSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['heatmap-settings'] })
+      setLocalInterval(null)
+    },
+  })
+
+  const currentInterval = localInterval ?? heatmapSettings?.sampling_interval_m ?? 20
+  const isDirty = localInterval !== null && localInterval !== heatmapSettings?.sampling_interval_m
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Karte</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Einstellungen fuer die Heatmap und Kartenansicht.
+        </p>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            Heatmap-Sampling-Intervall
+          </label>
+          <span className="text-sm text-neutral-500 tabular-nums">{currentInterval} m</span>
+        </div>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={5}
+          value={currentInterval}
+          onChange={(e) => setLocalInterval(Number(e.target.value))}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>10 m (detailliert)</span>
+          <span>100 m (schnell)</span>
+        </div>
+        <p className="text-xs text-neutral-400 mt-2">
+          Bestimmt den Abstand zwischen den Sampling-Punkten fuer die Heatmap. Kleinere Werte erzeugen mehr Punkte und eine detailliertere Heatmap, erhoehen aber die Datenmenge.
+        </p>
+      </div>
+
+      {isDirty && (
+        <button
+          onClick={() => updateHeatmapMut.mutate({ sampling_interval_m: currentInterval })}
+          disabled={updateHeatmapMut.isPending}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 transition-colors cursor-pointer"
+        >
+          {updateHeatmapMut.isPending ? 'Speichert...' : 'Speichern'}
+        </button>
+      )}
+
+      {updateHeatmapMut.isError && (
+        <p className="text-sm text-rose-500">
+          Fehler: {updateHeatmapMut.error instanceof Error ? updateHeatmapMut.error.message : 'Unbekannt'}
+        </p>
+      )}
+    </section>
   )
 }
 

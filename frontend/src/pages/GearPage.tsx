@@ -2,19 +2,26 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchGear, createGear } from '@/api/gear'
-import type { Gear } from '@/api/types'
-import { formatDistance, formatDuration } from '@/lib/utils'
+import type { Gear, GearStatus } from '@/api/types'
+import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 
+const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
+  { value: undefined, label: 'Alle' },
+  { value: 'active', label: 'Aktiv' },
+  { value: 'stored', label: 'Gelagert' },
+  { value: 'retired', label: 'Ausgemustert' },
+]
+
 export default function GearPage() {
   const queryClient = useQueryClient()
-  const [showRetired, setShowRetired] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>(undefined)
   const [showForm, setShowForm] = useState(false)
 
   const { data: gear, isLoading } = useQuery({
-    queryKey: ['gear', showRetired],
-    queryFn: () => fetchGear(showRetired),
+    queryKey: ['gear', statusFilter],
+    queryFn: () => fetchGear(statusFilter),
   })
 
   const createMutation = useMutation({
@@ -34,18 +41,25 @@ export default function GearPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausruestung</h1>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-neutral-500 dark:text-neutral-400">
-            <input
-              type="checkbox"
-              checked={showRetired}
-              onChange={() => setShowRetired(!showRetired)}
-              className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
-            />
-            Ausgemustert anzeigen
-          </label>
+          {/* Status filter chips */}
+          <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
+            {STATUS_CHIPS.map(({ value, label }) => (
+              <button
+                key={label}
+                onClick={() => setStatusFilter(value)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  statusFilter === value
+                    ? 'bg-orange-500 text-white'
+                    : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => setShowForm(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors cursor-pointer"
           >
             Ausruestung hinzufuegen
           </button>
@@ -88,6 +102,8 @@ export default function GearPage() {
 }
 
 function GearCard({ gear }: { gear: Gear }) {
+  const elevGain = formatElevationGain(gear.total_elevation_gain_m)
+
   return (
     <Link
       to={`/gear/${gear.id}`}
@@ -104,18 +120,20 @@ function GearCard({ gear }: { gear: Gear }) {
             {gear.model && ` ${gear.model}`}
           </p>
         </div>
-        {gear.is_retired && (
-          <span className="flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-            Ausgemustert
-          </span>
-        )}
+        <StatusBadge status={gear.status} />
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mt-3">
+      <div className="grid grid-cols-4 gap-2 mt-3">
         <div>
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Distanz</div>
           <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
             {formatDistance(gear.total_distance_m)}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Hoehe</div>
+          <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
+            {elevGain ?? '\u2014'}
           </div>
         </div>
         <div>
@@ -145,6 +163,23 @@ function GearCard({ gear }: { gear: Gear }) {
         </div>
       )}
     </Link>
+  )
+}
+
+function StatusBadge({ status }: { status: GearStatus }) {
+  if (status === 'active') return null
+  const styles: Record<string, string> = {
+    stored: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    retired: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+  }
+  const labels: Record<string, string> = {
+    stored: 'Gelagert',
+    retired: 'Ausgemustert',
+  }
+  return (
+    <span className={`flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? ''}`}>
+      {labels[status] ?? status}
+    </span>
   )
 }
 

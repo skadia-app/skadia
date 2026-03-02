@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -597,6 +598,18 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 		sets = append(sets, fmt.Sprintf("data_visibility = $%d", argIdx))
 		args = append(args, update.DataVisibility)
 		argIdx++
+	}
+	if update.GearID != nil {
+		if string(update.GearID) == "null" {
+			sets = append(sets, "gear_id = NULL")
+		} else {
+			var gearID string
+			if err := json.Unmarshal(update.GearID, &gearID); err == nil && gearID != "" {
+				sets = append(sets, fmt.Sprintf("gear_id = $%d", argIdx))
+				args = append(args, gearID)
+				argIdx++
+			}
+		}
 	}
 
 	if len(sets) == 0 {
@@ -1317,6 +1330,83 @@ func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 	return int(result.RowsAffected()), nil
 }
 
+// ── Heatmap Points ──────────────────────────────────────────────────────────
+
+// InsertHeatmapPoints generates evenly-spaced points from an activity's track
+// using ST_Segmentize + ST_DumpPoints and inserts them into heatmap_points.
+func (db *DB) InsertHeatmapPoints(ctx context.Context, userID, activityID, sportType string, startedAt time.Time, intervalM int) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO heatmap_points (user_id, activity_id, sport_type, activity_date, geom)
+		SELECT $1, $2, $3, $4::date, (ST_DumpPoints(
+			ST_Segmentize(COALESCE(track_public, track_full)::geography, $5)::geometry
+		)).geom
+		FROM activity_tracks
+		WHERE activity_id = $2
+		  AND track_full IS NOT NULL`,
+		userID, activityID, sportType, startedAt, intervalM,
+	)
+	if err != nil {
+		return fmt.Errorf("insert heatmap points: %w", err)
+	}
+	return nil
+}
+
+// DeleteHeatmapPoints removes all heatmap points for an activity.
+func (db *DB) DeleteHeatmapPoints(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM heatmap_points WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete heatmap points: %w", err)
+	}
+	return nil
+}
+
+// BackfillHeatmapPoints generates heatmap points for all activities of a user.
+func (db *DB) BackfillHeatmapPoints(ctx context.Context, userID string, intervalM int) (int, error) {
+	result, err := db.Pool.Exec(ctx, `
+		INSERT INTO heatmap_points (user_id, activity_id, sport_type, activity_date, geom)
+		SELECT a.user_id, a.id, a.sport_type, a.started_at::date,
+		       (ST_DumpPoints(
+		           ST_Segmentize(COALESCE(t.track_public, t.track_full)::geography, $2)::geometry
+		       )).geom
+		FROM activities a
+		JOIN activity_tracks t ON t.activity_id = a.id
+		WHERE a.user_id = $1
+		  AND t.track_full IS NOT NULL
+		  AND NOT EXISTS (
+		      SELECT 1 FROM heatmap_points h WHERE h.activity_id = a.id
+		  )`,
+		userID, intervalM,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("backfill heatmap points: %w", err)
+	}
+	return int(result.RowsAffected()), nil
+}
+
+// GetUserHeatmapInterval returns the user's heatmap sampling interval in meters.
+func (db *DB) GetUserHeatmapInterval(ctx context.Context, userID string) (int, error) {
+	var interval int
+	err := db.Pool.QueryRow(ctx,
+		`SELECT COALESCE(heatmap_sample_interval_m, 20) FROM users WHERE id = $1`, userID,
+	).Scan(&interval)
+	if err != nil {
+		return 20, nil // default
+	}
+	return interval, nil
+}
+
+// UpdateUserHeatmapInterval updates the user's heatmap sampling interval.
+func (db *DB) UpdateUserHeatmapInterval(ctx context.Context, userID string, intervalM int) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET heatmap_sample_interval_m = $2 WHERE id = $1`,
+		userID, intervalM,
+	)
+	if err != nil {
+		return fmt.Errorf("update heatmap interval: %w", err)
+	}
+	return nil
+}
+
 // ── Privacy Zones ───────────────────────────────────────────────────────────
 
 // ListPrivacyZones returns all privacy zones for a user.
@@ -1563,7 +1653,8 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 // ListTags returns all tags for a user, ordered by activity_count DESC, name ASC.
 func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name, color, text_color, category, is_system, activity_count, created_at
+		SELECT id, user_id, name, color, text_color, category, is_system,
+			is_auto, conditions, description, activity_count, created_at
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -1579,7 +1670,8 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 		var t model.Tag
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.Description, &t.ActivityCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -1592,15 +1684,17 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 }
 
 // CreateTag creates a new tag for a user.
-func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string) (*model.Tag, error) {
+func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions []byte, description *string) (*model.Tag, error) {
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, user_id, name, color, text_color, category, is_system, activity_count, created_at`,
-		userID, name, color, textColor,
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, user_id, name, color, text_color, category, is_system,
+			is_auto, conditions, description, activity_count, created_at`,
+		userID, name, color, textColor, isAuto, conditions, description,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt)
+		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.Description, &t.ActivityCount, &t.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -1608,7 +1702,7 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 }
 
 // UpdateTag updates an existing tag.
-func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string) (*model.Tag, error) {
+func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions *[]byte, description *string) (*model.Tag, error) {
 	var sets []string
 	var args []any
 	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
@@ -1629,16 +1723,34 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		args = append(args, textColor)
 		argIdx++
 	}
+	if isAuto != nil {
+		sets = append(sets, fmt.Sprintf("is_auto = $%d", argIdx))
+		args = append(args, *isAuto)
+		argIdx++
+	}
+	if conditions != nil {
+		sets = append(sets, fmt.Sprintf("conditions = $%d", argIdx))
+		args = append(args, *conditions)
+		argIdx++
+	}
+	if description != nil {
+		sets = append(sets, fmt.Sprintf("description = $%d", argIdx))
+		args = append(args, *description)
+		argIdx++
+	}
+
+	tagCols := `id, user_id, name, color, text_color, category, is_system,
+		is_auto, conditions, description, activity_count, created_at`
 
 	if len(sets) == 0 {
 		// Nothing to update, return existing tag
 		var t model.Tag
-		err := db.Pool.QueryRow(ctx, `
-			SELECT id, user_id, name, color, text_color, category, is_system, activity_count, created_at
-			FROM tags WHERE id = $1 AND user_id = $2`,
+		err := db.Pool.QueryRow(ctx,
+			fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1 AND user_id = $2`, tagCols),
 			tagID, userID,
 		).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt)
+			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.Description, &t.ActivityCount, &t.CreatedAt)
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
@@ -1651,14 +1763,15 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	query := fmt.Sprintf(`
 		UPDATE tags SET %s
 		WHERE id = $1 AND user_id = $2
-		RETURNING id, user_id, name, color, text_color, category, is_system, activity_count, created_at`,
-		strings.Join(sets, ", "),
+		RETURNING %s`,
+		strings.Join(sets, ", "), tagCols,
 	)
 
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.Description, &t.ActivityCount, &t.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1687,7 +1800,8 @@ func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
 // GetTagsByActivity returns all tags assigned to an activity via the activity_tags junction table.
 func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system, t.activity_count, t.created_at
+		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
+			t.is_auto, t.conditions, t.description, t.activity_count, t.created_at
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -1704,7 +1818,8 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 		var t model.Tag
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.Description, &t.ActivityCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -1714,6 +1829,69 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 		tags = []model.Tag{}
 	}
 	return tags, nil
+}
+
+// GetAutoTags returns all tags where is_auto=true for a user.
+func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, user_id, name, color, text_color, category, is_system,
+			is_auto, conditions, description, activity_count, created_at
+		FROM tags
+		WHERE user_id = $1 AND is_auto = true
+		ORDER BY name ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get auto tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []model.Tag
+	for rows.Next() {
+		var t model.Tag
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.Description, &t.ActivityCount, &t.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan auto tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []model.Tag{}
+	}
+	return tags, nil
+}
+
+// SeedDefaultAutoTags creates the default autotag definitions (Nacht, Frost) if they don't exist.
+func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
+	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
+	frostConditions := []byte(`{"operator":"OR","rules":[{"field":"temperature_min_c","op":"lt","value":0},{"field":"temperature_avg_c","op":"lt","value":0}]}`)
+	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
+	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
+
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
+		VALUES ($1, 'Nacht', '#1E293B', '#E2E8F0', true, $2, $3)
+		ON CONFLICT (user_id, name) DO NOTHING`,
+		userID, nachtConditions, nachtDesc,
+	)
+	if err != nil {
+		return fmt.Errorf("seed Nacht autotag: %w", err)
+	}
+
+	_, err = db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
+		VALUES ($1, 'Frost', '#38BDF8', '#0C4A6E', true, $2, $3)
+		ON CONFLICT (user_id, name) DO NOTHING`,
+		userID, frostConditions, frostDesc,
+	)
+	if err != nil {
+		return fmt.Errorf("seed Frost autotag: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateEnrichmentFields updates enrichment-related fields on an activity.

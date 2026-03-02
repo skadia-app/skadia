@@ -5,7 +5,7 @@ import { useTheme } from '@/lib/theme'
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/activities', label: 'Aktivitäten' },
-  { to: '/heatmap', label: 'Heatmap' },
+  { to: '/map', label: 'Karte' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },
 ]

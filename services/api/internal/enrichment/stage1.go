@@ -13,24 +13,14 @@ import (
 )
 
 // RunStage1 executes synchronous enrichment for an activity after upload.
-// This includes time-of-day, intensity, round-trip detection, and auto-naming.
-func RunStage1(ctx context.Context, db *database.DB, activityID string, data *model.ActivityData) {
+// This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData) {
 	fields := make(map[string]any)
 
 	// Time of day (requires GPS + start/end time)
 	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
 		if periods := TimeOfDayPeriods(data.StartLat, data.StartLng, data.StartedAt, data.EndedAt); len(periods) > 0 {
 			fields["time_of_day"] = periods
-		}
-	}
-
-	// Auto-tag "Nacht" when activity reaches astronomical night
-	if todPeriods, ok := fields["time_of_day"].([]string); ok {
-		for _, p := range todPeriods {
-			if p == "nacht" {
-				fields["tags"] = appendTagIfMissing(data.Tags, "Nacht")
-				break
-			}
 		}
 	}
 
@@ -46,15 +36,6 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 		if sun.SunsetAt != nil {
 			fields["sunset_at"] = *sun.SunsetAt
 		}
-	}
-
-	// Auto-tag "Frost" when any temperature reading is below 0°C
-	if hasFrostTemperature(data.Streams, data.AvgTemperatureC) {
-		base := data.Tags
-		if existing, ok := fields["tags"].([]string); ok {
-			base = existing
-		}
-		fields["tags"] = appendTagIfMissing(base, "Frost")
 	}
 
 	// Round trip detection (requires GPS start+end)
@@ -92,6 +73,30 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 	startCity, _ := fields["start_city"].(string)
 	if title := GenerateAutoTitle(data.SportType, startCity); title != "" {
 		fields["title_auto"] = title
+	}
+
+	// Autotag evaluation: collect enrichment context and evaluate all autotag rules
+	enrichCtx := &EnrichmentContext{
+		StartCity:    startCity,
+		StartCountry: "",
+		IsRoundTrip:  false,
+	}
+	if sc, ok := fields["start_country"].(string); ok {
+		enrichCtx.StartCountry = sc
+	}
+	if tod, ok := fields["time_of_day"].([]string); ok {
+		enrichCtx.TimeOfDay = tod
+	}
+	if rt, ok := fields["is_round_trip"].(bool); ok {
+		enrichCtx.IsRoundTrip = rt
+	}
+
+	if autoTags := EvaluateAutoTags(ctx, db, userID, data, enrichCtx); len(autoTags) > 0 {
+		base := data.Tags
+		for _, tag := range autoTags {
+			base = appendTagIfMissing(base, tag)
+		}
+		fields["tags"] = base
 	}
 
 	if len(fields) == 0 {

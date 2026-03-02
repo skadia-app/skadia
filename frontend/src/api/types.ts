@@ -15,6 +15,8 @@ export type SportType =
 
 export type Visibility = 'private' | 'bekannte' | 'instanz' | 'federation' | 'public'
 
+export type GearStatus = 'active' | 'stored' | 'retired'
+
 export interface Activity {
   id: string
   user_id: string
@@ -74,7 +76,7 @@ export interface Activity {
 export interface ActivitiesResponse {
   activities: Activity[]
   next_cursor: string | null
-  total: number  // Gesamtzahl aller Aktivitäten des Nutzers
+  total: number
 }
 
 export interface StreamPoint {
@@ -90,8 +92,6 @@ export interface StreamPoint {
   temperature_c?: number
 }
 
-// Privacy / Visibility – Felder die vom Backend noch nicht geliefert werden (Type-Stubs)
-// TODO: Backend muss hide_map und data_visibility in Activity-Response aufnehmen
 export interface DataVisibility {
   speed: boolean
   heart_rate: boolean
@@ -151,11 +151,13 @@ export interface Gear {
   brand?: string | null
   model?: string | null
   total_distance_m: number
+  total_elevation_gain_m: number
   total_time_s: number
   total_activities: number
   purchased_at?: string | null
   retired_at?: string | null
   is_retired: boolean
+  status: GearStatus
   default_for_sports: string[]
   notes?: string | null
   components?: GearComponent[]
@@ -171,10 +173,65 @@ export interface GearComponent {
   brand?: string | null
   model?: string | null
   total_distance_m: number
+  total_elevation_gain_m: number
+  total_time_s: number
+  purchase_price?: number | null
+  purchase_date?: string | null
+  weight_g?: number | null
+  serial_number?: string | null
   installed_at?: string | null
   removed_at?: string | null
   is_retired: boolean
+  status: GearStatus
   notes?: string | null
+}
+
+export interface ComponentAssignment {
+  id: string
+  component_id: string
+  gear_id: string
+  gear_name: string
+  installed_at: string
+  removed_at?: string | null
+}
+
+export interface ChainRotationGroup {
+  id: string
+  gear_id: string
+  name: string
+  swap_interval_km: number
+  members: ChainRotationMember[]
+  created_at: string
+}
+
+export interface ChainRotationMember {
+  id: string
+  group_id: string
+  component_id: string
+  component_name: string
+  position: number
+  is_active: boolean
+  distance_since_swap_m: number
+}
+
+export interface GearServiceEvent {
+  id: string
+  component_id: string
+  interval_id?: string | null
+  performed_at: string
+  distance_at_m?: number | null
+  description?: string | null
+  cost?: number | null
+  notes?: string | null
+  created_at: string
+}
+
+export interface ComponentTypePreset {
+  id: string
+  name: string
+  type: string
+  category: string
+  gear_type?: string | null
 }
 
 export interface MaintenanceAlert {

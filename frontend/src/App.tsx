@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard'
 import ActivitiesPage from '@/pages/ActivitiesPage'
 import ActivityDetailPage from '@/pages/ActivityDetailPage'
 import DashboardPage from '@/pages/DashboardPage'
-import HeatmapPage from '@/pages/HeatmapPage'
+import MapPage from '@/pages/MapPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PrivacySettingsPage from '@/pages/PrivacySettingsPage'
 import EnrichmentSettingsPage from '@/pages/EnrichmentSettingsPage'
@@ -14,6 +14,7 @@ import GearDetailPage from '@/pages/GearDetailPage'
 import AutomationRulesPage from '@/pages/AutomationRulesPage'
 import TagsPage from '@/pages/TagsPage'
 import WorkshopPage from '@/pages/WorkshopPage'
+import WorkshopReprocessPage from '@/pages/WorkshopReprocessPage'
 import LoginPage from '@/pages/LoginPage'
 import CallbackPage from '@/pages/CallbackPage'
 
@@ -32,8 +33,9 @@ export default function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="activities" element={<ActivitiesPage />} />
             <Route path="activities/:id" element={<ActivityDetailPage />} />
-            <Route path="heatmap" element={<HeatmapPage />} />
+            <Route path="map" element={<MapPage />} />
             <Route path="workshop" element={<WorkshopPage />} />
+            <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
             <Route path="workshop/tags" element={<TagsPage />} />
             <Route path="gear" element={<GearPage />} />
             <Route path="gear/:id" element={<GearDetailPage />} />

@@ -166,6 +166,7 @@ type ActivityUpdate struct {
 	Visibility     *string                `json:"visibility,omitempty"`
 	HideMap        *bool                  `json:"hide_map,omitempty"`
 	DataVisibility map[string]interface{} `json:"data_visibility,omitempty"`
+	GearID         json.RawMessage        `json:"gear_id,omitempty"`
 }
 
 // ActivityList is the paginated list response.
@@ -290,15 +291,18 @@ type GeoTag struct {
 
 // Tag represents a user-defined tag for categorizing activities.
 type Tag struct {
-	ID            string    `json:"id"`
-	UserID        string    `json:"user_id"`
-	Name          string    `json:"name"`
-	Color         string    `json:"color"`
-	TextColor     string    `json:"text_color"`
-	Category      string    `json:"category"`
-	IsSystem      bool      `json:"is_system"`
-	ActivityCount int       `json:"activity_count"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            string          `json:"id"`
+	UserID        string          `json:"user_id"`
+	Name          string          `json:"name"`
+	Color         string          `json:"color"`
+	TextColor     string          `json:"text_color"`
+	Category      string          `json:"category"`
+	IsSystem      bool            `json:"is_system"`
+	IsAuto        bool            `json:"is_auto"`
+	Conditions    json.RawMessage `json:"conditions,omitempty"`
+	Description   *string         `json:"description,omitempty"`
+	ActivityCount int             `json:"activity_count"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 // EnrichmentSettings holds user preferences for activity enrichment.
@@ -317,23 +321,25 @@ type EnrichmentSettings struct {
 
 // Gear represents a piece of equipment.
 type Gear struct {
-	ID               string          `json:"id"`
-	UserID           string          `json:"user_id"`
-	Name             string          `json:"name"`
-	Type             string          `json:"type"`
-	SubType          *string         `json:"sub_type,omitempty"`
-	Brand            *string         `json:"brand,omitempty"`
-	Model            *string         `json:"model,omitempty"`
-	TotalDistanceM   float64         `json:"total_distance_m"`
-	TotalTimeS       int64           `json:"total_time_s"`
-	TotalActivities  int             `json:"total_activities"`
-	PurchasedAt      *string         `json:"purchased_at,omitempty"`
-	RetiredAt        *string         `json:"retired_at,omitempty"`
-	IsRetired        bool            `json:"is_retired"`
-	DefaultForSports []string        `json:"default_for_sports"`
-	Notes            *string         `json:"notes,omitempty"`
-	Components       []GearComponent `json:"components,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
+	ID                  string          `json:"id"`
+	UserID              string          `json:"user_id"`
+	Name                string          `json:"name"`
+	Type                string          `json:"type"`
+	SubType             *string         `json:"sub_type,omitempty"`
+	Brand               *string         `json:"brand,omitempty"`
+	Model               *string         `json:"model,omitempty"`
+	TotalDistanceM      float64         `json:"total_distance_m"`
+	TotalTimeS          int64           `json:"total_time_s"`
+	TotalElevationGainM float64         `json:"total_elevation_gain_m"`
+	TotalActivities     int             `json:"total_activities"`
+	PurchasedAt         *string         `json:"purchased_at,omitempty"`
+	RetiredAt           *string         `json:"retired_at,omitempty"`
+	IsRetired           bool            `json:"is_retired"`
+	Status              string          `json:"status"`
+	DefaultForSports    []string        `json:"default_for_sports"`
+	Notes               *string         `json:"notes,omitempty"`
+	Components          []GearComponent `json:"components,omitempty"`
+	CreatedAt           time.Time       `json:"created_at"`
 }
 
 // GearCreate is the request body for creating a gear item.
@@ -364,28 +370,102 @@ type GearUpdate struct {
 
 // GearComponent represents a component attached to a gear item.
 type GearComponent struct {
-	ID                string  `json:"id"`
-	GearID            string  `json:"gear_id"`
-	ParentComponentID *string `json:"parent_component_id,omitempty"`
-	Name              string  `json:"name"`
-	Type              string  `json:"type"`
-	Brand             *string `json:"brand,omitempty"`
-	Model             *string `json:"model,omitempty"`
-	TotalDistanceM    float64 `json:"total_distance_m"`
-	InstalledAt       *string `json:"installed_at,omitempty"`
-	RemovedAt         *string `json:"removed_at,omitempty"`
-	IsRetired         bool    `json:"is_retired"`
-	Notes             *string `json:"notes,omitempty"`
+	ID                  string   `json:"id"`
+	GearID              string   `json:"gear_id"`
+	ParentComponentID   *string  `json:"parent_component_id,omitempty"`
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	Brand               *string  `json:"brand,omitempty"`
+	Model               *string  `json:"model,omitempty"`
+	TotalDistanceM      float64  `json:"total_distance_m"`
+	TotalElevationGainM float64  `json:"total_elevation_gain_m"`
+	TotalTimeS          int64    `json:"total_time_s"`
+	PurchasePrice       *float64 `json:"purchase_price,omitempty"`
+	PurchaseDate        *string  `json:"purchase_date,omitempty"`
+	WeightG             *int     `json:"weight_g,omitempty"`
+	SerialNumber        *string  `json:"serial_number,omitempty"`
+	InstalledAt         *string  `json:"installed_at,omitempty"`
+	RemovedAt           *string  `json:"removed_at,omitempty"`
+	IsRetired           bool     `json:"is_retired"`
+	Status              string   `json:"status"`
+	Notes               *string  `json:"notes,omitempty"`
 }
 
 // GearComponentCreate is the request body for creating a gear component.
 type GearComponentCreate struct {
-	Name              string  `json:"name"`
-	Type              string  `json:"type"`
-	ParentComponentID *string `json:"parent_component_id,omitempty"`
-	Brand             *string `json:"brand,omitempty"`
-	Model             *string `json:"model,omitempty"`
-	Notes             *string `json:"notes,omitempty"`
+	Name              string   `json:"name"`
+	Type              string   `json:"type"`
+	ParentComponentID *string  `json:"parent_component_id,omitempty"`
+	Brand             *string  `json:"brand,omitempty"`
+	Model             *string  `json:"model,omitempty"`
+	PurchasePrice     *float64 `json:"purchase_price,omitempty"`
+	PurchaseDate      *string  `json:"purchase_date,omitempty"`
+	WeightG           *int     `json:"weight_g,omitempty"`
+	SerialNumber      *string  `json:"serial_number,omitempty"`
+	Notes             *string  `json:"notes,omitempty"`
+}
+
+// ComponentAssignment represents a historical assignment of a component to a gear item.
+type ComponentAssignment struct {
+	ID             string  `json:"id"`
+	ComponentID    string  `json:"component_id"`
+	GearID         string  `json:"gear_id"`
+	InstalledAt    string  `json:"installed_at"`
+	RemovedAt      *string `json:"removed_at,omitempty"`
+	DistanceM      float64 `json:"distance_m"`
+	ElevationGainM float64 `json:"elevation_gain_m"`
+	TimeS          int64   `json:"time_s"`
+	Notes          *string `json:"notes,omitempty"`
+}
+
+// ChainRotationGroup represents a chain rotation group for a gear item.
+type ChainRotationGroup struct {
+	ID             string                `json:"id"`
+	UserID         string                `json:"user_id"`
+	GearID         string                `json:"gear_id"`
+	Name           string                `json:"name"`
+	SwapIntervalKM *float64              `json:"swap_interval_km,omitempty"`
+	SwapIntervalHM *float64              `json:"swap_interval_hm,omitempty"`
+	Members        []ChainRotationMember `json:"members"`
+	CreatedAt      string                `json:"created_at"`
+}
+
+// ChainRotationMember represents a member within a chain rotation group.
+type ChainRotationMember struct {
+	ID                  string  `json:"id"`
+	GroupID             string  `json:"group_id"`
+	ComponentID         string  `json:"component_id"`
+	ComponentName       string  `json:"component_name,omitempty"`
+	Position            int     `json:"position"`
+	IsActive            bool    `json:"is_active"`
+	TotalDistanceM      float64 `json:"total_distance_m"`
+	TotalElevationGainM float64 `json:"total_elevation_gain_m"`
+	LastSwappedAt       *string `json:"last_swapped_at,omitempty"`
+}
+
+// GearServiceEvent represents a service event performed on a component.
+type GearServiceEvent struct {
+	ID          string   `json:"id"`
+	ComponentID string   `json:"component_id"`
+	IntervalID  *string  `json:"interval_id,omitempty"`
+	PerformedAt string   `json:"performed_at"`
+	DistanceAtM *float64 `json:"distance_at_m,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Cost        *float64 `json:"cost,omitempty"`
+	Notes       *string  `json:"notes,omitempty"`
+	CreatedAt   string   `json:"created_at"`
+}
+
+// ComponentTypePreset represents a predefined component type.
+type ComponentTypePreset struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Category             string   `json:"category"`
+	GearType             *string  `json:"gear_type,omitempty"`
+	DefaultIntervalType  *string  `json:"default_interval_type,omitempty"`
+	DefaultIntervalValue *float64 `json:"default_interval_value,omitempty"`
+	TrackElevation       bool     `json:"track_elevation"`
+	SortOrder            int      `json:"sort_order"`
 }
 
 // GearServiceInterval represents a maintenance schedule for a component.

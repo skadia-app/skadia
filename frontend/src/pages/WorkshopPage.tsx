@@ -14,11 +14,10 @@ const sections = [
     icon: TagIcon,
   },
   {
-    to: null,
+    to: '/workshop/reprocess',
     title: 'Neu verarbeiten',
     description: 'Aktivitäten erneut durch die Enrichment-Pipeline verarbeiten',
     icon: ReprocessIcon,
-    comingSoon: true,
   },
 ]
 
@@ -33,44 +32,24 @@ export default function WorkshopPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {sections.map(({ to, title, description, icon: Icon, comingSoon }) =>
-          to ? (
-            <Link
-              key={title}
-              to={to}
-              className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
-                         hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-50 dark:bg-orange-900/20 text-orange-500">
-                  <Icon />
-                </div>
-                <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
-                  {title}
-                </h2>
+        {sections.map(({ to, title, description, icon: Icon }) => (
+          <Link
+            key={title}
+            to={to}
+            className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
+                       hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-sm transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-50 dark:bg-orange-900/20 text-orange-500">
+                <Icon />
               </div>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
-            </Link>
-          ) : (
-            <div
-              key={title}
-              className="rounded-xl border border-neutral-200 dark:border-neutral-800 border-dashed p-5 space-y-3 opacity-50"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
-                  <Icon />
-                </div>
-                <h2 className="text-base font-medium text-neutral-500 dark:text-neutral-400">{title}</h2>
-                {comingSoon && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
-                    Demnächst
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-neutral-400 dark:text-neutral-500">{description}</p>
+              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+                {title}
+              </h2>
             </div>
-          ),
-        )}
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
+          </Link>
+        ))}
       </div>
     </div>
   )

@@ -133,12 +133,14 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 //   - "sensors": sensor records
 //   - "metrics": all computed metrics (times, distances, HR, power, etc.)
 //   - "sport_type": sport_type + sub_type (only if not manually set)
+//   - "tags": re-evaluate autotag rules and update tags
 func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool) error {
 	allScope := len(scope) == 0 // nil/empty = reprocess everything
 	doStreams := allScope || scope["streams"]
 	doSensors := allScope || scope["sensors"]
 	doMetrics := allScope || scope["metrics"]
 	doSportType := allScope || scope["sport_type"]
+	doTags := allScope || scope["tags"]
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -189,9 +191,16 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.DeleteHeatmapLines(ctx, activityID); err != nil {
 			slog.Error("reprocess: delete heatmap lines failed", "id", activityID, "error", err)
 		}
+		if err := h.DB.DeleteHeatmapPoints(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete heatmap points failed", "id", activityID, "error", err)
+		}
 		if len(data.TrackPoints) >= 2 {
 			if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, data.StartedAt); err != nil {
 				slog.Error("reprocess: insert heatmap line failed", "id", activityID, "error", err)
+			}
+			interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
+			if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, data.SportType, data.StartedAt, interval); err != nil {
+				slog.Error("reprocess: insert heatmap points failed", "id", activityID, "error", err)
 			}
 		}
 	}
@@ -226,7 +235,14 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms).
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, h.DB, activityID, data)
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data)
+	}
+
+	// 8b. Tags-only reprocess: re-evaluate autotags without full enrichment.
+	if doTags && !allScope {
+		if err := h.reprocessTags(ctx, activityID, userID, data); err != nil {
+			slog.Error("reprocess: tags update failed", "id", activityID, "error", err)
+		}
 	}
 
 	// 9. Publish NATS event (triggers PMC recalculation).
@@ -243,4 +259,73 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	return nil
+}
+
+// reprocessTags re-evaluates autotag rules for an activity.
+// It removes autotags that no longer match and adds newly matching ones,
+// while preserving manually assigned tags.
+func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, data *model.ActivityData) error {
+	// Load current activity for enrichment context
+	activity, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil || activity == nil {
+		return fmt.Errorf("load activity for tag reprocess: %w", err)
+	}
+
+	// Build enrichment context from stored activity data
+	enrichCtx := &enrichment.EnrichmentContext{
+		IsRoundTrip: activity.IsRoundTrip,
+	}
+	if activity.StartCity != nil {
+		enrichCtx.StartCity = *activity.StartCity
+	}
+	if activity.StartCountry != nil {
+		enrichCtx.StartCountry = *activity.StartCountry
+	}
+	enrichCtx.TimeOfDay = activity.TimeOfDay
+
+	// Evaluate autotags
+	matchedNames := enrichment.EvaluateAutoTags(ctx, h.DB, userID, data, enrichCtx)
+	matchedSet := make(map[string]bool, len(matchedNames))
+	for _, name := range matchedNames {
+		matchedSet[name] = true
+	}
+
+	// Get all autotag definitions
+	autoTags, err := h.DB.GetAutoTags(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get auto tags: %w", err)
+	}
+	autoTagNames := make(map[string]bool, len(autoTags))
+	for _, at := range autoTags {
+		autoTagNames[at.Name] = true
+	}
+
+	// Remove autotags that no longer match (only if assigned_by='auto')
+	currentTags := activity.Tags
+	var newTags []string
+	for _, tag := range currentTags {
+		if autoTagNames[tag] && !matchedSet[tag] {
+			// This is an autotag that no longer matches — remove it
+			continue
+		}
+		newTags = append(newTags, tag)
+	}
+
+	// Add newly matched autotags
+	for _, name := range matchedNames {
+		found := false
+		for _, t := range newTags {
+			if t == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			newTags = append(newTags, name)
+		}
+	}
+
+	// Update the activity tags
+	fields := map[string]any{"tags": newTags}
+	return h.DB.UpdateEnrichmentFields(ctx, activityID, fields)
 }

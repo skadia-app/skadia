@@ -43,3 +43,15 @@ export async function executeRename(): Promise<RenameResult> {
 export async function getHotfolderImports(): Promise<HotfolderImport[]> {
   return apiClient<HotfolderImport[]>('/hotfolder/imports?limit=5')
 }
+
+export interface HeatmapSettings {
+  sampling_interval_m: number
+}
+
+export async function getHeatmapSettings(): Promise<HeatmapSettings> {
+  return apiClient<HeatmapSettings>('/settings/heatmap')
+}
+
+export async function updateHeatmapSettings(settings: HeatmapSettings): Promise<HeatmapSettings> {
+  return apiClient<HeatmapSettings>('/settings/heatmap', { method: 'PUT', body: settings })
+}

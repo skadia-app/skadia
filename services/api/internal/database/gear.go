@@ -10,15 +10,61 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// gearSelectCols are the columns returned by gear queries.
+const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
+	total_distance_m, total_time_s, total_elevation_gain_m, total_activities,
+	purchased_at, retired_at, is_retired, status, default_for_sports, notes, created_at`
+
+// scanGear scans a gear row into a model.Gear.
+func scanGear(row pgx.Row) (*model.Gear, error) {
+	var g model.Gear
+	err := row.Scan(
+		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
+		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
+		&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if g.DefaultForSports == nil {
+		g.DefaultForSports = []string{}
+	}
+	return &g, nil
+}
+
+// componentSelectCols are the columns returned by component queries.
+const componentSelectCols = `id, gear_id, parent_component_id, name, type, brand, model,
+	total_distance_m, total_elevation_gain_m, total_time_s,
+	purchase_price, purchase_date, weight_g, serial_number,
+	installed_at, removed_at, is_retired, status, notes`
+
+// scanComponent scans a component row into a model.GearComponent.
+func scanComponent(row pgx.Row) (*model.GearComponent, error) {
+	var c model.GearComponent
+	err := row.Scan(
+		&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
+		&c.TotalDistanceM, &c.TotalElevationGainM, &c.TotalTimeS,
+		&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
+		&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // --- Gear CRUD ---
 
-func (db *DB) ListGear(ctx context.Context, userID string, includeRetired bool) ([]model.Gear, error) {
-	query := `SELECT id, user_id, name, type, sub_type, brand, model,
-		total_distance_m, total_time_s, total_activities,
-		purchased_at, retired_at, is_retired, default_for_sports, notes, created_at
-		FROM gear WHERE user_id = $1`
-	if !includeRetired {
-		query += ` AND is_retired = false`
+func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]model.Gear, error) {
+	query := `SELECT ` + gearSelectCols + ` FROM gear WHERE user_id = $1`
+	if status != "" {
+		query += fmt.Sprintf(` AND status = '%s'`, status)
 	}
 	query += ` ORDER BY name`
 
@@ -33,8 +79,8 @@ func (db *DB) ListGear(ctx context.Context, userID string, includeRetired bool) 
 		var g model.Gear
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalActivities,
-			&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
+			&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan gear: %w", err)
 		}
@@ -55,50 +101,29 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 		sports = []string{}
 	}
 
-	var g model.Gear
-	err := db.Pool.QueryRow(ctx,
+	g, err := scanGear(db.Pool.QueryRow(ctx,
 		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, notes)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id, user_id, name, type, sub_type, brand, model,
-		   total_distance_m, total_time_s, total_activities,
-		   purchased_at, retired_at, is_retired, default_for_sports, notes, created_at`,
+		 RETURNING `+gearSelectCols,
 		userID, create.Name, create.Type, create.SubType, create.Brand, create.Model,
 		create.PurchasedAt, sports, create.Notes,
-	).Scan(
-		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalActivities,
-		&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
-	)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
-	if g.DefaultForSports == nil {
-		g.DefaultForSports = []string{}
-	}
 	g.Components = []model.GearComponent{}
-	return &g, nil
+	return g, nil
 }
 
 func (db *DB) GetGear(ctx context.Context, id string) (*model.Gear, error) {
-	var g model.Gear
-	err := db.Pool.QueryRow(ctx,
-		`SELECT id, user_id, name, type, sub_type, brand, model,
-		 total_distance_m, total_time_s, total_activities,
-		 purchased_at, retired_at, is_retired, default_for_sports, notes, created_at
-		 FROM gear WHERE id = $1`, id,
-	).Scan(
-		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalActivities,
-		&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
+	g, err := scanGear(db.Pool.QueryRow(ctx,
+		`SELECT `+gearSelectCols+` FROM gear WHERE id = $1`, id,
+	))
 	if err != nil {
 		return nil, fmt.Errorf("get gear: %w", err)
 	}
-	if g.DefaultForSports == nil {
-		g.DefaultForSports = []string{}
+	if g == nil {
+		return nil, nil
 	}
 
 	// Load components
@@ -107,7 +132,7 @@ func (db *DB) GetGear(ctx context.Context, id string) (*model.Gear, error) {
 		return nil, err
 	}
 	g.Components = components
-	return &g, nil
+	return g, nil
 }
 
 func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdate) (*model.Gear, error) {
@@ -172,27 +197,16 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 
 	args = append(args, id)
 	query := fmt.Sprintf(
-		`UPDATE gear SET %s WHERE id = $%d
-		 RETURNING id, user_id, name, type, sub_type, brand, model,
-		   total_distance_m, total_time_s, total_activities,
-		   purchased_at, retired_at, is_retired, default_for_sports, notes, created_at`,
+		`UPDATE gear SET %s WHERE id = $%d RETURNING `+gearSelectCols,
 		strings.Join(sets, ", "), argIdx,
 	)
 
-	var g model.Gear
-	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalActivities,
-		&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
+	g, err := scanGear(db.Pool.QueryRow(ctx, query, args...))
 	if err != nil {
 		return nil, fmt.Errorf("update gear: %w", err)
 	}
-	if g.DefaultForSports == nil {
-		g.DefaultForSports = []string{}
+	if g == nil {
+		return nil, nil
 	}
 
 	components, err := db.listComponents(ctx, id)
@@ -200,13 +214,29 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		return nil, err
 	}
 	g.Components = components
-	return &g, nil
+	return g, nil
 }
 
 func (db *DB) RetireGear(ctx context.Context, id string) error {
-	tag, err := db.Pool.Exec(ctx, `UPDATE gear SET is_retired = true WHERE id = $1`, id)
+	tag, err := db.Pool.Exec(ctx, `UPDATE gear SET is_retired = true, status = 'retired' WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("retire gear: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("gear not found")
+	}
+	return nil
+}
+
+// UpdateGearStatus changes the status of a gear item (active, stored, retired).
+func (db *DB) UpdateGearStatus(ctx context.Context, id, status string) error {
+	isRetired := status == "retired"
+	tag, err := db.Pool.Exec(ctx,
+		`UPDATE gear SET status = $1, is_retired = $2 WHERE id = $3`,
+		status, isRetired, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update gear status: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("gear not found")
@@ -218,9 +248,7 @@ func (db *DB) RetireGear(ctx context.Context, id string) error {
 
 func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearComponent, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, gear_id, parent_component_id, name, type, brand, model,
-		 total_distance_m, installed_at, removed_at, is_retired, notes
-		 FROM gear_components WHERE gear_id = $1 ORDER BY name`, gearID,
+		`SELECT `+componentSelectCols+` FROM gear_components WHERE gear_id = $1 ORDER BY name`, gearID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list components: %w", err)
@@ -232,7 +260,9 @@ func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearCo
 		var c model.GearComponent
 		if err := rows.Scan(
 			&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-			&c.TotalDistanceM, &c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Notes,
+			&c.TotalDistanceM, &c.TotalElevationGainM, &c.TotalTimeS,
+			&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
+			&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
 		); err != nil {
 			return nil, fmt.Errorf("scan component: %w", err)
 		}
@@ -245,24 +275,21 @@ func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearCo
 }
 
 func (db *DB) CreateComponent(ctx context.Context, gearID string, create *model.GearComponentCreate) (*model.GearComponent, error) {
-	var c model.GearComponent
-	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO gear_components (gear_id, parent_component_id, name, type, brand, model, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, gear_id, parent_component_id, name, type, brand, model,
-		   total_distance_m, installed_at, removed_at, is_retired, notes`,
-		gearID, create.ParentComponentID, create.Name, create.Type, create.Brand, create.Model, create.Notes,
-	).Scan(
-		&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-		&c.TotalDistanceM, &c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Notes,
-	)
+	c, err := scanComponent(db.Pool.QueryRow(ctx,
+		`INSERT INTO gear_components (gear_id, parent_component_id, name, type, brand, model,
+		  purchase_price, purchase_date, weight_g, serial_number, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 RETURNING `+componentSelectCols,
+		gearID, create.ParentComponentID, create.Name, create.Type, create.Brand, create.Model,
+		create.PurchasePrice, create.PurchaseDate, create.WeightG, create.SerialNumber, create.Notes,
+	))
 	if err != nil {
 		return nil, fmt.Errorf("create component: %w", err)
 	}
-	return &c, nil
+	return c, nil
 }
 
-func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string, brand, modelStr, notes *string, isRetired *bool) (*model.GearComponent, error) {
+func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string, brand, modelStr, notes *string, isRetired *bool, purchasePrice *float64, purchaseDate, serialNumber *string, weightG *int) (*model.GearComponent, error) {
 	var sets []string
 	var args []any
 	argIdx := 1
@@ -297,45 +324,49 @@ func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string,
 		args = append(args, *isRetired)
 		argIdx++
 	}
+	if purchasePrice != nil {
+		sets = append(sets, fmt.Sprintf("purchase_price = $%d", argIdx))
+		args = append(args, *purchasePrice)
+		argIdx++
+	}
+	if purchaseDate != nil {
+		sets = append(sets, fmt.Sprintf("purchase_date = $%d", argIdx))
+		args = append(args, *purchaseDate)
+		argIdx++
+	}
+	if serialNumber != nil {
+		sets = append(sets, fmt.Sprintf("serial_number = $%d", argIdx))
+		args = append(args, *serialNumber)
+		argIdx++
+	}
+	if weightG != nil {
+		sets = append(sets, fmt.Sprintf("weight_g = $%d", argIdx))
+		args = append(args, *weightG)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		// No changes, just return the existing component
-		var c model.GearComponent
-		err := db.Pool.QueryRow(ctx,
-			`SELECT id, gear_id, parent_component_id, name, type, brand, model,
-			 total_distance_m, installed_at, removed_at, is_retired, notes
-			 FROM gear_components WHERE id = $1`, id,
-		).Scan(&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-			&c.TotalDistanceM, &c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Notes)
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
+		c, err := scanComponent(db.Pool.QueryRow(ctx,
+			`SELECT `+componentSelectCols+` FROM gear_components WHERE id = $1`, id,
+		))
 		if err != nil {
 			return nil, fmt.Errorf("get component: %w", err)
 		}
-		return &c, nil
+		return c, nil
 	}
 
 	args = append(args, id)
 	query := fmt.Sprintf(
-		`UPDATE gear_components SET %s WHERE id = $%d
-		 RETURNING id, gear_id, parent_component_id, name, type, brand, model,
-		   total_distance_m, installed_at, removed_at, is_retired, notes`,
+		`UPDATE gear_components SET %s WHERE id = $%d RETURNING `+componentSelectCols,
 		strings.Join(sets, ", "), argIdx,
 	)
 
-	var c model.GearComponent
-	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-		&c.TotalDistanceM, &c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Notes,
-	)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
+	c, err := scanComponent(db.Pool.QueryRow(ctx, query, args...))
 	if err != nil {
 		return nil, fmt.Errorf("update component: %w", err)
 	}
-	return &c, nil
+	return c, nil
 }
 
 func (db *DB) DeleteComponent(ctx context.Context, id string) error {
@@ -347,6 +378,369 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 		return fmt.Errorf("component not found")
 	}
 	return nil
+}
+
+// --- Component Transfer ---
+
+// TransferComponent moves a component from one gear to another, closing the
+// current assignment and creating a new one.
+func (db *DB) TransferComponent(ctx context.Context, componentID, fromGearID, toGearID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Close current assignment
+	_, err = tx.Exec(ctx,
+		`UPDATE component_assignments SET removed_at = NOW() WHERE component_id = $1 AND removed_at IS NULL`,
+		componentID,
+	)
+	if err != nil {
+		return fmt.Errorf("close assignment: %w", err)
+	}
+
+	// Create new assignment
+	_, err = tx.Exec(ctx,
+		`INSERT INTO component_assignments (component_id, gear_id, installed_at)
+		 VALUES ($1, $2, NOW())`,
+		componentID, toGearID,
+	)
+	if err != nil {
+		return fmt.Errorf("create assignment: %w", err)
+	}
+
+	// Update component's gear_id
+	_, err = tx.Exec(ctx,
+		`UPDATE gear_components SET gear_id = $1 WHERE id = $2`,
+		toGearID, componentID,
+	)
+	if err != nil {
+		return fmt.Errorf("update component gear: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transfer: %w", err)
+	}
+
+	// Update stats for both gears (outside tx, best-effort)
+	_ = db.UpdateGearStats(ctx, fromGearID)
+	_ = db.UpdateGearStats(ctx, toGearID)
+
+	return nil
+}
+
+// --- Component History ---
+
+func (db *DB) GetComponentHistory(ctx context.Context, componentID string) ([]model.ComponentAssignment, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, component_id, gear_id, installed_at::text, removed_at::text,
+		 COALESCE(distance_m, 0), COALESCE(elevation_gain_m, 0), COALESCE(time_s, 0), notes
+		 FROM component_assignments WHERE component_id = $1
+		 ORDER BY installed_at DESC`, componentID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get component history: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.ComponentAssignment
+	for rows.Next() {
+		var a model.ComponentAssignment
+		if err := rows.Scan(
+			&a.ID, &a.ComponentID, &a.GearID, &a.InstalledAt, &a.RemovedAt,
+			&a.DistanceM, &a.ElevationGainM, &a.TimeS, &a.Notes,
+		); err != nil {
+			return nil, fmt.Errorf("scan component assignment: %w", err)
+		}
+		items = append(items, a)
+	}
+	if items == nil {
+		items = []model.ComponentAssignment{}
+	}
+	return items, nil
+}
+
+// --- Chain Rotation ---
+
+func (db *DB) GetChainRotation(ctx context.Context, gearID string) (*model.ChainRotationGroup, error) {
+	var g model.ChainRotationGroup
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text
+		 FROM chain_rotation_groups WHERE gear_id = $1`, gearID,
+	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get chain rotation: %w", err)
+	}
+
+	members, err := db.listChainMembers(ctx, g.ID)
+	if err != nil {
+		return nil, err
+	}
+	g.Members = members
+	return &g, nil
+}
+
+func (db *DB) listChainMembers(ctx context.Context, groupID string) ([]model.ChainRotationMember, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT m.id, m.group_id, m.component_id, COALESCE(gc.name, ''), m.position, m.is_active,
+		 m.total_distance_m, m.total_elevation_gain_m, m.last_swapped_at::text
+		 FROM chain_rotation_members m
+		 LEFT JOIN gear_components gc ON gc.id = m.component_id
+		 WHERE m.group_id = $1
+		 ORDER BY m.position`, groupID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list chain members: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.ChainRotationMember
+	for rows.Next() {
+		var m model.ChainRotationMember
+		if err := rows.Scan(
+			&m.ID, &m.GroupID, &m.ComponentID, &m.ComponentName, &m.Position, &m.IsActive,
+			&m.TotalDistanceM, &m.TotalElevationGainM, &m.LastSwappedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan chain member: %w", err)
+		}
+		items = append(items, m)
+	}
+	if items == nil {
+		items = []model.ChainRotationMember{}
+	}
+	return items, nil
+}
+
+// ChainRotationGroupCreate is the input for creating a chain rotation group.
+type ChainRotationGroupCreate struct {
+	Name           string   `json:"name"`
+	SwapIntervalKM *float64 `json:"swap_interval_km,omitempty"`
+	SwapIntervalHM *float64 `json:"swap_interval_hm,omitempty"`
+	ComponentIDs   []string `json:"component_ids"`
+}
+
+func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, create *ChainRotationGroupCreate) (*model.ChainRotationGroup, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var g model.ChainRotationGroup
+	err = tx.QueryRow(ctx,
+		`INSERT INTO chain_rotation_groups (user_id, gear_id, name, swap_interval_km, swap_interval_hm)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text`,
+		userID, gearID, create.Name, create.SwapIntervalKM, create.SwapIntervalHM,
+	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create chain rotation: %w", err)
+	}
+
+	// Create members
+	for i, compID := range create.ComponentIDs {
+		isActive := i == 0 // First component is active
+		_, err = tx.Exec(ctx,
+			`INSERT INTO chain_rotation_members (group_id, component_id, position, is_active)
+			 VALUES ($1, $2, $3, $4)`,
+			g.ID, compID, i+1, isActive,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create chain member: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit chain rotation: %w", err)
+	}
+
+	// Reload with members
+	return db.GetChainRotation(ctx, gearID)
+}
+
+func (db *DB) UpdateChainRotation(ctx context.Context, groupID string, intervalKM, intervalHM *float64) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE chain_rotation_groups SET swap_interval_km = $1, swap_interval_hm = $2 WHERE id = $3`,
+		intervalKM, intervalHM, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("update chain rotation: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) DeleteChainRotation(ctx context.Context, groupID string) error {
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM chain_rotation_groups WHERE id = $1`, groupID)
+	if err != nil {
+		return fmt.Errorf("delete chain rotation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("chain rotation not found")
+	}
+	return nil
+}
+
+// SwapChain deactivates the current active member and activates the next one in position order.
+func (db *DB) SwapChain(ctx context.Context, groupID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Find current active position
+	var currentPos int
+	var totalMembers int
+	err = tx.QueryRow(ctx,
+		`SELECT position FROM chain_rotation_members WHERE group_id = $1 AND is_active = true`, groupID,
+	).Scan(&currentPos)
+	if err == pgx.ErrNoRows {
+		currentPos = 0
+	} else if err != nil {
+		return fmt.Errorf("find active member: %w", err)
+	}
+
+	err = tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM chain_rotation_members WHERE group_id = $1`, groupID,
+	).Scan(&totalMembers)
+	if err != nil {
+		return fmt.Errorf("count members: %w", err)
+	}
+	if totalMembers == 0 {
+		return fmt.Errorf("no members in rotation")
+	}
+
+	// Deactivate current
+	_, err = tx.Exec(ctx,
+		`UPDATE chain_rotation_members SET is_active = false, last_swapped_at = NOW()
+		 WHERE group_id = $1 AND is_active = true`, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("deactivate current: %w", err)
+	}
+
+	// Activate next (wrap around)
+	nextPos := currentPos%totalMembers + 1
+	_, err = tx.Exec(ctx,
+		`UPDATE chain_rotation_members SET is_active = true
+		 WHERE group_id = $1 AND position = $2`, groupID, nextPos,
+	)
+	if err != nil {
+		return fmt.Errorf("activate next: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// --- Service Events ---
+
+// ServiceEventCreate is the input for creating a service event.
+type ServiceEventCreate struct {
+	IntervalID  *string  `json:"interval_id,omitempty"`
+	PerformedAt string   `json:"performed_at"`
+	DistanceAtM *float64 `json:"distance_at_m,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Cost        *float64 `json:"cost,omitempty"`
+	Notes       *string  `json:"notes,omitempty"`
+}
+
+func (db *DB) ListServiceEvents(ctx context.Context, componentID string) ([]model.GearServiceEvent, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, component_id, interval_id, performed_at::text, distance_at_m,
+		 description, cost, notes, created_at::text
+		 FROM gear_service_events WHERE component_id = $1
+		 ORDER BY performed_at DESC`, componentID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list service events: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.GearServiceEvent
+	for rows.Next() {
+		var e model.GearServiceEvent
+		if err := rows.Scan(
+			&e.ID, &e.ComponentID, &e.IntervalID, &e.PerformedAt, &e.DistanceAtM,
+			&e.Description, &e.Cost, &e.Notes, &e.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan service event: %w", err)
+		}
+		items = append(items, e)
+	}
+	if items == nil {
+		items = []model.GearServiceEvent{}
+	}
+	return items, nil
+}
+
+func (db *DB) CreateServiceEvent(ctx context.Context, componentID string, create *ServiceEventCreate) (*model.GearServiceEvent, error) {
+	var e model.GearServiceEvent
+	err := db.Pool.QueryRow(ctx,
+		`INSERT INTO gear_service_events (component_id, interval_id, performed_at, distance_at_m, description, cost, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, component_id, interval_id, performed_at::text, distance_at_m,
+		   description, cost, notes, created_at::text`,
+		componentID, create.IntervalID, create.PerformedAt, create.DistanceAtM,
+		create.Description, create.Cost, create.Notes,
+	).Scan(
+		&e.ID, &e.ComponentID, &e.IntervalID, &e.PerformedAt, &e.DistanceAtM,
+		&e.Description, &e.Cost, &e.Notes, &e.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create service event: %w", err)
+	}
+	return &e, nil
+}
+
+func (db *DB) DeleteServiceEvent(ctx context.Context, eventID string) error {
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM gear_service_events WHERE id = $1`, eventID)
+	if err != nil {
+		return fmt.Errorf("delete service event: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("service event not found")
+	}
+	return nil
+}
+
+// --- Component Presets ---
+
+func (db *DB) ListComponentPresets(ctx context.Context, gearType string) ([]model.ComponentTypePreset, error) {
+	query := `SELECT id, name, category, gear_type, default_interval_type, default_interval_value,
+		track_elevation, sort_order
+		FROM component_type_presets`
+	var args []any
+	if gearType != "" {
+		query += ` WHERE gear_type = $1 OR gear_type IS NULL`
+		args = append(args, gearType)
+	}
+	query += ` ORDER BY sort_order, name`
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list component presets: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.ComponentTypePreset
+	for rows.Next() {
+		var p model.ComponentTypePreset
+		if err := rows.Scan(
+			&p.ID, &p.Name, &p.Category, &p.GearType, &p.DefaultIntervalType,
+			&p.DefaultIntervalValue, &p.TrackElevation, &p.SortOrder,
+		); err != nil {
+			return nil, fmt.Errorf("scan component preset: %w", err)
+		}
+		items = append(items, p)
+	}
+	if items == nil {
+		items = []model.ComponentTypePreset{}
+	}
+	return items, nil
 }
 
 // --- Maintenance ---
@@ -534,6 +928,7 @@ func (db *DB) UpdateGearStats(ctx context.Context, gearID string) error {
 		`UPDATE gear SET
 		   total_distance_m = COALESCE((SELECT SUM(COALESCE(a.distance_m, 0)) FROM activities a WHERE a.gear_id = $1), 0),
 		   total_time_s = COALESCE((SELECT SUM(COALESCE(a.elapsed_time_s, 0)) FROM activities a WHERE a.gear_id = $1), 0),
+		   total_elevation_gain_m = COALESCE((SELECT SUM(COALESCE(a.elevation_gain_m, 0)) FROM activities a WHERE a.gear_id = $1), 0),
 		   total_activities = COALESCE((SELECT COUNT(*) FROM activities a WHERE a.gear_id = $1), 0)
 		 WHERE id = $1`, gearID,
 	)
@@ -638,4 +1033,3 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		return fmt.Errorf("unknown field: %s", field)
 	}
 }
-
