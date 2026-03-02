@@ -1,14 +1,16 @@
 import { useRef, useEffect, useState, useCallback, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
 import { getAllSportKeys } from '@/lib/sportOptions'
+import { getHeatmapSettings } from '@/api/settings'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
-type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite'
+type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark'
 type ViewMode = 'tracks' | 'heatmap'
 
 const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attribution: string }> = {
@@ -35,6 +37,15 @@ const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attributi
     label: 'Satellit',
     tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
     attribution: '&copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
+  },
+  dark: {
+    label: 'Dark',
+    tiles: [
+      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    ],
+    attribution: '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
 }
 
@@ -83,9 +94,16 @@ const defaultFilters: MapFilterState = {
   opacity: 70,
 }
 
-function buildTileUrl(source: 'heatmap_lines' | 'heatmap_points', filters: MapFilterState): string {
-  const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? '/tiles'
-  const base = `${MARTIN_BASE}/${source}/{z}/{x}/{y}.pbf`
+function buildTileUrl(
+  source: 'heatmap_lines' | 'heatmap_points',
+  filters: MapFilterState,
+  teleportThresholdM: number, // 0 = kein Filter
+): string {
+  // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
+  // (/tiles/...) nicht auflösen → immer absolute URL erzwingen.
+  // VITE_MARTIN_URL muss daher eine absolute URL sein (z.B. https://skadia.example.com/tiles).
+  const martinBase = import.meta.env.VITE_MARTIN_URL ?? `${window.location.origin}/tiles`
+  const base = `${martinBase}/${source}/{z}/{x}/{y}`
   const params = new URLSearchParams()
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
@@ -127,8 +145,11 @@ function buildTileUrl(source: 'heatmap_lines' | 'heatmap_points', filters: MapFi
       params.set('sub_type', Array.from(subTypes).join(','))
     }
   }
-  if (filters.dateFrom) params.set('activity_date_gte', filters.dateFrom)
-  if (filters.dateTo) params.set('activity_date_lte', filters.dateTo)
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom)
+  if (filters.dateTo) params.set('date_to', filters.dateTo)
+  if (teleportThresholdM > 0) {
+    params.set('teleport_threshold_m', String(teleportThresholdM))
+  }
 
   const qs = params.toString()
   return qs ? `${base}?${qs}` : base
@@ -237,7 +258,7 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
   }
 
   return (
-    <div ref={containerRef} className="absolute top-20 left-3 z-10 w-72">
+    <div ref={containerRef} className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-80">
       <div className="relative">
         <input
           type="text"
@@ -287,21 +308,47 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
   )
 }
 
+// Kartenstile, die als "hell" gelten — beim Wechsel zu Heatmap wird automatisch
+// auf Dark gewechselt. Satellite bleibt unangetastet.
+const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm']
+
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [baseStyle, setBaseStyle] = useState<BaseStyle>('osm')
   const [filters, setFilters] = useState<MapFilterState>(defaultFilters)
   const [viewMode, setViewMode] = useState<ViewMode>('tracks')
-  const styleLoadedRef = useRef(false)
+  // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
+  // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
+  const autoSwitchedToDark = useRef(false)
+  const styleBeforeAutoSwitch = useRef<BaseStyle>('osm')
 
-  // Initialize map
+  // Heatmap-Settings laden (Teleportfilter)
+  const { data: heatmapSettings } = useQuery({
+    queryKey: ['heatmap-settings'],
+    queryFn: getHeatmapSettings,
+  })
+
+  const teleportThresholdM = heatmapSettings?.teleport_filter_map
+    ? (heatmapSettings.teleport_threshold_m ?? 2000)
+    : 0
+
+  // Refs damit der style.load-Handler immer die aktuellen Werte sieht,
+  // ohne jedes Mal neu registriert werden zu müssen.
+  const filtersRef = useRef(filters)
+  const viewModeRef = useRef(viewMode)
+  const teleportRef = useRef(teleportThresholdM)
+  useEffect(() => { filtersRef.current = filters }, [filters])
+  useEffect(() => { viewModeRef.current = viewMode }, [viewMode])
+  useEffect(() => { teleportRef.current = teleportThresholdM }, [teleportThresholdM])
+
+  // ── Einmalige Karteninitialisierung ─────────────────────────────────────
   useEffect(() => {
     if (!mapContainerRef.current) return
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: buildMapStyle(baseStyle),
+      style: buildMapStyle('osm'),
       center: [10.45, 51.16],
       zoom: 6,
       attributionControl: { compact: false },
@@ -309,18 +356,16 @@ export default function MapPage() {
 
     map.addControl(new maplibregl.NavigationControl(), 'top-left')
 
-    map.on('load', () => {
-      styleLoadedRef.current = true
-      // Force a resize after load so MapLibre re-reads the container's actual
-      // pixel dimensions. Without this, MapLibre sometimes initialises with the
-      // height of the viewport *before* the navigation bar is subtracted,
-      // producing the "tiles only load in a horizontal band in the middle" effect.
+    // Persistenter Handler: feuert bei JEDEM setStyle(), also initial und bei
+    // Kartenstil-Wechsel. removeOverlayLayers() wird zuerst aufgerufen, damit
+    // kein "Source already exists"-Fehler entsteht falls der Handler mehrfach
+    // feuert (z. B. React StrictMode double-invoke).
+    map.on('style.load', () => {
       map.resize()
-      addOverlayLayers(map, filters, viewMode)
+      removeOverlayLayers(map)
+      addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current)
     })
 
-    // Keep the map in sync if the container is resized (e.g. browser window resize,
-    // DevTools open/close, sidebar toggled).
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(mapContainerRef.current)
 
@@ -330,11 +375,13 @@ export default function MapPage() {
       ro.disconnect()
       map.remove()
       mapRef.current = null
-      styleLoadedRef.current = false
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update base style
+  // ── Kartenstil wechseln ──────────────────────────────────────────────────
+  // Läuft auch beim ersten Render (baseStyle='osm'), was einen zweiten setStyle-
+  // Aufruf verursacht. Das ist kein Problem: removeOverlayLayers im style.load-
+  // Handler räumt vorher auf, und die Kameraposition ist noch unverändert.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -344,28 +391,20 @@ export default function MapPage() {
 
     map.setStyle(buildMapStyle(baseStyle))
 
+    // Kameraposition nach Stilwechsel wiederherstellen
     map.once('style.load', () => {
       map.setCenter(center)
       map.setZoom(zoom)
-      map.resize()
-      styleLoadedRef.current = true
-      addOverlayLayers(map, filters, viewMode)
     })
   }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update overlay layers when filters or view mode change
+  // ── Overlay bei Filter-/Modus-/Settings-Änderung aktualisieren ──────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !styleLoadedRef.current) return
-
-    const apply = () => {
-      removeOverlayLayers(map)
-      addOverlayLayers(map, filters, viewMode)
-    }
-
-    if (map.isStyleLoaded()) apply()
-    else map.once('style.load', apply)
-  }, [filters, viewMode])
+    if (!map || !map.isStyleLoaded()) return
+    removeOverlayLayers(map)
+    addOverlayLayers(map, filters, viewMode, teleportThresholdM)
+  }, [filters, viewMode, heatmapSettings])
 
   const handleFilterChange = useCallback((next: MapFilterState) => {
     setFilters(next)
@@ -399,7 +438,14 @@ export default function MapPage() {
         {/* View mode toggle */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
           <button
-            onClick={() => setViewMode('tracks')}
+            onClick={() => {
+              setViewMode('tracks')
+              // Automatisch gesetzten Dark-Stil zuruecksetzen
+              if (autoSwitchedToDark.current) {
+                autoSwitchedToDark.current = false
+                setBaseStyle(styleBeforeAutoSwitch.current)
+              }
+            }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'tracks'
                 ? 'bg-orange-500 text-white'
@@ -409,7 +455,15 @@ export default function MapPage() {
             Tracks
           </button>
           <button
-            onClick={() => setViewMode('heatmap')}
+            onClick={() => {
+              setViewMode('heatmap')
+              // Automatisch auf Dark wechseln, wenn aktueller Stil ein heller Stil ist
+              if (LIGHT_STYLES.includes(baseStyle)) {
+                styleBeforeAutoSwitch.current = baseStyle
+                autoSwitchedToDark.current = true
+                setBaseStyle('dark')
+              }
+            }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'heatmap'
                 ? 'bg-orange-500 text-white'
@@ -430,19 +484,24 @@ export default function MapPage() {
 function removeOverlayLayers(map: maplibregl.Map) {
   if (map.getLayer('heatmap-lines')) map.removeLayer('heatmap-lines')
   if (map.getSource('heatmap')) map.removeSource('heatmap')
-  if (map.getLayer('density-heat')) map.removeLayer('density-heat')
-  if (map.getSource('heatmap-points')) map.removeSource('heatmap-points')
 }
 
-function addOverlayLayers(map: maplibregl.Map, filters: MapFilterState, viewMode: ViewMode) {
-  if (viewMode === 'tracks' || viewMode === 'heatmap') {
-    // Lines layer (tracks mode)
-    map.addSource('heatmap', {
-      type: 'vector',
-      tiles: [buildTileUrl('heatmap_lines', filters)],
-      minzoom: 0,
-      maxzoom: 14,
-    })
+function addOverlayLayers(
+  map: maplibregl.Map,
+  filters: MapFilterState,
+  viewMode: ViewMode,
+  teleportThresholdM: number,
+) {
+  // Linien-Layer fuer beide Modi
+  map.addSource('heatmap', {
+    type: 'vector',
+    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM)],
+    minzoom: 0,
+    maxzoom: 14,
+  })
+
+  if (viewMode === 'tracks') {
+    // Tracks: nutzerdefinierte Opacity, orange
     map.addLayer({
       id: 'heatmap-lines',
       type: 'line',
@@ -451,46 +510,22 @@ function addOverlayLayers(map: maplibregl.Map, filters: MapFilterState, viewMode
       paint: {
         'line-color': '#F97316',
         'line-width': 2,
-        'line-opacity': viewMode === 'tracks'
-          ? Math.pow(filters.opacity / 100, 2)
-          : ['interpolate', ['linear'], ['zoom'], 12, 0, 14, Math.pow(filters.opacity / 100, 2)],
+        'line-opacity': Math.pow(filters.opacity / 100, 2),
       },
     })
-  }
-
-  if (viewMode === 'heatmap') {
-    // Points layer (heatmap mode)
-    map.addSource('heatmap-points', {
-      type: 'vector',
-      tiles: [buildTileUrl('heatmap_points', filters)],
-      minzoom: 0,
-      maxzoom: 14,
-    })
-    map.addLayer(
-      {
-        id: 'density-heat',
-        type: 'heatmap',
-        source: 'heatmap-points',
-        'source-layer': 'heatmap_points',
-        maxzoom: 14,
-        paint: {
-          'heatmap-weight': 1,
-          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 14, 3],
-          'heatmap-color': [
-            'interpolate', ['linear'], ['heatmap-density'],
-            0, 'rgba(0, 0, 255, 0)',
-            0.1, 'rgba(65, 105, 225, 0.4)',
-            0.3, 'rgb(0, 191, 255)',
-            0.5, 'rgb(0, 255, 127)',
-            0.7, 'rgb(255, 255, 0)',
-            0.9, 'rgb(255, 140, 0)',
-            1, 'rgb(255, 0, 0)',
-          ],
-          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 6, 8, 10, 18, 14, 30],
-          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 12, 1, 14, 0],
-        },
+  } else {
+    // Heatmap: niedrige feste Opacity — Alpha-Compositing erzeugt natuerliche
+    // Helligkeitsunterschiede: viele ueberlagerte Tracks leuchten heller auf.
+    map.addLayer({
+      id: 'heatmap-lines',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#F97316',
+        'line-width': 2,
+        'line-opacity': 0.25,
       },
-      'heatmap-lines',
-    )
+    })
   }
 }

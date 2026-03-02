@@ -6,6 +6,7 @@ import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity } from '@/api/activities'
+import { getHeatmapSettings } from '@/api/settings'
 import { fetchTags, createTag } from '@/api/tags'
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
@@ -495,6 +496,32 @@ function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
+/** Haversine-Distanz in Metern zwischen zwei [lng, lat]-Koordinaten */
+function haversineM([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]): number {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+
+/** Teilt Koordinaten bei Sprüngen > thresholdM in separate Segmente auf */
+function splitAtGaps(coords: [number, number][], thresholdM: number): [number, number][][] {
+  if (coords.length < 2 || thresholdM <= 0) return [coords]
+  const segments: [number, number][][] = []
+  let current: [number, number][] = [coords[0]]
+  for (let i = 1; i < coords.length; i++) {
+    if (haversineM(coords[i-1], coords[i]) > thresholdM) {
+      if (current.length >= 2) segments.push(current)
+      current = [coords[i]]
+    } else {
+      current.push(coords[i])
+    }
+  }
+  if (current.length >= 2) segments.push(current)
+  return segments.length > 0 ? segments : [coords]
+}
+
 function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize }: {
   streams: StreamPoint[]
   hoverIndex: number | null
@@ -507,12 +534,27 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
 
+  const { data: heatmapSettings } = useQuery({
+    queryKey: ['heatmap-settings'],
+    queryFn: getHeatmapSettings,
+    staleTime: Infinity,
+  })
+
   // Build GeoJSON from stream lat/lng
   const coordinates = streams
     .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
     .map(s => [s.lng, s.lat] as [number, number])
 
   const hasTrack = coordinates.length >= 2
+
+  const teleportThresholdM = heatmapSettings?.teleport_filter_activity
+    ? (heatmapSettings.teleport_threshold_m ?? 2000)
+    : 0
+  const trackSegments = splitAtGaps(coordinates, teleportThresholdM)
+
+  const trackGeometry = trackSegments.length === 1
+    ? { type: 'LineString' as const, coordinates: trackSegments[0] }
+    : { type: 'MultiLineString' as const, coordinates: trackSegments }
 
   // Initialize map
   useEffect(() => {
@@ -552,7 +594,7 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
         data: {
           type: 'Feature',
           properties: {},
-          geometry: { type: 'LineString', coordinates },
+          geometry: trackGeometry,
         },
       })
       map.addLayer({

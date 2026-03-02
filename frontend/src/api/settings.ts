@@ -51,6 +51,9 @@ export async function getHotfolderImports(): Promise<HotfolderImport[]> {
 
 export interface HeatmapSettings {
   sampling_interval_m: number
+  teleport_threshold_m: number
+  teleport_filter_map: boolean
+  teleport_filter_activity: boolean
 }
 
 export async function getHeatmapSettings(): Promise<HeatmapSettings> {

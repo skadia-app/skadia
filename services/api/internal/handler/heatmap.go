@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) BackfillHeatmap(w http.ResponseWriter, r *http.Request) {
@@ -41,26 +42,32 @@ func (h *Handler) BackfillHeatmapPoints(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) GetHeatmapSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-	interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
-	writeJSON(w, http.StatusOK, map[string]int{"heatmap_sample_interval_m": interval})
+	s, err := h.DB.GetHeatmapSettings(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get heatmap settings", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
 }
 
 func (h *Handler) UpdateHeatmapSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-	var req struct {
-		HeatmapSampleIntervalM int `json:"heatmap_sample_interval_m"`
-	}
+	var req model.HeatmapSettings
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if req.HeatmapSampleIntervalM < 10 || req.HeatmapSampleIntervalM > 100 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "interval must be between 10 and 100", r.URL.Path)
+	if req.SamplingIntervalM < 10 || req.SamplingIntervalM > 100 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "sampling_interval_m must be 10–100", r.URL.Path)
 		return
 	}
-	if err := h.DB.UpdateUserHeatmapInterval(r.Context(), userID, req.HeatmapSampleIntervalM); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update interval", r.URL.Path)
+	if req.TeleportThresholdM < 100 || req.TeleportThresholdM > 50000 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "teleport_threshold_m must be 100–50000", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"heatmap_sample_interval_m": req.HeatmapSampleIntervalM})
+	if err := h.DB.UpdateHeatmapSettings(r.Context(), userID, &req); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update heatmap settings", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
 }

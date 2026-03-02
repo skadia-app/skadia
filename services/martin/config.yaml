@@ -3,26 +3,10 @@ postgres:
   auto_publish:
     tables: false
     functions: false
-  tables:
+  functions:
     heatmap_lines:
       schema: public
-      table: heatmap_lines
-      srid: 4326
-      geometry_column: geom
-      geometry_type: LINESTRING
-      properties:
-        user_id: uuid
-        sport_type: text
-        sub_type: text
-        activity_date: date
+      function: heatmap_lines_mvt
     heatmap_points:
       schema: public
-      table: heatmap_points
-      srid: 4326
-      geometry_column: geom
-      geometry_type: POINT
-      properties:
-        user_id: uuid
-        sport_type: text
-        sub_type: text
-        activity_date: date
+      function: heatmap_points_mvt

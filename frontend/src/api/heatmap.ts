@@ -8,7 +8,7 @@ export function getHeatmapTileUrl(params?: {
   date_from?: string
   date_to?: string
 }): string {
-  const base = `${MARTIN_BASE}/heatmap_lines/{z}/{x}/{y}.pbf`
+  const base = `${MARTIN_BASE}/heatmap_lines/{z}/{x}/{y}`
   if (!params) return base
 
   const qs = new URLSearchParams()

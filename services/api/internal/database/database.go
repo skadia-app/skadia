@@ -1285,13 +1285,42 @@ func (db *DB) ListHotfolderImports(ctx context.Context, userID string, limit int
 
 // InsertHeatmapLine copies the track geometry into heatmap_lines.
 // Uses COALESCE(track_public, track_full) so privacy zones are respected.
+// Segments longer than 2000 m (GPS teleportation jumps) are treated as group
+// boundaries: each contiguous group of points is stored as a separate row so
+// that straight "teleportation lines" never appear in the heatmap.
 func (db *DB) InsertHeatmapLine(ctx context.Context, userID, activityID, sportType string, subType *string, startedAt time.Time) error {
 	_, err := db.Pool.Exec(ctx, `
+		WITH pts AS (
+		  SELECT (ST_DumpPoints(COALESCE(track_public, track_full))).path[1] AS idx,
+		         (ST_DumpPoints(COALESCE(track_public, track_full))).geom  AS pt
+		  FROM activity_tracks
+		  WHERE activity_id = $2
+		    AND track_full IS NOT NULL
+		),
+		with_dist AS (
+		  SELECT idx, pt,
+		    COALESCE(
+		      ST_Distance(pt::geography, LAG(pt) OVER (ORDER BY idx)::geography),
+		      0
+		    ) AS prev_dist
+		  FROM pts
+		),
+		grouped AS (
+		  SELECT idx, pt,
+		    SUM(CASE WHEN prev_dist > 2000 THEN 1 ELSE 0 END)
+		      OVER (ORDER BY idx) AS grp
+		  FROM with_dist
+		),
+		line_groups AS (
+		  SELECT grp, ST_MakeLine(pt ORDER BY idx) AS geom
+		  FROM grouped
+		  GROUP BY grp
+		  HAVING COUNT(*) >= 2
+		)
 		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
-		SELECT $1, $2, $3, $5, COALESCE(track_public, track_full), $4::date
-		FROM activity_tracks
-		WHERE activity_id = $2
-		  AND track_full IS NOT NULL`,
+		SELECT $1, $2, $3, $5, geom, $4::date
+		FROM line_groups
+		WHERE geom IS NOT NULL`,
 		userID, activityID, sportType, startedAt, subType,
 	)
 	if err != nil {
@@ -1311,17 +1340,53 @@ func (db *DB) DeleteHeatmapLines(ctx context.Context, activityID string) error {
 
 // BackfillHeatmap populates heatmap_lines for all existing activities of a user.
 // Returns the number of rows inserted.
+// Segments longer than 2000 m are treated as GPS teleportation jumps and used
+// as group boundaries; each contiguous group becomes a separate heatmap row.
 func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 	result, err := db.Pool.Exec(ctx, `
+		WITH activities_to_fill AS (
+		  SELECT a.id AS activity_id, a.user_id, a.sport_type, a.sub_type, a.started_at
+		  FROM activities a
+		  JOIN activity_tracks t ON t.activity_id = a.id
+		  WHERE a.user_id = $1
+		    AND t.track_full IS NOT NULL
+		    AND NOT EXISTS (
+		        SELECT 1 FROM heatmap_lines h WHERE h.activity_id = a.id
+		    )
+		),
+		pts AS (
+		  SELECT af.activity_id, af.user_id, af.sport_type, af.sub_type, af.started_at,
+		         (ST_DumpPoints(COALESCE(t.track_public, t.track_full))).path[1] AS idx,
+		         (ST_DumpPoints(COALESCE(t.track_public, t.track_full))).geom  AS pt
+		  FROM activities_to_fill af
+		  JOIN activity_tracks t ON t.activity_id = af.activity_id
+		),
+		with_dist AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, idx, pt,
+		    COALESCE(
+		      ST_Distance(pt::geography,
+		        LAG(pt) OVER (PARTITION BY activity_id ORDER BY idx)::geography),
+		      0
+		    ) AS prev_dist
+		  FROM pts
+		),
+		grouped AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, idx, pt,
+		    SUM(CASE WHEN prev_dist > 2000 THEN 1 ELSE 0 END)
+		      OVER (PARTITION BY activity_id ORDER BY idx) AS grp
+		  FROM with_dist
+		),
+		line_groups AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, grp,
+		         ST_MakeLine(pt ORDER BY idx) AS geom
+		  FROM grouped
+		  GROUP BY activity_id, user_id, sport_type, sub_type, started_at, grp
+		  HAVING COUNT(*) >= 2
+		)
 		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
-		SELECT a.user_id, a.id, a.sport_type, a.sub_type, COALESCE(t.track_public, t.track_full), a.started_at::date
-		FROM activities a
-		JOIN activity_tracks t ON t.activity_id = a.id
-		WHERE a.user_id = $1
-		  AND t.track_full IS NOT NULL
-		  AND NOT EXISTS (
-		      SELECT 1 FROM heatmap_lines h WHERE h.activity_id = a.id
-		  )`,
+		SELECT user_id, activity_id, sport_type, sub_type, geom, started_at::date
+		FROM line_groups
+		WHERE geom IS NOT NULL`,
 		userID,
 	)
 	if err != nil {
@@ -1334,15 +1399,44 @@ func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 
 // InsertHeatmapPoints generates evenly-spaced points from an activity's track
 // using ST_Segmentize + ST_DumpPoints and inserts them into heatmap_points.
+// Points that are more than 2000 m from their predecessor (GPS teleportation
+// jumps) are excluded so that no phantom points appear in gap areas.
+// Each contiguous group of valid points is segmentized independently so that
+// the sampling interval stays consistent within each continuous section.
 func (db *DB) InsertHeatmapPoints(ctx context.Context, userID, activityID, sportType string, subType *string, startedAt time.Time, intervalM int) error {
 	_, err := db.Pool.Exec(ctx, `
+		WITH pts AS (
+		  SELECT (ST_DumpPoints(COALESCE(track_public, track_full))).path[1] AS idx,
+		         (ST_DumpPoints(COALESCE(track_public, track_full))).geom  AS pt
+		  FROM activity_tracks
+		  WHERE activity_id = $2
+		    AND track_full IS NOT NULL
+		),
+		with_dist AS (
+		  SELECT idx, pt,
+		    COALESCE(
+		      ST_Distance(pt::geography, LAG(pt) OVER (ORDER BY idx)::geography),
+		      0
+		    ) AS prev_dist
+		  FROM pts
+		),
+		grouped AS (
+		  SELECT idx, pt,
+		    SUM(CASE WHEN prev_dist > 2000 THEN 1 ELSE 0 END)
+		      OVER (ORDER BY idx) AS grp
+		  FROM with_dist
+		),
+		line_groups AS (
+		  SELECT grp, ST_MakeLine(pt ORDER BY idx) AS geom
+		  FROM grouped
+		  GROUP BY grp
+		  HAVING COUNT(*) >= 2
+		)
 		INSERT INTO heatmap_points (user_id, activity_id, sport_type, sub_type, activity_date, geom)
-		SELECT $1, $2, $3, $6, $4::date, (ST_DumpPoints(
-			ST_Segmentize(COALESCE(track_public, track_full)::geography, $5)::geometry
-		)).geom
-		FROM activity_tracks
-		WHERE activity_id = $2
-		  AND track_full IS NOT NULL`,
+		SELECT $1, $2, $3, $6, $4::date,
+		       (ST_DumpPoints(ST_Segmentize(geom::geography, $5)::geometry)).geom
+		FROM line_groups
+		WHERE geom IS NOT NULL`,
 		userID, activityID, sportType, startedAt, intervalM, subType,
 	)
 	if err != nil {
@@ -1361,20 +1455,54 @@ func (db *DB) DeleteHeatmapPoints(ctx context.Context, activityID string) error 
 }
 
 // BackfillHeatmapPoints generates heatmap points for all activities of a user.
+// Segments longer than 2000 m (GPS teleportation jumps) are used as group
+// boundaries; each contiguous group is segmentized independently.
 func (db *DB) BackfillHeatmapPoints(ctx context.Context, userID string, intervalM int) (int, error) {
 	result, err := db.Pool.Exec(ctx, `
+		WITH activities_to_fill AS (
+		  SELECT a.id AS activity_id, a.user_id, a.sport_type, a.sub_type, a.started_at
+		  FROM activities a
+		  JOIN activity_tracks t ON t.activity_id = a.id
+		  WHERE a.user_id = $1
+		    AND t.track_full IS NOT NULL
+		    AND NOT EXISTS (
+		        SELECT 1 FROM heatmap_points h WHERE h.activity_id = a.id
+		    )
+		),
+		pts AS (
+		  SELECT af.activity_id, af.user_id, af.sport_type, af.sub_type, af.started_at,
+		         (ST_DumpPoints(COALESCE(t.track_public, t.track_full))).path[1] AS idx,
+		         (ST_DumpPoints(COALESCE(t.track_public, t.track_full))).geom  AS pt
+		  FROM activities_to_fill af
+		  JOIN activity_tracks t ON t.activity_id = af.activity_id
+		),
+		with_dist AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, idx, pt,
+		    COALESCE(
+		      ST_Distance(pt::geography,
+		        LAG(pt) OVER (PARTITION BY activity_id ORDER BY idx)::geography),
+		      0
+		    ) AS prev_dist
+		  FROM pts
+		),
+		grouped AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, idx, pt,
+		    SUM(CASE WHEN prev_dist > 2000 THEN 1 ELSE 0 END)
+		      OVER (PARTITION BY activity_id ORDER BY idx) AS grp
+		  FROM with_dist
+		),
+		line_groups AS (
+		  SELECT activity_id, user_id, sport_type, sub_type, started_at, grp,
+		         ST_MakeLine(pt ORDER BY idx) AS geom
+		  FROM grouped
+		  GROUP BY activity_id, user_id, sport_type, sub_type, started_at, grp
+		  HAVING COUNT(*) >= 2
+		)
 		INSERT INTO heatmap_points (user_id, activity_id, sport_type, sub_type, activity_date, geom)
-		SELECT a.user_id, a.id, a.sport_type, a.sub_type, a.started_at::date,
-		       (ST_DumpPoints(
-		           ST_Segmentize(COALESCE(t.track_public, t.track_full)::geography, $2)::geometry
-		       )).geom
-		FROM activities a
-		JOIN activity_tracks t ON t.activity_id = a.id
-		WHERE a.user_id = $1
-		  AND t.track_full IS NOT NULL
-		  AND NOT EXISTS (
-		      SELECT 1 FROM heatmap_points h WHERE h.activity_id = a.id
-		  )`,
+		SELECT user_id, activity_id, sport_type, sub_type, started_at::date,
+		       (ST_DumpPoints(ST_Segmentize(geom::geography, $2)::geometry)).geom
+		FROM line_groups
+		WHERE geom IS NOT NULL`,
 		userID, intervalM,
 	)
 	if err != nil {
@@ -1383,28 +1511,55 @@ func (db *DB) BackfillHeatmapPoints(ctx context.Context, userID string, interval
 	return int(result.RowsAffected()), nil
 }
 
-// GetUserHeatmapInterval returns the user's heatmap sampling interval in meters.
-func (db *DB) GetUserHeatmapInterval(ctx context.Context, userID string) (int, error) {
-	var interval int
-	err := db.Pool.QueryRow(ctx,
-		`SELECT COALESCE(heatmap_sample_interval_m, 20) FROM users WHERE id = $1`, userID,
-	).Scan(&interval)
+// GetHeatmapSettings returns all heatmap-related settings for a user.
+func (db *DB) GetHeatmapSettings(ctx context.Context, userID string) (*model.HeatmapSettings, error) {
+	var s model.HeatmapSettings
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(heatmap_sample_interval_m, 20),
+		       COALESCE(teleport_threshold_m, 2000),
+		       COALESCE(teleport_filter_map, true),
+		       COALESCE(teleport_filter_activity, true)
+		FROM users WHERE id = $1`, userID,
+	).Scan(&s.SamplingIntervalM, &s.TeleportThresholdM, &s.TeleportFilterMap, &s.TeleportFilterActivity)
 	if err != nil {
-		return 20, nil // default
+		// Defaults falls User nicht gefunden
+		return &model.HeatmapSettings{SamplingIntervalM: 20, TeleportThresholdM: 2000, TeleportFilterMap: true, TeleportFilterActivity: true}, nil
 	}
-	return interval, nil
+	return &s, nil
 }
 
-// UpdateUserHeatmapInterval updates the user's heatmap sampling interval.
-func (db *DB) UpdateUserHeatmapInterval(ctx context.Context, userID string, intervalM int) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE users SET heatmap_sample_interval_m = $2 WHERE id = $1`,
-		userID, intervalM,
+// UpdateHeatmapSettings writes all heatmap-related settings for a user.
+func (db *DB) UpdateHeatmapSettings(ctx context.Context, userID string, s *model.HeatmapSettings) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE users SET
+		    heatmap_sample_interval_m = $2,
+		    teleport_threshold_m = $3,
+		    teleport_filter_map = $4,
+		    teleport_filter_activity = $5
+		WHERE id = $1`,
+		userID, s.SamplingIntervalM, s.TeleportThresholdM, s.TeleportFilterMap, s.TeleportFilterActivity,
 	)
+	return err
+}
+
+// GetUserHeatmapInterval is a compatibility wrapper for BackfillHeatmapPoints.
+func (db *DB) GetUserHeatmapInterval(ctx context.Context, userID string) (int, error) {
+	s, err := db.GetHeatmapSettings(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("update heatmap interval: %w", err)
+		return 20, nil
 	}
-	return nil
+	return s.SamplingIntervalM, nil
+}
+
+// UpdateUserHeatmapInterval is a compatibility wrapper (updates only the sampling interval).
+func (db *DB) UpdateUserHeatmapInterval(ctx context.Context, userID string, intervalM int) error {
+	s, err := db.GetHeatmapSettings(ctx, userID)
+	if err != nil {
+		s = &model.HeatmapSettings{SamplingIntervalM: intervalM, TeleportThresholdM: 2000, TeleportFilterMap: true, TeleportFilterActivity: true}
+	} else {
+		s.SamplingIntervalM = intervalM
+	}
+	return db.UpdateHeatmapSettings(ctx, userID, s)
 }
 
 // ── Privacy Zones ───────────────────────────────────────────────────────────

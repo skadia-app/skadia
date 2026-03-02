@@ -214,6 +214,9 @@ export default function SettingsPage() {
 function HeatmapSettingsSection() {
   const queryClient = useQueryClient()
   const [localInterval, setLocalInterval] = useState<number | null>(null)
+  const [localThreshold, setLocalThreshold] = useState<number | null>(null)
+  const [localFilterMap, setLocalFilterMap] = useState<boolean | null>(null)
+  const [localFilterActivity, setLocalFilterActivity] = useState<boolean | null>(null)
 
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
@@ -225,11 +228,22 @@ function HeatmapSettingsSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['heatmap-settings'] })
       setLocalInterval(null)
+      setLocalThreshold(null)
+      setLocalFilterMap(null)
+      setLocalFilterActivity(null)
     },
   })
 
   const currentInterval = localInterval ?? heatmapSettings?.sampling_interval_m ?? 20
-  const isDirty = localInterval !== null && localInterval !== heatmapSettings?.sampling_interval_m
+  const currentThreshold = localThreshold ?? heatmapSettings?.teleport_threshold_m ?? 2000
+  const currentFilterMap = localFilterMap ?? heatmapSettings?.teleport_filter_map ?? true
+  const currentFilterActivity = localFilterActivity ?? heatmapSettings?.teleport_filter_activity ?? true
+
+  const isDirty =
+    (localInterval !== null && localInterval !== heatmapSettings?.sampling_interval_m) ||
+    (localThreshold !== null && localThreshold !== heatmapSettings?.teleport_threshold_m) ||
+    (localFilterMap !== null && localFilterMap !== heatmapSettings?.teleport_filter_map) ||
+    (localFilterActivity !== null && localFilterActivity !== heatmapSettings?.teleport_filter_activity)
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -265,9 +279,85 @@ function HeatmapSettingsSection() {
         </p>
       </div>
 
+      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            Teleportationslücken ausblenden
+          </p>
+          <button
+            onClick={() => {
+              const next = !(currentFilterMap || currentFilterActivity)
+              setLocalFilterMap(next)
+              setLocalFilterActivity(next)
+            }}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
+            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? '#f97316' : '#d4d4d4' }}
+            role="switch"
+            aria-checked={currentFilterMap || currentFilterActivity}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                (currentFilterMap || currentFilterActivity) ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        <p className="text-xs text-neutral-400 mb-4">
+          Filtert gerade Linien heraus, die entstehen wenn die GPS-Aufzeichnung gestoppt und an einem anderen Ort wieder gestartet wurde.
+        </p>
+
+        <div className="space-y-2 mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={currentFilterMap}
+              onChange={(e) => setLocalFilterMap(e.target.checked)}
+              className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
+            />
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">Karte (Heatmap &amp; Tracks)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={currentFilterActivity}
+              onChange={(e) => setLocalFilterActivity(e.target.checked)}
+              className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
+            />
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">Aktivitätsdetailansicht</span>
+          </label>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Mindestlückenlänge
+            </label>
+            <span className="text-sm text-neutral-500 tabular-nums">{currentThreshold} m</span>
+          </div>
+          <input
+            type="range"
+            min={100}
+            max={10000}
+            step={100}
+            value={currentThreshold}
+            onChange={(e) => setLocalThreshold(Number(e.target.value))}
+            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-neutral-400 mt-1">
+            <span>100 m</span>
+            <span>10 km</span>
+          </div>
+        </div>
+      </div>
+
       {isDirty && (
         <button
-          onClick={() => updateHeatmapMut.mutate({ sampling_interval_m: currentInterval })}
+          onClick={() => updateHeatmapMut.mutate({
+            sampling_interval_m: currentInterval,
+            teleport_threshold_m: currentThreshold,
+            teleport_filter_map: currentFilterMap,
+            teleport_filter_activity: currentFilterActivity,
+          })}
           disabled={updateHeatmapMut.isPending}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 transition-colors cursor-pointer"
         >
