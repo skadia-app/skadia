@@ -203,7 +203,7 @@ Kompakte Inline-Anzeige in der Aktivitaets-Detailseite (`ActivityDetailPage.tsx`
 ```
 
 - **Sunrise:** Amber-farbenes Sonnensymbol (&#9728;) + Uhrzeit HH:MM (lokale Zeitzone)
-- **Sunset:** Indigo-farbenes Mondsymbol (&#9790;) + Uhrzeit HH:MM
+- **Sunset:** Orange-farbenes Mondsymbol (&#9790;) + Uhrzeit HH:MM
 - Nur sichtbar wenn mindestens ein Wert vorhanden
 - Styling: `text-sm text-neutral-600 dark:text-neutral-400`
 
@@ -240,10 +240,12 @@ Die Funktion `computeSunMarkLines()` in `ActivityCharts.tsx` erzeugt ECharts-Mar
 ```
 
 **Farbschema:**
-| Ereignis | Farbe | CSS-Klasse |
-|---|---|---|
-| Sunrise | `#f59e0b` (amber-500) | `text-amber-500` |
-| Sunset | `#818cf8` (indigo-400) | `text-indigo-400` |
+| Ereignis | Farbe | CSS-Klasse | SVG-Symbol |
+|---|---|---|---|
+| Sunrise | `#f59e0b` (amber-500) | `text-amber-500` | Halbe Sonne aufgehend mit Strahlen |
+| Sunset | `#e67e22` (warm orange) | `text-orange-600` | Halbe Sonne untergehend mit Strahlen |
+
+**Darstellung:** Jeder Marker besteht aus einer gestrichelten vertikalen Linie (`markLine`) plus einer SVG-Grafik (`markPoint`, `symbolSize: 24`) am oberen Rand. Die SVGs sind als `image://data:image/svg+xml,...` Data-URIs eingebettet.
 
 ### 5.3 Karteninteraktion
 
