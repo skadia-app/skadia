@@ -8,14 +8,16 @@ import {
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  BrushComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchPMC } from '@/api/stats'
 import type { PMCDataPoint } from '@/api/stats'
 
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, BrushComponent, ToolboxComponent, CanvasRenderer])
 
-type TimeRange = '1m' | '3m' | '6m' | '1y' | 'ly' | 'all' | 'custom'
+type TimeRange = '1m' | '3m' | '6m' | '1y' | 'ly' | 'all'
 
 const rangeLabels: Record<TimeRange, string> = {
   '1m': '1M',
@@ -24,7 +26,6 @@ const rangeLabels: Record<TimeRange, string> = {
   '1y': '1J',
   'ly': 'VJ',
   'all': 'Alles',
-  'custom': '⋯',
 }
 
 const rangeTooltips: Record<TimeRange, string> = {
@@ -34,13 +35,9 @@ const rangeTooltips: Record<TimeRange, string> = {
   '1y': 'Letztes Jahr (365 Tage)',
   'ly': `Vorjahr (${new Date().getFullYear() - 1})`,
   'all': 'Gesamter Zeitraum',
-  'custom': 'Eigener Zeitraum',
 }
 
-function getDateRange(range: TimeRange, customFrom: string, customTo: string): { from: string; to: string } {
-  if (range === 'custom') {
-    return { from: customFrom, to: customTo }
-  }
+function getDateRange(range: TimeRange): { from: string; to: string } {
   if (range === 'ly') {
     const year = new Date().getFullYear() - 1
     return { from: `${year}-01-01`, to: `${year}-12-31` }
@@ -61,18 +58,40 @@ function getDateRange(range: TimeRange, customFrom: string, customTo: string): {
 }
 
 export default function PMCChart() {
-  const [range, setRange] = useState<TimeRange>('3m')
+  const [range, setRange] = useState<TimeRange | null>('3m')
   const today = new Date().toISOString().split('T')[0]
   const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().split('T')[0] })()
-  const [customFrom, setCustomFrom] = useState(threeMonthsAgo)
-  const [customTo, setCustomTo] = useState(today)
+  const [dateFrom, setDateFrom] = useState(threeMonthsAgo)
+  const [dateTo, setDateTo] = useState(today)
+  const [isZoomed, setIsZoomed] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
-  const { from, to } = useMemo(
-    () => getDateRange(range, customFrom, customTo),
-    [range, customFrom, customTo],
-  )
+  // When a preset range is selected, update the date fields to match
+  const handleRangeClick = (r: TimeRange) => {
+    setRange(r)
+    const { from, to } = getDateRange(r)
+    setDateFrom(from)
+    setDateTo(to)
+  }
+
+  // When a date field changes, deselect any active preset
+  const handleDateFromChange = (value: string) => {
+    setDateFrom(value)
+    setRange(null)
+  }
+  const handleDateToChange = (value: string) => {
+    setDateTo(value)
+    setRange(null)
+  }
+
+  // Compute from/to: if a preset is active use it, otherwise use date fields
+  const { from, to } = useMemo(() => {
+    if (range !== null) {
+      return getDateRange(range)
+    }
+    return { from: dateFrom, to: dateTo }
+  }, [range, dateFrom, dateTo])
 
   const { data: pmcData, isError, isLoading } = useQuery({
     queryKey: ['pmc', from, to],
@@ -117,6 +136,17 @@ export default function PMCChart() {
           }
           return html
         },
+      },
+      brush: {
+        toolbox: [],
+        brushType: 'lineX',
+        brushStyle: {
+          borderWidth: 1,
+          color: 'rgba(249,115,22,0.12)',
+          borderColor: '#f97316',
+        },
+        throttleType: 'debounce',
+        throttleDelay: 100,
       },
       xAxis: {
         type: 'category',
@@ -170,6 +200,80 @@ export default function PMCChart() {
 
     chart.setOption(option)
 
+    // Activate brush cursor so click-drag draws a range selection
+    chart.dispatchAction({
+      type: 'takeGlobalCursor',
+      key: 'brush',
+      brushOption: { brushType: 'lineX', brushMode: 'single' },
+    })
+
+    // Brush areas type
+    type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+    // Backup: capture areas from brush event (fallback if brushEnd lacks them)
+    let pendingBrushAreas: BrushArea[] | null = null
+
+    // Brush gesture in progress: capture areas
+    chart.on('brush', (params: unknown) => {
+      const p = params as {
+        areas?: BrushArea[]
+        batch?: Array<{ areas?: BrushArea[] }>
+      }
+      const areas = p.areas ?? p.batch?.[0]?.areas
+      if (areas && areas.length > 0) {
+        pendingBrushAreas = [...areas]
+      }
+    })
+
+    // Brush gesture ended: zoom using direct params or captured areas
+    chart.on('brushEnd', (params: unknown) => {
+      const p = params as {
+        areas?: BrushArea[]
+        batch?: Array<{ areas?: BrushArea[] }>
+      }
+      const directAreas = p.areas ?? p.batch?.[0]?.areas
+      const areas = (directAreas && directAreas.length > 0) ? directAreas : pendingBrushAreas
+      pendingBrushAreas = null
+      if (!areas || areas.length === 0) return
+
+      const area = areas[0]
+      let startIdx: number
+      let endIdx: number
+
+      // Prefer pixel range → convertFromPixel (most reliable across ECharts versions)
+      if (area.range) {
+        const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+        const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+        if (s == null || e == null) return
+        startIdx = Math.round(s as number)
+        endIdx = Math.round(e as number)
+      } else if (area.coordRange) {
+        // xAxis is category-based, so coordRange gives index values
+        [startIdx, endIdx] = area.coordRange
+      } else {
+        return
+      }
+
+      if (endIdx <= startIdx) return
+      startIdx = Math.max(0, startIdx)
+      endIdx = Math.min(dates.length - 1, endIdx)
+
+      chart.dispatchAction({
+        type: 'dataZoom',
+        dataZoomIndex: 0,
+        startValue: startIdx,
+        endValue: endIdx,
+      })
+
+      chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
+
+      setIsZoomed(true)
+    })
+
     const observer = new ResizeObserver(() => chart.resize())
     observer.observe(containerRef.current)
 
@@ -180,6 +284,21 @@ export default function PMCChart() {
     }
   }, [data])
 
+  // Reset zoom: restore full view, reactivate brush
+  const handleResetZoom = () => {
+    const chart = chartRef.current
+    if (!chart) return
+
+    chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+    // Reactivate brush so the user can draw a new selection
+    chart.dispatchAction({
+      type: 'takeGlobalCursor',
+      key: 'brush',
+      brushOption: { brushType: 'lineX', brushMode: 'single' },
+    })
+    setIsZoomed(false)
+  }
+
   const latest = data.length > 0 ? data[data.length - 1] : null
 
   return (
@@ -187,11 +306,18 @@ export default function PMCChart() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Performance Management</h2>
         <div className="flex items-center gap-2">
+          {isZoomed && (
+            <button onClick={handleResetZoom}
+              className="text-sm px-3 py-1 rounded-md bg-orange-100 text-orange-700 hover:bg-orange-200
+                         dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
+              Zoom zurücksetzen
+            </button>
+          )}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             {(Object.keys(rangeLabels) as TimeRange[]).map(r => (
               <button
                 key={r}
-                onClick={() => setRange(r)}
+                onClick={() => handleRangeClick(r)}
                 title={rangeTooltips[r]}
                 className={
                   r === range
@@ -203,34 +329,28 @@ export default function PMCChart() {
               </button>
             ))}
           </div>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo}
+            onChange={e => handleDateFromChange(e.target.value)}
+            className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-xs
+                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
+          />
+          <span className="text-neutral-400 text-xs">bis</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom}
+            max={today}
+            onChange={e => handleDateToChange(e.target.value)}
+            className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-xs
+                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
+          />
         </div>
       </div>
-
-      {/* Custom date range inputs */}
-      {range === 'custom' && (
-        <div className="flex items-center gap-2 text-sm">
-          <input
-            type="date"
-            value={customFrom}
-            max={customTo}
-            onChange={e => setCustomFrom(e.target.value)}
-            className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-sm
-                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
-                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
-          />
-          <span className="text-neutral-400">bis</span>
-          <input
-            type="date"
-            value={customTo}
-            min={customFrom}
-            max={today}
-            onChange={e => setCustomTo(e.target.value)}
-            className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-sm
-                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
-                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
-          />
-        </div>
-      )}
 
       {/* Current values */}
       {latest && (

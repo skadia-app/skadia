@@ -16,6 +16,24 @@ const PAGE_SIZES = [20, 50, 100] as const
 // 0 = Infinite-Scroll-Modus
 type PageSize = 20 | 50 | 100 | 0
 
+type SortColumn = 'started_at' | 'distance_m' | 'elevation_gain_m' | 'elapsed_time_s'
+type SortDir = 'asc' | 'desc'
+
+/**
+ * Erzeugt einen Cursor für ein bestimmtes Datum.
+ * Der Cursor nutzt das Ende des Tages (23:59:59.999999999 UTC) und eine lexikographisch
+ * hohe Fake-ID, damit alle Aktivitäten an und vor diesem Tag eingeschlossen werden.
+ * Format: base64url(RFC3339Nano_timestamp + "|" + id)
+ */
+function buildCursorForDate(dateStr: string): string {
+  // dateStr ist "YYYY-MM-DD"
+  const isoEnd = dateStr + 'T23:59:59.999999999Z'
+  const raw = isoEnd + '|zzzzzzzzz'
+  return btoa(raw)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+}
+
 export default function ActivitiesPage() {
   const queryClient = useQueryClient()
   const [pageSize, setPageSize] = useState<PageSize>(20)
@@ -25,14 +43,70 @@ export default function ActivitiesPage() {
   const [pageInput, setPageInput] = useState('1')
   const [total, setTotal] = useState<number | null>(null)
   const [isJumping, setIsJumping] = useState(false)
+  const [jumpDate, setJumpDate] = useState('')
+  // Key für Infinite-Query-Reset bei Datumssprung
+  const [infiniteKey, setInfiniteKey] = useState(0)
+  const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
+
+  // Sort state: null = unsorted (default: started_at DESC)
+  const [sortBy, setSortBy] = useState<SortColumn | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir | null>(null)
+
+  // Effective sort values for API calls
+  const effectiveSortBy = sortBy ?? 'started_at'
+  const effectiveSortDir = sortDir ?? 'desc'
 
   const isInfinite = pageSize === 0
   const cursor = cursors[pageIndex]
 
+  // ── Sortierung umschalten ──────────────────────────────────────────────────
+  // Cycle: unsorted → asc → desc → unsorted
+  function toggleSort(column: SortColumn) {
+    let newSortBy: SortColumn | null
+    let newSortDir: SortDir | null
+
+    if (sortBy !== column) {
+      // Neue Spalte anklicken → aufsteigend starten
+      newSortBy = column
+      newSortDir = 'asc'
+    } else if (sortDir === 'asc') {
+      // Gleiche Spalte, asc → desc
+      newSortBy = column
+      newSortDir = 'desc'
+    } else if (sortDir === 'desc') {
+      // Gleiche Spalte, desc → unsorted (zurück zum Default)
+      newSortBy = null
+      newSortDir = null
+    } else {
+      // sortDir === null (sollte nicht vorkommen, Fallback)
+      newSortBy = column
+      newSortDir = 'asc'
+    }
+
+    setSortBy(newSortBy)
+    setSortDir(newSortDir)
+
+    // Reset pagination when sort changes
+    setCursors([undefined])
+    setPageIndex(0)
+    setPageInput('1')
+    if (isInfinite) {
+      setInfiniteInitialCursor(undefined)
+      setInfiniteKey(prev => prev + 1)
+    }
+    // Reset date jump as cursor format changes with sort column
+    setJumpDate('')
+  }
+
+  function sortIndicator(column: SortColumn): string {
+    if (sortBy !== column) return ''
+    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC'
+  }
+
   // ── Paginierter Modus ──────────────────────────────────────────────────────
   const { data: pageData, isLoading: pageLoading } = useQuery({
-    queryKey: ['activities', cursor, pageSize],
-    queryFn: () => fetchActivities(cursor, pageSize as number),
+    queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir],
+    queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir),
     enabled: !isInfinite,
   })
 
@@ -56,9 +130,9 @@ export default function ActivitiesPage() {
     isFetchingNextPage,
     isLoading: infiniteLoading,
   } = useInfiniteQuery({
-    queryKey: ['activities-infinite'],
-    queryFn: ({ pageParam }) => fetchActivities(pageParam as string | undefined, 20),
-    initialPageParam: undefined as string | undefined,
+    queryKey: ['activities-infinite', infiniteKey, effectiveSortBy, effectiveSortDir],
+    queryFn: ({ pageParam }) => fetchActivities(pageParam as string | undefined, 20, effectiveSortBy, effectiveSortDir),
+    initialPageParam: infiniteInitialCursor as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: isInfinite,
   })
@@ -93,7 +167,21 @@ export default function ActivitiesPage() {
 
   function onPageSizeChange(size: PageSize) {
     setPageSize(size)
-    setCursors([undefined])
+    // Datumssprung beibehalten beim Wechsel der Seitengröße
+    if (jumpDate) {
+      const dateCursor = buildCursorForDate(jumpDate)
+      if (size === 0) {
+        // Wechsel zu Infinite
+        setInfiniteInitialCursor(dateCursor)
+        setInfiniteKey(prev => prev + 1)
+      } else {
+        setCursors([dateCursor])
+      }
+    } else {
+      setCursors([undefined])
+      setInfiniteInitialCursor(undefined)
+      setInfiniteKey(prev => prev + 1)
+    }
     setPageIndex(0)
     setPageInput('1')
   }
@@ -115,8 +203,8 @@ export default function ActivitiesPage() {
       while (localCursors.length <= targetIdx) {
         const cursor = localCursors[localCursors.length - 1]
         const data = await queryClient.fetchQuery({
-          queryKey: ['activities', cursor, pageSize],
-          queryFn: () => fetchActivities(cursor, pageSize as number),
+          queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir],
+          queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir),
         })
         if (!data.next_cursor) {
           targetIdx = localCursors.length - 1 // clamp to last available page
@@ -138,6 +226,51 @@ export default function ActivitiesPage() {
     void jumpToPage(n - 1)
   }
 
+  // ── Datumssprung ────────────────────────────────────────────────────────────
+  // Date jump is only valid when sorting by started_at (default)
+  const isDateJumpEnabled = sortBy === null || sortBy === 'started_at'
+
+  function handleJumpDateChange(dateStr: string) {
+    setJumpDate(dateStr)
+    // Only perform the actual jump when the date is complete and valid.
+    // HTML date inputs fire onChange on every keystroke in the year field,
+    // producing intermediate values like "0002", "0020", etc.
+    // We require a full "YYYY-MM-DD" (length 10) with a 4-digit year >= 1900.
+    if (dateStr.length === 10) {
+      const year = parseInt(dateStr.substring(0, 4), 10)
+      if (year >= 1900 && !isNaN(Date.parse(dateStr + 'T00:00:00'))) {
+        performDateJump(dateStr)
+      }
+    }
+  }
+
+  function performDateJump(dateStr: string) {
+    const dateCursor = buildCursorForDate(dateStr)
+
+    if (isInfinite) {
+      // Reset Infinite-Scroll mit neuem Startcursor
+      setInfiniteInitialCursor(dateCursor)
+      setInfiniteKey(prev => prev + 1)
+    } else {
+      // Im paginierten Modus: Setze Cursor direkt auf das Datum
+      setCursors([dateCursor])
+      setPageIndex(0)
+      setPageInput('1')
+    }
+  }
+
+  function resetDateJump() {
+    setJumpDate('')
+    if (isInfinite) {
+      setInfiniteInitialCursor(undefined)
+      setInfiniteKey(prev => prev + 1)
+    } else {
+      setCursors([undefined])
+      setPageIndex(0)
+      setPageInput('1')
+    }
+  }
+
   // ── Daten ──────────────────────────────────────────────────────────────────
   const activities = isInfinite
     ? (infiniteData?.pages.flatMap(p => p.activities) ?? [])
@@ -149,9 +282,18 @@ export default function ActivitiesPage() {
     : null
   const maxNavigablePage = cursors.length // Seiten für die wir einen Cursor haben
 
+  // ── Sortierbare Spaltenheader ──────────────────────────────────────────────
+  const sortableHeaderClass = (column: SortColumn) => {
+    const base = 'px-4 py-3 font-medium select-none cursor-pointer transition-colors'
+    const active = sortBy === column
+      ? 'text-neutral-800 dark:text-neutral-200'
+      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+    return `${base} ${active}`
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (isLoading && activities.length === 0) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivitäten…</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivitäten...</div>
   }
 
   return (
@@ -166,6 +308,33 @@ export default function ActivitiesPage() {
             </span>
           )}
         </div>
+
+        <div className="flex items-center gap-4">
+          {/* Datumssprung (nur bei Sortierung nach Datum) */}
+          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <label htmlFor="jump-date" className={`whitespace-nowrap${!isDateJumpEnabled ? ' opacity-40' : ''}`}>Springe zu</label>
+            <input
+              id="jump-date"
+              type="date"
+              value={jumpDate}
+              max={format(new Date(), 'yyyy-MM-dd')}
+              disabled={!isDateJumpEnabled}
+              onChange={e => handleJumpDateChange(e.target.value)}
+              className={`border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-xs
+                         bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                         focus:outline-none focus:ring-1 focus:ring-neutral-400
+                         ${!isDateJumpEnabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+            />
+            {jumpDate && isDateJumpEnabled && (
+              <button
+                onClick={resetDateJump}
+                title="Datumsfilter zurücksetzen"
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-xs"
+              >
+                &times;
+              </button>
+            )}
+          </div>
 
         {/* Seitengrößen-Auswahl */}
         <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
@@ -198,6 +367,7 @@ export default function ActivitiesPage() {
           </div>
           {!isInfinite && <span>pro Seite</span>}
         </div>
+        </div>
       </div>
 
       {/* Tabelle */}
@@ -207,10 +377,30 @@ export default function ActivitiesPage() {
             <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Sport</th>
-              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Datum</th>
-              <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Distanz</th>
-              <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Zeit</th>
-              <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Höhenmeter</th>
+              <th
+                className={`text-left ${sortableHeaderClass('started_at')}`}
+                onClick={() => toggleSort('started_at')}
+              >
+                Datum{sortIndicator('started_at')}
+              </th>
+              <th
+                className={`text-right ${sortableHeaderClass('distance_m')}`}
+                onClick={() => toggleSort('distance_m')}
+              >
+                Distanz{sortIndicator('distance_m')}
+              </th>
+              <th
+                className={`text-right ${sortableHeaderClass('elapsed_time_s')}`}
+                onClick={() => toggleSort('elapsed_time_s')}
+              >
+                Zeit{sortIndicator('elapsed_time_s')}
+              </th>
+              <th
+                className={`text-right ${sortableHeaderClass('elevation_gain_m')}`}
+                onClick={() => toggleSort('elevation_gain_m')}
+              >
+                Höhenmeter{sortIndicator('elevation_gain_m')}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
@@ -225,7 +415,7 @@ export default function ActivitiesPage() {
       {isInfinite && (
         <div ref={sentinelRef} className="flex justify-center py-6">
           {isFetchingNextPage && (
-            <span className="text-sm text-neutral-400">Lade weitere Aktivitäten…</span>
+            <span className="text-sm text-neutral-400">Lade weitere Aktivitäten...</span>
           )}
           {!hasNextPage && activities.length > 0 && (
             <span className="text-sm text-neutral-400">Alle {total?.toLocaleString('de-DE')} Aktivitäten geladen</span>
@@ -272,7 +462,7 @@ export default function ActivitiesPage() {
           </div>
 
           {isJumping && (
-            <span className="text-xs text-neutral-400 px-2">Lade…</span>
+            <span className="text-xs text-neutral-400 px-2">Lade...</span>
           )}
 
           <button

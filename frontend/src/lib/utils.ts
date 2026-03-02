@@ -31,17 +31,9 @@ export function formatElevationLoss(meters: number | null | undefined): string |
   return `−${Math.round(meters)} m`
 }
 
-export function sportColor(sport: SportType): string {
-  const map: Record<string, string> = {
-    cycling: '#F97316',
-    running: '#3B82F6',
-    hiking: '#22C55E',
-    swimming: '#06B6D4',
-    e_biking: '#A855F7',
-    skiing: '#93C5FD',
-    paddling: '#2DD4BF',
-  }
-  return map[sport] ?? '#6B7280'
+export function sportColor(_sport: SportType): string {
+  // Einheitliche Trackfarbe für alle Sportarten (Orange-500, wie MTB/Cycling)
+  return '#F97316'
 }
 
 export function sportLabel(sport: SportType, subType?: string | null): string {

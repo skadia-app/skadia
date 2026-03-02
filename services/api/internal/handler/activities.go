@@ -23,7 +23,16 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit)
+	sortBy := r.URL.Query().Get("sort_by")
+	if sortBy == "" {
+		sortBy = "started_at"
+	}
+	sortDir := r.URL.Query().Get("sort_dir")
+	if sortDir == "" {
+		sortDir = "desc"
+	}
+
+	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir)
 	if err != nil {
 		slog.Error("list activities failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)

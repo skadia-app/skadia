@@ -9,6 +9,7 @@ import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivi
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
+import MapFullscreen from '@/components/MapFullscreen'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportLabel, sportColor, showIndoorBadge,
@@ -37,6 +38,7 @@ export default function ActivityDetailPage() {
 
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
+  const [mapFullscreen, setMapFullscreen] = useState(false)
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -77,7 +79,17 @@ export default function ActivityDetailPage() {
         sportColor={sportColor(activity.sport_type)}
         hasGps={activity.has_gps}
         zoomRange={zoomRange}
+        onMaximize={() => setMapFullscreen(true)}
       />
+
+      {/* Map fullscreen overlay */}
+      {mapFullscreen && streams && streams.length > 0 && (
+        <MapFullscreen
+          streams={streams}
+          sportColor={sportColor(activity.sport_type)}
+          onClose={() => setMapFullscreen(false)}
+        />
+      )}
 
       {/* Charts */}
       {streams && streams.length > 0 && (
@@ -233,12 +245,13 @@ function TagsBadges({ tags }: { tags: string[] }) {
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
-function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
+function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize }: {
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
   hasGps: boolean
   zoomRange: import('@/components/ActivityCharts').ZoomRange | null
+  onMaximize: () => void
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -322,13 +335,17 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
     return () => { map.remove() }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Hover marker
+  // Hover-Marker: Index bezieht sich auf das volle streams-Array,
+  // nicht auf das gefilterte coordinates-Array (Index-Mismatch vermeiden)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !hasTrack) return
 
-    if (hoverIndex != null && hoverIndex >= 0 && hoverIndex < coordinates.length) {
-      const lngLat = coordinates[hoverIndex]
+    const point = hoverIndex != null ? streams[hoverIndex] : null
+    const hasPos = point?.lat != null && point?.lng != null
+
+    if (hasPos) {
+      const lngLat: [number, number] = [point.lng!, point.lat!]
       if (!markerRef.current) {
         const el = document.createElement('div')
         el.className = 'track-hover-marker'
@@ -341,7 +358,7 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
       markerRef.current.remove()
       markerRef.current = null
     }
-  }, [hoverIndex, coordinates, hasTrack])
+  }, [hoverIndex, streams, hasTrack])
 
   // Chart brush selection → grey out full track, highlight selected segment, fit bounds
   useEffect(() => {
@@ -426,8 +443,22 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange }: {
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+    <div className="relative rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div ref={mapContainerRef} className="h-[400px] w-full" />
+      {/* Maximize button */}
+      <button
+        onClick={onMaximize}
+        className="absolute top-3 left-3 z-10 flex items-center justify-center w-8 h-8
+                   rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
+                   text-neutral-600 dark:text-neutral-300 shadow-md cursor-pointer
+                   hover:bg-white dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100
+                   transition-colors"
+        title="Karte maximieren"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+          <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
+        </svg>
+      </button>
     </div>
   )
 }

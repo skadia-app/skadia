@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -316,12 +317,41 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	return &a, nil
 }
 
-func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, limit int) (*model.ActivityList, error) {
+// allowedSortColumns maps allowed sort_by parameter values to SQL column names.
+var allowedSortColumns = map[string]string{
+	"started_at":       "started_at",
+	"distance_m":       "distance_m",
+	"elevation_gain_m": "elevation_gain_m",
+	"elapsed_time_s":   "elapsed_time_s",
+}
+
+func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, limit int, sortBy string, sortDir string) (*model.ActivityList, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 
-	var cursorTime time.Time
+	// Validate sort parameters
+	sqlCol, ok := allowedSortColumns[sortBy]
+	if !ok {
+		sortBy = "started_at"
+		sqlCol = "started_at"
+	}
+	if sortDir != "asc" && sortDir != "desc" {
+		sortDir = "desc"
+	}
+
+	// Determine comparison operator for cursor-based pagination.
+	// DESC order: we want rows "less than" the cursor value → use <
+	// ASC order: we want rows "greater than" the cursor value → use >
+	cmpOp := "<"
+	if sortDir == "asc" {
+		cmpOp = ">"
+	}
+
+	// Parse cursor: base64(sortValue|id)
+	// For started_at: sortValue is RFC3339Nano timestamp
+	// For numeric columns: sortValue is the string representation of the number
+	var cursorSortVal string
 	var cursorID string
 	hasCursor := false
 
@@ -330,12 +360,9 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		if err == nil {
 			parts := strings.SplitN(string(decoded), "|", 2)
 			if len(parts) == 2 {
-				t, err := time.Parse(time.RFC3339Nano, parts[0])
-				if err == nil {
-					cursorTime = t
-					cursorID = parts[1]
-					hasCursor = true
-				}
+				cursorSortVal = parts[0]
+				cursorID = parts[1]
+				hasCursor = true
 			}
 		}
 	}
@@ -350,30 +377,91 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
 
+	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
+		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
+		created_at, updated_at`
+
+	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
+	orderClause := fmt.Sprintf("%s %s, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
+
+	// For nullable numeric columns, push NULLs to the end regardless of sort direction.
+	// DESC → NULLS LAST (default for DESC, but be explicit)
+	// ASC  → NULLS LAST (override default which is NULLS FIRST for ASC)
+	if sqlCol != "started_at" {
+		orderClause = fmt.Sprintf("%s %s NULLS LAST, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
+	}
+
 	if hasCursor {
-		rows, err = db.Pool.Query(ctx, `
-			SELECT id, sport_type, sub_type, title, started_at, distance_m,
-				elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
-				created_at, updated_at
+		if sortBy == "started_at" {
+			// Parse cursor value as time
+			cursorTime, parseErr := time.Parse(time.RFC3339Nano, cursorSortVal)
+			if parseErr != nil {
+				// Invalid cursor, fall through to no-cursor path
+				hasCursor = false
+			} else {
+				query := fmt.Sprintf(`
+					SELECT %s
+					FROM activities
+					WHERE user_id = $1
+						AND (%s, id) %s ($2, $3)
+					ORDER BY %s
+					LIMIT $4`, selectCols, sqlCol, cmpOp, orderClause)
+				rows, err = db.Pool.Query(ctx, query,
+					userID, cursorTime, cursorID, limit+1,
+				)
+			}
+		} else if cursorSortVal == "" {
+			// NULL cursor: the sort column was NULL for the last item.
+			// We are paginating through the NULL-valued tail.
+			// Only include rows where the sort column IS NULL and id < cursorID (for stable ordering).
+			query := fmt.Sprintf(`
+				SELECT %s
+				FROM activities
+				WHERE user_id = $1
+					AND %s IS NULL
+					AND id %s $2
+				ORDER BY %s
+				LIMIT $3`, selectCols, sqlCol, cmpOp, orderClause)
+			rows, err = db.Pool.Query(ctx, query,
+				userID, cursorID, limit+1,
+			)
+		} else {
+			// Numeric column: parse as float64
+			cursorNum, parseErr := strconv.ParseFloat(cursorSortVal, 64)
+			if parseErr != nil {
+				hasCursor = false
+			} else {
+				// For nullable columns, the cursor comparison must also handle NULLs.
+				// Rows with NULL sort values are always placed at the end (NULLS LAST).
+				// Cursor has a non-null value. We want rows after the cursor:
+				// either (value, id) past the cursor OR value IS NULL (not yet seen).
+				nullClause := fmt.Sprintf(`AND ((%s, id) %s ($2, $3) OR %s IS NULL)`, sqlCol, cmpOp, sqlCol)
+				query := fmt.Sprintf(`
+					SELECT %s
+					FROM activities
+					WHERE user_id = $1
+						%s
+					ORDER BY %s
+					LIMIT $4`, selectCols, nullClause, orderClause)
+				rows, err = db.Pool.Query(ctx, query,
+					userID, cursorNum, cursorID, limit+1,
+				)
+			}
+		}
+	}
+
+	if !hasCursor {
+		query := fmt.Sprintf(`
+			SELECT %s
 			FROM activities
 			WHERE user_id = $1
-				AND (started_at, id) < ($2, $3)
-			ORDER BY started_at DESC, id DESC
-			LIMIT $4`,
-			userID, cursorTime, cursorID, limit+1,
-		)
-	} else {
-		rows, err = db.Pool.Query(ctx, `
-			SELECT id, sport_type, sub_type, title, started_at, distance_m,
-				elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
-				created_at, updated_at
-			FROM activities
-			WHERE user_id = $1
-			ORDER BY started_at DESC, id DESC
-			LIMIT $2`,
+			ORDER BY %s
+			LIMIT $2`, selectCols, orderClause)
+		rows, err = db.Pool.Query(ctx, query,
 			userID, limit+1,
 		)
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list activities: %w", err)
 	}
@@ -402,7 +490,33 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	if len(activities) > limit {
 		result.Activities = activities[:limit]
 		last := activities[limit-1]
-		cursorStr := last.StartedAt.Format(time.RFC3339Nano) + "|" + last.ID
+
+		// Build cursor value based on sort column
+		var sortVal string
+		switch sortBy {
+		case "started_at":
+			sortVal = last.StartedAt.Format(time.RFC3339Nano)
+		case "distance_m":
+			if last.DistanceM != nil {
+				sortVal = strconv.FormatFloat(*last.DistanceM, 'f', -1, 64)
+			} else {
+				sortVal = ""
+			}
+		case "elevation_gain_m":
+			if last.ElevationGainM != nil {
+				sortVal = strconv.FormatFloat(*last.ElevationGainM, 'f', -1, 64)
+			} else {
+				sortVal = ""
+			}
+		case "elapsed_time_s":
+			if last.ElapsedTimeS != nil {
+				sortVal = strconv.Itoa(*last.ElapsedTimeS)
+			} else {
+				sortVal = ""
+			}
+		}
+
+		cursorStr := sortVal + "|" + last.ID
 		result.NextCursor = base64.URLEncoding.EncodeToString([]byte(cursorStr))
 	}
 
