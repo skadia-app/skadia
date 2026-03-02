@@ -130,6 +130,10 @@ export interface ZoomRange {
   startPct: number
   /** Value-based percentage (0–100) of the X-axis range */
   endPct: number
+  /** Index into the streams array where the zoomed range starts */
+  startIdx: number
+  /** Index into the streams array where the zoomed range ends */
+  endIdx: number
 }
 
 interface Props {
@@ -158,23 +162,25 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
     chartInstancesRef.current.delete(id)
   }, [])
 
-  // ── Helper: convert percentage-based zoom range to km for map ─────────────
+  // ── Helper: convert percentage-based zoom range to km + stream indices for map
   const pctToZoomRange = useCallback((startPct: number, endPct: number): ZoomRange => {
+    const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
     const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
     const startVal = (startPct / 100) * xMax
     const endVal = (endPct / 100) * xMax
+
+    const startIdx = findClosestIdx(xArr, startVal)
+    const endIdx = findClosestIdx(xArr, endVal)
 
     let startKm: number, endKm: number
     if (xMode === 'distance') {
       startKm = startVal
       endKm = endVal
     } else {
-      const si = findClosestIdx(data.elapsedMin, startVal)
-      const ei = findClosestIdx(data.elapsedMin, endVal)
-      startKm = data.distanceKm[si] ?? 0
-      endKm = data.distanceKm[ei] ?? data.maxDist
+      startKm = data.distanceKm[startIdx] ?? 0
+      endKm = data.distanceKm[endIdx] ?? data.maxDist
     }
-    return { startKm, endKm, startPct, endPct }
+    return { startKm, endKm, startPct, endPct, startIdx, endIdx }
   }, [xMode, data])
 
   // Dedup guard — prevents cascading renders from echarts.connect propagation
@@ -231,18 +237,20 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
 
     setIsZoomed(true)
 
-    // Compute km range for the map highlight
+    // Compute stream indices + km range for the map highlight
+    const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+    const startIdx = findClosestIdx(xArr, startVal)
+    const endIdx = findClosestIdx(xArr, endVal)
+
     let startKm: number, endKm: number
     if (xMode === 'distance') {
       startKm = startVal
       endKm = endVal
     } else {
-      const si = findClosestIdx(data.elapsedMin, startVal)
-      const ei = findClosestIdx(data.elapsedMin, endVal)
-      startKm = data.distanceKm[si] ?? 0
-      endKm = data.distanceKm[ei] ?? data.maxDist
+      startKm = data.distanceKm[startIdx] ?? 0
+      endKm = data.distanceKm[endIdx] ?? data.maxDist
     }
-    onZoomChange?.({ startKm, endKm, startPct, endPct })
+    onZoomChange?.({ startKm, endKm, startPct, endPct, startIdx, endIdx })
   }, [xMode, data, onZoomChange])
 
   // Stable ref so ChartPanel closures always call the latest version

@@ -176,83 +176,97 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   }, [])
 
   // ── Initialize map ────────────────────────────────────────────────────────
+  // Delay by one frame so the browser can calculate flex layout dimensions.
+  // Without this, the map container can have 0×0 size → black canvas.
   useEffect(() => {
-    if (!mapContainerRef.current || coordinates.length < 2) return
+    const el = mapContainerRef.current
+    if (!el || coordinates.length < 2) return
 
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    let map: maplibregl.Map | null = null
+    let ro: ResizeObserver | null = null
+
+    const rafId = requestAnimationFrame(() => {
+      map = new maplibregl.Map({
+        container: el,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            },
           },
+          layers: [
+            {
+              id: 'osm-tiles',
+              type: 'raster',
+              source: 'osm',
+              minzoom: 0,
+              maxzoom: 19,
+            },
+          ],
         },
-        layers: [
-          {
-            id: 'osm-tiles',
-            type: 'raster',
-            source: 'osm',
-            minzoom: 0,
-            maxzoom: 19,
+        attributionControl: true,
+      })
+
+      map.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+      map.on('load', () => {
+        map!.resize()
+
+        // Full track
+        map!.addSource('track', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates },
           },
-        ],
-      },
-      attributionControl: true,
+        })
+        map!.addLayer({
+          id: 'track-line',
+          type: 'line',
+          source: 'track',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
+        })
+
+        // Highlight segment
+        map!.addSource('highlight', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+        })
+        map!.addLayer({
+          id: 'highlight-line',
+          type: 'line',
+          source: 'highlight',
+          layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+          paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
+        })
+
+        const bounds = new maplibregl.LngLatBounds()
+        for (const c of coordinates) bounds.extend(c)
+        map!.fitBounds(bounds, { padding: 60, maxZoom: 15 })
+      })
+
+      // Extra resize calls while layout settles
+      setTimeout(() => map?.resize(), 100)
+      setTimeout(() => map?.resize(), 400)
+
+      mapRef.current = map
+
+      ro = new ResizeObserver(() => map?.resize())
+      ro.observe(el)
     })
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
-
-    map.on('load', () => {
-      // Ensure canvas is sized correctly after layout stabilizes
-      map.resize()
-      setTimeout(() => map.resize(), 200)
-
-      // Full track
-      map.addSource('track', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates },
-        },
-      })
-      map.addLayer({
-        id: 'track-line',
-        type: 'line',
-        source: 'track',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
-      })
-
-      // Highlight segment
-      map.addSource('highlight', {
-        type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-      })
-      map.addLayer({
-        id: 'highlight-line',
-        type: 'line',
-        source: 'highlight',
-        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
-        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
-      })
-
-      const bounds = new maplibregl.LngLatBounds()
-      for (const c of coordinates) bounds.extend(c)
-      map.fitBounds(bounds, { padding: 60, maxZoom: 15 })
-    })
-
-    mapRef.current = map
-
-    // ResizeObserver to handle layout changes (e.g. chart panel rendering)
-    const ro = new ResizeObserver(() => map.resize())
-    if (mapContainerRef.current) ro.observe(mapContainerRef.current)
-
-    return () => { ro.disconnect(); map.remove(); mapRef.current = null }
+    return () => {
+      cancelAnimationFrame(rafId)
+      ro?.disconnect()
+      map?.remove()
+      mapRef.current = null
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Move hover marker on map ──────────────────────────────────────────────
@@ -260,8 +274,11 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     const map = mapRef.current
     if (!map || coordinates.length < 2) return
 
-    if (index != null && index >= 0 && index < coordinates.length) {
-      const lngLat = coordinates[index]
+    const point = index != null ? streams[index] : null
+    const hasPos = point?.lat != null && point?.lng != null
+
+    if (hasPos) {
+      const lngLat: [number, number] = [point.lng!, point.lat!]
       if (!markerRef.current) {
         const el = document.createElement('div')
         el.style.cssText = 'width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #f97316;box-shadow:0 0 4px rgba(0,0,0,0.3);'
@@ -273,21 +290,18 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
       markerRef.current.remove()
       markerRef.current = null
     }
-  }, [coordinates])
+  }, [coordinates, streams])
 
   // ── Highlight map segment on zoom ─────────────────────────────────────────
-  const highlightMapSegment = useCallback((startPct: number, endPct: number) => {
+  const highlightMapSegment = useCallback((startIdx: number, endIdx: number) => {
     const map = mapRef.current
     if (!map) return
 
     const applyHighlight = () => {
-      const allGps = streams
+      const segCoords = streams
+        .slice(startIdx, endIdx + 1)
         .filter((s): s is StreamPoint & { lat: number; lng: number } =>
           s.lat != null && s.lng != null)
-      const n = allGps.length
-      const si = Math.max(0, Math.floor(n * startPct / 100))
-      const ei = Math.min(n - 1, Math.ceil(n * endPct / 100))
-      const segCoords = allGps.slice(si, ei + 1)
         .map(s => [s.lng, s.lat] as [number, number])
 
       map.setPaintProperty('track-line', 'line-color', '#999999')
@@ -412,10 +426,10 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         show: true,
         top: 4,
         left: 'center',
-        itemWidth: 20,
-        itemHeight: 14,
-        itemGap: 16,
-        textStyle: { fontSize: 12, color: '#888' },
+        itemWidth: 26,
+        itemHeight: 16,
+        itemGap: 20,
+        textStyle: { fontSize: 13, color: '#888' },
         data: legendData,
         selected: legendSelected,
       },
@@ -593,8 +607,9 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
 
       setIsZoomed(true)
 
-      // Highlight segment on map
-      highlightMapSegment(startPct, endPct)
+      // Highlight segment on map using stream indices
+      const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      highlightMapSegment(findClosestIdx(xArr, sv), findClosestIdx(xArr, ev))
     })
 
     // Mouse-wheel / pan zoom
@@ -611,7 +626,9 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
       setIsZoomed(zoomed)
 
       if (zoomed) {
-        highlightMapSegment(z.start, z.end)
+        const startVal = (z.start / 100) * xMax
+        const endVal = (z.end / 100) * xMax
+        highlightMapSegment(findClosestIdx(xData, startVal), findClosestIdx(xData, endVal))
       } else {
         clearMapHighlight()
       }
@@ -654,7 +671,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
       {/* Map fills the space */}
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-h-0">
         <div ref={mapContainerRef} className="absolute inset-0" />
 
         {/* Close button */}
@@ -710,7 +727,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         </div>
 
         {/* Chart */}
-        <div ref={chartContainerRef} className="h-[200px] w-full" style={{ cursor: 'default' }} />
+        <div ref={chartContainerRef} className="h-[200px] w-full [&_canvas]:!cursor-pointer" />
       </div>
     </div>
   )

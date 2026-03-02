@@ -367,15 +367,12 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
 
     const applyZoom = () => {
       if (zoomRange) {
-        // Use percentage-based index slicing so the selection works even when
-        // individual stream points lack distance_m (e.g. pure GPS tracks).
-        const allGps = streams
+        // Use exact stream indices from the chart's X-axis lookup.
+        // This is accurate regardless of GPS point density distribution.
+        const segCoords = streams
+          .slice(zoomRange.startIdx, zoomRange.endIdx + 1)
           .filter((s): s is StreamPoint & { lat: number; lng: number } =>
             s.lat != null && s.lng != null)
-        const n = allGps.length
-        const si = Math.max(0, Math.floor(n * zoomRange.startPct / 100))
-        const ei = Math.min(n - 1, Math.ceil(n * zoomRange.endPct / 100))
-        const segCoords = allGps.slice(si, ei + 1)
           .map(s => [s.lng, s.lat] as [number, number])
 
         // Grey out the full track
