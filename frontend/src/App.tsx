@@ -13,6 +13,7 @@ import GearPage from '@/pages/GearPage'
 import GearDetailPage from '@/pages/GearDetailPage'
 import AutomationRulesPage from '@/pages/AutomationRulesPage'
 import TagsPage from '@/pages/TagsPage'
+import WorkshopPage from '@/pages/WorkshopPage'
 import LoginPage from '@/pages/LoginPage'
 import CallbackPage from '@/pages/CallbackPage'
 
@@ -32,11 +33,13 @@ export default function App() {
             <Route path="activities" element={<ActivitiesPage />} />
             <Route path="activities/:id" element={<ActivityDetailPage />} />
             <Route path="heatmap" element={<HeatmapPage />} />
+            <Route path="workshop" element={<WorkshopPage />} />
+            <Route path="workshop/tags" element={<TagsPage />} />
+            <Route path="gear" element={<GearPage />} />
+            <Route path="gear/:id" element={<GearDetailPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="settings/privacy" element={<PrivacySettingsPage />} />
             <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
-            <Route path="gear" element={<GearPage />} />
-            <Route path="gear/:id" element={<GearDetailPage />} />
             <Route path="settings/rules" element={<AutomationRulesPage />} />
             <Route path="settings/tags" element={<TagsPage />} />
           </Route>

@@ -1,6 +1,5 @@
 interface EnrichmentTagsProps {
   timeOfDay?: string[] | null
-  intensity?: string | null
   isRoundTrip?: boolean
   weatherTags?: string[]
 }
@@ -32,24 +31,9 @@ const timeOfDayStyles: Record<string, { label: string; classes: string }> = {
   },
 }
 
-const intensityStyles: Record<string, { label: string; classes: string }> = {
-  'locker': {
-    label: 'Locker',
-    classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  },
-  'moderat': {
-    label: 'Moderat',
-    classes: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  },
-  'intensiv': {
-    label: 'Intensiv',
-    classes: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  },
-}
-
 const hiddenTimeOfDay = new Set(['tag', 'goldene-stunde', 'buergerliche-daemmerung'])
 
-export default function EnrichmentTags({ timeOfDay, intensity, isRoundTrip, weatherTags }: EnrichmentTagsProps) {
+export default function EnrichmentTags({ timeOfDay, isRoundTrip, weatherTags }: EnrichmentTagsProps) {
   const badges: { key: string; label: string; classes: string }[] = []
 
   if (timeOfDay) {
@@ -60,11 +44,6 @@ export default function EnrichmentTags({ timeOfDay, intensity, isRoundTrip, weat
         badges.push({ key: `tod-${tod}`, label: s.label, classes: s.classes })
       }
     }
-  }
-
-  if (intensity && intensity !== 'intensiv' && intensityStyles[intensity]) {
-    const s = intensityStyles[intensity]
-    badges.push({ key: `int-${intensity}`, label: s.label, classes: s.classes })
   }
 
   if (isRoundTrip) {

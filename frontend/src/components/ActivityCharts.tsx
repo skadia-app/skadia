@@ -183,8 +183,7 @@ function computeSunMarkLines(
       if (d < bestDiff) { bestDiff = d; bestIdx = i }
     }
     const xVal = xMode === 'distance' ? data.distanceKm[bestIdx] : data.elapsedMin[bestIdx]
-    const time = new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-    marks.push({ xAxis: xVal, label: `${label} ${time}`, color, type: markType })
+    marks.push({ xAxis: xVal, label, color, type: markType })
   }
 
   if (sunriseAt) addMark(sunriseAt, '\u2600', '#f59e0b', 'sunrise')  // amber
@@ -481,6 +480,9 @@ function ChartPanel({
       if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
     }
 
+    // Extra top padding for sunrise/sunset icons above the chart
+    const gridTop = (sunMarkLines && sunMarkLines.length > 0) ? 34 : 8
+
     // ── Mark lines ──────────────────────────────────────────────────────────
     const mlData: Record<string, unknown>[] = []
     if (markLines === 'max' || markLines === 'minmax') {
@@ -490,22 +492,13 @@ function ChartPanel({
       mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
     }
 
-    // Sun event mark lines (sunrise/sunset)
+    // Sun event mark lines (sunrise/sunset) — icons shown via markPoint
     if (sunMarkLines && sunMarkLines.length > 0) {
       for (const sm of sunMarkLines) {
         mlData.push({
           xAxis: sm.xAxis,
           name: sm.label,
-          label: {
-            show: true,
-            formatter: sm.label,
-            position: 'insideEndTop',
-            backgroundColor: 'rgba(255,255,255,0.9)',
-            padding: [2, 5],
-            borderRadius: 3,
-            color: sm.color,
-            fontSize: 11,
-          },
+          label: { show: false },
           lineStyle: { type: 'dashed', color: sm.color, width: 1.5 },
         })
       }
@@ -550,7 +543,7 @@ function ChartPanel({
     // ── ECharts option ───────────────────────────────────────────────────────
     const option: echarts.EChartsCoreOption = {
       animation: false,
-      grid: { left: 52, right: 76, top: 8, bottom: 36 },
+      grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
       brush: {
         toolbox: [],

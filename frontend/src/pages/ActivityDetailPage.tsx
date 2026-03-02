@@ -78,7 +78,6 @@ export default function ActivityDetailPage() {
       {/* Enrichment Tags */}
       <EnrichmentTags
         timeOfDay={activity.time_of_day}
-        intensity={activity.intensity}
         isRoundTrip={activity.is_round_trip}
         weatherTags={activity.weather_tags}
       />
@@ -398,23 +397,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {tags.map((tag, i) => (
-        <span
-          key={tag}
-          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
-        >
-          {tag}
-          <button
-            onClick={() => removeMut.mutate(tag)}
-            className="text-xs opacity-50 hover:opacity-100 ml-1 cursor-pointer"
-            title={`Tag "${tag}" entfernen`}
-          >
-            &times;
-          </button>
-        </span>
-      ))}
-
-      {/* Add tag button */}
+      {/* Add tag button — left of first tag */}
       <div className="relative" ref={popoverRef}>
         <button
           onClick={() => setAddOpen(!addOpen)}
@@ -462,6 +445,22 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
           </div>
         )}
       </div>
+
+      {tags.map((tag, i) => (
+        <span
+          key={tag}
+          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
+        >
+          {tag}
+          <button
+            onClick={() => removeMut.mutate(tag)}
+            className="text-xs opacity-50 hover:opacity-100 ml-1 cursor-pointer"
+            title={`Tag "${tag}" entfernen`}
+          >
+            &times;
+          </button>
+        </span>
+      ))}
     </div>
   )
 }

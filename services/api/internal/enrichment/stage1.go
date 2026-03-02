@@ -48,11 +48,13 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 		}
 	}
 
-	// Intensity (requires heart rate)
-	if data.AvgHeartRate > 0 && data.MaxHeartRate > 0 {
-		if intensity := Intensity(data.AvgHeartRate, float64(data.MaxHeartRate)); intensity != "" {
-			fields["intensity"] = intensity
+	// Auto-tag "Frost" when any temperature reading is below 0°C
+	if hasFrostTemperature(data.Streams, data.AvgTemperatureC) {
+		base := data.Tags
+		if existing, ok := fields["tags"].([]string); ok {
+			base = existing
 		}
+		fields["tags"] = appendTagIfMissing(base, "Frost")
 	}
 
 	// Round trip detection (requires GPS start+end)
@@ -355,6 +357,18 @@ func appendTagIfMissing(tags []string, tag string) []string {
 		}
 	}
 	return append(tags, tag)
+}
+
+// hasFrostTemperature returns true if any stream point recorded a temperature
+// below 0°C, or if the average temperature is negative.
+func hasFrostTemperature(streams []model.StreamPoint, avgTempC float64) bool {
+	for i := range streams {
+		if streams[i].TemperatureC != nil && *streams[i].TemperatureC < 0 {
+			return true
+		}
+	}
+	// Fallback: average temperature negative means frost conditions existed
+	return avgTempC < 0
 }
 
 func abs64(v int64) int64 {
