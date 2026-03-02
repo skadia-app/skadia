@@ -24,6 +24,16 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 		}
 	}
 
+	// Auto-tag "Nacht" when activity reaches astronomical night
+	if todPeriods, ok := fields["time_of_day"].([]string); ok {
+		for _, p := range todPeriods {
+			if p == "nacht" {
+				fields["tags"] = appendTagIfMissing(data.Tags, "Nacht")
+				break
+			}
+		}
+	}
+
 	// Sunrise/Sunset (requires GPS + start/end time)
 	if data.StartLat != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
 		sun := CalculateSunTimes(
@@ -193,7 +203,7 @@ func Intensity(avgHR, maxHR float64) string {
 	case ratio < 0.8:
 		return "moderat"
 	default:
-		return "intensiv"
+		return "" // needs better criteria: power zones, TSS, training type — see roadmap
 	}
 }
 
@@ -335,6 +345,16 @@ func findCoordsAtTime(t time.Time, defaultLat, defaultLng float64, streams []mod
 	}
 
 	return defaultLat, defaultLng
+}
+
+// appendTagIfMissing appends a tag to the slice if it's not already present.
+func appendTagIfMissing(tags []string, tag string) []string {
+	for _, t := range tags {
+		if t == tag {
+			return tags
+		}
+	}
+	return append(tags, tag)
 }
 
 func abs64(v int64) int64 {

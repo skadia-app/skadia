@@ -6,7 +6,9 @@ import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity } from '@/api/activities'
+import { fetchTags, createTag } from '@/api/tags'
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
+import type { Tag } from '@/api/tags'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
@@ -70,11 +72,8 @@ export default function ActivityDetailPage() {
       {/* Header */}
       <ActivityHeader activity={activity} />
 
-      {/* Stats */}
-      <StatsGrid activity={activity} />
-
       {/* Tags */}
-      {activity.tags.length > 0 && <TagsBadges tags={activity.tags} />}
+      <TagsBadges tags={activity.tags} activityId={activity.id} />
 
       {/* Enrichment Tags */}
       <EnrichmentTags
@@ -86,6 +85,9 @@ export default function ActivityDetailPage() {
 
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
+
+      {/* Stats */}
+      <StatsGrid activity={activity} />
 
       {/* Weather */}
       {activity.weather_temp_c != null && (
@@ -313,7 +315,13 @@ function StatsGrid({ activity }: { activity: Activity }) {
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
-function TagsBadges({ tags }: { tags: string[] }) {
+function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }) {
+  const queryClient = useQueryClient()
+  const [addOpen, setAddOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
   const colors = [
     'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
     'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -323,16 +331,137 @@ function TagsBadges({ tags }: { tags: string[] }) {
     'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
   ]
 
+  const removeMut = useMutation({
+    mutationFn: (tagToRemove: string) =>
+      updateActivity(activityId, { tags: tags.filter(t => t !== tagToRemove) }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['activity', activityId], updated)
+    },
+  })
+
+  const addMut = useMutation({
+    mutationFn: (tagToAdd: string) =>
+      updateActivity(activityId, { tags: [...tags, tagToAdd] }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['activity', activityId], updated)
+      setSearch('')
+      setAddOpen(false)
+    },
+  })
+
+  const createAndAddMut = useMutation({
+    mutationFn: async (name: string) => {
+      await createTag({ name })
+      return updateActivity(activityId, { tags: [...tags, name] })
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['activity', activityId], updated)
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      setSearch('')
+      setAddOpen(false)
+    },
+  })
+
+  const { data: allTags } = useQuery({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
+    enabled: addOpen,
+  })
+
+  // Close popover on click outside
+  useEffect(() => {
+    if (!addOpen) return
+    function handleClick(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setAddOpen(false)
+        setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [addOpen])
+
+  // Focus search on open
+  useEffect(() => {
+    if (addOpen) searchRef.current?.focus()
+  }, [addOpen])
+
+  const tagsLower = new Set(tags.map(t => t.toLowerCase()))
+  const filtered = (allTags ?? [])
+    .filter(t => !tagsLower.has(t.name.toLowerCase()))
+    .filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => b.activity_count - a.activity_count)
+
+  const searchTrimmed = search.trim()
+  const exactMatch = (allTags ?? []).some(t => t.name.toLowerCase() === searchTrimmed.toLowerCase())
+  const showCreate = searchTrimmed.length > 0 && !exactMatch
+
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {tags.map((tag, i) => (
         <span
           key={tag}
-          className={`px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
+          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
         >
           {tag}
+          <button
+            onClick={() => removeMut.mutate(tag)}
+            className="text-xs opacity-50 hover:opacity-100 ml-1 cursor-pointer"
+            title={`Tag "${tag}" entfernen`}
+          >
+            &times;
+          </button>
         </span>
       ))}
+
+      {/* Add tag button */}
+      <div className="relative" ref={popoverRef}>
+        <button
+          onClick={() => setAddOpen(!addOpen)}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium cursor-pointer
+                     bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 transition-colors"
+          title="Tag hinzufuegen"
+        >
+          +
+        </button>
+
+        {addOpen && (
+          <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg">
+            <div className="p-2">
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tag suchen..."
+                className="w-full px-2 py-1.5 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filtered.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => addMut.mutate(t.name)}
+                  className="w-full text-left px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer flex items-center justify-between"
+                >
+                  <span>{t.name}</span>
+                  <span className="text-xs text-neutral-400">{t.activity_count}</span>
+                </button>
+              ))}
+              {showCreate && (
+                <button
+                  onClick={() => createAndAddMut.mutate(searchTrimmed)}
+                  className="w-full text-left px-3 py-1.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  &ldquo;{searchTrimmed}&rdquo; erstellen
+                </button>
+              )}
+              {filtered.length === 0 && !showCreate && (
+                <div className="px-3 py-2 text-sm text-neutral-400">Keine Tags gefunden</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -357,7 +486,7 @@ function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?
       )}
       {sunsetAt && (
         <span className="flex items-center gap-1.5">
-          <span className="text-indigo-400">&#9790;</span>
+          <span className="text-orange-600">&#9790;</span>
           <span>{fmt(sunsetAt)}</span>
         </span>
       )}

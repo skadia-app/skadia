@@ -8,6 +8,7 @@ import {
   AxisPointerComponent,
   BrushComponent,
   MarkLineComponent,
+  MarkPointComponent,
   ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -21,9 +22,16 @@ echarts.use([
   AxisPointerComponent,
   BrushComponent,
   MarkLineComponent,
+  MarkPointComponent,
   ToolboxComponent,
   CanvasRenderer,
 ])
+
+// ── SVG symbols for sunrise/sunset mark points ──────────────────────────────
+
+const SUNRISE_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cline x1='16' y1='4' x2='16' y2='9' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='6' y1='12' x2='9.5' y2='14' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='26' y1='12' x2='22.5' y2='14' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M8 22 A8 8 0 0 1 24 22' fill='%23f59e0b'/%3E%3Cline x1='4' y1='22' x2='28' y2='22' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"
+
+const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cline x1='16' y1='28' x2='16' y2='23' stroke='%23e67e22' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='6' y1='20' x2='9.5' y2='18' stroke='%23e67e22' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='26' y1='20' x2='22.5' y2='18' stroke='%23e67e22' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M8 10 A8 8 0 0 0 24 10' fill='%23e67e22'/%3E%3Cline x1='4' y1='10' x2='28' y2='10' stroke='%23e67e22' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,6 +148,7 @@ interface SunMarkLine {
   xAxis: number
   label: string
   color: string
+  type: 'sunrise' | 'sunset'
 }
 
 interface Props {
@@ -163,7 +172,7 @@ function computeSunMarkLines(
   const t0 = new Date(streams[0].time).getTime()
   const tEnd = new Date(streams[streams.length - 1].time).getTime()
 
-  const addMark = (iso: string, label: string, color: string) => {
+  const addMark = (iso: string, label: string, color: string, markType: 'sunrise' | 'sunset') => {
     const t = new Date(iso).getTime()
     if (t < t0 || t > tEnd) return
     // Find closest stream index by time
@@ -175,11 +184,11 @@ function computeSunMarkLines(
     }
     const xVal = xMode === 'distance' ? data.distanceKm[bestIdx] : data.elapsedMin[bestIdx]
     const time = new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-    marks.push({ xAxis: xVal, label: `${label} ${time}`, color })
+    marks.push({ xAxis: xVal, label: `${label} ${time}`, color, type: markType })
   }
 
-  if (sunriseAt) addMark(sunriseAt, '\u2600', '#f59e0b')  // amber-500
-  if (sunsetAt) addMark(sunsetAt, '\u263E', '#818cf8')     // indigo-400
+  if (sunriseAt) addMark(sunriseAt, '\u2600', '#f59e0b', 'sunrise')  // amber
+  if (sunsetAt) addMark(sunsetAt, '\u263E', '#e67e22', 'sunset')     // warm orange
 
   return marks
 }
@@ -625,6 +634,18 @@ function ChartPanel({
               },
               lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
               data: mlData,
+            },
+          } : {}),
+          ...(sunMarkLines && sunMarkLines.length > 0 ? {
+            markPoint: {
+              data: sunMarkLines.map(sm => ({
+                coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                symbolSize: 24,
+                symbolOffset: [0, -14],
+                label: { show: false },
+              })),
+              animation: false,
             },
           } : {}),
         },

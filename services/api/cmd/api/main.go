@@ -163,6 +163,11 @@ func main() {
 
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
 
+			r.Get("/tags", h.ListTags)
+			r.Post("/tags", h.CreateTag)
+			r.Patch("/tags/{id}", h.UpdateTag)
+			r.Delete("/tags/{id}", h.DeleteTag)
+
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-weather", h.BackfillWeather)
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)

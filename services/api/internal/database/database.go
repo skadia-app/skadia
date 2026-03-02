@@ -1558,6 +1558,164 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 	return tags, nil
 }
 
+// ── Tags ────────────────────────────────────────────────────────────────────
+
+// ListTags returns all tags for a user, ordered by activity_count DESC, name ASC.
+func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, user_id, name, color, text_color, category, is_system, activity_count, created_at
+		FROM tags
+		WHERE user_id = $1
+		ORDER BY activity_count DESC, name ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []model.Tag
+	for rows.Next() {
+		var t model.Tag
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []model.Tag{}
+	}
+	return tags, nil
+}
+
+// CreateTag creates a new tag for a user.
+func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string) (*model.Tag, error) {
+	var t model.Tag
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, name, color, text_color, category, is_system, activity_count, created_at`,
+		userID, name, color, textColor,
+	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create tag: %w", err)
+	}
+	return &t, nil
+}
+
+// UpdateTag updates an existing tag.
+func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string) (*model.Tag, error) {
+	var sets []string
+	var args []any
+	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
+	argIdx := 3
+
+	if name != "" {
+		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
+		args = append(args, name)
+		argIdx++
+	}
+	if color != "" {
+		sets = append(sets, fmt.Sprintf("color = $%d", argIdx))
+		args = append(args, color)
+		argIdx++
+	}
+	if textColor != "" {
+		sets = append(sets, fmt.Sprintf("text_color = $%d", argIdx))
+		args = append(args, textColor)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		// Nothing to update, return existing tag
+		var t model.Tag
+		err := db.Pool.QueryRow(ctx, `
+			SELECT id, user_id, name, color, text_color, category, is_system, activity_count, created_at
+			FROM tags WHERE id = $1 AND user_id = $2`,
+			tagID, userID,
+		).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt)
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get tag: %w", err)
+		}
+		return &t, nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE tags SET %s
+		WHERE id = $1 AND user_id = $2
+		RETURNING id, user_id, name, color, text_color, category, is_system, activity_count, created_at`,
+		strings.Join(sets, ", "),
+	)
+
+	var t model.Tag
+	err := db.Pool.QueryRow(ctx, query, args...).Scan(
+		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update tag: %w", err)
+	}
+	return &t, nil
+}
+
+// DeleteTag deletes a tag.
+func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
+	result, err := db.Pool.Exec(ctx,
+		`DELETE FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete tag: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("tag not found")
+	}
+	return nil
+}
+
+// GetTagsByActivity returns all tags assigned to an activity via the activity_tags junction table.
+func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model.Tag, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system, t.activity_count, t.created_at
+		FROM tags t
+		JOIN activity_tags at ON at.tag_id = t.id
+		WHERE at.activity_id = $1
+		ORDER BY t.name ASC`,
+		activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get tags by activity: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []model.Tag
+	for rows.Next() {
+		var t model.Tag
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+			&t.Category, &t.IsSystem, &t.ActivityCount, &t.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []model.Tag{}
+	}
+	return tags, nil
+}
+
 // UpdateEnrichmentFields updates enrichment-related fields on an activity.
 func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fields map[string]any) error {
 	if len(fields) == 0 {

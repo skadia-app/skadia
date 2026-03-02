@@ -41,6 +41,8 @@ type ActivityData struct {
 	TSS   float64
 	TRIMP float64
 
+	Tags []string // existing tags on the activity (for enrichment merge)
+
 	IsIndoor bool
 	HasGPS   bool
 	StartLat float64
@@ -284,6 +286,19 @@ type GeoTag struct {
 	DistM       *float64  `json:"dist_m,omitempty"`
 	DurationMin *int      `json:"duration_min,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Tag represents a user-defined tag for categorizing activities.
+type Tag struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	Name          string    `json:"name"`
+	Color         string    `json:"color"`
+	TextColor     string    `json:"text_color"`
+	Category      string    `json:"category"`
+	IsSystem      bool      `json:"is_system"`
+	ActivityCount int       `json:"activity_count"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // EnrichmentSettings holds user preferences for activity enrichment.

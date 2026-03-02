@@ -12,6 +12,7 @@ import EnrichmentSettingsPage from '@/pages/EnrichmentSettingsPage'
 import GearPage from '@/pages/GearPage'
 import GearDetailPage from '@/pages/GearDetailPage'
 import AutomationRulesPage from '@/pages/AutomationRulesPage'
+import TagsPage from '@/pages/TagsPage'
 import LoginPage from '@/pages/LoginPage'
 import CallbackPage from '@/pages/CallbackPage'
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="gear" element={<GearPage />} />
             <Route path="gear/:id" element={<GearDetailPage />} />
             <Route path="settings/rules" element={<AutomationRulesPage />} />
+            <Route path="settings/tags" element={<TagsPage />} />
           </Route>
         </Route>
       </Routes>

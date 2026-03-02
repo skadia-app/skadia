@@ -47,11 +47,14 @@ const intensityStyles: Record<string, { label: string; classes: string }> = {
   },
 }
 
+const hiddenTimeOfDay = new Set(['tag', 'goldene-stunde', 'buergerliche-daemmerung'])
+
 export default function EnrichmentTags({ timeOfDay, intensity, isRoundTrip, weatherTags }: EnrichmentTagsProps) {
   const badges: { key: string; label: string; classes: string }[] = []
 
   if (timeOfDay) {
     for (const tod of timeOfDay) {
+      if (hiddenTimeOfDay.has(tod)) continue
       const s = timeOfDayStyles[tod]
       if (s) {
         badges.push({ key: `tod-${tod}`, label: s.label, classes: s.classes })
@@ -59,7 +62,7 @@ export default function EnrichmentTags({ timeOfDay, intensity, isRoundTrip, weat
     }
   }
 
-  if (intensity && intensityStyles[intensity]) {
+  if (intensity && intensity !== 'intensiv' && intensityStyles[intensity]) {
     const s = intensityStyles[intensity]
     badges.push({ key: `int-${intensity}`, label: s.label, classes: s.classes })
   }
