@@ -1,0 +1,198 @@
+-- Skadia OSM data import script for osm2pgsql Flex mode
+-- Usage: osm2pgsql -d skadia -S skadia-osm.lua -O flex <file.osm.pbf>
+
+-- Table definitions
+
+local tables = {}
+
+tables.boundaries = osm2pgsql.define_area_table('osm_boundaries', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'admin_level', type = 'int' },
+    { column = 'country_code', type = 'text' },
+    { column = 'geom', type = 'multipolygon', projection = 4326 },
+})
+
+tables.peaks = osm2pgsql.define_node_table('osm_peaks', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'ele', type = 'real' },
+    { column = 'type', type = 'text' },
+    { column = 'geom', type = 'point', projection = 4326 },
+})
+
+tables.forests = osm2pgsql.define_area_table('osm_forests', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'geom', type = 'multipolygon', projection = 4326 },
+})
+
+tables.waters = osm2pgsql.define_area_table('osm_waters', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'geom', type = 'multipolygon', projection = 4326 },
+})
+
+tables.waterways = osm2pgsql.define_way_table('osm_waterways', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'waterway', type = 'text' },
+    { column = 'geom', type = 'linestring', projection = 4326 },
+})
+
+tables.settlements = osm2pgsql.define_node_table('osm_settlements', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'place', type = 'text' },
+    { column = 'population', type = 'int' },
+    { column = 'geom', type = 'point', projection = 4326 },
+})
+
+tables.amenities = osm2pgsql.define_node_table('osm_amenities', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name', type = 'text' },
+    { column = 'type', type = 'text' },
+    { column = 'subtype', type = 'text' },
+    { column = 'geom', type = 'point', projection = 4326 },
+})
+
+-- Helper: parse elevation string to number
+local function parse_ele(ele_str)
+    if ele_str == nil then return nil end
+    local num = tonumber(ele_str:match("([%d%.%-]+)"))
+    return num
+end
+
+-- Helper: parse population
+local function parse_population(pop_str)
+    if pop_str == nil then return nil end
+    return tonumber(pop_str)
+end
+
+-- Process nodes
+function osm2pgsql.process_node(object)
+    local tags = object.tags
+
+    -- Peaks
+    if tags.natural == 'peak' or tags.natural == 'volcano' then
+        tables.peaks:insert({
+            osm_id = object.id,
+            name = tags.name,
+            ele = parse_ele(tags.ele),
+            type = tags.natural,
+            geom = object:as_point(),
+        })
+    end
+
+    -- Settlements
+    local place = tags.place
+    if place == 'city' or place == 'town' or place == 'village' or place == 'hamlet' or place == 'suburb' then
+        tables.settlements:insert({
+            osm_id = object.id,
+            name = tags.name,
+            place = place,
+            population = parse_population(tags.population),
+            geom = object:as_point(),
+        })
+    end
+
+    -- Amenities
+    local amenity_type = tags.tourism or tags.amenity or tags.leisure
+    if amenity_type and tags.name then
+        local subtype = nil
+        if tags.tourism then subtype = tags.tourism
+        elseif tags.amenity then subtype = tags.amenity
+        elseif tags.leisure then subtype = tags.leisure
+        end
+        tables.amenities:insert({
+            osm_id = object.id,
+            name = tags.name,
+            type = amenity_type,
+            subtype = subtype,
+            geom = object:as_point(),
+        })
+    end
+end
+
+-- Process ways
+function osm2pgsql.process_way(object)
+    local tags = object.tags
+
+    -- Waterways
+    local waterway = tags.waterway
+    if waterway == 'river' or waterway == 'stream' or waterway == 'canal' then
+        if not object.is_closed then
+            tables.waterways:insert({
+                osm_id = object.id,
+                name = tags.name,
+                waterway = waterway,
+                geom = object:as_linestring(),
+            })
+        end
+    end
+
+    -- Forests (closed ways)
+    if object.is_closed then
+        if tags.natural == 'wood' or tags.landuse == 'forest' then
+            if tags.name then
+                tables.forests:insert({
+                    osm_id = object.id,
+                    name = tags.name,
+                    geom = object:as_multipolygon(),
+                })
+            end
+        end
+
+        -- Waters (closed ways)
+        if tags.natural == 'water' then
+            tables.waters:insert({
+                osm_id = object.id,
+                name = tags.name,
+                geom = object:as_multipolygon(),
+            })
+        end
+    end
+end
+
+-- Process relations
+function osm2pgsql.process_relation(object)
+    local tags = object.tags
+    local rtype = tags.type
+
+    -- Admin boundaries
+    if rtype == 'boundary' and tags.boundary == 'administrative' then
+        local admin_level = tonumber(tags.admin_level)
+        if admin_level and (admin_level == 2 or admin_level == 4 or admin_level == 6 or admin_level == 8) then
+            local country_code = tags['ISO3166-1:alpha2'] or tags['ISO3166-1'] or nil
+            tables.boundaries:insert({
+                osm_id = object.id,
+                name = tags.name,
+                admin_level = admin_level,
+                country_code = country_code,
+                geom = object:as_multipolygon(),
+            })
+        end
+    end
+
+    -- Forests (multipolygon relations)
+    if rtype == 'multipolygon' then
+        if tags.natural == 'wood' or tags.landuse == 'forest' then
+            if tags.name then
+                tables.forests:insert({
+                    osm_id = object.id,
+                    name = tags.name,
+                    geom = object:as_multipolygon(),
+                })
+            end
+        end
+
+        -- Waters
+        if tags.natural == 'water' then
+            tables.waters:insert({
+                osm_id = object.id,
+                name = tags.name,
+                geom = object:as_multipolygon(),
+            })
+        end
+    end
+end

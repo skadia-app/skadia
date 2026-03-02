@@ -282,6 +282,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.tss, a.trimp, a.is_indoor,
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename,
+			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
+			a.weather_temp_c, a.weather_condition, a.weather_humidity, a.weather_wind_speed_ms, a.weather_tags,
+			a.is_round_trip, a.intensity, a.time_of_day, a.gear_id,
 			a.created_at, a.updated_at,
 			COALESCE(t.point_count, 0) > 0
 		FROM activities a
@@ -300,6 +303,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.TSS, &a.TRIMP, &a.IsIndoor,
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename,
+		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
+		&a.WeatherTempC, &a.WeatherCondition, &a.WeatherHumidity, &a.WeatherWindSpeedMS, &a.WeatherTags,
+		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.GearID,
 		&a.CreatedAt, &a.UpdatedAt,
 		&hasTrack,
 	)
@@ -1483,4 +1489,166 @@ func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error 
 	}
 
 	return nil
+}
+
+// ── Enrichment ──────────────────────────────────────────────────────────────
+
+// GetGeoTags returns all geo tags for an activity.
+func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, activity_id, category, name, osm_id,
+			lat, lng, ele, dist_m, duration_min, created_at
+		FROM activity_geo_tags
+		WHERE activity_id = $1
+		ORDER BY COALESCE(dist_m, 0)`,
+		activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get geo tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []model.GeoTag
+	for rows.Next() {
+		var t model.GeoTag
+		if err := rows.Scan(
+			&t.ID, &t.ActivityID, &t.Category, &t.Name, &t.OsmID,
+			&t.Lat, &t.Lng, &t.Ele, &t.DistM, &t.DurationMin, &t.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan geo tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []model.GeoTag{}
+	}
+	return tags, nil
+}
+
+// UpdateEnrichmentFields updates enrichment-related fields on an activity.
+func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var sets []string
+	var args []any
+	args = append(args, activityID) // $1
+	argIdx := 2
+
+	for col, val := range fields {
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, argIdx))
+		args = append(args, val)
+		argIdx++
+	}
+
+	sets = append(sets, "updated_at = NOW()")
+
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
+	_, err := db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update enrichment fields: %w", err)
+	}
+	return nil
+}
+
+// GetEnrichmentSettings returns enrichment settings for a user, creating defaults if missing.
+func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.EnrichmentSettings, error) {
+	var s model.EnrichmentSettings
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO user_enrichment_settings (user_id)
+		VALUES ($1)
+		ON CONFLICT (user_id) DO UPDATE SET user_id = $1
+		RETURNING user_id, enable_summit_detection, enable_weather_enrichment,
+			enable_stop_detection, enable_climb_detection, enable_commute_detection,
+			enable_auto_naming, climb_min_gradient_pct, climb_min_elevation_m,
+			round_trip_threshold_m`,
+		userID,
+	).Scan(
+		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
+		&s.EnableStopDetection, &s.EnableClimbDetection, &s.EnableCommuteDetection,
+		&s.EnableAutoNaming, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
+		&s.RoundTripThresholdM,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get enrichment settings: %w", err)
+	}
+	return &s, nil
+}
+
+// UpdateEnrichmentSettings updates enrichment settings for a user.
+func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *model.EnrichmentSettings) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO user_enrichment_settings (
+			user_id, enable_summit_detection, enable_weather_enrichment,
+			enable_stop_detection, enable_climb_detection, enable_commute_detection,
+			enable_auto_naming, climb_min_gradient_pct, climb_min_elevation_m,
+			round_trip_threshold_m
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (user_id) DO UPDATE SET
+			enable_summit_detection = $2,
+			enable_weather_enrichment = $3,
+			enable_stop_detection = $4,
+			enable_climb_detection = $5,
+			enable_commute_detection = $6,
+			enable_auto_naming = $7,
+			climb_min_gradient_pct = $8,
+			climb_min_elevation_m = $9,
+			round_trip_threshold_m = $10`,
+		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
+		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
+		s.EnableAutoNaming, s.ClimbMinGradientPct, s.ClimbMinElevationM,
+		s.RoundTripThresholdM,
+	)
+	if err != nil {
+		return fmt.Errorf("update enrichment settings: %w", err)
+	}
+	return nil
+}
+
+// BackfillActivity holds the minimal data needed for backfill operations.
+type BackfillActivity struct {
+	ID        string
+	Lat       float64
+	Lng       float64
+	EndLat    float64
+	EndLng    float64
+	StartedAt time.Time
+	SportType string
+	AvgHR     float64
+	MaxHR     int
+}
+
+// ListActivitiesForBackfill returns activity data needed for enrichment backfill.
+func (db *DB) ListActivitiesForBackfill(ctx context.Context, userID string) ([]BackfillActivity, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT a.id,
+			COALESCE(ST_Y(a.start_location), 0) AS lat,
+			COALESCE(ST_X(a.start_location), 0) AS lng,
+			COALESCE(ST_Y(a.end_location), 0) AS end_lat,
+			COALESCE(ST_X(a.end_location), 0) AS end_lng,
+			a.started_at, a.sport_type,
+			COALESCE(a.avg_heart_rate, 0), COALESCE(a.max_heart_rate, 0)
+		FROM activities a
+		WHERE a.user_id = $1
+		ORDER BY a.started_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list activities for backfill: %w", err)
+	}
+	defer rows.Close()
+
+	var activities []BackfillActivity
+	for rows.Next() {
+		var a BackfillActivity
+		if err := rows.Scan(
+			&a.ID, &a.Lat, &a.Lng, &a.EndLat, &a.EndLng,
+			&a.StartedAt, &a.SportType, &a.AvgHR, &a.MaxHR,
+		); err != nil {
+			return nil, fmt.Errorf("scan backfill activity: %w", err)
+		}
+		activities = append(activities, a)
+	}
+	return activities, nil
 }

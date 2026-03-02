@@ -51,6 +51,20 @@ export interface Activity {
   enrichment_status: string
   needs_classification: boolean
   has_gps: boolean
+  title_auto?: string | null
+  start_city?: string | null
+  end_city?: string | null
+  start_state?: string | null
+  start_country?: string | null
+  weather_temp_c?: number | null
+  weather_condition?: string | null
+  weather_humidity?: number | null
+  weather_wind_speed_ms?: number | null
+  weather_tags?: string[]
+  is_round_trip?: boolean
+  intensity?: string | null
+  time_of_day?: string | null
+  gear_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -97,4 +111,101 @@ export interface Sensor {
   serial_number?: number
   software_version?: string
   battery_status?: string
+}
+
+export interface GeoTag {
+  id: string
+  activity_id: string
+  category: string
+  name: string
+  osm_id?: number
+  lat?: number
+  lng?: number
+  ele?: number
+  dist_m?: number
+  duration_min?: number
+  created_at: string
+}
+
+export interface EnrichmentSettings {
+  user_id: string
+  enable_summit_detection: boolean
+  enable_weather_enrichment: boolean
+  enable_stop_detection: boolean
+  enable_climb_detection: boolean
+  enable_commute_detection: boolean
+  enable_auto_naming: boolean
+  climb_min_gradient_pct: number
+  climb_min_elevation_m: number
+  round_trip_threshold_m: number
+}
+
+export interface Gear {
+  id: string
+  user_id: string
+  name: string
+  type: string
+  sub_type?: string | null
+  brand?: string | null
+  model?: string | null
+  total_distance_m: number
+  total_time_s: number
+  total_activities: number
+  purchased_at?: string | null
+  retired_at?: string | null
+  is_retired: boolean
+  default_for_sports: string[]
+  notes?: string | null
+  components?: GearComponent[]
+  created_at: string
+}
+
+export interface GearComponent {
+  id: string
+  gear_id: string
+  parent_component_id?: string | null
+  name: string
+  type: string
+  brand?: string | null
+  model?: string | null
+  total_distance_m: number
+  installed_at?: string | null
+  removed_at?: string | null
+  is_retired: boolean
+  notes?: string | null
+}
+
+export interface MaintenanceAlert {
+  gear_id: string
+  gear_name: string
+  component_id: string
+  component_name: string
+  interval_name: string
+  interval_type: string
+  is_overdue: boolean
+  current_value: number
+  threshold_value: number
+}
+
+export interface AutomationRule {
+  id: string
+  user_id: string
+  name: string
+  is_active: boolean
+  priority: number
+  conditions: RuleCondition[]
+  actions: RuleAction[]
+  times_applied: number
+  created_at: string
+}
+
+export interface RuleCondition {
+  field: string
+  op: string
+  value: any
+}
+
+export interface RuleAction {
+  action: string
+  params: Record<string, any>
 }

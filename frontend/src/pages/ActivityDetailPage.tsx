@@ -14,6 +14,10 @@ import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportLabel, sportColor, showIndoorBadge,
 } from '@/lib/utils'
+import EnrichmentTags from '@/components/EnrichmentTags'
+import WeatherBadge from '@/components/WeatherBadge'
+import GeoTagsList from '@/components/GeoTagsList'
+import GearSelector from '@/components/GearSelector'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -72,6 +76,27 @@ export default function ActivityDetailPage() {
       {/* Tags */}
       {activity.tags.length > 0 && <TagsBadges tags={activity.tags} />}
 
+      {/* Enrichment Tags */}
+      <EnrichmentTags
+        timeOfDay={activity.time_of_day}
+        intensity={activity.intensity}
+        isRoundTrip={activity.is_round_trip}
+        weatherTags={activity.weather_tags}
+      />
+
+      {/* Weather */}
+      {activity.weather_temp_c != null && (
+        <WeatherBadge
+          tempC={activity.weather_temp_c}
+          condition={activity.weather_condition}
+          humidity={activity.weather_humidity}
+          windSpeedMS={activity.weather_wind_speed_ms}
+        />
+      )}
+
+      {/* Geo Tags */}
+      <GeoTagsList activityId={activity.id} />
+
       {/* Map */}
       <TrackMap
         streams={streams ?? []}
@@ -95,6 +120,9 @@ export default function ActivityDetailPage() {
       {streams && streams.length > 0 && (
         <ActivityCharts streams={streams} onHover={setHoverIndex} onZoomChange={setZoomRange} />
       )}
+
+      {/* Gear */}
+      <GearSelector activityId={activity.id} currentGearId={activity.gear_id} />
 
       {/* Visibility & Privacy */}
       <VisibilitySettings activity={activity} />
@@ -184,6 +212,9 @@ function ActivityHeader({ activity }: { activity: Activity }) {
             {activity.title ?? <span className="text-neutral-400 italic font-normal">Kein Titel</span>}
           </h1>
         )}
+        {!activity.title && activity.title_auto && (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5 truncate">{activity.title_auto}</p>
+        )}
         <div className="flex items-center gap-3 mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           <span>{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && (
@@ -193,6 +224,9 @@ function ActivityHeader({ activity }: { activity: Activity }) {
           <span className="text-neutral-400 dark:text-neutral-600">{format(date, 'HH:mm')} Uhr</span>
           {activity.source_device && (
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>
+          )}
+          {activity.start_city && (
+            <span className="text-neutral-400 dark:text-neutral-600">{activity.start_city}</span>
           )}
         </div>
       </div>

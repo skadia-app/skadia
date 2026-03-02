@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -136,6 +137,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert activity failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Database Error", "failed to save activity", r.URL.Path)
 		return
+	}
+
+	// Stage 1 Enrichment (synchronous, ~50ms)
+	if data.HasGPS && data.StartLat != 0 {
+		enrichment.RunStage1(r.Context(), h.DB, activity.ID, data)
 	}
 
 	// Insert streams

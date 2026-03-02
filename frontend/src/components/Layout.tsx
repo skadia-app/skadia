@@ -6,6 +6,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/activities', label: 'Aktivitäten' },
   { to: '/heatmap', label: 'Heatmap' },
+  { to: '/gear', label: 'Ausrüstung' },
   { to: '/settings', label: 'Einstellungen' },
 ]
 

@@ -8,6 +8,10 @@ import DashboardPage from '@/pages/DashboardPage'
 import HeatmapPage from '@/pages/HeatmapPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PrivacySettingsPage from '@/pages/PrivacySettingsPage'
+import EnrichmentSettingsPage from '@/pages/EnrichmentSettingsPage'
+import GearPage from '@/pages/GearPage'
+import GearDetailPage from '@/pages/GearDetailPage'
+import AutomationRulesPage from '@/pages/AutomationRulesPage'
 import LoginPage from '@/pages/LoginPage'
 import CallbackPage from '@/pages/CallbackPage'
 
@@ -29,6 +33,10 @@ export default function App() {
             <Route path="heatmap" element={<HeatmapPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="settings/privacy" element={<PrivacySettingsPage />} />
+            <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
+            <Route path="gear" element={<GearPage />} />
+            <Route path="gear/:id" element={<GearDetailPage />} />
+            <Route path="settings/rules" element={<AutomationRulesPage />} />
           </Route>
         </Route>
       </Routes>

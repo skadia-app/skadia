@@ -12,6 +12,7 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/muktihari/fit v0.26.0
 	github.com/nats-io/nats.go v1.39.1
+	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 )
 
 require (

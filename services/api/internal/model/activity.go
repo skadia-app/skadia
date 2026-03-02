@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ActivityData is the parsed result of any activity file (FIT, GPX, TCX).
 // All parsers produce this common struct.
@@ -122,6 +125,7 @@ type Activity struct {
 	AvgTemperatureC  *float64   `json:"avg_temperature_c,omitempty"`
 	TSS              *float64   `json:"tss,omitempty"`
 	TRIMP            *float64   `json:"trimp,omitempty"`
+	GearID           *string    `json:"gear_id,omitempty"`
 	IsIndoor         bool       `json:"is_indoor"`
 	Tags             []string   `json:"tags"`
 	Visibility       string     `json:"visibility"`
@@ -129,10 +133,23 @@ type Activity struct {
 	SourceDevice     *string    `json:"source_device,omitempty"`
 	EnrichmentStatus string     `json:"enrichment_status"`
 	NeedsClassification bool    `json:"needs_classification"`
-	HasGPS           bool       `json:"has_gps"`
-	OriginalFilename *string    `json:"original_filename,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	HasGPS             bool       `json:"has_gps"`
+	StartCity          *string    `json:"start_city,omitempty"`
+	EndCity            *string    `json:"end_city,omitempty"`
+	StartState         *string    `json:"start_state,omitempty"`
+	StartCountry       *string    `json:"start_country,omitempty"`
+	StartCountryCode   *string    `json:"start_country_code,omitempty"`
+	WeatherTempC       *float64   `json:"weather_temp_c,omitempty"`
+	WeatherCondition   *string    `json:"weather_condition,omitempty"`
+	WeatherHumidity    *int       `json:"weather_humidity,omitempty"`
+	WeatherWindSpeedMS *float64   `json:"weather_wind_speed_ms,omitempty"`
+	WeatherTags        []string   `json:"weather_tags,omitempty"`
+	IsRoundTrip        bool       `json:"is_round_trip"`
+	Intensity          *string    `json:"intensity,omitempty"`
+	TimeOfDay          *string    `json:"time_of_day,omitempty"`
+	OriginalFilename   *string    `json:"original_filename,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.
@@ -250,4 +267,162 @@ type PrivacyZoneUpdate struct {
 	Lng      *float64 `json:"lng,omitempty"`
 	RadiusM  *int     `json:"radius_m,omitempty"`
 	IsActive *bool    `json:"is_active,omitempty"`
+}
+
+// GeoTag represents a geographic feature associated with an activity.
+type GeoTag struct {
+	ID          string    `json:"id"`
+	ActivityID  string    `json:"activity_id"`
+	Category    string    `json:"category"`
+	Name        string    `json:"name"`
+	OsmID       *int64    `json:"osm_id,omitempty"`
+	Lat         *float64  `json:"lat,omitempty"`
+	Lng         *float64  `json:"lng,omitempty"`
+	Ele         *float64  `json:"ele,omitempty"`
+	DistM       *float64  `json:"dist_m,omitempty"`
+	DurationMin *int      `json:"duration_min,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// EnrichmentSettings holds user preferences for activity enrichment.
+type EnrichmentSettings struct {
+	UserID                  string  `json:"user_id"`
+	EnableSummitDetection   bool    `json:"enable_summit_detection"`
+	EnableWeatherEnrichment bool    `json:"enable_weather_enrichment"`
+	EnableStopDetection     bool    `json:"enable_stop_detection"`
+	EnableClimbDetection    bool    `json:"enable_climb_detection"`
+	EnableCommuteDetection  bool    `json:"enable_commute_detection"`
+	EnableAutoNaming        bool    `json:"enable_auto_naming"`
+	ClimbMinGradientPct     float64 `json:"climb_min_gradient_pct"`
+	ClimbMinElevationM      float64 `json:"climb_min_elevation_m"`
+	RoundTripThresholdM     float64 `json:"round_trip_threshold_m"`
+}
+
+// Gear represents a piece of equipment.
+type Gear struct {
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
+	Name             string          `json:"name"`
+	Type             string          `json:"type"`
+	SubType          *string         `json:"sub_type,omitempty"`
+	Brand            *string         `json:"brand,omitempty"`
+	Model            *string         `json:"model,omitempty"`
+	TotalDistanceM   float64         `json:"total_distance_m"`
+	TotalTimeS       int64           `json:"total_time_s"`
+	TotalActivities  int             `json:"total_activities"`
+	PurchasedAt      *string         `json:"purchased_at,omitempty"`
+	RetiredAt        *string         `json:"retired_at,omitempty"`
+	IsRetired        bool            `json:"is_retired"`
+	DefaultForSports []string        `json:"default_for_sports"`
+	Notes            *string         `json:"notes,omitempty"`
+	Components       []GearComponent `json:"components,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+}
+
+// GearCreate is the request body for creating a gear item.
+type GearCreate struct {
+	Name             string   `json:"name"`
+	Type             string   `json:"type"`
+	SubType          *string  `json:"sub_type,omitempty"`
+	Brand            *string  `json:"brand,omitempty"`
+	Model            *string  `json:"model,omitempty"`
+	PurchasedAt      *string  `json:"purchased_at,omitempty"`
+	DefaultForSports []string `json:"default_for_sports,omitempty"`
+	Notes            *string  `json:"notes,omitempty"`
+}
+
+// GearUpdate is the request body for updating a gear item.
+type GearUpdate struct {
+	Name             *string  `json:"name,omitempty"`
+	Type             *string  `json:"type,omitempty"`
+	SubType          *string  `json:"sub_type,omitempty"`
+	Brand            *string  `json:"brand,omitempty"`
+	Model            *string  `json:"model,omitempty"`
+	PurchasedAt      *string  `json:"purchased_at,omitempty"`
+	RetiredAt        *string  `json:"retired_at,omitempty"`
+	IsRetired        *bool    `json:"is_retired,omitempty"`
+	DefaultForSports []string `json:"default_for_sports,omitempty"`
+	Notes            *string  `json:"notes,omitempty"`
+}
+
+// GearComponent represents a component attached to a gear item.
+type GearComponent struct {
+	ID                string  `json:"id"`
+	GearID            string  `json:"gear_id"`
+	ParentComponentID *string `json:"parent_component_id,omitempty"`
+	Name              string  `json:"name"`
+	Type              string  `json:"type"`
+	Brand             *string `json:"brand,omitempty"`
+	Model             *string `json:"model,omitempty"`
+	TotalDistanceM    float64 `json:"total_distance_m"`
+	InstalledAt       *string `json:"installed_at,omitempty"`
+	RemovedAt         *string `json:"removed_at,omitempty"`
+	IsRetired         bool    `json:"is_retired"`
+	Notes             *string `json:"notes,omitempty"`
+}
+
+// GearComponentCreate is the request body for creating a gear component.
+type GearComponentCreate struct {
+	Name              string  `json:"name"`
+	Type              string  `json:"type"`
+	ParentComponentID *string `json:"parent_component_id,omitempty"`
+	Brand             *string `json:"brand,omitempty"`
+	Model             *string `json:"model,omitempty"`
+	Notes             *string `json:"notes,omitempty"`
+}
+
+// GearServiceInterval represents a maintenance schedule for a component.
+type GearServiceInterval struct {
+	ID                   string   `json:"id"`
+	ComponentID          string   `json:"component_id"`
+	Name                 string   `json:"name"`
+	IntervalType         string   `json:"interval_type"` // distance_m|time_s|elapsed_days
+	IntervalValue        float64  `json:"interval_value"`
+	IsRecurring          bool     `json:"is_recurring"`
+	LastServiceAt        *string  `json:"last_service_at,omitempty"`
+	LastServiceDistanceM *float64 `json:"last_service_distance_m,omitempty"`
+	NextDueAt            *string  `json:"next_due_at,omitempty"`
+}
+
+// MaintenanceAlert represents a maintenance alert for a component.
+type MaintenanceAlert struct {
+	GearID         string  `json:"gear_id"`
+	GearName       string  `json:"gear_name"`
+	ComponentID    string  `json:"component_id"`
+	ComponentName  string  `json:"component_name"`
+	IntervalName   string  `json:"interval_name"`
+	IntervalType   string  `json:"interval_type"`
+	IsOverdue      bool    `json:"is_overdue"`
+	CurrentValue   float64 `json:"current_value"`
+	ThresholdValue float64 `json:"threshold_value"`
+}
+
+// AutomationRule represents a user-defined automation rule.
+type AutomationRule struct {
+	ID           string          `json:"id"`
+	UserID       string          `json:"user_id"`
+	Name         string          `json:"name"`
+	IsActive     bool            `json:"is_active"`
+	Priority     int             `json:"priority"`
+	Conditions   json.RawMessage `json:"conditions"`
+	Actions      json.RawMessage `json:"actions"`
+	TimesApplied int             `json:"times_applied"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+// AutomationRuleCreate is the request body for creating an automation rule.
+type AutomationRuleCreate struct {
+	Name       string          `json:"name"`
+	Priority   int             `json:"priority"`
+	Conditions json.RawMessage `json:"conditions"`
+	Actions    json.RawMessage `json:"actions"`
+}
+
+// AutomationRuleUpdate is the request body for updating an automation rule.
+type AutomationRuleUpdate struct {
+	Name       *string          `json:"name,omitempty"`
+	IsActive   *bool            `json:"is_active,omitempty"`
+	Priority   *int             `json:"priority,omitempty"`
+	Conditions *json.RawMessage `json:"conditions,omitempty"`
+	Actions    *json.RawMessage `json:"actions,omitempty"`
 }

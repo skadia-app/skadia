@@ -161,7 +161,30 @@ func main() {
 			r.Post("/shadow-fs/preview-rename", h.PreviewRename)
 			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
 
+			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
+
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
+			r.Post("/admin/backfill-weather", h.BackfillWeather)
+			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
+
+			r.Get("/settings/enrichment", h.GetEnrichmentSettings)
+			r.Put("/settings/enrichment", h.UpdateEnrichmentSettings)
+
+			r.Get("/gear", h.ListGear)
+			r.Post("/gear", h.CreateGear)
+			r.Get("/gear/{id}", h.GetGear)
+			r.Put("/gear/{id}", h.UpdateGear)
+			r.Delete("/gear/{id}", h.DeleteGear)
+			r.Post("/gear/{id}/components", h.CreateComponent)
+			r.Put("/gear/components/{id}", h.UpdateComponent)
+			r.Delete("/gear/components/{id}", h.DeleteComponent)
+			r.Get("/gear/maintenance-alerts", h.GetMaintenanceAlerts)
+
+			r.Get("/automation-rules", h.ListRules)
+			r.Post("/automation-rules", h.CreateRule)
+			r.Put("/automation-rules/{id}", h.UpdateRule)
+			r.Delete("/automation-rules/{id}", h.DeleteRule)
+			r.Post("/automation-rules/apply", h.ApplyRules)
 		})
 	})
 
