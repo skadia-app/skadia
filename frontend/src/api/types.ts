@@ -264,6 +264,19 @@ export interface BikeSetup {
   updated_at: string
 }
 
+export interface GearDocument {
+  id: string
+  gear_id: string | null
+  component_id: string | null
+  service_event_id: string | null
+  doc_type: 'receipt' | 'invoice' | 'warranty' | 'manual' | 'photo' | 'other'
+  title: string | null
+  original_filename: string
+  content_type: string
+  file_size_bytes: number
+  created_at: string
+}
+
 export interface AutomationRule {
   id: string
   user_id: string

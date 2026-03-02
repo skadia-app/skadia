@@ -1,16 +1,45 @@
 import { apiClient } from './client'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor } from './types'
 
+export interface ActivityFilterParams {
+  sportTypes?: string[]
+  dateFrom?: string
+  dateTo?: string
+  isIndoor?: boolean | null
+  hasGPS?: boolean | null
+  gearId?: string
+  search?: string
+}
+
 export async function fetchActivities(
   cursor?: string,
   limit = 20,
   sortBy?: string,
   sortDir?: string,
+  filters?: ActivityFilterParams,
 ): Promise<ActivitiesResponse> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) params.set('cursor', cursor)
   if (sortBy) params.set('sort_by', sortBy)
   if (sortDir) params.set('sort_dir', sortDir)
+
+  if (filters?.sportTypes?.length) {
+    const sports = new Set<string>()
+    const subs = new Set<string>()
+    for (const key of filters.sportTypes) {
+      const [sport, sub] = key.split(':')
+      sports.add(sport)
+      if (sub) subs.add(sub)
+    }
+    if (sports.size) params.set('sport_type', [...sports].join(','))
+    if (subs.size) params.set('sub_type', [...subs].join(','))
+  }
+  if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
+  if (filters?.dateTo) params.set('date_to', filters.dateTo)
+  if (filters?.isIndoor !== null && filters?.isIndoor !== undefined) params.set('is_indoor', String(filters.isIndoor))
+  if (filters?.hasGPS !== null && filters?.hasGPS !== undefined) params.set('has_gps', String(filters.hasGPS))
+  if (filters?.gearId) params.set('gear_id', filters.gearId)
+  if (filters?.search) params.set('search', filters.search)
 
   return apiClient<ActivitiesResponse>(`/activities?${params}`)
 }

@@ -1,9 +1,16 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -581,4 +588,173 @@ func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, alerts)
+}
+
+// --- Gear Documents ---
+
+func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	gearID := chi.URLParam(r, "id")
+
+	// Limit to 10MB
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 10MB", r.URL.Path)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
+		return
+	}
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	allowed := map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true, "application/pdf": true}
+	if !allowed[contentType] {
+		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, PDF", r.URL.Path)
+		return
+	}
+
+	// SHA256 hash
+	hash := sha256.Sum256(data)
+	hashStr := hex.EncodeToString(hash[:])
+
+	// Determine file extension
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		switch contentType {
+		case "image/jpeg":
+			ext = ".jpg"
+		case "image/png":
+			ext = ".png"
+		case "image/webp":
+			ext = ".webp"
+		case "application/pdf":
+			ext = ".pdf"
+		}
+	}
+
+	// S3 key format: gear/{userID}/{gearID}/{hash}{ext}
+	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+	if mediaBucket == "" {
+		mediaBucket = "skadia-media"
+	}
+	s3Key := fmt.Sprintf("gear/%s/%s/%s%s", userID, gearID, hashStr, ext)
+
+	// Upload to S3
+	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
+		slog.Error("s3 upload failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+		return
+	}
+
+	docType := r.FormValue("doc_type")
+	if docType == "" {
+		if strings.HasPrefix(contentType, "image/") {
+			docType = "photo"
+		} else {
+			docType = "other"
+		}
+	}
+
+	title := r.FormValue("title")
+	var titlePtr *string
+	if title != "" {
+		titlePtr = &title
+	}
+
+	doc := &model.GearDocument{
+		UserID:           userID,
+		GearID:           &gearID,
+		DocType:          docType,
+		Title:            titlePtr,
+		OriginalFilename: header.Filename,
+		ContentType:      contentType,
+		FileSizeBytes:    int64(len(data)),
+		FileHash:         &hashStr,
+		S3Bucket:         mediaBucket,
+		S3Key:            s3Key,
+	}
+
+	result, err := h.DB.InsertGearDocument(r.Context(), doc)
+	if err != nil {
+		slog.Error("insert gear document failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+	docs, err := h.DB.ListGearDocuments(r.Context(), gearID)
+	if err != nil {
+		slog.Error("list gear documents failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, docs)
+}
+
+func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
+	docID := chi.URLParam(r, "docId")
+	bucket, key, err := h.DB.DeleteGearDocument(r.Context(), docID)
+	if err != nil {
+		slog.Error("delete gear document failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
+		return
+	}
+	if bucket == "" {
+		writeError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		return
+	}
+
+	// Delete from S3 (best-effort)
+	if err := h.Storage.DeleteFromBucket(r.Context(), bucket, key); err != nil {
+		slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", err)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
+	docID := chi.URLParam(r, "docId")
+	doc, err := h.DB.GetGearDocument(r.Context(), docID)
+	if err != nil {
+		slog.Error("get gear document failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to get document", r.URL.Path)
+		return
+	}
+	if doc == nil {
+		writeError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		return
+	}
+
+	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), doc.S3Bucket, doc.S3Key)
+	if err != nil {
+		slog.Error("s3 download failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
+		return
+	}
+
+	if ct == "" {
+		ct = doc.ContentType
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
 }

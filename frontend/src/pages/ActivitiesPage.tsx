@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchActivities } from '@/api/activities'
@@ -10,6 +10,8 @@ import {
   formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
 } from '@/lib/utils'
 import { SportIcon } from '@/components/SportIcon'
+import ActivityFilters, { EMPTY_FILTERS, paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
+import type { ActivityFilterState } from '@/components/ActivityFilters'
 
 const PAGE_SIZES = [20, 50, 100] as const
 
@@ -46,6 +48,8 @@ function buildCursorForDate(dateStr: string, direction: SortDir): string {
 
 export default function ActivitiesPage() {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [pageSize, setPageSize] = useState<PageSize>(20)
   // cursors[i] = cursor um Seite i+1 zu laden (cursors[0] = undefined = erste Seite)
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
@@ -58,8 +62,12 @@ export default function ActivitiesPage() {
   const [infiniteKey, setInfiniteKey] = useState(0)
   const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
 
-  // Suche
-  const [search, setSearch] = useState('')
+  // Filter state (persisted in URL)
+  const [filters, setFiltersRaw] = useState<ActivityFilterState>(() => paramsToFilters(searchParams))
+
+  // Search with debounce
+  const [searchInput, setSearchInput] = useState(filters.search)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Sort state: null = unsorted (default: started_at DESC)
   const [sortBy, setSortBy] = useState<SortColumn | null>(null)
@@ -71,6 +79,42 @@ export default function ActivitiesPage() {
 
   const isInfinite = pageSize === 0
   const cursor = cursors[pageIndex]
+
+  // API filter params (memoized for query key stability)
+  const apiFilters = useMemo(() => filtersToApiParams(filters), [filters])
+  const filterKey = useMemo(() => JSON.stringify(apiFilters ?? {}), [apiFilters])
+
+  // Update URL when filters change
+  const setFilters = useCallback((next: ActivityFilterState) => {
+    setFiltersRaw(next)
+    const p = filtersToParams(next)
+    setSearchParams(p, { replace: true })
+  }, [setSearchParams])
+
+  // Debounced search: update filter.search after 300ms
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setFiltersRaw(prev => {
+        const next = { ...prev, search: value }
+        setSearchParams(filtersToParams(next), { replace: true })
+        return next
+      })
+    }, 300)
+  }, [setSearchParams])
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCursors([undefined])
+    setPageIndex(0)
+    setPageInput('1')
+    setTotal(null)
+    if (isInfinite) {
+      setInfiniteInitialCursor(undefined)
+      setInfiniteKey(prev => prev + 1)
+    }
+  }, [filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Sortierung umschalten ──────────────────────────────────────────────────
   // Cycle: unsorted → asc → desc → unsorted
@@ -118,14 +162,14 @@ export default function ActivitiesPage() {
 
   // ── Paginierter Modus ──────────────────────────────────────────────────────
   const { data: pageData, isLoading: pageLoading } = useQuery({
-    queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir],
-    queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir),
+    queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
+    queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
     enabled: !isInfinite,
   })
 
   useEffect(() => {
     if (!pageData) return
-    if (pageData.total > 0) setTotal(pageData.total)
+    setTotal(pageData.total)
     if (pageData.next_cursor != null && cursors[pageIndex + 1] == null) {
       setCursors(prev => {
         const next = [...prev]
@@ -143,15 +187,15 @@ export default function ActivitiesPage() {
     isFetchingNextPage,
     isLoading: infiniteLoading,
   } = useInfiniteQuery({
-    queryKey: ['activities-infinite', infiniteKey, effectiveSortBy, effectiveSortDir],
-    queryFn: ({ pageParam }) => fetchActivities(pageParam as string | undefined, 20, effectiveSortBy, effectiveSortDir),
+    queryKey: ['activities-infinite', infiniteKey, effectiveSortBy, effectiveSortDir, filterKey],
+    queryFn: ({ pageParam }) => fetchActivities(pageParam as string | undefined, 20, effectiveSortBy, effectiveSortDir, apiFilters),
     initialPageParam: infiniteInitialCursor as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: isInfinite,
   })
 
   useEffect(() => {
-    if (infiniteData?.pages[0]?.total) setTotal(infiniteData.pages[0].total)
+    if (infiniteData?.pages[0]?.total != null) setTotal(infiniteData.pages[0].total)
   }, [infiniteData])
 
   // Sentinel für Infinite Scroll
@@ -216,8 +260,8 @@ export default function ActivitiesPage() {
       while (localCursors.length <= targetIdx) {
         const cursor = localCursors[localCursors.length - 1]
         const data = await queryClient.fetchQuery({
-          queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir],
-          queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir),
+          queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
+          queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
         })
         if (!data.next_cursor) {
           targetIdx = localCursors.length - 1 // clamp to last available page
@@ -285,16 +329,9 @@ export default function ActivitiesPage() {
   }
 
   // ── Daten ──────────────────────────────────────────────────────────────────
-  const allActivities = isInfinite
+  const activities = isInfinite
     ? (infiniteData?.pages.flatMap(p => p.activities) ?? [])
     : (pageData?.activities ?? [])
-
-  const searchLower = search.toLowerCase().trim()
-  const activities = searchLower
-    ? allActivities.filter(a =>
-        (a.title ?? '').toLowerCase().includes(searchLower) ||
-        sportLabel(a.sport_type, a.sub_type).toLowerCase().includes(searchLower))
-    : allActivities
 
   const isLoading = isInfinite ? infiniteLoading : pageLoading
   const totalPages = total != null && pageSize > 0
@@ -324,38 +361,40 @@ export default function ActivitiesPage() {
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Aktivitäten</h1>
           {total != null && (
             <span className="text-sm text-neutral-400">
-              {searchLower
-                ? `${activities.length} von ${allActivities.length} geladen`
-                : `${total.toLocaleString('de-DE')} gesamt`}
+              {`${total.toLocaleString('de-DE')} gesamt`}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Suche */}
+          {/* Suche (server-side, debounced) */}
           <div className="relative">
             <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
             </svg>
             <input
               type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => handleSearchChange(e.target.value)}
               placeholder="Suchen…"
               className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 pl-8 text-xs w-48
                          bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                          placeholder:text-neutral-400 dark:placeholder:text-neutral-600
                          focus:outline-none focus:ring-1 focus:ring-neutral-400"
             />
-            {search && (
+            {searchInput && (
               <button
-                onClick={() => setSearch('')}
+                onClick={() => handleSearchChange('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-xs"
               >
                 &times;
               </button>
             )}
           </div>
+
+          {/* Activity Filters */}
+          <ActivityFilters filters={filters} onChange={setFilters} />
+
           {/* Datumssprung (nur bei Sortierung nach Datum) */}
           <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
             <label htmlFor="jump-date" className={`whitespace-nowrap${!isDateJumpEnabled ? ' opacity-40' : ''}`}>Springe zu</label>

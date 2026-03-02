@@ -1219,6 +1219,88 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 	return nil
 }
 
+// --- Gear Documents ---
+
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key, created_at`
+
+func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
+	var d model.GearDocument
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan gear document: %w", err)
+	}
+	return &d, nil
+}
+
+func (db *DB) InsertGearDocument(ctx context.Context, doc *model.GearDocument) (*model.GearDocument, error) {
+	return scanGearDocument(db.Pool.QueryRow(ctx, `
+		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING `+gearDocSelectCols,
+		doc.UserID, doc.GearID, doc.ComponentID, doc.ServiceEventID, doc.DocType, doc.Title, doc.OriginalFilename, doc.ContentType, doc.FileSizeBytes, doc.FileHash, doc.S3Bucket, doc.S3Key,
+	))
+}
+
+func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.GearDocument, error) {
+	rows, err := db.Pool.Query(ctx, `SELECT `+gearDocSelectCols+` FROM gear_documents WHERE gear_id = $1 ORDER BY created_at DESC`, gearID)
+	if err != nil {
+		return nil, fmt.Errorf("list gear documents: %w", err)
+	}
+	defer rows.Close()
+	var docs []model.GearDocument
+	for rows.Next() {
+		var d model.GearDocument
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan gear document: %w", err)
+		}
+		docs = append(docs, d)
+	}
+	if docs == nil {
+		docs = []model.GearDocument{}
+	}
+	return docs, nil
+}
+
+func (db *DB) GetGearDocument(ctx context.Context, docID string) (*model.GearDocument, error) {
+	return scanGearDocument(db.Pool.QueryRow(ctx, `SELECT `+gearDocSelectCols+` FROM gear_documents WHERE id = $1`, docID))
+}
+
+func (db *DB) DeleteGearDocument(ctx context.Context, docID string) (string, string, error) {
+	var bucket, key string
+	err := db.Pool.QueryRow(ctx, `DELETE FROM gear_documents WHERE id = $1 RETURNING s3_bucket, s3_key`, docID).Scan(&bucket, &key)
+	if err == pgx.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("delete gear document: %w", err)
+	}
+	return bucket, key, nil
+}
+
+func (db *DB) GetGearDocumentsByGearIDs(ctx context.Context, gearIDs []string) (map[string]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT ON (gear_id) gear_id, id
+		FROM gear_documents
+		WHERE gear_id = ANY($1) AND doc_type = 'photo' AND content_type LIKE 'image/%'
+		ORDER BY gear_id, created_at ASC`, gearIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get gear preview docs: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var gearID, docID string
+		if err := rows.Scan(&gearID, &docID); err != nil {
+			return nil, fmt.Errorf("scan gear preview doc: %w", err)
+		}
+		result[gearID] = docID
+	}
+	return result, nil
+}
+
 func (db *DB) ActivateBikeSetup(ctx context.Context, id string) (*model.BikeSetup, error) {
 	s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
 		`UPDATE bike_setups SET is_active = true, updated_at = NOW()

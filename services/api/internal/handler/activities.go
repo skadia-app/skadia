@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -32,7 +33,28 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		sortDir = "desc"
 	}
 
-	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir)
+	// Parse filter parameters
+	var filters model.ActivityFilters
+	if st := r.URL.Query().Get("sport_type"); st != "" {
+		filters.SportTypes = strings.Split(st, ",")
+	}
+	if sub := r.URL.Query().Get("sub_type"); sub != "" {
+		filters.SubTypes = strings.Split(sub, ",")
+	}
+	filters.DateFrom = r.URL.Query().Get("date_from")
+	filters.DateTo = r.URL.Query().Get("date_to")
+	if v := r.URL.Query().Get("is_indoor"); v != "" {
+		b := v == "true"
+		filters.IsIndoor = &b
+	}
+	if v := r.URL.Query().Get("has_gps"); v != "" {
+		b := v == "true"
+		filters.HasGPS = &b
+	}
+	filters.GearID = r.URL.Query().Get("gear_id")
+	filters.Search = r.URL.Query().Get("search")
+
+	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir, filters)
 	if err != nil {
 		slog.Error("list activities failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)

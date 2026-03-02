@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -11,12 +11,13 @@ import {
   listServiceEvents, createServiceEvent, deleteServiceEvent,
   fetchComponentPresets,
   listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
+  fetchGearDocuments, uploadGearDocument, deleteGearDocument, getGearDocumentUrl,
 } from '@/api/gear'
 import type {
   Gear, GearComponent, GearStatus,
   ComponentAssignment,
   GearServiceEvent, ComponentTypePreset,
-  BikeSetup,
+  BikeSetup, GearDocument,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
@@ -130,6 +131,9 @@ export default function GearDetailPage() {
               <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap">{gear.notes}</p>
             </div>
           )}
+
+          {/* Images */}
+          <GearImagesSection gearId={gear.id} />
 
           {/* Components */}
           <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
@@ -1493,4 +1497,203 @@ function subTypeLabel(subType: string): string {
     urban: 'Urban',
   }
   return labels[subType] ?? subType
+}
+
+// ── Gear Images ─────────────────────────────────────────────────────────────────
+
+function GearImagesSection({ gearId }: { gearId: string }) {
+  const queryClient = useQueryClient()
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+
+  const { data: documents = [] } = useQuery({
+    queryKey: ['gear-documents', gearId],
+    queryFn: () => fetchGearDocuments(gearId),
+    enabled: !!gearId,
+  })
+
+  const images = documents.filter(d => d.content_type.startsWith('image/'))
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadGearDocument(gearId, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gear-documents', gearId] })
+      setUploading(false)
+    },
+    onError: () => setUploading(false),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (docId: string) => deleteGearDocument(docId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['gear-documents', gearId] }),
+  })
+
+  const handleFiles = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploading(true)
+    uploadMutation.mutate(files[0])
+  }, [uploadMutation])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    handleFiles(e.dataTransfer.files)
+  }, [handleFiles])
+
+  const handleDelete = useCallback((docId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('Foto wirklich loeschen?')) {
+      deleteMutation.mutate(docId)
+    }
+  }, [deleteMutation])
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bilder</h2>
+        <label className="px-3 py-1.5 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer">
+          + Foto hinzufuegen
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+
+      {/* Drop zone + gallery */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`rounded-xl border-2 border-dashed transition-colors p-3 ${
+          dragOver
+            ? 'border-orange-400 bg-orange-50 dark:bg-orange-900/10'
+            : 'border-neutral-200 dark:border-neutral-800'
+        }`}
+      >
+        {uploading && (
+          <div className="flex items-center justify-center py-4 text-sm text-neutral-400">
+            <svg className="animate-spin h-5 w-5 mr-2 text-orange-500" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Wird hochgeladen...
+          </div>
+        )}
+
+        {images.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {images.map((doc, idx) => (
+              <div
+                key={doc.id}
+                className="relative group aspect-square rounded-lg overflow-hidden cursor-pointer"
+                onClick={() => setLightboxIdx(idx)}
+              >
+                <img
+                  src={getGearDocumentUrl(doc.id)}
+                  alt={doc.title ?? doc.original_filename}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <button
+                  onClick={(e) => handleDelete(doc.id, e)}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                >
+                  X
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : !uploading ? (
+          <div className="text-center py-8 text-sm text-neutral-400">
+            Noch keine Bilder. Fotos hierher ziehen oder Knopf nutzen.
+          </div>
+        ) : null}
+      </div>
+
+      {uploadMutation.isError && (
+        <p className="text-sm text-rose-500 mt-2">
+          Upload fehlgeschlagen: {uploadMutation.error instanceof Error ? uploadMutation.error.message : 'Unbekannt'}
+        </p>
+      )}
+
+      {/* Lightbox */}
+      {lightboxIdx !== null && images.length > 0 && (
+        <ImageLightbox
+          images={images}
+          currentIndex={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+          onChange={setLightboxIdx}
+        />
+      )}
+    </div>
+  )
+}
+
+function ImageLightbox({ images, currentIndex, onClose, onChange }: {
+  images: GearDocument[]
+  currentIndex: number
+  onClose: () => void
+  onChange: (idx: number) => void
+}) {
+  const doc = images[currentIndex]
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowLeft' && currentIndex > 0) onChange(currentIndex - 1)
+      if (e.key === 'ArrowRight' && currentIndex < images.length - 1) onChange(currentIndex + 1)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [currentIndex, images.length, onClose, onChange])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 text-white text-xl flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer z-10"
+      >
+        X
+      </button>
+
+      {currentIndex > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onChange(currentIndex - 1) }}
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 text-white text-xl flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer z-10"
+        >
+          &#8249;
+        </button>
+      )}
+
+      {currentIndex < images.length - 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onChange(currentIndex + 1) }}
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 text-white text-xl flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer z-10"
+        >
+          &#8250;
+        </button>
+      )}
+
+      <img
+        src={getGearDocumentUrl(doc.id)}
+        alt={doc.title ?? doc.original_filename}
+        className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg"
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {images.length > 1 && (
+        <div className="absolute bottom-4 text-sm text-white/60">
+          {currentIndex + 1} / {images.length}
+        </div>
+      )}
+    </div>
+  )
 }

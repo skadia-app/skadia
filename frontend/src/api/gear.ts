@@ -1,9 +1,9 @@
-import { apiClient } from './client'
+import { apiClient, apiUpload } from './client'
 import type {
   Gear, MaintenanceAlert, GearStatus,
   ComponentAssignment, ChainRotationGroup,
   GearServiceEvent, ComponentTypePreset,
-  BikeSetup,
+  BikeSetup, GearDocument,
 } from './types'
 
 export async function fetchGear(status?: GearStatus | boolean): Promise<Gear[]> {
@@ -144,4 +144,27 @@ export async function deleteBikeSetup(id: string): Promise<void> {
 
 export async function activateBikeSetup(id: string): Promise<BikeSetup> {
   return apiClient<BikeSetup>(`/gear/setups/${id}/activate`, { method: 'POST' })
+}
+
+// --- Gear Documents ---
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+
+export async function uploadGearDocument(gearId: string, file: File, docType?: string): Promise<GearDocument> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (docType) formData.append('doc_type', docType)
+  return apiUpload<GearDocument>(`/gear/${gearId}/documents`, formData)
+}
+
+export async function fetchGearDocuments(gearId: string): Promise<GearDocument[]> {
+  return apiClient<GearDocument[]>(`/gear/${gearId}/documents`)
+}
+
+export async function deleteGearDocument(docId: string): Promise<void> {
+  await apiClient(`/gear/documents/${docId}`, { method: 'DELETE' })
+}
+
+export function getGearDocumentUrl(docId: string): string {
+  return `${API_BASE}/gear/documents/${docId}/download`
 }

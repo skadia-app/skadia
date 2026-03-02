@@ -176,6 +176,18 @@ type ActivityList struct {
 	Total      int        `json:"total"`
 }
 
+// ActivityFilters holds filter parameters for the ListActivities query.
+type ActivityFilters struct {
+	SportTypes []string
+	SubTypes   []string
+	DateFrom   string
+	DateTo     string
+	IsIndoor   *bool
+	HasGPS     *bool
+	GearID     string
+	Search     string
+}
+
 // StreamResponse is the API response for the streams endpoint.
 type StreamResponse struct {
 	Time         time.Time `json:"time"`
@@ -558,6 +570,24 @@ type BikeSetupCreate struct {
 	Brakes          json.RawMessage `json:"brakes,omitempty"`
 	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
 	IsActive        bool            `json:"is_active"`
+}
+
+// GearDocument represents a document/image attached to a gear item.
+type GearDocument struct {
+	ID               string    `json:"id"`
+	UserID           string    `json:"user_id"`
+	GearID           *string   `json:"gear_id"`
+	ComponentID      *string   `json:"component_id"`
+	ServiceEventID   *string   `json:"service_event_id"`
+	DocType          string    `json:"doc_type"`
+	Title            *string   `json:"title"`
+	OriginalFilename string    `json:"original_filename"`
+	ContentType      string    `json:"content_type"`
+	FileSizeBytes    int64     `json:"file_size_bytes"`
+	FileHash         *string   `json:"file_hash,omitempty"`
+	S3Bucket         string    `json:"-"`
+	S3Key            string    `json:"-"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // BikeSetupUpdate is the request body for updating a bike setup.

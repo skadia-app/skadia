@@ -334,7 +334,62 @@ var allowedSortColumns = map[string]string{
 	"elapsed_time_s":   "elapsed_time_s",
 }
 
-func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, limit int, sortBy string, sortDir string) (*model.ActivityList, error) {
+// buildFilterSQL constructs dynamic WHERE conditions from ActivityFilters.
+// startIdx is the first $N placeholder index to use for filter args.
+// Returns the SQL fragment (e.g. "AND sport_type = ANY($2) AND ...") and args slice.
+func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []interface{}) {
+	var conds []string
+	var args []interface{}
+	idx := startIdx
+
+	if len(filters.SportTypes) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("sport_type = ANY($%d)", idx))
+		args = append(args, filters.SportTypes)
+	}
+	if len(filters.SubTypes) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("sub_type = ANY($%d)", idx))
+		args = append(args, filters.SubTypes)
+	}
+	if filters.DateFrom != "" {
+		idx++
+		conds = append(conds, fmt.Sprintf("started_at::date >= $%d::date", idx))
+		args = append(args, filters.DateFrom)
+	}
+	if filters.DateTo != "" {
+		idx++
+		conds = append(conds, fmt.Sprintf("started_at::date <= $%d::date", idx))
+		args = append(args, filters.DateTo)
+	}
+	if filters.IsIndoor != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("is_indoor = $%d", idx))
+		args = append(args, *filters.IsIndoor)
+	}
+	if filters.HasGPS != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("has_gps = $%d", idx))
+		args = append(args, *filters.HasGPS)
+	}
+	if filters.GearID != "" {
+		idx++
+		conds = append(conds, fmt.Sprintf("gear_id = $%d", idx))
+		args = append(args, filters.GearID)
+	}
+	if filters.Search != "" {
+		idx++
+		conds = append(conds, fmt.Sprintf("(title ILIKE '%%' || $%d || '%%' OR title_auto ILIKE '%%' || $%d || '%%')", idx, idx))
+		args = append(args, filters.Search)
+	}
+
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return "AND " + strings.Join(conds, " AND "), args
+}
+
+func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, limit int, sortBy string, sortDir string, filters model.ActivityFilters) (*model.ActivityList, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -379,9 +434,14 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	var rows pgx.Rows
 	var err error
 
+	// Count with filters: $1 = userID, filter args start at $1
+	countFilterSQL, countFilterArgs := buildFilterSQL(filters, 1)
+	countArgs := []interface{}{userID}
+	countArgs = append(countArgs, countFilterArgs...)
+
 	var total int
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM activities WHERE user_id = $1`, userID,
+		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 %s`, countFilterSQL), countArgs...,
 	).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
@@ -408,67 +468,85 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				// Invalid cursor, fall through to no-cursor path
 				hasCursor = false
 			} else {
+				// Base args: $1=userID, $2=cursorTime, $3=cursorID, then filters, then limit
+				filterSQL, filterArgs := buildFilterSQL(filters, 3)
+				allArgs := []interface{}{userID, cursorTime, cursorID}
+				allArgs = append(allArgs, filterArgs...)
+				limitIdx := len(allArgs) + 1
+				allArgs = append(allArgs, limit+1)
+
 				query := fmt.Sprintf(`
 					SELECT %s
 					FROM activities
 					WHERE user_id = $1
 						AND (%s, id) %s ($2, $3)
+						%s
 					ORDER BY %s
-					LIMIT $4`, selectCols, sqlCol, cmpOp, orderClause)
-				rows, err = db.Pool.Query(ctx, query,
-					userID, cursorTime, cursorID, limit+1,
-				)
+					LIMIT $%d`, selectCols, sqlCol, cmpOp, filterSQL, orderClause, limitIdx)
+				rows, err = db.Pool.Query(ctx, query, allArgs...)
 			}
 		} else if cursorSortVal == "" {
 			// NULL cursor: the sort column was NULL for the last item.
-			// We are paginating through the NULL-valued tail.
-			// Only include rows where the sort column IS NULL and id < cursorID (for stable ordering).
+			// Base args: $1=userID, $2=cursorID, then filters, then limit
+			filterSQL, filterArgs := buildFilterSQL(filters, 2)
+			allArgs := []interface{}{userID, cursorID}
+			allArgs = append(allArgs, filterArgs...)
+			limitIdx := len(allArgs) + 1
+			allArgs = append(allArgs, limit+1)
+
 			query := fmt.Sprintf(`
 				SELECT %s
 				FROM activities
 				WHERE user_id = $1
 					AND %s IS NULL
 					AND id %s $2
+					%s
 				ORDER BY %s
-				LIMIT $3`, selectCols, sqlCol, cmpOp, orderClause)
-			rows, err = db.Pool.Query(ctx, query,
-				userID, cursorID, limit+1,
-			)
+				LIMIT $%d`, selectCols, sqlCol, cmpOp, filterSQL, orderClause, limitIdx)
+			rows, err = db.Pool.Query(ctx, query, allArgs...)
 		} else {
 			// Numeric column: parse as float64
 			cursorNum, parseErr := strconv.ParseFloat(cursorSortVal, 64)
 			if parseErr != nil {
 				hasCursor = false
 			} else {
-				// For nullable columns, the cursor comparison must also handle NULLs.
-				// Rows with NULL sort values are always placed at the end (NULLS LAST).
-				// Cursor has a non-null value. We want rows after the cursor:
-				// either (value, id) past the cursor OR value IS NULL (not yet seen).
+				// Base args: $1=userID, $2=cursorNum, $3=cursorID, then filters, then limit
+				filterSQL, filterArgs := buildFilterSQL(filters, 3)
+				allArgs := []interface{}{userID, cursorNum, cursorID}
+				allArgs = append(allArgs, filterArgs...)
+				limitIdx := len(allArgs) + 1
+				allArgs = append(allArgs, limit+1)
+
 				nullClause := fmt.Sprintf(`AND ((%s, id) %s ($2, $3) OR %s IS NULL)`, sqlCol, cmpOp, sqlCol)
 				query := fmt.Sprintf(`
 					SELECT %s
 					FROM activities
 					WHERE user_id = $1
 						%s
+						%s
 					ORDER BY %s
-					LIMIT $4`, selectCols, nullClause, orderClause)
-				rows, err = db.Pool.Query(ctx, query,
-					userID, cursorNum, cursorID, limit+1,
-				)
+					LIMIT $%d`, selectCols, nullClause, filterSQL, orderClause, limitIdx)
+				rows, err = db.Pool.Query(ctx, query, allArgs...)
 			}
 		}
 	}
 
 	if !hasCursor {
+		// Base args: $1=userID, then filters, then limit
+		filterSQL, filterArgs := buildFilterSQL(filters, 1)
+		allArgs := []interface{}{userID}
+		allArgs = append(allArgs, filterArgs...)
+		limitIdx := len(allArgs) + 1
+		allArgs = append(allArgs, limit+1)
+
 		query := fmt.Sprintf(`
 			SELECT %s
 			FROM activities
 			WHERE user_id = $1
+			%s
 			ORDER BY %s
-			LIMIT $2`, selectCols, orderClause)
-		rows, err = db.Pool.Query(ctx, query,
-			userID, limit+1,
-		)
+			LIMIT $%d`, selectCols, filterSQL, orderClause, limitIdx)
+		rows, err = db.Pool.Query(ctx, query, allArgs...)
 	}
 
 	if err != nil {

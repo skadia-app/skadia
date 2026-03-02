@@ -54,6 +54,44 @@ function doFetch(path: string, options: RequestOptions): Promise<Response> {
   })
 }
 
+/** Upload FormData with automatic token refresh on 401 */
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: formData,
+  })
+
+  if (res.status === 401) {
+    const refreshed = await refreshToken()
+    if (refreshed) {
+      const retryToken = getToken()
+      const retryHeaders: Record<string, string> = {}
+      if (retryToken) retryHeaders['Authorization'] = `Bearer ${retryToken}`
+      const retry = await fetch(url, {
+        method: 'POST',
+        headers: retryHeaders,
+        credentials: 'include',
+        body: formData,
+      })
+      if (!retry.ok) throw new ApiError(retry.status, await retry.text())
+      return retry.json() as Promise<T>
+    }
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError(401, 'Unauthorized')
+  }
+
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  return res.json() as Promise<T>
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

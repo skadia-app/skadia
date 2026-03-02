@@ -57,6 +57,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Ensure media bucket exists
+	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+	if mediaBucket == "" {
+		mediaBucket = "skadia-media"
+	}
+	if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
+		slog.Warn("could not ensure media bucket", "error", err)
+	}
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -199,6 +208,10 @@ func main() {
 			r.Delete("/gear/{id}", h.DeleteGear)
 			r.Patch("/gear/{id}/status", h.UpdateGearStatus)
 			r.Post("/gear/{id}/components", h.CreateComponent)
+			r.Post("/gear/{id}/documents", h.UploadGearDocument)
+			r.Get("/gear/{id}/documents", h.ListGearDocuments)
+			r.Delete("/gear/documents/{docId}", h.DeleteGearDocument)
+			r.Get("/gear/documents/{docId}/download", h.DownloadGearDocument)
 			r.Get("/gear/{id}/setups", h.ListBikeSetups)
 			r.Post("/gear/{id}/setups", h.CreateBikeSetup)
 			r.Get("/gear/{id}/chain-rotation", h.GetChainRotation)
