@@ -84,6 +84,9 @@ export default function ActivityDetailPage() {
         weatherTags={activity.weather_tags}
       />
 
+      {/* Sunrise / Sunset */}
+      <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
+
       {/* Weather */}
       {activity.weather_temp_c != null && (
         <WeatherBadge
@@ -118,7 +121,13 @@ export default function ActivityDetailPage() {
 
       {/* Charts */}
       {streams && streams.length > 0 && (
-        <ActivityCharts streams={streams} onHover={setHoverIndex} onZoomChange={setZoomRange} />
+        <ActivityCharts
+          streams={streams}
+          onHover={setHoverIndex}
+          onZoomChange={setZoomRange}
+          sunriseAt={activity.sunrise_at}
+          sunsetAt={activity.sunset_at}
+        />
       )}
 
       {/* Gear */}
@@ -324,6 +333,34 @@ function TagsBadges({ tags }: { tags: string[] }) {
           {tag}
         </span>
       ))}
+    </div>
+  )
+}
+
+// ── Sun Info ──────────────────────────────────────────────────────────────────
+
+function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?: string | null }) {
+  if (!sunriseAt && !sunsetAt) return null
+
+  const fmt = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <div className="flex items-center gap-4 text-sm text-neutral-600 dark:text-neutral-400">
+      {sunriseAt && (
+        <span className="flex items-center gap-1.5">
+          <span className="text-amber-500">&#9728;</span>
+          <span>{fmt(sunriseAt)}</span>
+        </span>
+      )}
+      {sunsetAt && (
+        <span className="flex items-center gap-1.5">
+          <span className="text-indigo-400">&#9790;</span>
+          <span>{fmt(sunsetAt)}</span>
+        </span>
+      )}
     </div>
   )
 }

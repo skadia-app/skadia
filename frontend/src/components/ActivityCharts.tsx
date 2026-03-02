@@ -136,18 +136,65 @@ export interface ZoomRange {
   endIdx: number
 }
 
+interface SunMarkLine {
+  xAxis: number
+  label: string
+  color: string
+}
+
 interface Props {
   streams: StreamPoint[]
   onHover: (index: number | null) => void
   onZoomChange?: (range: ZoomRange | null) => void
+  sunriseAt?: string | null
+  sunsetAt?: string | null
+}
+
+function computeSunMarkLines(
+  streams: StreamPoint[],
+  data: ChartData,
+  xMode: XMode,
+  sunriseAt?: string | null,
+  sunsetAt?: string | null,
+): SunMarkLine[] {
+  if (streams.length === 0) return []
+  const marks: SunMarkLine[] = []
+
+  const t0 = new Date(streams[0].time).getTime()
+  const tEnd = new Date(streams[streams.length - 1].time).getTime()
+
+  const addMark = (iso: string, label: string, color: string) => {
+    const t = new Date(iso).getTime()
+    if (t < t0 || t > tEnd) return
+    // Find closest stream index by time
+    let bestIdx = 0
+    let bestDiff = Math.abs(new Date(streams[0].time).getTime() - t)
+    for (let i = 1; i < streams.length; i++) {
+      const d = Math.abs(new Date(streams[i].time).getTime() - t)
+      if (d < bestDiff) { bestDiff = d; bestIdx = i }
+    }
+    const xVal = xMode === 'distance' ? data.distanceKm[bestIdx] : data.elapsedMin[bestIdx]
+    const time = new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    marks.push({ xAxis: xVal, label: `${label} ${time}`, color })
+  }
+
+  if (sunriseAt) addMark(sunriseAt, '\u2600', '#f59e0b')  // amber-500
+  if (sunsetAt) addMark(sunsetAt, '\u263E', '#818cf8')     // indigo-400
+
+  return marks
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>('distance')
+
+  const sunMarkLines = useMemo(
+    () => computeSunMarkLines(streams, data, xMode, sunriseAt, sunsetAt),
+    [streams, data, xMode, sunriseAt, sunsetAt],
+  )
 
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
   const isSyncingRef = useRef(false)
@@ -314,7 +361,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange }: Props
   if (hasValidData(data.altitude)) panels.push(
     <ChartPanel key={k('altitude')} chartId="altitude" {...common}
       field="altitude" label="Höhe" unit="m" color="#22c55e" area
-      markLines="minmax" altitudeSmartY showGradient />,
+      markLines="minmax" altitudeSmartY showGradient
+      sunMarkLines={sunMarkLines} />,
   )
   if (hasValidData(data.heartRate)) panels.push(
     <ChartPanel key={k('hr')} chartId="hr" {...common}
@@ -396,12 +444,14 @@ interface ChartPanelProps {
   altitudeSmartY?: boolean
   showGradient?: boolean
   xMode: XMode
+  sunMarkLines?: SunMarkLine[]
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   markLines = 'none', altitudeSmartY, showGradient, xMode,
+  sunMarkLines,
 }: ChartPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -423,17 +473,33 @@ function ChartPanel({
     }
 
     // ── Mark lines ──────────────────────────────────────────────────────────
-    type MarkLineEntry = {
-      type: 'min' | 'max'
-      name: string
-      label: { position: string }
-    }
-    const mlData: MarkLineEntry[] = []
+    const mlData: Record<string, unknown>[] = []
     if (markLines === 'max' || markLines === 'minmax') {
       mlData.push({ type: 'max', name: 'Max', label: { position: 'insideMiddleBottom' } })
     }
     if (markLines === 'minmax') {
       mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
+    }
+
+    // Sun event mark lines (sunrise/sunset)
+    if (sunMarkLines && sunMarkLines.length > 0) {
+      for (const sm of sunMarkLines) {
+        mlData.push({
+          xAxis: sm.xAxis,
+          name: sm.label,
+          label: {
+            show: true,
+            formatter: sm.label,
+            position: 'insideEndTop',
+            backgroundColor: 'rgba(255,255,255,0.9)',
+            padding: [2, 5],
+            borderRadius: 3,
+            color: sm.color,
+            fontSize: 11,
+          },
+          lineStyle: { type: 'dashed', color: sm.color, width: 1.5 },
+        })
+      }
     }
 
     // ── Tooltip builder ─────────────────────────────────────────────────────

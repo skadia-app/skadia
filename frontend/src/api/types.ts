@@ -64,6 +64,8 @@ export interface Activity {
   is_round_trip?: boolean
   intensity?: string | null
   time_of_day?: string[] | null
+  sunrise_at?: string | null
+  sunset_at?: string | null
   gear_id?: string | null
   created_at: string
   updated_at: string

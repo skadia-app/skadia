@@ -147,6 +147,8 @@ type Activity struct {
 	IsRoundTrip        bool       `json:"is_round_trip"`
 	Intensity          *string    `json:"intensity,omitempty"`
 	TimeOfDay          []string   `json:"time_of_day,omitempty"`
+	SunriseAt          *time.Time `json:"sunrise_at,omitempty"`
+	SunsetAt           *time.Time `json:"sunset_at,omitempty"`
 	OriginalFilename   *string    `json:"original_filename,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`

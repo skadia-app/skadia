@@ -121,6 +121,85 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BackfillSunriseSunset calculates sunrise/sunset times for all activities.
+// For events that occur during an activity, it queries the closest GPS stream
+// point to refine the calculation based on the track position at that time.
+func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	activities, err := h.DB.ListActivitiesForBackfill(r.Context(), userID)
+	if err != nil {
+		slog.Error("list activities for backfill failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		return
+	}
+
+	var updated int
+	for _, a := range activities {
+		if a.Lat == 0 || a.Lng == 0 || a.StartedAt.IsZero() || a.EndedAt.IsZero() {
+			continue
+		}
+
+		// Compute preliminary sun times at start point
+		sun := enrichment.CalculateSunTimes(
+			a.Lat, a.Lng, a.EndLat, a.EndLng,
+			a.StartedAt, a.EndedAt,
+			nil, // no in-memory streams — use DB lookups below
+		)
+
+		// Refine: if sunrise/sunset is during the activity, query the closest
+		// GPS stream point from the DB instead of loading all streams into memory
+		if sun.SunriseAt != nil && sun.SunriseAt.After(a.StartedAt) && sun.SunriseAt.Before(a.EndedAt) {
+			if sp, err := h.DB.GetStreamPointNearTime(r.Context(), a.ID, *sun.SunriseAt); err == nil && sp != nil && sp.Lat != nil {
+				refined := enrichment.CalculateSunTimes(
+					*sp.Lat, *sp.Lng, a.EndLat, a.EndLng,
+					a.StartedAt, a.EndedAt, nil,
+				)
+				if refined.SunriseAt != nil {
+					sun.SunriseAt = refined.SunriseAt
+				}
+			}
+		}
+		if sun.SunsetAt != nil && sun.SunsetAt.After(a.StartedAt) && sun.SunsetAt.Before(a.EndedAt) {
+			if sp, err := h.DB.GetStreamPointNearTime(r.Context(), a.ID, *sun.SunsetAt); err == nil && sp != nil && sp.Lat != nil {
+				refined := enrichment.CalculateSunTimes(
+					a.Lat, a.Lng, *sp.Lat, *sp.Lng,
+					a.StartedAt, a.EndedAt, nil,
+				)
+				if refined.SunsetAt != nil {
+					sun.SunsetAt = refined.SunsetAt
+				}
+			}
+		}
+
+		fields := map[string]any{}
+		if sun.SunriseAt != nil {
+			fields["sunrise_at"] = *sun.SunriseAt
+		}
+		if sun.SunsetAt != nil {
+			fields["sunset_at"] = *sun.SunsetAt
+		}
+		if len(fields) == 0 {
+			continue
+		}
+
+		if err := h.DB.UpdateEnrichmentFields(r.Context(), a.ID, fields); err != nil {
+			slog.Warn("sunrise/sunset update failed", "activity_id", a.ID, "error", err)
+			continue
+		}
+		updated++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":   len(activities),
+		"updated": updated,
+	})
+}
+
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

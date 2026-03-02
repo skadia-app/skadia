@@ -166,6 +166,7 @@ func main() {
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-weather", h.BackfillWeather)
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
+			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 
 			r.Get("/settings/enrichment", h.GetEnrichmentSettings)
 			r.Put("/settings/enrichment", h.UpdateEnrichmentSettings)

@@ -286,7 +286,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.tags, a.visibility, a.enrichment_status, a.original_filename,
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
 			a.weather_temp_c, a.weather_condition, a.weather_humidity, a.weather_wind_speed_ms, a.weather_tags,
-			a.is_round_trip, a.intensity, a.time_of_day, a.gear_id,
+			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at, a.gear_id,
 			a.created_at, a.updated_at,
 			COALESCE(t.point_count, 0) > 0
 		FROM activities a
@@ -307,7 +307,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename,
 		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
 		&a.WeatherTempC, &a.WeatherCondition, &a.WeatherHumidity, &a.WeatherWindSpeedMS, &a.WeatherTags,
-		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.GearID,
+		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.SunriseAt, &a.SunsetAt, &a.GearID,
 		&a.CreatedAt, &a.UpdatedAt,
 		&hasTrack,
 	)
@@ -1685,4 +1685,24 @@ func (db *DB) ListActivitiesForBackfill(ctx context.Context, userID string) ([]B
 		activities = append(activities, a)
 	}
 	return activities, nil
+}
+
+// GetStreamPointNearTime returns the stream point with GPS data closest to the
+// given time for the specified activity. Returns nil if no GPS points exist.
+func (db *DB) GetStreamPointNearTime(ctx context.Context, activityID string, t time.Time) (*model.StreamPoint, error) {
+	var sp model.StreamPoint
+	err := db.Pool.QueryRow(ctx, `
+		SELECT time, lat, lng FROM activity_streams
+		WHERE activity_id = $1 AND lat IS NOT NULL
+		ORDER BY ABS(EXTRACT(EPOCH FROM (time - $2::timestamptz)))
+		LIMIT 1`,
+		activityID, t,
+	).Scan(&sp.Time, &sp.Lat, &sp.Lng)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get stream point near time: %w", err)
+	}
+	return &sp, nil
 }

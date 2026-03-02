@@ -24,6 +24,20 @@ func RunStage1(ctx context.Context, db *database.DB, activityID string, data *mo
 		}
 	}
 
+	// Sunrise/Sunset (requires GPS + start/end time)
+	if data.StartLat != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+		sun := CalculateSunTimes(
+			data.StartLat, data.StartLng, data.EndLat, data.EndLng,
+			data.StartedAt, data.EndedAt, data.Streams,
+		)
+		if sun.SunriseAt != nil {
+			fields["sunrise_at"] = *sun.SunriseAt
+		}
+		if sun.SunsetAt != nil {
+			fields["sunset_at"] = *sun.SunsetAt
+		}
+	}
+
 	// Intensity (requires heart rate)
 	if data.AvgHeartRate > 0 && data.MaxHeartRate > 0 {
 		if intensity := Intensity(data.AvgHeartRate, float64(data.MaxHeartRate)); intensity != "" {
@@ -202,4 +216,130 @@ func haversine(lat1, lng1, lat2, lng2 float64) float64 {
 			math.Sin(dLng/2)*math.Sin(dLng/2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return earthRadiusM * c
+}
+
+// SunResult holds the calculated sunrise and sunset times for an activity.
+type SunResult struct {
+	SunriseAt *time.Time
+	SunsetAt  *time.Time
+}
+
+// CalculateSunTimes computes sunrise/sunset times for an activity, using
+// the GPS coordinates at the time of each event for accuracy on long tracks.
+//
+// Algorithm:
+//  1. Compute preliminary times at the start point
+//  2. If sunrise falls WITHIN [startedAt, endedAt]: find the stream point
+//     closest to that time and recompute with its coordinates
+//  3. If sunset falls WITHIN [startedAt, endedAt]: same refinement
+//  4. If sunrise is BEFORE the activity: use start point coordinates
+//  5. If sunset is AFTER the activity: use end point coordinates
+//  6. If an event is completely irrelevant (e.g. next day): return nil
+func CalculateSunTimes(
+	startLat, startLng, endLat, endLng float64,
+	startedAt, endedAt time.Time,
+	streams []model.StreamPoint,
+) SunResult {
+	var result SunResult
+
+	// Preliminary calculation at start point
+	times := suncalc.GetTimes(startedAt, startLat, startLng)
+	prelimSunrise := times[suncalc.Sunrise].Value
+	prelimSunset := times[suncalc.Sunset].Value
+
+	// Handle sunrise
+	if !prelimSunrise.IsZero() {
+		if prelimSunrise.After(startedAt) && prelimSunrise.Before(endedAt) {
+			// Sunrise during activity — refine with track coordinates
+			lat, lng := findCoordsAtTime(prelimSunrise, startLat, startLng, streams)
+			refined := suncalc.GetTimes(startedAt, lat, lng)
+			t := refined[suncalc.Sunrise].Value
+			if !t.IsZero() {
+				result.SunriseAt = &t
+			}
+		} else if !prelimSunrise.After(startedAt) {
+			// Sunrise before activity — use start point value
+			result.SunriseAt = &prelimSunrise
+		}
+		// else: sunrise after activity end → irrelevant (nil)
+	}
+
+	// Handle sunset
+	if !prelimSunset.IsZero() {
+		if prelimSunset.After(startedAt) && prelimSunset.Before(endedAt) {
+			// Sunset during activity — refine with track coordinates
+			lat, lng := findCoordsAtTime(prelimSunset, startLat, startLng, streams)
+			refined := suncalc.GetTimes(startedAt, lat, lng)
+			t := refined[suncalc.Sunset].Value
+			if !t.IsZero() {
+				result.SunsetAt = &t
+			}
+		} else if !prelimSunset.Before(endedAt) {
+			// Sunset after activity — use end point (or start if no end GPS)
+			if endLat != 0 {
+				t := suncalc.GetTimes(startedAt, endLat, endLng)[suncalc.Sunset].Value
+				if !t.IsZero() {
+					result.SunsetAt = &t
+				}
+			} else {
+				result.SunsetAt = &prelimSunset
+			}
+		}
+		// else: sunset before activity start → irrelevant (nil)
+	}
+
+	return result
+}
+
+// findCoordsAtTime returns the GPS coordinates of the stream point closest to
+// the given time. Uses binary search since streams are chronologically sorted.
+// Falls back to the provided default coordinates if no streams have GPS data.
+func findCoordsAtTime(t time.Time, defaultLat, defaultLng float64, streams []model.StreamPoint) (float64, float64) {
+	if len(streams) == 0 {
+		return defaultLat, defaultLng
+	}
+
+	target := t.UnixMilli()
+
+	// Binary search for the closest timestamp
+	lo, hi := 0, len(streams)-1
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if streams[mid].Time.UnixMilli() < target {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+
+	// Check lo and lo-1 to find the closest
+	bestIdx := lo
+	if lo > 0 {
+		diffLo := abs64(streams[lo].Time.UnixMilli() - target)
+		diffPrev := abs64(streams[lo-1].Time.UnixMilli() - target)
+		if diffPrev < diffLo {
+			bestIdx = lo - 1
+		}
+	}
+
+	// Walk outward from bestIdx to find a point with GPS data
+	for d := 0; d < len(streams); d++ {
+		for _, idx := range []int{bestIdx + d, bestIdx - d} {
+			if idx < 0 || idx >= len(streams) {
+				continue
+			}
+			if streams[idx].Lat != nil && streams[idx].Lng != nil {
+				return *streams[idx].Lat, *streams[idx].Lng
+			}
+		}
+	}
+
+	return defaultLat, defaultLng
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
