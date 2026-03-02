@@ -16,7 +16,6 @@ export interface HotfolderImport {
 export interface RenamePreviewItem {
   old_path: string
   new_path: string
-  activity_id: string
 }
 
 export interface RenameResult {
@@ -32,12 +31,18 @@ export async function updateShadowFSSettings(settings: Partial<ShadowFSSettings>
   return apiClient<ShadowFSSettings>('/settings/shadow-fs', { method: 'PUT', body: settings })
 }
 
-export async function previewRename(): Promise<RenamePreviewItem[]> {
-  return apiClient<RenamePreviewItem[]>('/shadow-fs/preview-rename', { method: 'POST' })
+export async function previewRename(schema: string): Promise<RenamePreviewItem[]> {
+  return apiClient<RenamePreviewItem[]>('/shadow-fs/preview-rename', {
+    method: 'POST',
+    body: { new_schema: schema },
+  })
 }
 
-export async function executeRename(): Promise<RenameResult> {
-  return apiClient<RenameResult>('/shadow-fs/execute-rename', { method: 'POST' })
+export async function executeRename(items: RenamePreviewItem[]): Promise<RenameResult> {
+  return apiClient<RenameResult>('/shadow-fs/execute-rename', {
+    method: 'POST',
+    body: items,
+  })
 }
 
 export async function getHotfolderImports(): Promise<HotfolderImport[]> {

@@ -12,7 +12,7 @@ interface Props {
 
 export default function MapFilters({ filters, onChange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-  const [cyclingExpanded, setCyclingExpanded] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
 
@@ -52,6 +52,18 @@ export default function MapFilters({ filters, onChange }: Props) {
     if (!parent.children) return false
     const checked = parent.children.filter(c => filters.sportTypes.has(getKey(c))).length
     return checked > 0 && checked < parent.children.length
+  }
+
+  function toggleGroup(groupKey: string) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(groupKey)) {
+        next.delete(groupKey)
+      } else {
+        next.add(groupKey)
+      }
+      return next
+    })
   }
 
   function toggleAll() {
@@ -96,8 +108,8 @@ export default function MapFilters({ filters, onChange }: Props) {
               <div className="space-y-1.5">
                 {SPORT_OPTIONS.map((opt) => (
                   <div key={opt.label}>
-                    {opt.children ? (
-                      /* Parent with children (Radfahren) */
+                    {opt.children && opt.groupKey ? (
+                      /* Parent with children */
                       <div>
                         <div className="flex items-center gap-2">
                           <input
@@ -110,11 +122,11 @@ export default function MapFilters({ filters, onChange }: Props) {
                             className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
                           />
                           <button
-                            onClick={() => setCyclingExpanded(!cyclingExpanded)}
+                            onClick={() => toggleGroup(opt.groupKey!)}
                             className="flex items-center gap-1 text-sm text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
                           >
                             <svg
-                              className={`w-3 h-3 text-neutral-400 transition-transform ${cyclingExpanded ? '' : '-rotate-90'}`}
+                              className={`w-3 h-3 text-neutral-400 transition-transform ${expandedGroups.has(opt.groupKey!) ? '' : '-rotate-90'}`}
                               viewBox="0 0 20 20"
                               fill="currentColor"
                             >
@@ -123,7 +135,7 @@ export default function MapFilters({ filters, onChange }: Props) {
                             {opt.label}
                           </button>
                         </div>
-                        {cyclingExpanded && (
+                        {expandedGroups.has(opt.groupKey!) && (
                           <div className="ml-6 mt-1 space-y-1">
                             {opt.children.map((child) => {
                               const key = getKey(child)

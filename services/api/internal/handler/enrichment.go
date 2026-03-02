@@ -45,7 +45,7 @@ func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var updated int
+	var processed, errors int
 	for _, a := range activities {
 		if a.Lat == 0 || a.Lng == 0 || a.StartedAt.IsZero() {
 			continue
@@ -54,26 +54,28 @@ func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 		weather, err := enrichment.FetchWeather(a.Lat, a.Lng, a.StartedAt)
 		if err != nil {
 			slog.Warn("weather fetch failed", "activity_id", a.ID, "error", err)
+			errors++
 			continue
 		}
 
 		fields := map[string]any{
-			"weather_temp_c":       weather.TempC,
-			"weather_condition":    weather.Condition,
-			"weather_humidity":     weather.Humidity,
+			"weather_temp_c":        weather.TempC,
+			"weather_condition":     weather.Condition,
+			"weather_humidity":      weather.Humidity,
 			"weather_wind_speed_ms": weather.WindSpeedMS,
-			"weather_tags":         weather.Tags,
+			"weather_tags":          weather.Tags,
 		}
 		if err := h.DB.UpdateEnrichmentFields(r.Context(), a.ID, fields); err != nil {
 			slog.Warn("weather update failed", "activity_id", a.ID, "error", err)
+			errors++
 			continue
 		}
-		updated++
+		processed++
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":   len(activities),
-		"updated": updated,
+		"processed": processed,
+		"errors":    errors,
 	})
 }
 
@@ -92,7 +94,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var updated int
+	var processed int
 	for _, a := range activities {
 		if a.Lat == 0 || a.Lng == 0 {
 			continue
@@ -112,12 +114,12 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data)
-		updated++
+		processed++
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":   len(activities),
-		"updated": updated,
+		"processed": processed,
+		"errors":    0,
 	})
 }
 

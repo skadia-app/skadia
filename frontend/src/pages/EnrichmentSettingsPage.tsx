@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillWeather, backfillEnrichment } from '@/api/enrichment'
+import { ApiError } from '@/api/client'
 import type { EnrichmentSettings } from '@/api/types'
 
 // Welche Features sind bereits implementiert vs. geplant
@@ -225,21 +226,39 @@ export default function EnrichmentSettingsPage() {
         </div>
 
         {weatherMut.isSuccess && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400">
-            Wetter-Backfill abgeschlossen: {weatherMut.data.processed} verarbeitet, {weatherMut.data.errors} Fehler.
+          <p className={`text-sm ${weatherMut.data.errors > 0 ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            Wetter-Backfill abgeschlossen: {weatherMut.data.processed} verarbeitet
+            {weatherMut.data.errors > 0 ? `, ${weatherMut.data.errors} Fehler` : ''}.
+            {weatherMut.data.errors > 0 && weatherMut.data.error_details && (
+              <span className="block mt-0.5 text-xs text-rose-400">{weatherMut.data.error_details}</span>
+            )}
           </p>
         )}
         {weatherMut.isError && (
-          <p className="text-sm text-rose-500">Fehler beim Wetter-Backfill.</p>
+          <p className="text-sm text-rose-500">
+            Fehler beim Wetter-Backfill.
+            {weatherMut.error instanceof ApiError && weatherMut.error.body && (
+              <span className="block mt-0.5 text-xs text-rose-400">{weatherMut.error.body}</span>
+            )}
+          </p>
         )}
 
         {enrichMut.isSuccess && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400">
-            Enrichment-Backfill abgeschlossen: {enrichMut.data.processed} verarbeitet, {enrichMut.data.errors} Fehler.
+          <p className={`text-sm ${enrichMut.data.errors > 0 ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            Enrichment-Backfill abgeschlossen: {enrichMut.data.processed} verarbeitet
+            {enrichMut.data.errors > 0 ? `, ${enrichMut.data.errors} Fehler` : ''}.
+            {enrichMut.data.errors > 0 && enrichMut.data.error_details && (
+              <span className="block mt-0.5 text-xs text-rose-400">{enrichMut.data.error_details}</span>
+            )}
           </p>
         )}
         {enrichMut.isError && (
-          <p className="text-sm text-rose-500">Fehler beim Enrichment-Backfill.</p>
+          <p className="text-sm text-rose-500">
+            Fehler beim Enrichment-Backfill.
+            {enrichMut.error instanceof ApiError && enrichMut.error.body && (
+              <span className="block mt-0.5 text-xs text-rose-400">{enrichMut.error.body}</span>
+            )}
+          </p>
         )}
       </section>
     </div>

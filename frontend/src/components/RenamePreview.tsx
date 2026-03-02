@@ -6,16 +6,17 @@ import type { RenameResult } from '@/api/settings'
 interface RenamePreviewProps {
   open: boolean
   onClose: () => void
+  schema: string
 }
 
-export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
+export default function RenamePreview({ open, onClose, schema }: RenamePreviewProps) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [result, setResult] = useState<RenameResult | null>(null)
 
-  const { data: items, isLoading } = useQuery({
-    queryKey: ['rename-preview'],
-    queryFn: previewRename,
-    enabled: open,
+  const { data: items, isLoading, isError, error } = useQuery({
+    queryKey: ['rename-preview', schema],
+    queryFn: () => previewRename(schema),
+    enabled: open && schema.length > 0,
   })
 
   const renameMutation = useMutation({
@@ -66,6 +67,12 @@ export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
             </div>
           )}
 
+          {isError && (
+            <div className="rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/20 p-4 text-sm text-rose-600 dark:text-rose-400">
+              {error instanceof Error ? error.message : 'Vorschau konnte nicht geladen werden.'}
+            </div>
+          )}
+
           {result && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 text-center space-y-2">
               <p className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
@@ -92,7 +99,7 @@ export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
                 <div className="space-y-1.5">
                   {items.map((item) => (
                     <div
-                      key={item.activity_id}
+                      key={item.old_path}
                       className="flex items-center gap-2 text-xs font-mono rounded-lg p-2
                                  bg-neutral-50 dark:bg-neutral-800/50"
                     >
@@ -154,7 +161,7 @@ export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
                 Abbrechen
               </button>
               <button
-                onClick={() => renameMutation.mutate()}
+                onClick={() => renameMutation.mutate(items ?? [])}
                 disabled={renameMutation.isPending}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-white
                            bg-rose-500 hover:bg-rose-600

@@ -10,14 +10,16 @@
 export interface SportOption {
   value: string
   label: string
-  /** sub_type filter value (for cycling sub-categories) */
+  /** sub_type filter value (for sub-categories like cycling:mountain) */
   subType?: string
   children?: SportOption[]
+  /** stable key for the group used in expand/collapse state */
+  groupKey?: string
 }
 
 export const SPORT_OPTIONS: SportOption[] = [
   {
-    value: 'cycling', label: 'Radfahren',
+    value: 'cycling', label: 'Radfahren', groupKey: 'cycling',
     children: [
       { value: 'cycling', label: 'Straße' },
       { value: 'cycling', label: 'MTB', subType: 'mountain' },
@@ -25,12 +27,33 @@ export const SPORT_OPTIONS: SportOption[] = [
       { value: 'e_biking', label: 'E-Bike' },
     ],
   },
-  { value: 'running', label: 'Laufen' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'walking', label: 'Gehen' },
-  { value: 'swimming', label: 'Schwimmen' },
+  {
+    value: 'foot', label: 'Laufen & Wandern', groupKey: 'foot',
+    children: [
+      { value: 'running', label: 'Laufen' },
+      { value: 'running', label: 'Trail Running', subType: 'trail' },
+      { value: 'hiking', label: 'Wandern' },
+      { value: 'walking', label: 'Gehen' },
+    ],
+  },
+  {
+    value: 'water', label: 'Wassersport', groupKey: 'water',
+    children: [
+      { value: 'swimming', label: 'Schwimmen' },
+      { value: 'paddling', label: 'Paddeln' },
+      { value: 'stand_up_paddleboarding', label: 'SUP' },
+    ],
+  },
+  {
+    value: 'rock_climbing', label: 'Klettern', groupKey: 'climbing',
+    children: [
+      { value: 'rock_climbing', label: 'Klettern' },
+      { value: 'rock_climbing', label: 'Bouldern', subType: 'bouldering' },
+      { value: 'rock_climbing', label: 'Indoor', subType: 'indoor_climbing' },
+    ],
+  },
   { value: 'skiing', label: 'Ski' },
-  { value: 'paddling', label: 'Paddeln' },
+  { value: 'generic', label: 'Sonstige' },
 ]
 
 /**

@@ -71,6 +71,19 @@ export default function SettingsPage() {
             Fehler beim Speichern: {updateMutation.error instanceof Error ? updateMutation.error.message : 'Unbekannt'}
           </p>
         )}
+
+        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-3">
+            Bestehende Dateien nach dem aktuellen Schema umbenennen und verschieben.
+          </p>
+          <button
+            onClick={() => setRenameOpen(true)}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white
+                       bg-orange-500 hover:bg-orange-600 transition-colors"
+          >
+            Vorschau anzeigen
+          </button>
+        </div>
       </section>
 
       {/* Hotfolder */}
@@ -158,24 +171,6 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Reorganisieren */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Reorganisieren</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Bestehende Dateien nach dem aktuellen Schema umbenennen und verschieben.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setRenameOpen(true)}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white
-                     bg-orange-500 hover:bg-orange-600 transition-colors"
-        >
-          Vorschau anzeigen
-        </button>
-      </section>
-
       {/* Enrichment */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <div>
@@ -211,7 +206,7 @@ export default function SettingsPage() {
       {/* Karte */}
       <HeatmapSettingsSection />
 
-      <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} />
+      <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
     </div>
   )
 }
