@@ -58,6 +58,9 @@ export default function ActivitiesPage() {
   const [infiniteKey, setInfiniteKey] = useState(0)
   const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
 
+  // Suche
+  const [search, setSearch] = useState('')
+
   // Sort state: null = unsorted (default: started_at DESC)
   const [sortBy, setSortBy] = useState<SortColumn | null>(null)
   const [sortDir, setSortDir] = useState<SortDir | null>(null)
@@ -282,9 +285,16 @@ export default function ActivitiesPage() {
   }
 
   // ── Daten ──────────────────────────────────────────────────────────────────
-  const activities = isInfinite
+  const allActivities = isInfinite
     ? (infiniteData?.pages.flatMap(p => p.activities) ?? [])
     : (pageData?.activities ?? [])
+
+  const searchLower = search.toLowerCase().trim()
+  const activities = searchLower
+    ? allActivities.filter(a =>
+        (a.title ?? '').toLowerCase().includes(searchLower) ||
+        sportLabel(a.sport_type, a.sub_type).toLowerCase().includes(searchLower))
+    : allActivities
 
   const isLoading = isInfinite ? infiniteLoading : pageLoading
   const totalPages = total != null && pageSize > 0
@@ -314,12 +324,38 @@ export default function ActivitiesPage() {
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Aktivitäten</h1>
           {total != null && (
             <span className="text-sm text-neutral-400">
-              {total.toLocaleString('de-DE')} gesamt
+              {searchLower
+                ? `${activities.length} von ${allActivities.length} geladen`
+                : `${total.toLocaleString('de-DE')} gesamt`}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Suche */}
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Suchen…"
+              className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 pl-8 text-xs w-48
+                         bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                         placeholder:text-neutral-400 dark:placeholder:text-neutral-600
+                         focus:outline-none focus:ring-1 focus:ring-neutral-400"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-xs"
+              >
+                &times;
+              </button>
+            )}
+          </div>
           {/* Datumssprung (nur bei Sortierung nach Datum) */}
           <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
             <label htmlFor="jump-date" className={`whitespace-nowrap${!isDateJumpEnabled ? ' opacity-40' : ''}`}>Springe zu</label>
