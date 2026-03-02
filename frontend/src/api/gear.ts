@@ -3,6 +3,7 @@ import type {
   Gear, MaintenanceAlert, GearStatus,
   ComponentAssignment, ChainRotationGroup,
   GearServiceEvent, ComponentTypePreset,
+  BikeSetup,
 } from './types'
 
 export async function fetchGear(status?: GearStatus | boolean): Promise<Gear[]> {
@@ -121,4 +122,26 @@ export async function fetchComponentPresets(gearType?: string): Promise<Componen
 
 export async function fetchMaintenanceAlerts(): Promise<MaintenanceAlert[]> {
   return apiClient<MaintenanceAlert[]>('/gear/maintenance-alerts')
+}
+
+// --- Bike Setups ---
+
+export async function listBikeSetups(gearId: string): Promise<BikeSetup[]> {
+  return apiClient<BikeSetup[]>(`/gear/${gearId}/setups`)
+}
+
+export async function createBikeSetup(gearId: string, data: Partial<BikeSetup>): Promise<BikeSetup> {
+  return apiClient<BikeSetup>(`/gear/${gearId}/setups`, { method: 'POST', body: data })
+}
+
+export async function updateBikeSetup(id: string, data: Partial<BikeSetup>): Promise<BikeSetup> {
+  return apiClient<BikeSetup>(`/gear/setups/${id}`, { method: 'PUT', body: data })
+}
+
+export async function deleteBikeSetup(id: string): Promise<void> {
+  return apiClient(`/gear/setups/${id}`, { method: 'DELETE' })
+}
+
+export async function activateBikeSetup(id: string): Promise<BikeSetup> {
+  return apiClient<BikeSetup>(`/gear/setups/${id}/activate`, { method: 'POST' })
 }

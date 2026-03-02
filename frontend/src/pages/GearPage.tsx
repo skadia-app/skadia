@@ -33,13 +33,13 @@ export default function GearPage() {
   })
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausruestung...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausruestung</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausrüstung</h1>
         <div className="flex items-center gap-3">
           {/* Status filter chips */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
@@ -61,7 +61,7 @@ export default function GearPage() {
             onClick={() => setShowForm(true)}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors cursor-pointer"
           >
-            Ausruestung hinzufuegen
+            Ausrüstung hinzufügen
           </button>
         </div>
       </div>
@@ -71,7 +71,7 @@ export default function GearPage() {
       {/* Create form */}
       {showForm && (
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausruestung</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausrüstung</h2>
           <GearForm
             onSave={(data) => createMutation.mutate(data)}
             onCancel={() => setShowForm(false)}
@@ -94,7 +94,7 @@ export default function GearPage() {
         </div>
       ) : (
         <div className="text-center py-16 text-neutral-400">
-          Noch keine Ausruestung vorhanden.
+          Noch keine Ausrüstung vorhanden.
         </div>
       )}
     </div>
@@ -131,7 +131,7 @@ function GearCard({ gear }: { gear: Gear }) {
           </div>
         </div>
         <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Hoehe</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Höhe</div>
           <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
             {elevGain ?? '\u2014'}
           </div>
@@ -143,7 +143,7 @@ function GearCard({ gear }: { gear: Gear }) {
           </div>
         </div>
         <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitaeten</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitäten</div>
           <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
             {gear.total_activities}
           </div>

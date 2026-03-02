@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import type { MapFilterState } from '@/pages/MapPage'
-import { SPORT_OPTIONS } from '@/pages/MapPage'
+import type { MapFilterState, SportOption } from '@/pages/MapPage'
+import { SPORT_OPTIONS, getAllSportKeys } from '@/pages/MapPage'
+
+const ALL_SPORT_KEYS = getAllSportKeys()
 
 interface Props {
   filters: MapFilterState
@@ -9,24 +11,53 @@ interface Props {
 
 export default function MapFilters({ filters, onChange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+  const [cyclingExpanded, setCyclingExpanded] = useState(false)
 
-  const allSelected = filters.sportTypes.size === SPORT_OPTIONS.length
+  const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
 
-  function toggleSport(sport: string) {
+  function getKey(opt: SportOption): string {
+    return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
+  }
+
+  function toggleSport(key: string) {
     const next = new Set(filters.sportTypes)
-    if (next.has(sport)) {
-      next.delete(sport)
+    if (next.has(key)) {
+      next.delete(key)
     } else {
-      next.add(sport)
+      next.add(key)
     }
     onChange({ ...filters, sportTypes: next })
+  }
+
+  function toggleParent(parent: SportOption) {
+    if (!parent.children) return
+    const childKeys = parent.children.map(getKey)
+    const allChildrenSelected = childKeys.every(k => filters.sportTypes.has(k))
+    const next = new Set(filters.sportTypes)
+    if (allChildrenSelected) {
+      childKeys.forEach(k => next.delete(k))
+    } else {
+      childKeys.forEach(k => next.add(k))
+    }
+    onChange({ ...filters, sportTypes: next })
+  }
+
+  function isParentChecked(parent: SportOption): boolean {
+    if (!parent.children) return false
+    return parent.children.every(c => filters.sportTypes.has(getKey(c)))
+  }
+
+  function isParentIndeterminate(parent: SportOption): boolean {
+    if (!parent.children) return false
+    const checked = parent.children.filter(c => filters.sportTypes.has(getKey(c))).length
+    return checked > 0 && checked < parent.children.length
   }
 
   function toggleAll() {
     if (allSelected) {
       onChange({ ...filters, sportTypes: new Set() })
     } else {
-      onChange({ ...filters, sportTypes: new Set(SPORT_OPTIONS.map(s => s.value)) })
+      onChange({ ...filters, sportTypes: new Set(ALL_SPORT_KEYS) })
     }
   }
 
@@ -58,22 +89,75 @@ export default function MapFilters({ filters, onChange }: Props) {
                   onClick={toggleAll}
                   className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
                 >
-                  {allSelected ? 'Keine' : 'Alle'}
+                  {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
                 </button>
               </div>
               <div className="space-y-1.5">
-                {SPORT_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className="flex items-center gap-2 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={filters.sportTypes.has(value)}
-                      onChange={() => toggleSport(value)}
-                      className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
-                    />
-                    <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                      {label}
-                    </span>
-                  </label>
+                {SPORT_OPTIONS.map((opt) => (
+                  <div key={opt.label}>
+                    {opt.children ? (
+                      /* Parent with children (Radfahren) */
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isParentChecked(opt)}
+                            ref={(el) => {
+                              if (el) el.indeterminate = isParentIndeterminate(opt)
+                            }}
+                            onChange={() => toggleParent(opt)}
+                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                          />
+                          <button
+                            onClick={() => setCyclingExpanded(!cyclingExpanded)}
+                            className="flex items-center gap-1 text-sm text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
+                          >
+                            <svg
+                              className={`w-3 h-3 text-neutral-400 transition-transform ${cyclingExpanded ? '' : '-rotate-90'}`}
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                            </svg>
+                            {opt.label}
+                          </button>
+                        </div>
+                        {cyclingExpanded && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            {opt.children.map((child) => {
+                              const key = getKey(child)
+                              return (
+                                <label key={key} className="flex items-center gap-2 cursor-pointer group">
+                                  <input
+                                    type="checkbox"
+                                    checked={filters.sportTypes.has(key)}
+                                    onChange={() => toggleSport(key)}
+                                    className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                                  />
+                                  <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                                    {child.label}
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Simple option */
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={filters.sportTypes.has(opt.value)}
+                          onChange={() => toggleSport(opt.value)}
+                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                        />
+                        <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                          {opt.label}
+                        </span>
+                      </label>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -119,14 +203,14 @@ export default function MapFilters({ filters, onChange }: Props) {
             {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70) && (
               <button
                 onClick={() => onChange({
-                  sportTypes: new Set(SPORT_OPTIONS.map(s => s.value)),
+                  sportTypes: new Set(ALL_SPORT_KEYS),
                   dateFrom: '',
                   dateTo: '',
                   opacity: 70,
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >
-                Filter zuruecksetzen
+                Filter zurücksetzen
               </button>
             )}
           </div>

@@ -81,6 +81,7 @@ func main() {
 	if cfg.OIDCClientID != "" && cfg.JWTSecret != "" {
 		authCfg = &handler.AuthConfig{
 			OIDCBaseURL:      cfg.OIDCBaseURL,
+			OIDCExternalURL:  cfg.OIDCExternalURL,
 			OIDCClientID:     cfg.OIDCClientID,
 			OIDCClientSecret: cfg.OIDCClientSecret,
 			OIDCAppSlug:      cfg.OIDCAppSlug,
@@ -90,6 +91,7 @@ func main() {
 		}
 		slog.Info("OIDC OIDC configured",
 			"base_url", cfg.OIDCBaseURL,
+			"external_url", cfg.OIDCExternalURL,
 			"redirect_uri", cfg.AppRedirectURI,
 		)
 	} else {
@@ -197,11 +199,16 @@ func main() {
 			r.Delete("/gear/{id}", h.DeleteGear)
 			r.Patch("/gear/{id}/status", h.UpdateGearStatus)
 			r.Post("/gear/{id}/components", h.CreateComponent)
+			r.Get("/gear/{id}/setups", h.ListBikeSetups)
+			r.Post("/gear/{id}/setups", h.CreateBikeSetup)
 			r.Get("/gear/{id}/chain-rotation", h.GetChainRotation)
 			r.Post("/gear/{id}/chain-rotation", h.CreateChainRotation)
 			r.Post("/gear/{id}/chain-rotation/swap", h.SwapChain)
 			r.Put("/gear/chain-rotation/{id}", h.UpdateChainRotation)
 			r.Delete("/gear/chain-rotation/{id}", h.DeleteChainRotation)
+			r.Put("/gear/setups/{id}", h.UpdateBikeSetup)
+			r.Delete("/gear/setups/{id}", h.DeleteBikeSetup)
+			r.Post("/gear/setups/{id}/activate", h.ActivateBikeSetup)
 			r.Put("/gear/components/{id}", h.UpdateComponent)
 			r.Delete("/gear/components/{id}", h.DeleteComponent)
 			r.Post("/gear/components/{id}/transfer", h.TransferComponent)

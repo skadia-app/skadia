@@ -288,11 +288,15 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			slog.Error("reprocess: delete heatmap points failed", "id", activityID, "error", err)
 		}
 		if len(data.TrackPoints) >= 2 {
-			if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, data.StartedAt); err != nil {
+			var subTypePtr *string
+			if data.SubType != "" {
+				subTypePtr = &data.SubType
+			}
+			if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt); err != nil {
 				slog.Error("reprocess: insert heatmap line failed", "id", activityID, "error", err)
 			}
 			interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
-			if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, data.SportType, data.StartedAt, interval); err != nil {
+			if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
 				slog.Error("reprocess: insert heatmap points failed", "id", activityID, "error", err)
 			}
 		}

@@ -48,7 +48,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
             : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
         }`}
       >
-        {alert.is_overdue ? `Ueberfaellig (${pct}%)` : `${pct}%`}
+        {alert.is_overdue ? `Überfällig (${pct}%)` : `${pct}%`}
       </span>
     </Link>
   )

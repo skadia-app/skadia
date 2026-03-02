@@ -136,7 +136,7 @@ export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
               className="px-4 py-2 rounded-lg text-sm font-medium
                          bg-orange-500 hover:bg-orange-600 text-white transition-colors"
             >
-              Schliessen
+              Schließen
             </button>
           ) : confirmOpen ? (
             <>
@@ -160,7 +160,7 @@ export default function RenamePreview({ open, onClose }: RenamePreviewProps) {
                            bg-rose-500 hover:bg-rose-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {renameMutation.isPending ? 'Wird ausgefuehrt...' : 'Ja, verschieben'}
+                {renameMutation.isPending ? 'Wird ausgeführt...' : 'Ja, verschieben'}
               </button>
             </>
           ) : (

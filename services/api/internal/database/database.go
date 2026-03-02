@@ -1285,14 +1285,14 @@ func (db *DB) ListHotfolderImports(ctx context.Context, userID string, limit int
 
 // InsertHeatmapLine copies the track geometry into heatmap_lines.
 // Uses COALESCE(track_public, track_full) so privacy zones are respected.
-func (db *DB) InsertHeatmapLine(ctx context.Context, userID, activityID, sportType string, startedAt time.Time) error {
+func (db *DB) InsertHeatmapLine(ctx context.Context, userID, activityID, sportType string, subType *string, startedAt time.Time) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, geom, activity_date)
-		SELECT $1, $2, $3, COALESCE(track_public, track_full), $4::date
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
+		SELECT $1, $2, $3, $5, COALESCE(track_public, track_full), $4::date
 		FROM activity_tracks
 		WHERE activity_id = $2
 		  AND track_full IS NOT NULL`,
-		userID, activityID, sportType, startedAt,
+		userID, activityID, sportType, startedAt, subType,
 	)
 	if err != nil {
 		return fmt.Errorf("insert heatmap line: %w", err)
@@ -1313,8 +1313,8 @@ func (db *DB) DeleteHeatmapLines(ctx context.Context, activityID string) error {
 // Returns the number of rows inserted.
 func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 	result, err := db.Pool.Exec(ctx, `
-		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, geom, activity_date)
-		SELECT a.user_id, a.id, a.sport_type, COALESCE(t.track_public, t.track_full), a.started_at::date
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
+		SELECT a.user_id, a.id, a.sport_type, a.sub_type, COALESCE(t.track_public, t.track_full), a.started_at::date
 		FROM activities a
 		JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.user_id = $1
@@ -1334,16 +1334,16 @@ func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 
 // InsertHeatmapPoints generates evenly-spaced points from an activity's track
 // using ST_Segmentize + ST_DumpPoints and inserts them into heatmap_points.
-func (db *DB) InsertHeatmapPoints(ctx context.Context, userID, activityID, sportType string, startedAt time.Time, intervalM int) error {
+func (db *DB) InsertHeatmapPoints(ctx context.Context, userID, activityID, sportType string, subType *string, startedAt time.Time, intervalM int) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO heatmap_points (user_id, activity_id, sport_type, activity_date, geom)
-		SELECT $1, $2, $3, $4::date, (ST_DumpPoints(
+		INSERT INTO heatmap_points (user_id, activity_id, sport_type, sub_type, activity_date, geom)
+		SELECT $1, $2, $3, $6, $4::date, (ST_DumpPoints(
 			ST_Segmentize(COALESCE(track_public, track_full)::geography, $5)::geometry
 		)).geom
 		FROM activity_tracks
 		WHERE activity_id = $2
 		  AND track_full IS NOT NULL`,
-		userID, activityID, sportType, startedAt, intervalM,
+		userID, activityID, sportType, startedAt, intervalM, subType,
 	)
 	if err != nil {
 		return fmt.Errorf("insert heatmap points: %w", err)
@@ -1363,8 +1363,8 @@ func (db *DB) DeleteHeatmapPoints(ctx context.Context, activityID string) error 
 // BackfillHeatmapPoints generates heatmap points for all activities of a user.
 func (db *DB) BackfillHeatmapPoints(ctx context.Context, userID string, intervalM int) (int, error) {
 	result, err := db.Pool.Exec(ctx, `
-		INSERT INTO heatmap_points (user_id, activity_id, sport_type, activity_date, geom)
-		SELECT a.user_id, a.id, a.sport_type, a.started_at::date,
+		INSERT INTO heatmap_points (user_id, activity_id, sport_type, sub_type, activity_date, geom)
+		SELECT a.user_id, a.id, a.sport_type, a.sub_type, a.started_at::date,
 		       (ST_DumpPoints(
 		           ST_Segmentize(COALESCE(t.track_public, t.track_full)::geography, $2)::geometry
 		       )).geom

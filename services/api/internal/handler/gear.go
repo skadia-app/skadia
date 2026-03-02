@@ -476,6 +476,100 @@ func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, presets)
 }
 
+// --- Bike Setups ---
+
+func (h *Handler) ListBikeSetups(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+
+	setups, err := h.DB.ListBikeSetups(r.Context(), gearID)
+	if err != nil {
+		slog.Error("list bike setups failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list bike setups", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, setups)
+}
+
+func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+
+	var create model.BikeSetupCreate
+	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if create.Name == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		return
+	}
+
+	setup, err := h.DB.CreateBikeSetup(r.Context(), gearID, &create)
+	if err != nil {
+		slog.Error("create bike setup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create bike setup", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, setup)
+}
+
+func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var update model.BikeSetupUpdate
+	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+
+	setup, err := h.DB.UpdateBikeSetup(r.Context(), id, &update)
+	if err != nil {
+		slog.Error("update bike setup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update bike setup", r.URL.Path)
+		return
+	}
+	if setup == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, setup)
+}
+
+func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := h.DB.DeleteBikeSetup(r.Context(), id); err != nil {
+		if err.Error() == "bike setup not found" {
+			writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+			return
+		}
+		slog.Error("delete bike setup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete bike setup", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ActivateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	setup, err := h.DB.ActivateBikeSetup(r.Context(), id)
+	if err != nil {
+		slog.Error("activate bike setup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to activate bike setup", r.URL.Path)
+		return
+	}
+	if setup == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, setup)
+}
+
 func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 

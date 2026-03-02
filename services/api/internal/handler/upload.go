@@ -156,11 +156,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Insert heatmap line (uses track_full or track_public if privacy zones exist)
 	if len(data.TrackPoints) >= 2 {
-		if err := h.DB.InsertHeatmapLine(r.Context(), userID, activity.ID, data.SportType, data.StartedAt); err != nil {
+		var subTypePtr *string
+		if data.SubType != "" {
+			subTypePtr = &data.SubType
+		}
+		if err := h.DB.InsertHeatmapLine(r.Context(), userID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
 			slog.Error("insert heatmap line failed", "error", err)
 		}
 		interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
-		if err := h.DB.InsertHeatmapPoints(r.Context(), userID, activity.ID, data.SportType, data.StartedAt, interval); err != nil {
+		if err := h.DB.InsertHeatmapPoints(r.Context(), userID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
 			slog.Error("insert heatmap points failed", "error", err)
 		}
 	}

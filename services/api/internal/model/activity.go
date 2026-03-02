@@ -523,3 +523,52 @@ type AutomationRuleUpdate struct {
 	Conditions *json.RawMessage `json:"conditions,omitempty"`
 	Actions    *json.RawMessage `json:"actions,omitempty"`
 }
+
+// BikeSetup represents a saved bike configuration/setup.
+type BikeSetup struct {
+	ID              string           `json:"id"`
+	GearID          string           `json:"gear_id"`
+	Name            string           `json:"name"`
+	RiderWeightKg   *float64         `json:"rider_weight_kg,omitempty"`
+	IntendedUse     *string          `json:"intended_use,omitempty"`
+	Notes           *string          `json:"notes,omitempty"`
+	SuspensionFront json.RawMessage  `json:"suspension_front,omitempty"`
+	SuspensionRear  json.RawMessage  `json:"suspension_rear,omitempty"`
+	Tires           json.RawMessage  `json:"tires,omitempty"`
+	ContactPoints   json.RawMessage  `json:"contact_points,omitempty"`
+	Brakes          json.RawMessage  `json:"brakes,omitempty"`
+	Drivetrain      json.RawMessage  `json:"drivetrain,omitempty"`
+	IsActive        bool             `json:"is_active"`
+	CreatedAt       string           `json:"created_at"`
+	UpdatedAt       string           `json:"updated_at"`
+}
+
+// BikeSetupCreate is the request body for creating a bike setup.
+type BikeSetupCreate struct {
+	Name            string          `json:"name"`
+	RiderWeightKg   *float64        `json:"rider_weight_kg,omitempty"`
+	IntendedUse     *string         `json:"intended_use,omitempty"`
+	Notes           *string         `json:"notes,omitempty"`
+	SuspensionFront json.RawMessage `json:"suspension_front,omitempty"`
+	SuspensionRear  json.RawMessage `json:"suspension_rear,omitempty"`
+	Tires           json.RawMessage `json:"tires,omitempty"`
+	ContactPoints   json.RawMessage `json:"contact_points,omitempty"`
+	Brakes          json.RawMessage `json:"brakes,omitempty"`
+	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
+	IsActive        bool            `json:"is_active"`
+}
+
+// BikeSetupUpdate is the request body for updating a bike setup.
+type BikeSetupUpdate struct {
+	Name            *string         `json:"name,omitempty"`
+	RiderWeightKg   *float64        `json:"rider_weight_kg,omitempty"`
+	IntendedUse     *string         `json:"intended_use,omitempty"`
+	Notes           *string         `json:"notes,omitempty"`
+	SuspensionFront json.RawMessage `json:"suspension_front,omitempty"`
+	SuspensionRear  json.RawMessage `json:"suspension_rear,omitempty"`
+	Tires           json.RawMessage `json:"tires,omitempty"`
+	ContactPoints   json.RawMessage `json:"contact_points,omitempty"`
+	Brakes          json.RawMessage `json:"brakes,omitempty"`
+	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
+	IsActive        *bool           `json:"is_active,omitempty"`
+}

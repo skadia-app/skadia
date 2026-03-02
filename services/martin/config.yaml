@@ -13,6 +13,7 @@ postgres:
       properties:
         user_id: uuid
         sport_type: text
+        sub_type: text
         activity_date: date
     heatmap_points:
       schema: public
@@ -23,4 +24,5 @@ postgres:
       properties:
         user_id: uuid
         sport_type: text
+        sub_type: text
         activity_date: date

@@ -17,7 +17,8 @@ type Config struct {
 	OIDCJWKSURL string
 
 	// OIDC OIDC
-	OIDCBaseURL      string
+	OIDCBaseURL      string // internal (container-to-container)
+	OIDCExternalURL  string // browser-facing (for redirects)
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCAppSlug      string // e.g. "skadia"
@@ -46,6 +47,7 @@ func Load() (*Config, error) {
 		OIDCJWKSURL: getEnvDefault("OIDC_JWKS_URL", "http://oidc:9000/application/o/skadia/jwks/"),
 
 		OIDCBaseURL:      getEnvDefault("OIDC_BASE_URL", "http://oidc:9000"),
+		OIDCExternalURL:  getEnvDefault("OIDC_EXTERNAL_URL", getEnvDefault("OIDC_BASE_URL", "http://localhost:9000")),
 		OIDCClientID:     os.Getenv("OIDC_CLIENT_ID"),
 		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		OIDCAppSlug:      getEnvDefault("OIDC_APP_SLUG", "skadia"),

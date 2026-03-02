@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 
-const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? 'http://localhost:3000'
+const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? '/tiles'
 
 export function getHeatmapTileUrl(params?: {
   user_id?: string

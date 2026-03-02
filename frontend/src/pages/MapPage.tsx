@@ -19,7 +19,11 @@ const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attributi
   },
   cyclosm: {
     label: 'CyclOSM',
-    tiles: ['https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png'.replace('{s}', 'a')],
+    tiles: [
+      'https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+      'https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+      'https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+    ],
     attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
   },
 }
@@ -48,16 +52,47 @@ function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification {
   }
 }
 
-export const SPORT_OPTIONS = [
-  { value: 'cycling', label: 'Radfahren' },
+export interface SportOption {
+  value: string
+  label: string
+  subType?: string  // sub_type filter value (for cycling subcategories)
+  children?: SportOption[]
+}
+
+export const SPORT_OPTIONS: SportOption[] = [
+  {
+    value: 'cycling', label: 'Radfahren',
+    children: [
+      { value: 'cycling', label: 'Straße' },
+      { value: 'cycling', label: 'MTB', subType: 'mountain' },
+      { value: 'cycling', label: 'Gravel', subType: 'gravel' },
+      { value: 'e_biking', label: 'E-Bike' },
+    ],
+  },
   { value: 'running', label: 'Laufen' },
   { value: 'hiking', label: 'Wandern' },
   { value: 'walking', label: 'Gehen' },
   { value: 'swimming', label: 'Schwimmen' },
-  { value: 'e_biking', label: 'E-Bike' },
   { value: 'skiing', label: 'Ski' },
   { value: 'paddling', label: 'Paddeln' },
 ]
+
+// Flat list of all selectable leaf values (used for "all selected" checks)
+export function getAllSportKeys(): string[] {
+  const keys: string[] = []
+  for (const opt of SPORT_OPTIONS) {
+    if (opt.children) {
+      for (const child of opt.children) {
+        keys.push(child.subType ? `${child.value}:${child.subType}` : child.value)
+      }
+    } else {
+      keys.push(opt.value)
+    }
+  }
+  return keys
+}
+
+const ALL_SPORT_KEYS = getAllSportKeys()
 
 export interface MapFilterState {
   sportTypes: Set<string>
@@ -67,20 +102,31 @@ export interface MapFilterState {
 }
 
 const defaultFilters: MapFilterState = {
-  sportTypes: new Set(SPORT_OPTIONS.map(s => s.value)),
+  sportTypes: new Set(ALL_SPORT_KEYS),
   dateFrom: '',
   dateTo: '',
   opacity: 70,
 }
 
 function buildTileUrl(source: 'heatmap_lines' | 'heatmap_points', filters: MapFilterState): string {
-  const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? 'http://localhost:3000'
+  const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? '/tiles'
   const base = `${MARTIN_BASE}/${source}/{z}/{x}/{y}.pbf`
   const params = new URLSearchParams()
 
-  const allSelected = filters.sportTypes.size === SPORT_OPTIONS.length
+  const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
   if (!allSelected && filters.sportTypes.size > 0) {
-    params.set('sport_type', Array.from(filters.sportTypes).join(','))
+    // Separate sport_type and sub_type filters from the combined keys
+    const sportTypes = new Set<string>()
+    const subTypes = new Set<string>()
+    for (const key of filters.sportTypes) {
+      const [sport, sub] = key.split(':')
+      sportTypes.add(sport)
+      if (sub) subTypes.add(sub)
+    }
+    params.set('sport_type', Array.from(sportTypes).join(','))
+    if (subTypes.size > 0) {
+      params.set('sub_type', Array.from(subTypes).join(','))
+    }
   }
   if (filters.dateFrom) params.set('activity_date_gte', filters.dateFrom)
   if (filters.dateTo) params.set('activity_date_lte', filters.dateTo)

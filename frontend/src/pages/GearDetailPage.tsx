@@ -10,11 +10,13 @@ import {
   getChainRotation, createChainRotation, swapChain, deleteChainRotation,
   listServiceEvents, createServiceEvent, deleteServiceEvent,
   fetchComponentPresets,
+  listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
 } from '@/api/gear'
 import type {
   Gear, GearComponent, GearStatus,
   ComponentAssignment,
   GearServiceEvent, ComponentTypePreset,
+  BikeSetup,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
@@ -48,14 +50,14 @@ export default function GearDetailPage() {
   })
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausruestung...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
   }
 
   if (!gear) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <span className="text-neutral-400">Ausruestung nicht gefunden</span>
-        <Link to="/gear" className="text-sm text-orange-500 hover:text-orange-600">Zurueck zur Uebersicht</Link>
+        <span className="text-neutral-400">Ausrüstung nicht gefunden</span>
+        <Link to="/gear" className="text-sm text-orange-500 hover:text-orange-600">Zurück zur Übersicht</Link>
       </div>
     )
   }
@@ -66,7 +68,7 @@ export default function GearDetailPage() {
         to="/gear"
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> Alle Ausruestung
+        <span>&#8592;</span> Alle Ausrüstung
       </Link>
 
       {editing ? (
@@ -116,9 +118,9 @@ export default function GearDetailPage() {
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <StatCard label="Distanz" value={formatDistance(gear.total_distance_m)} />
-            <StatCard label="Hoehenmeter" value={formatElevationGain(gear.total_elevation_gain_m) ?? '\u2014'} />
+            <StatCard label="Höhenmeter" value={formatElevationGain(gear.total_elevation_gain_m) ?? '\u2014'} />
             <StatCard label="Zeit" value={formatDuration(gear.total_time_s)} />
-            <StatCard label="Aktivitaeten" value={String(gear.total_activities)} />
+            <StatCard label="Aktivitäten" value={String(gear.total_activities)} />
           </div>
 
           {/* Notes */}
@@ -135,6 +137,11 @@ export default function GearDetailPage() {
           {/* Chain Rotation (only for bikes) */}
           {gear.type === 'bike' && (
             <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
+          )}
+
+          {/* Bike Setups (only for bikes) */}
+          {gear.type === 'bike' && (
+            <BikeSetupsSection gearId={gear.id} />
           )}
         </>
       )}
@@ -182,7 +189,7 @@ function StatusMenu({ current, onSelect, disabled }: {
         disabled={disabled}
         className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
       >
-        Status aendern
+        Status ändern
       </button>
       {open && (
         <>
@@ -260,7 +267,7 @@ function ComponentsList({ gearId, gearType, components }: {
           onClick={() => setAdding(true)}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer"
         >
-          + Hinzufuegen
+          + Hinzufügen
         </button>
       </div>
 
@@ -426,7 +433,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
           onChange={(e) => setTargetId(e.target.value)}
           className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
         >
-          <option value="">Ziel waehlen...</option>
+          <option value="">Ziel wählen...</option>
           {targets.map(g => (
             <option key={g.id} value={g.id}>{g.name} ({gearTypeLabel(g.type)})</option>
           ))}
@@ -607,7 +614,7 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
           ))}
         </div>
       ) : (
-        !isLoading && !adding && <div className="text-xs text-neutral-400">Keine Service-Eintraege.</div>
+        !isLoading && !adding && <div className="text-xs text-neutral-400">Keine Service-Einträge.</div>
       )}
     </div>
   )
@@ -708,7 +715,7 @@ function ChainRotationSection({ gearId, components }: {
           </div>
 
           <div>
-            <label className="block text-xs text-neutral-500 mb-1">Ketten auswaehlen (min. 2)</label>
+            <label className="block text-xs text-neutral-500 mb-1">Ketten auswählen (min. 2)</label>
             {chainComponents.length > 0 ? (
               <div className="space-y-1">
                 {chainComponents.map(c => (
@@ -726,7 +733,7 @@ function ChainRotationSection({ gearId, components }: {
               </div>
             ) : (
               <p className="text-xs text-neutral-400">
-                Keine Ketten-Komponenten gefunden. Fuege zuerst Ketten als Komponenten hinzu.
+                Keine Ketten-Komponenten gefunden. Füge zuerst Ketten als Komponenten hinzu.
               </p>
             )}
           </div>
@@ -798,14 +805,14 @@ function ChainRotationSection({ gearId, components }: {
               disabled={deleteMut.isPending}
               className="px-3 py-1.5 rounded-lg text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer"
             >
-              Rotation loeschen
+              Rotation löschen
             </button>
             <button
               onClick={() => swapMut.mutate()}
               disabled={swapMut.isPending}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
             >
-              {swapMut.isPending ? 'Wechsle...' : 'Naechste Kette'}
+              {swapMut.isPending ? 'Wechsle...' : 'Nächste Kette'}
             </button>
           </div>
         </div>
@@ -813,7 +820,7 @@ function ChainRotationSection({ gearId, components }: {
 
       {!rotation && !creating && (
         <p className="text-sm text-neutral-400">
-          Keine Ketten-Rotation konfiguriert. Erstelle eine, um mehrere Ketten gleichmaessig abzunutzen.
+          Keine Ketten-Rotation konfiguriert. Erstelle eine, um mehrere Ketten gleichmäßig abzunutzen.
         </p>
       )}
     </div>
@@ -886,10 +893,12 @@ function ComponentForm({
   const categoryLabels: Record<string, string> = {
     drivetrain: 'Antrieb',
     braking: 'Bremsen',
-    wheels: 'Laufraeder',
+    wheels: 'Laufräder',
     frame: 'Rahmen & Cockpit',
     suspension: 'Federung',
     ebike: 'E-Bike',
+    lighting: 'Beleuchtung',
+    accessories: 'Zubehör',
     shoes: 'Schuhe',
     sole: 'Sohle',
     insole: 'Einlegesohle',
@@ -930,7 +939,7 @@ function ComponentForm({
               onChange={(e) => selectPreset(e.target.value)}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
             >
-              <option value="">Vorlage waehlen...</option>
+              <option value="">Vorlage wählen...</option>
               {Object.entries(groupedPresets).map(([cat, items]) => (
                 <optgroup key={cat} label={categoryLabels[cat] ?? cat}>
                   {items.map(p => (
@@ -1015,6 +1024,417 @@ function ComponentForm({
           type="submit"
           disabled={isSaving || !name.trim() || !type.trim()}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 transition-colors cursor-pointer"
+        >
+          {isSaving ? 'Speichert...' : 'Speichern'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// ── Bike Setups ─────────────────────────────────────────────────────────────────
+
+interface SetupSectionProps {
+  label: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}
+
+function SetupSection({ label, defaultOpen = false, children }: SetupSectionProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer"
+      >
+        {label}
+        <svg className={`w-4 h-4 text-neutral-400 transition-transform ${open ? '' : '-rotate-90'}`} viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
+    </div>
+  )
+}
+
+function JsonField({ label, value, onChange, placeholder }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-neutral-500 mb-1">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+      />
+    </div>
+  )
+}
+
+function BikeSetupsSection({ gearId }: { gearId: string }) {
+  const queryClient = useQueryClient()
+  const [creating, setCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  const { data: setups } = useQuery({
+    queryKey: ['bike-setups', gearId],
+    queryFn: () => listBikeSetups(gearId),
+  })
+
+  const createMut = useMutation({
+    mutationFn: (data: Partial<BikeSetup>) => createBikeSetup(gearId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] })
+      setCreating(false)
+    },
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<BikeSetup> }) => updateBikeSetup(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] })
+      setEditingId(null)
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: deleteBikeSetup,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] }),
+  })
+
+  const activateMut = useMutation({
+    mutationFn: activateBikeSetup,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] }),
+  })
+
+  return (
+    <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Setups</h2>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            className="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
+          >
+            + Neues Setup
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <BikeSetupForm
+          onSave={(data) => createMut.mutate(data)}
+          onCancel={() => setCreating(false)}
+          isSaving={createMut.isPending}
+        />
+      )}
+
+      {setups && setups.length > 0 ? (
+        <div className="space-y-3">
+          {setups.map((setup) => (
+            <div key={setup.id} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              {editingId === setup.id ? (
+                <BikeSetupForm
+                  setup={setup}
+                  onSave={(data) => updateMut.mutate({ id: setup.id, data })}
+                  onCancel={() => setEditingId(null)}
+                  isSaving={updateMut.isPending}
+                />
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{setup.name}</span>
+                      {setup.is_active && (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          Aktiv
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!setup.is_active && (
+                        <button
+                          onClick={() => activateMut.mutate(setup.id)}
+                          disabled={activateMut.isPending}
+                          className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer"
+                        >
+                          Aktivieren
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setEditingId(setup.id)}
+                        className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+                      >
+                        Bearbeiten
+                      </button>
+                      <button
+                        onClick={() => deleteMut.mutate(setup.id)}
+                        disabled={deleteMut.isPending}
+                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
+                      >
+                        Löschen
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 space-x-3">
+                    {setup.intended_use && <span>{setup.intended_use}</span>}
+                    {setup.rider_weight_kg && <span>{setup.rider_weight_kg} kg</span>}
+                  </div>
+                  {/* Summary of configured sections */}
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {setup.suspension_front && <SetupTag label="Gabel" />}
+                    {setup.suspension_rear && <SetupTag label="Dämpfer" />}
+                    {setup.tires && <SetupTag label="Reifen" />}
+                    {setup.contact_points && <SetupTag label="Kontaktpunkte" />}
+                    {setup.brakes && <SetupTag label="Bremsen" />}
+                    {setup.drivetrain && <SetupTag label="Antrieb" />}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        !creating && (
+          <p className="text-sm text-neutral-400 py-2">
+            Keine Setups vorhanden. Erstelle ein Setup um Federung, Reifen, Bremsen etc. zu dokumentieren.
+          </p>
+        )
+      )}
+    </div>
+  )
+}
+
+function SetupTag({ label }: { label: string }) {
+  return (
+    <span className="px-1.5 py-0.5 rounded text-xs bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+      {label}
+    </span>
+  )
+}
+
+function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
+  setup?: BikeSetup
+  onSave: (data: Partial<BikeSetup>) => void
+  onCancel: () => void
+  isSaving?: boolean
+}) {
+  const [name, setName] = useState(setup?.name ?? '')
+  const [riderWeight, setRiderWeight] = useState(setup?.rider_weight_kg?.toString() ?? '')
+  const [intendedUse, setIntendedUse] = useState(setup?.intended_use ?? '')
+  const [notes, setNotes] = useState(setup?.notes ?? '')
+  const [isActive, setIsActive] = useState(setup?.is_active ?? false)
+
+  // Suspension front
+  const sf = setup?.suspension_front ?? {}
+  const [sfTravel, setSfTravel] = useState(sf.travel_mm?.toString() ?? '')
+  const [sfPressure, setSfPressure] = useState(sf.pressure_psi?.toString() ?? '')
+  const [sfRebound, setSfRebound] = useState(sf.rebound?.toString() ?? '')
+  const [sfCompression, setSfCompression] = useState(sf.compression?.toString() ?? '')
+  const [sfSag, setSfSag] = useState(sf.sag_pct?.toString() ?? '')
+
+  // Suspension rear
+  const sr = setup?.suspension_rear ?? {}
+  const [srTravel, setSrTravel] = useState(sr.travel_mm?.toString() ?? '')
+  const [srPressure, setSrPressure] = useState(sr.pressure_psi?.toString() ?? '')
+  const [srRebound, setSrRebound] = useState(sr.rebound?.toString() ?? '')
+  const [srCompression, setSrCompression] = useState(sr.compression?.toString() ?? '')
+  const [srSag, setSrSag] = useState(sr.sag_pct?.toString() ?? '')
+
+  // Tires
+  const t = setup?.tires ?? {}
+  const [tireFront, setTireFront] = useState(t.front_model ?? '')
+  const [tireRear, setTireRear] = useState(t.rear_model ?? '')
+  const [tireFrontPsi, setTireFrontPsi] = useState(t.front_pressure_psi?.toString() ?? '')
+  const [tireRearPsi, setTireRearPsi] = useState(t.rear_pressure_psi?.toString() ?? '')
+  const [tireFrontWidth, setTireFrontWidth] = useState(t.front_width_mm?.toString() ?? '')
+  const [tireRearWidth, setTireRearWidth] = useState(t.rear_width_mm?.toString() ?? '')
+
+  // Contact points
+  const cp = setup?.contact_points ?? {}
+  const [saddleHeight, setSaddleHeight] = useState(cp.saddle_height_mm?.toString() ?? '')
+  const [saddleModel, setSaddleModel] = useState(cp.saddle_model ?? '')
+  const [stemLength, setStemLength] = useState(cp.stem_length_mm?.toString() ?? '')
+  const [handlebarWidth, setHandlebarWidth] = useState(cp.handlebar_width_mm?.toString() ?? '')
+
+  // Brakes
+  const b = setup?.brakes ?? {}
+  const [brakeFrontPad, setBrakeFrontPad] = useState(b.front_pad_type ?? '')
+  const [brakeRearPad, setBrakeRearPad] = useState(b.rear_pad_type ?? '')
+  const [brakeFrontRotor, setBrakeFrontRotor] = useState(b.front_rotor_mm?.toString() ?? '')
+  const [brakeRearRotor, setBrakeRearRotor] = useState(b.rear_rotor_mm?.toString() ?? '')
+
+  // Drivetrain
+  const d = setup?.drivetrain ?? {}
+  const [chainring, setChainring] = useState(d.chainring ?? '')
+  const [cassette, setCassette] = useState(d.cassette ?? '')
+  const [chainLength, setChainLength] = useState(d.chain_length?.toString() ?? '')
+
+  function buildJson(fields: [string, string][]): Record<string, any> | null {
+    const obj: Record<string, any> = {}
+    let hasValue = false
+    for (const [key, val] of fields) {
+      if (val.trim()) {
+        const num = Number(val)
+        obj[key] = isNaN(num) ? val.trim() : num
+        hasValue = true
+      }
+    }
+    return hasValue ? obj : null
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    onSave({
+      name: name.trim(),
+      rider_weight_kg: riderWeight ? parseFloat(riderWeight) : null,
+      intended_use: intendedUse.trim() || null,
+      notes: notes.trim() || null,
+      is_active: isActive,
+      suspension_front: buildJson([
+        ['travel_mm', sfTravel], ['pressure_psi', sfPressure],
+        ['rebound', sfRebound], ['compression', sfCompression], ['sag_pct', sfSag],
+      ]),
+      suspension_rear: buildJson([
+        ['travel_mm', srTravel], ['pressure_psi', srPressure],
+        ['rebound', srRebound], ['compression', srCompression], ['sag_pct', srSag],
+      ]),
+      tires: buildJson([
+        ['front_model', tireFront], ['rear_model', tireRear],
+        ['front_pressure_psi', tireFrontPsi], ['rear_pressure_psi', tireRearPsi],
+        ['front_width_mm', tireFrontWidth], ['rear_width_mm', tireRearWidth],
+      ]),
+      contact_points: buildJson([
+        ['saddle_height_mm', saddleHeight], ['saddle_model', saddleModel],
+        ['stem_length_mm', stemLength], ['handlebar_width_mm', handlebarWidth],
+      ]),
+      brakes: buildJson([
+        ['front_pad_type', brakeFrontPad], ['rear_pad_type', brakeRearPad],
+        ['front_rotor_mm', brakeFrontRotor], ['rear_rotor_mm', brakeRearRotor],
+      ]),
+      drivetrain: buildJson([
+        ['chainring', chainring], ['cassette', cassette], ['chain_length', chainLength],
+      ]),
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 mb-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <label className="block text-xs text-neutral-500 mb-1">Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            placeholder="z.B. Trail Setup, Bikepark, Winter"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+          />
+        </div>
+        <JsonField label="Fahrergewicht (kg)" value={riderWeight} onChange={setRiderWeight} placeholder="75" />
+        <JsonField label="Einsatzzweck" value={intendedUse} onChange={setIntendedUse} placeholder="Trail, Bikepark, Tour" />
+      </div>
+
+      <SetupSection label="Federung vorne (Gabel)">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <JsonField label="Federweg (mm)" value={sfTravel} onChange={setSfTravel} placeholder="150" />
+          <JsonField label="Druck (PSI)" value={sfPressure} onChange={setSfPressure} placeholder="65" />
+          <JsonField label="Rebound (Klicks)" value={sfRebound} onChange={setSfRebound} placeholder="8" />
+          <JsonField label="Compression (Klicks)" value={sfCompression} onChange={setSfCompression} placeholder="5" />
+          <JsonField label="Sag (%)" value={sfSag} onChange={setSfSag} placeholder="25" />
+        </div>
+      </SetupSection>
+
+      <SetupSection label="Federung hinten (Dämpfer)">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <JsonField label="Federweg (mm)" value={srTravel} onChange={setSrTravel} placeholder="140" />
+          <JsonField label="Druck (PSI)" value={srPressure} onChange={setSrPressure} placeholder="180" />
+          <JsonField label="Rebound (Klicks)" value={srRebound} onChange={setSrRebound} placeholder="6" />
+          <JsonField label="Compression (Klicks)" value={srCompression} onChange={setSrCompression} placeholder="4" />
+          <JsonField label="Sag (%)" value={srSag} onChange={setSrSag} placeholder="30" />
+        </div>
+      </SetupSection>
+
+      <SetupSection label="Reifen">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <JsonField label="Vorne: Modell" value={tireFront} onChange={setTireFront} placeholder="Maxxis Minion DHF" />
+          <JsonField label="Vorne: Breite (mm)" value={tireFrontWidth} onChange={setTireFrontWidth} placeholder="2.5" />
+          <JsonField label="Vorne: Druck (PSI)" value={tireFrontPsi} onChange={setTireFrontPsi} placeholder="24" />
+          <JsonField label="Hinten: Modell" value={tireRear} onChange={setTireRear} placeholder="Maxxis Dissector" />
+          <JsonField label="Hinten: Breite (mm)" value={tireRearWidth} onChange={setTireRearWidth} placeholder="2.4" />
+          <JsonField label="Hinten: Druck (PSI)" value={tireRearPsi} onChange={setTireRearPsi} placeholder="26" />
+        </div>
+      </SetupSection>
+
+      <SetupSection label="Kontaktpunkte">
+        <div className="grid grid-cols-2 gap-2">
+          <JsonField label="Sattelhöhe (mm)" value={saddleHeight} onChange={setSaddleHeight} placeholder="720" />
+          <JsonField label="Sattel-Modell" value={saddleModel} onChange={setSaddleModel} placeholder="Ergon SM Sport" />
+          <JsonField label="Vorbaulänge (mm)" value={stemLength} onChange={setStemLength} placeholder="50" />
+          <JsonField label="Lenkerbreite (mm)" value={handlebarWidth} onChange={setHandlebarWidth} placeholder="780" />
+        </div>
+      </SetupSection>
+
+      <SetupSection label="Bremsen">
+        <div className="grid grid-cols-2 gap-2">
+          <JsonField label="Vorne: Belag-Typ" value={brakeFrontPad} onChange={setBrakeFrontPad} placeholder="Sinter, Organisch" />
+          <JsonField label="Vorne: Scheibe (mm)" value={brakeFrontRotor} onChange={setBrakeFrontRotor} placeholder="203" />
+          <JsonField label="Hinten: Belag-Typ" value={brakeRearPad} onChange={setBrakeRearPad} placeholder="Sinter, Organisch" />
+          <JsonField label="Hinten: Scheibe (mm)" value={brakeRearRotor} onChange={setBrakeRearRotor} placeholder="180" />
+        </div>
+      </SetupSection>
+
+      <SetupSection label="Antrieb">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <JsonField label="Kettenblatt" value={chainring} onChange={setChainring} placeholder="32T" />
+          <JsonField label="Kassette" value={cassette} onChange={setCassette} placeholder="10-52T" />
+          <JsonField label="Kettenlänge (Glieder)" value={chainLength} onChange={setChainLength} placeholder="116" />
+        </div>
+      </SetupSection>
+
+      <div>
+        <label className="block text-xs text-neutral-500 mb-1">Notizen</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Sonstige Anmerkungen"
+          className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+        />
+      </div>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isActive}
+          onChange={(e) => setIsActive(e.target.checked)}
+          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500"
+        />
+        <span className="text-sm text-neutral-700 dark:text-neutral-300">Als aktives Setup setzen</span>
+      </label>
+
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+        >
+          Abbrechen
+        </button>
+        <button
+          type="submit"
+          disabled={isSaving || !name.trim()}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>

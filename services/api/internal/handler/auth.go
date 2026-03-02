@@ -26,7 +26,8 @@ const (
 
 // AuthConfig holds OIDC OIDC settings needed by auth handlers.
 type AuthConfig struct {
-	OIDCBaseURL      string
+	OIDCBaseURL      string // internal URL (container-to-container)
+	OIDCExternalURL  string // browser-facing URL (for redirects)
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCAppSlug      string
@@ -68,7 +69,7 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 	params.Set("state", state)
 
 	authorizeURL := fmt.Sprintf("%s/application/o/authorize/?%s",
-		h.Auth.OIDCBaseURL, params.Encode())
+		h.Auth.OIDCExternalURL, params.Encode())
 
 	http.Redirect(w, r, authorizeURL, http.StatusFound)
 }

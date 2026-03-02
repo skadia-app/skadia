@@ -246,6 +246,24 @@ export interface MaintenanceAlert {
   threshold_value: number
 }
 
+export interface BikeSetup {
+  id: string
+  gear_id: string
+  name: string
+  rider_weight_kg?: number | null
+  intended_use?: string | null
+  notes?: string | null
+  suspension_front?: Record<string, any> | null
+  suspension_rear?: Record<string, any> | null
+  tires?: Record<string, any> | null
+  contact_points?: Record<string, any> | null
+  brakes?: Record<string, any> | null
+  drivetrain?: Record<string, any> | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface AutomationRule {
   id: string
   user_id: string

@@ -1057,3 +1057,175 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		return fmt.Errorf("unknown field: %s", field)
 	}
 }
+
+// --- Bike Setups ---
+
+const bikeSetupCols = `id, gear_id, name, rider_weight_kg, intended_use, notes,
+	suspension_front, suspension_rear, tires, contact_points, brakes, drivetrain,
+	is_active, created_at::text, updated_at::text`
+
+func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
+	var s model.BikeSetup
+	err := row.Scan(
+		&s.ID, &s.GearID, &s.Name, &s.RiderWeightKg, &s.IntendedUse, &s.Notes,
+		&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
+		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (db *DB) ListBikeSetups(ctx context.Context, gearID string) ([]model.BikeSetup, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT `+bikeSetupCols+` FROM bike_setups WHERE gear_id = $1 ORDER BY is_active DESC, name`, gearID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list bike setups: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.BikeSetup
+	for rows.Next() {
+		var s model.BikeSetup
+		if err := rows.Scan(
+			&s.ID, &s.GearID, &s.Name, &s.RiderWeightKg, &s.IntendedUse, &s.Notes,
+			&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
+			&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan bike setup: %w", err)
+		}
+		items = append(items, s)
+	}
+	if items == nil {
+		items = []model.BikeSetup{}
+	}
+	return items, nil
+}
+
+func (db *DB) CreateBikeSetup(ctx context.Context, gearID string, create *model.BikeSetupCreate) (*model.BikeSetup, error) {
+	s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
+		`INSERT INTO bike_setups (gear_id, name, rider_weight_kg, intended_use, notes,
+		  suspension_front, suspension_rear, tires, contact_points, brakes, drivetrain, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 RETURNING `+bikeSetupCols,
+		gearID, create.Name, create.RiderWeightKg, create.IntendedUse, create.Notes,
+		create.SuspensionFront, create.SuspensionRear, create.Tires,
+		create.ContactPoints, create.Brakes, create.Drivetrain, create.IsActive,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("create bike setup: %w", err)
+	}
+	return s, nil
+}
+
+func (db *DB) UpdateBikeSetup(ctx context.Context, id string, update *model.BikeSetupUpdate) (*model.BikeSetup, error) {
+	var sets []string
+	var args []any
+	argIdx := 1
+
+	if update.Name != nil {
+		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
+		args = append(args, *update.Name)
+		argIdx++
+	}
+	if update.RiderWeightKg != nil {
+		sets = append(sets, fmt.Sprintf("rider_weight_kg = $%d", argIdx))
+		args = append(args, *update.RiderWeightKg)
+		argIdx++
+	}
+	if update.IntendedUse != nil {
+		sets = append(sets, fmt.Sprintf("intended_use = $%d", argIdx))
+		args = append(args, *update.IntendedUse)
+		argIdx++
+	}
+	if update.Notes != nil {
+		sets = append(sets, fmt.Sprintf("notes = $%d", argIdx))
+		args = append(args, *update.Notes)
+		argIdx++
+	}
+	if update.SuspensionFront != nil {
+		sets = append(sets, fmt.Sprintf("suspension_front = $%d", argIdx))
+		args = append(args, update.SuspensionFront)
+		argIdx++
+	}
+	if update.SuspensionRear != nil {
+		sets = append(sets, fmt.Sprintf("suspension_rear = $%d", argIdx))
+		args = append(args, update.SuspensionRear)
+		argIdx++
+	}
+	if update.Tires != nil {
+		sets = append(sets, fmt.Sprintf("tires = $%d", argIdx))
+		args = append(args, update.Tires)
+		argIdx++
+	}
+	if update.ContactPoints != nil {
+		sets = append(sets, fmt.Sprintf("contact_points = $%d", argIdx))
+		args = append(args, update.ContactPoints)
+		argIdx++
+	}
+	if update.Brakes != nil {
+		sets = append(sets, fmt.Sprintf("brakes = $%d", argIdx))
+		args = append(args, update.Brakes)
+		argIdx++
+	}
+	if update.Drivetrain != nil {
+		sets = append(sets, fmt.Sprintf("drivetrain = $%d", argIdx))
+		args = append(args, update.Drivetrain)
+		argIdx++
+	}
+	if update.IsActive != nil {
+		sets = append(sets, fmt.Sprintf("is_active = $%d", argIdx))
+		args = append(args, *update.IsActive)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
+			`SELECT `+bikeSetupCols+` FROM bike_setups WHERE id = $1`, id,
+		))
+		if err != nil {
+			return nil, fmt.Errorf("get bike setup: %w", err)
+		}
+		return s, nil
+	}
+
+	sets = append(sets, "updated_at = NOW()")
+	args = append(args, id)
+	query := fmt.Sprintf(
+		`UPDATE bike_setups SET %s WHERE id = $%d RETURNING `+bikeSetupCols,
+		strings.Join(sets, ", "), argIdx,
+	)
+
+	s, err := scanBikeSetup(db.Pool.QueryRow(ctx, query, args...))
+	if err != nil {
+		return nil, fmt.Errorf("update bike setup: %w", err)
+	}
+	return s, nil
+}
+
+func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM bike_setups WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete bike setup: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("bike setup not found")
+	}
+	return nil
+}
+
+func (db *DB) ActivateBikeSetup(ctx context.Context, id string) (*model.BikeSetup, error) {
+	s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
+		`UPDATE bike_setups SET is_active = true, updated_at = NOW()
+		 WHERE id = $1 RETURNING `+bikeSetupCols, id,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("activate bike setup: %w", err)
+	}
+	return s, nil
+}

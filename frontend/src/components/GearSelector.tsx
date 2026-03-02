@@ -30,7 +30,7 @@ export default function GearSelector({ activityId, currentGearId }: GearSelector
 
   return (
     <div className="space-y-2">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ausruestung</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ausrüstung</h2>
       <div className="flex items-center gap-3">
         <select
           value={currentGearId ?? ''}
@@ -38,7 +38,7 @@ export default function GearSelector({ activityId, currentGearId }: GearSelector
           disabled={mutation.isPending}
           className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         >
-          <option value="">Keine Ausruestung</option>
+          <option value="">Keine Ausrüstung</option>
           {activeGear.map((g) => (
             <option key={g.id} value={g.id}>
               {g.name} ({gearTypeLabel(g.type)})

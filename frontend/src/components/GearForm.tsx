@@ -89,7 +89,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           required
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         >
-          <option value="">Bitte waehlen...</option>
+          <option value="">Bitte wählen...</option>
           {GEAR_TYPES.map(({ value, label }) => (
             <option key={value} value={value}>{label}</option>
           ))}
@@ -152,7 +152,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
       {/* Default for sports */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Standard fuer Sportarten
+          Standard für Sportarten
         </label>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {SPORT_OPTIONS.map(({ value, label }) => (

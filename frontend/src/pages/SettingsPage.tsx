@@ -54,7 +54,7 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Dateiablage</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Schema fuer die Ordnerstruktur im Shadow File System. Variablen werden durch Werte der jeweiligen Aktivitaet ersetzt.
+            Schema für die Ordnerstruktur im Shadow File System. Variablen werden durch Werte der jeweiligen Aktivität ersetzt.
           </p>
         </div>
 
@@ -181,7 +181,7 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Enrichment</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Automatische Anreicherung von Aktivitaeten mit Wetter, Standort und Tags.
+            Automatische Anreicherung von Aktivitäten mit Wetter, Standort und Tags.
           </p>
         </div>
         <Link
@@ -197,7 +197,7 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Automatisierung</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Regeln fuer automatische Zuweisungen und Tags.
+            Regeln für automatische Zuweisungen und Tags.
           </p>
         </div>
         <Link
@@ -241,7 +241,7 @@ function HeatmapSettingsSection() {
       <div>
         <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Karte</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Einstellungen fuer die Heatmap und Kartenansicht.
+          Einstellungen für die Heatmap und Kartenansicht.
         </p>
       </div>
 
@@ -266,7 +266,7 @@ function HeatmapSettingsSection() {
           <span>100 m (schnell)</span>
         </div>
         <p className="text-xs text-neutral-400 mt-2">
-          Bestimmt den Abstand zwischen den Sampling-Punkten fuer die Heatmap. Kleinere Werte erzeugen mehr Punkte und eine detailliertere Heatmap, erhoehen aber die Datenmenge.
+          Bestimmt den Abstand zwischen den Sampling-Punkten für die Heatmap. Kleinere Werte erzeugen mehr Punkte und eine detailliertere Heatmap, erhöhen aber die Datenmenge.
         </p>
       </div>
 

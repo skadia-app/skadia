@@ -7,7 +7,7 @@ import type { Tag, TagCondition } from '@/api/tags'
 const colorPalette = [
   { color: '#f97316', text: '#ffffff', label: 'Orange' },
   { color: '#3b82f6', text: '#ffffff', label: 'Blau' },
-  { color: '#10b981', text: '#ffffff', label: 'Gruen' },
+  { color: '#10b981', text: '#ffffff', label: 'Grün' },
   { color: '#8b5cf6', text: '#ffffff', label: 'Lila' },
   { color: '#f43f5e', text: '#ffffff', label: 'Rosa' },
   { color: '#06b6d4', text: '#ffffff', label: 'Cyan' },
@@ -21,7 +21,7 @@ const CONDITION_FIELDS = [
   { value: 'time_of_day', label: 'Tageszeit' },
   { value: 'sport_type', label: 'Sportart' },
   { value: 'distance_m', label: 'Distanz' },
-  { value: 'elevation_gain_m', label: 'Hoehenmeter' },
+  { value: 'elevation_gain_m', label: 'Höhenmeter' },
   { value: 'avg_speed_ms', label: 'Geschwindigkeit' },
   { value: 'avg_heart_rate', label: 'Puls avg' },
   { value: 'max_heart_rate', label: 'Puls max' },
@@ -37,12 +37,12 @@ const CONDITION_FIELDS = [
 const CONDITION_OPS = [
   { value: 'eq', label: 'gleich' },
   { value: 'neq', label: 'ungleich' },
-  { value: 'gt', label: 'groesser' },
+  { value: 'gt', label: 'größer' },
   { value: 'lt', label: 'kleiner' },
   { value: 'gte', label: '>=' },
   { value: 'lte', label: '<=' },
   { value: 'between', label: 'zwischen' },
-  { value: 'contains', label: 'enthaelt' },
+  { value: 'contains', label: 'enthält' },
   { value: 'in', label: 'in' },
 ]
 
@@ -108,7 +108,7 @@ export default function TagsPage() {
               <tr className="bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-neutral-800">
                 <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Tag</th>
                 <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Kategorie</th>
-                <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Aktivitaeten</th>
+                <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Aktivitäten</th>
                 <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Aktionen</th>
               </tr>
             </thead>
@@ -166,7 +166,7 @@ export default function TagsPage() {
                                       onClick={() => deleteMut.mutate(tag.id)}
                                       className="text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-300 font-medium cursor-pointer"
                                     >
-                                      Ja, loeschen
+                                      Ja, löschen
                                     </button>
                                     <button
                                       onClick={() => setDeleteConfirmId(null)}
@@ -180,7 +180,7 @@ export default function TagsPage() {
                                     onClick={() => setDeleteConfirmId(tag.id)}
                                     className="text-xs text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer"
                                   >
-                                    Loeschen
+                                    Löschen
                                   </button>
                                 )}
                               </>
@@ -494,7 +494,7 @@ function TagForm({ tag, onSave, onCancel, inline }: {
             onClick={addCondition}
             className="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
           >
-            + Bedingung hinzufuegen
+            + Bedingung hinzufügen
           </button>
 
           {/* Preview */}

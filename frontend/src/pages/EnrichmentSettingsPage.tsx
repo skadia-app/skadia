@@ -38,21 +38,21 @@ export default function EnrichmentSettingsPage() {
   }
 
   if (!settings) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Einstellungen nicht verfuegbar</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">Einstellungen nicht verfügbar</div>
   }
 
   const toggles: { key: keyof EnrichmentSettings; label: string; description: string }[] = [
-    { key: 'enable_summit_detection', label: 'Gipfelerkennung', description: 'Erkennt ueberquerte Gipfel und Paesse anhand von OSM-Daten.' },
-    { key: 'enable_weather_enrichment', label: 'Wetterdaten', description: 'Laedt historische Wetterdaten fuer den Startzeitpunkt.' },
-    { key: 'enable_stop_detection', label: 'Stopperkennung', description: 'Erkennt laengere Pausen und Einkehren.' },
-    { key: 'enable_climb_detection', label: 'Anstiege erkennen', description: 'Erkennt und kategorisiert Anstiege nach Gradient und Hoehenmeter.' },
+    { key: 'enable_summit_detection', label: 'Gipfelerkennung', description: 'Erkennt überquerte Gipfel und Pässe anhand von OSM-Daten.' },
+    { key: 'enable_weather_enrichment', label: 'Wetterdaten', description: 'Lädt historische Wetterdaten für den Startzeitpunkt.' },
+    { key: 'enable_stop_detection', label: 'Stopperkennung', description: 'Erkennt längere Pausen und Einkehren.' },
+    { key: 'enable_climb_detection', label: 'Anstiege erkennen', description: 'Erkennt und kategorisiert Anstiege nach Gradient und Höhenmeter.' },
     { key: 'enable_commute_detection', label: 'Pendelerkennung', description: 'Erkennt wiederkehrende Pendelstrecken automatisch.' },
-    { key: 'enable_auto_naming', label: 'Automatische Benennung', description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitaetstyp.' },
+    { key: 'enable_auto_naming', label: 'Automatische Benennung', description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitätstyp.' },
   ]
 
   const thresholds: { key: keyof EnrichmentSettings; label: string; unit: string; step: string }[] = [
     { key: 'climb_min_gradient_pct', label: 'Mindest-Gradient Anstieg', unit: '%', step: '0.5' },
-    { key: 'climb_min_elevation_m', label: 'Mindest-Hoehenmeter Anstieg', unit: 'm', step: '10' },
+    { key: 'climb_min_elevation_m', label: 'Mindest-Höhenmeter Anstieg', unit: 'm', step: '10' },
     { key: 'round_trip_threshold_m', label: 'Rundtour-Schwellenwert', unit: 'm', step: '50' },
   ]
 
@@ -126,7 +126,7 @@ export default function EnrichmentSettingsPage() {
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Aktionen</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Nachtraegliche Verarbeitung aller bestehenden Aktivitaeten.
+          Nachträgliche Verarbeitung aller bestehenden Aktivitäten.
         </p>
         <div className="flex flex-wrap gap-3">
           <button
@@ -134,7 +134,7 @@ export default function EnrichmentSettingsPage() {
             disabled={weatherMut.isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {weatherMut.isPending ? 'Wird geladen...' : 'Wetter nachtraeglich laden'}
+            {weatherMut.isPending ? 'Wird geladen...' : 'Wetter nachträglich laden'}
           </button>
           <button
             onClick={() => enrichMut.mutate()}

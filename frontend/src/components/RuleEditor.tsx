@@ -9,7 +9,7 @@ const CONDITION_FIELDS = [
   { value: 'elapsed_time_s', label: 'Dauer (s)', type: 'number' },
   { value: 'is_indoor', label: 'Indoor', type: 'text' },
   { value: 'has_gps', label: 'Hat GPS', type: 'text' },
-  { value: 'intensity', label: 'Intensitaet', type: 'text' },
+  { value: 'intensity', label: 'Intensität', type: 'text' },
   { value: 'time_of_day', label: 'Tageszeit', type: 'text' },
 ]
 
@@ -20,13 +20,13 @@ const OPERATORS = [
   { value: 'lt', label: '<' },
   { value: 'gte', label: '>=' },
   { value: 'lte', label: '<=' },
-  { value: 'contains', label: 'enthaelt' },
+  { value: 'contains', label: 'enthält' },
   { value: 'in', label: 'in' },
 ]
 
 const ACTION_TYPES = [
-  { value: 'set_gear', label: 'Ausruestung zuweisen' },
-  { value: 'add_tag', label: 'Tag hinzufuegen' },
+  { value: 'set_gear', label: 'Ausrüstung zuweisen' },
+  { value: 'add_tag', label: 'Tag hinzufügen' },
   { value: 'set_visibility', label: 'Sichtbarkeit setzen' },
 ]
 
@@ -35,7 +35,7 @@ const VISIBILITY_OPTIONS = [
   { value: 'bekannte', label: 'Bekannte' },
   { value: 'instanz', label: 'Instanz' },
   { value: 'federation', label: 'Federation' },
-  { value: 'public', label: 'Oeffentlich' },
+  { value: 'public', label: 'Öffentlich' },
 ]
 
 interface RuleEditorProps {
@@ -110,7 +110,7 @@ export default function RuleEditor({ rule, onSave, onCancel, isSaving }: RuleEdi
         </div>
         <div>
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Prioritaet
+            Priorität
           </label>
           <input
             type="number"
@@ -269,7 +269,7 @@ function ActionParams({
         onChange={(e) => onChange({ gear_id: e.target.value })}
         className="flex-1 min-w-0 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
       >
-        <option value="">Ausruestung waehlen...</option>
+        <option value="">Ausrüstung wählen...</option>
         {gearList.filter((g) => !g.is_retired).map((g) => (
           <option key={g.id} value={g.id}>{g.name}</option>
         ))}
@@ -296,7 +296,7 @@ function ActionParams({
         onChange={(e) => onChange({ visibility: e.target.value })}
         className="flex-1 min-w-0 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
       >
-        <option value="">Sichtbarkeit waehlen...</option>
+        <option value="">Sichtbarkeit wählen...</option>
         {VISIBILITY_OPTIONS.map(({ value, label }) => (
           <option key={value} value={value}>{label}</option>
         ))}
