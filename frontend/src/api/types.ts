@@ -271,15 +271,29 @@ export interface AutomationRule {
   is_active: boolean
   priority: number
   conditions: RuleCondition[]
+  // Optional group-based structure — multiple groups are AND-ed; within each group logic applies
+  condition_groups?: RuleConditionGroup[] | null
   actions: RuleAction[]
   times_applied: number
   created_at: string
+}
+
+export interface RuleConditionGroup {
+  logic: 'and' | 'or'
+  conditions: RuleCondition[]
 }
 
 export interface RuleCondition {
   field: string
   op: string
   value: any
+  // Geofencing params (only when field === 'geofence')
+  geofence?: {
+    lat: number
+    lon: number
+    radius_m: number
+    mode: 'inside' | 'outside'
+  }
 }
 
 export interface RuleAction {

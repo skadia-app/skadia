@@ -62,7 +62,7 @@ interface Props {
 // ── Stream definitions ────────────────────────────────────────────────────────
 
 const ALL_STREAMS: StreamDef[] = [
-  { key: 'altitude', label: 'Hohe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
+  { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
   { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
   { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
   { key: 'cadence', label: 'Kadenz', unit: 'rpm', color: '#f97316', yAxisIndex: 3 },
@@ -688,7 +688,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
                      rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
                      text-neutral-700 dark:text-neutral-200 shadow-md
                      hover:bg-white dark:hover:bg-neutral-700 transition-colors"
-          title="Schliessen (Esc)"
+          title="Schließen (Esc)"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -707,7 +707,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
                 className="text-xs px-2.5 py-1 rounded-md bg-orange-100 text-orange-700 hover:bg-orange-200
                            dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors"
               >
-                Zoom zuruecksetzen
+                Zoom zurücksetzen
               </button>
             )}
           </div>

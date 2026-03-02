@@ -89,7 +89,7 @@ export default function GearDetailPage() {
               <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{gear.name}</h1>
               <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
                 {gearTypeLabel(gear.type)}
-                {gear.sub_type && ` / ${gear.sub_type}`}
+                {gear.sub_type && ` / ${subTypeLabel(gear.sub_type)}`}
                 {gear.brand && ` - ${gear.brand}`}
                 {gear.model && ` ${gear.model}`}
               </p>
@@ -1232,20 +1232,24 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [notes, setNotes] = useState(setup?.notes ?? '')
   const [isActive, setIsActive] = useState(setup?.is_active ?? false)
 
-  // Suspension front
+  // Gabel (Federung vorne)
   const sf = setup?.suspension_front ?? {}
   const [sfTravel, setSfTravel] = useState(sf.travel_mm?.toString() ?? '')
   const [sfPressure, setSfPressure] = useState(sf.pressure_psi?.toString() ?? '')
-  const [sfRebound, setSfRebound] = useState(sf.rebound?.toString() ?? '')
-  const [sfCompression, setSfCompression] = useState(sf.compression?.toString() ?? '')
+  const [sfLsr, setSfLsr] = useState(sf.lsr?.toString() ?? '')
+  const [sfHsr, setSfHsr] = useState(sf.hsr?.toString() ?? '')
+  const [sfLsc, setSfLsc] = useState(sf.lsc?.toString() ?? '')
+  const [sfHsc, setSfHsc] = useState(sf.hsc?.toString() ?? '')
   const [sfSag, setSfSag] = useState(sf.sag_pct?.toString() ?? '')
 
-  // Suspension rear
+  // Dämpfer (Federung hinten)
   const sr = setup?.suspension_rear ?? {}
   const [srTravel, setSrTravel] = useState(sr.travel_mm?.toString() ?? '')
   const [srPressure, setSrPressure] = useState(sr.pressure_psi?.toString() ?? '')
-  const [srRebound, setSrRebound] = useState(sr.rebound?.toString() ?? '')
-  const [srCompression, setSrCompression] = useState(sr.compression?.toString() ?? '')
+  const [srLsr, setSrLsr] = useState(sr.lsr?.toString() ?? '')
+  const [srHsr, setSrHsr] = useState(sr.hsr?.toString() ?? '')
+  const [srLsc, setSrLsc] = useState(sr.lsc?.toString() ?? '')
+  const [srHsc, setSrHsc] = useState(sr.hsc?.toString() ?? '')
   const [srSag, setSrSag] = useState(sr.sag_pct?.toString() ?? '')
 
   // Tires
@@ -1302,11 +1306,15 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
       is_active: isActive,
       suspension_front: buildJson([
         ['travel_mm', sfTravel], ['pressure_psi', sfPressure],
-        ['rebound', sfRebound], ['compression', sfCompression], ['sag_pct', sfSag],
+        ['lsr', sfLsr], ['hsr', sfHsr],
+        ['lsc', sfLsc], ['hsc', sfHsc],
+        ['sag_pct', sfSag],
       ]),
       suspension_rear: buildJson([
         ['travel_mm', srTravel], ['pressure_psi', srPressure],
-        ['rebound', srRebound], ['compression', srCompression], ['sag_pct', srSag],
+        ['lsr', srLsr], ['hsr', srHsr],
+        ['lsc', srLsc], ['hsc', srHsc],
+        ['sag_pct', srSag],
       ]),
       tires: buildJson([
         ['front_model', tireFront], ['rear_model', tireRear],
@@ -1345,23 +1353,27 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         <JsonField label="Einsatzzweck" value={intendedUse} onChange={setIntendedUse} placeholder="Trail, Bikepark, Tour" />
       </div>
 
-      <SetupSection label="Federung vorne (Gabel)">
+      <SetupSection label="Gabel">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <JsonField label="Federweg (mm)" value={sfTravel} onChange={setSfTravel} placeholder="150" />
           <JsonField label="Druck (PSI)" value={sfPressure} onChange={setSfPressure} placeholder="65" />
-          <JsonField label="Rebound (Klicks)" value={sfRebound} onChange={setSfRebound} placeholder="8" />
-          <JsonField label="Compression (Klicks)" value={sfCompression} onChange={setSfCompression} placeholder="5" />
           <JsonField label="Sag (%)" value={sfSag} onChange={setSfSag} placeholder="25" />
+          <JsonField label="LSR – Low Speed Rebound (Klicks)" value={sfLsr} onChange={setSfLsr} placeholder="8" />
+          <JsonField label="HSR – High Speed Rebound (Klicks)" value={sfHsr} onChange={setSfHsr} placeholder="3" />
+          <JsonField label="LSC – Low Speed Compression (Klicks)" value={sfLsc} onChange={setSfLsc} placeholder="5" />
+          <JsonField label="HSC – High Speed Compression (Klicks)" value={sfHsc} onChange={setSfHsc} placeholder="2" />
         </div>
       </SetupSection>
 
-      <SetupSection label="Federung hinten (Dämpfer)">
+      <SetupSection label="Dämpfer">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <JsonField label="Federweg (mm)" value={srTravel} onChange={setSrTravel} placeholder="140" />
           <JsonField label="Druck (PSI)" value={srPressure} onChange={setSrPressure} placeholder="180" />
-          <JsonField label="Rebound (Klicks)" value={srRebound} onChange={setSrRebound} placeholder="6" />
-          <JsonField label="Compression (Klicks)" value={srCompression} onChange={setSrCompression} placeholder="4" />
           <JsonField label="Sag (%)" value={srSag} onChange={setSrSag} placeholder="30" />
+          <JsonField label="LSR – Low Speed Rebound (Klicks)" value={srLsr} onChange={setSrLsr} placeholder="6" />
+          <JsonField label="HSR – High Speed Rebound (Klicks)" value={srHsr} onChange={setSrHsr} placeholder="2" />
+          <JsonField label="LSC – Low Speed Compression (Klicks)" value={srLsc} onChange={setSrLsc} placeholder="4" />
+          <JsonField label="HSC – High Speed Compression (Klicks)" value={srHsc} onChange={setSrHsc} placeholder="1" />
         </div>
       </SetupSection>
 
@@ -1463,4 +1475,22 @@ function gearTypeLabel(type: string): string {
     other: 'Sonstiges',
   }
   return labels[type] ?? type
+}
+
+function subTypeLabel(subType: string): string {
+  const labels: Record<string, string> = {
+    mountain: 'MTB',
+    road: 'Rennrad',
+    gravel: 'Gravel',
+    cyclocross: 'Cyclocross',
+    enduro: 'Enduro',
+    downhill: 'Downhill',
+    cross_country: 'Cross-Country',
+    trail: 'Trail',
+    touring: 'Touring',
+    bmx: 'BMX',
+    fixie: 'Fixie',
+    urban: 'Urban',
+  }
+  return labels[subType] ?? subType
 }

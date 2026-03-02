@@ -37,12 +37,13 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        string          `json:"name"`
-		Color       string          `json:"color"`
-		TextColor   string          `json:"text_color"`
-		IsAuto      *bool           `json:"is_auto,omitempty"`
-		Conditions  json.RawMessage `json:"conditions,omitempty"`
-		Description *string         `json:"description,omitempty"`
+		Name            string          `json:"name"`
+		Color           string          `json:"color"`
+		TextColor       string          `json:"text_color"`
+		Conditions      json.RawMessage `json:"conditions,omitempty"`
+		ConditionGroups json.RawMessage `json:"condition_groups,omitempty"`
+		ConditionsLogic string          `json:"conditions_logic,omitempty"`
+		Description     *string         `json:"description,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -61,12 +62,10 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		req.TextColor = "#FFFFFF"
 	}
 
-	isAuto := false
-	if req.IsAuto != nil {
-		isAuto = *req.IsAuto
-	}
+	// Derive is_auto from presence of conditions — never trust client-supplied flag
+	isAuto := len(req.ConditionGroups) > 2 || len(req.Conditions) > 2
 
-	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), req.Description)
+	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), []byte(req.ConditionGroups), req.ConditionsLogic, req.Description)
 	if err != nil {
 		slog.Error("create tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create tag", r.URL.Path)
@@ -86,12 +85,13 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 	tagID := chi.URLParam(r, "id")
 
 	var req struct {
-		Name        string           `json:"name"`
-		Color       string           `json:"color"`
-		TextColor   string           `json:"text_color"`
-		IsAuto      *bool            `json:"is_auto,omitempty"`
-		Conditions  *json.RawMessage `json:"conditions,omitempty"`
-		Description *string          `json:"description,omitempty"`
+		Name            string           `json:"name"`
+		Color           string           `json:"color"`
+		TextColor       string           `json:"text_color"`
+		Conditions      *json.RawMessage `json:"conditions,omitempty"`
+		ConditionGroups *json.RawMessage `json:"condition_groups,omitempty"`
+		ConditionsLogic *string          `json:"conditions_logic,omitempty"`
+		Description     *string          `json:"description,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -104,7 +104,28 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		condBytes = &b
 	}
 
-	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, req.IsAuto, condBytes, req.Description)
+	var condGroupBytes *[]byte
+	if req.ConditionGroups != nil {
+		b := []byte(*req.ConditionGroups)
+		condGroupBytes = &b
+	}
+
+	// Derive is_auto from updated conditions — never trust client-supplied flag.
+	// Only recompute when at least one conditions field is being updated.
+	var isAuto *bool
+	if req.Conditions != nil || req.ConditionGroups != nil {
+		var condGroupLen, condLen int
+		if req.ConditionGroups != nil {
+			condGroupLen = len(*req.ConditionGroups)
+		}
+		if req.Conditions != nil {
+			condLen = len(*req.Conditions)
+		}
+		v := condGroupLen > 2 || condLen > 2
+		isAuto = &v
+	}
+
+	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)

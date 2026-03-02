@@ -26,7 +26,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-950">
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-orange-500 tracking-tight">Skadia</h1>
+          <h1 className="text-3xl font-bold text-orange-500 tracking-tight">skadia</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             Melde dich an, um fortzufahren
           </p>

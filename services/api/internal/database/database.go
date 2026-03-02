@@ -1654,7 +1654,7 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, description, activity_count, created_at
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -1671,6 +1671,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
@@ -1684,16 +1685,20 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 }
 
 // CreateTag creates a new tag for a user.
-func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions []byte, description *string) (*model.Tag, error) {
+func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string) (*model.Tag, error) {
+	if conditionsLogic == "" {
+		conditionsLogic = "and"
+	}
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, description, activity_count, created_at`,
-		userID, name, color, textColor, isAuto, conditions, description,
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at`,
+		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
@@ -1702,7 +1707,7 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 }
 
 // UpdateTag updates an existing tag.
-func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions *[]byte, description *string) (*model.Tag, error) {
+func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string) (*model.Tag, error) {
 	var sets []string
 	var args []any
 	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
@@ -1733,6 +1738,16 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		args = append(args, *conditions)
 		argIdx++
 	}
+	if conditionGroups != nil {
+		sets = append(sets, fmt.Sprintf("condition_groups = $%d", argIdx))
+		args = append(args, *conditionGroups)
+		argIdx++
+	}
+	if conditionsLogic != nil {
+		sets = append(sets, fmt.Sprintf("conditions_logic = $%d", argIdx))
+		args = append(args, *conditionsLogic)
+		argIdx++
+	}
 	if description != nil {
 		sets = append(sets, fmt.Sprintf("description = $%d", argIdx))
 		args = append(args, *description)
@@ -1740,7 +1755,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	}
 
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
-		is_auto, conditions, description, activity_count, created_at`
+		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at`
 
 	if len(sets) == 0 {
 		// Nothing to update, return existing tag
@@ -1750,6 +1765,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			tagID, userID,
 		).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt)
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -1771,6 +1787,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -1801,7 +1818,7 @@ func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
 func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
-			t.is_auto, t.conditions, t.description, t.activity_count, t.created_at
+			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -1819,6 +1836,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
@@ -1835,7 +1853,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, description, activity_count, created_at
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at
 		FROM tags
 		WHERE user_id = $1 AND is_auto = true
 		ORDER BY name ASC`,
@@ -1852,6 +1870,7 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan auto tag: %w", err)

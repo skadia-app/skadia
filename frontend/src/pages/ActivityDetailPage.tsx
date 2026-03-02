@@ -403,7 +403,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
           onClick={() => setAddOpen(!addOpen)}
           className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium cursor-pointer
                      bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 transition-colors"
-          title="Tag hinzufuegen"
+          title="Tag hinzufügen"
         >
           +
         </button>
@@ -746,7 +746,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
     { key: 'power', label: 'Leistung' },
     { key: 'cadence', label: 'Kadenz' },
     { key: 'temperature', label: 'Temperatur' },
-    { key: 'altitude', label: 'Hoehe' },
+    { key: 'altitude', label: 'Höhe' },
   ]
 
   const visibilityOptions: { value: Activity['visibility']; label: string }[] = [
@@ -754,7 +754,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
     { value: 'bekannte', label: 'Bekannte' },
     { value: 'instanz', label: 'Instanz' },
     { value: 'federation', label: 'Federation' },
-    { value: 'public', label: 'Oeffentlich' },
+    { value: 'public', label: 'Öffentlich' },
   ]
 
   return (
@@ -765,7 +765,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
         {/* Visibility dropdown */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Wer kann diese Aktivitaet sehen?
+            Wer kann diese Aktivität sehen?
           </label>
           <select
             value={activity.visibility}
@@ -792,7 +792,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
             </span>
           </label>
           <p className="text-xs text-neutral-400 mt-1 ml-7">
-            Karte wird fuer andere Nutzer nicht angezeigt
+            Karte wird für andere Nutzer nicht angezeigt
           </p>
         </div>
       </div>
@@ -816,7 +816,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
           ))}
         </div>
         <p className="text-xs text-neutral-400 mt-2">
-          Nicht ausgewaehlte Daten werden fuer andere Nutzer ausgeblendet.
+          Nicht ausgewählte Daten werden für andere Nutzer ausgeblendet.
         </p>
       </div>
     </div>

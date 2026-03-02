@@ -1,16 +1,34 @@
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useState } from 'react'
 
-const VARIABLES = [
+// Wichtigste Variablen — immer sichtbar
+const VARIABLES_PRIMARY = [
   { key: '{year}', label: 'Jahr' },
   { key: '{month}', label: 'Monat' },
   { key: '{day}', label: 'Tag' },
-  { key: '{time}', label: 'Uhrzeit' },
   { key: '{sport}', label: 'Sportart' },
+  { key: '{subCategory}', label: 'Unterkategorie' },
   { key: '{city}', label: 'Stadt' },
+  { key: '{country}', label: 'Land' },
   { key: '{title}', label: 'Titel' },
+] as const
+
+// Erweiterte Variablen — hinter "Alle anzeigen"
+const VARIABLES_EXTENDED = [
+  { key: '{time}', label: 'Uhrzeit' },
+  { key: '{state}', label: 'Bundesland/Region' },
   { key: '{distance_km}', label: 'Distanz (km)' },
   { key: '{duration_h}', label: 'Dauer (h)' },
+  { key: '{duration_min}', label: 'Dauer (min)' },
+  { key: '{elevation_m}', label: 'Höhenmeter' },
+  { key: '{avg_speed_kmh}', label: 'Ø Geschwindigkeit (km/h)' },
+  { key: '{avg_hr}', label: 'Ø Herzfrequenz' },
+  { key: '{avg_power}', label: 'Ø Leistung (W)' },
+  { key: '{gear}', label: 'Ausrüstung' },
+  { key: '{source}', label: 'Quelle (z.B. Garmin)' },
+  { key: '{id}', label: 'Aktivitäts-ID' },
 ] as const
+
+const ALL_VARIABLES = [...VARIABLES_PRIMARY, ...VARIABLES_EXTENDED]
 
 const EXAMPLE_VALUES: Record<string, string> = {
   '{year}': '2024',
@@ -18,10 +36,21 @@ const EXAMPLE_VALUES: Record<string, string> = {
   '{day}': '15',
   '{time}': '14-30',
   '{sport}': 'cycling',
+  '{subCategory}': 'mountain',
   '{city}': 'Berlin',
+  '{country}': 'Deutschland',
+  '{state}': 'Brandenburg',
   '{title}': 'Feierabendrunde',
   '{distance_km}': '42',
   '{duration_h}': '2',
+  '{duration_min}': '135',
+  '{elevation_m}': '850',
+  '{avg_speed_kmh}': '22',
+  '{avg_hr}': '145',
+  '{avg_power}': '210',
+  '{gear}': 'Canyon-Spectral',
+  '{source}': 'garmin',
+  '{id}': 'abc123',
 }
 
 interface SchemaEditorProps {
@@ -34,6 +63,7 @@ interface SchemaEditorProps {
 
 export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirty }: SchemaEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const [showAll, setShowAll] = useState(false)
 
   const preview = useMemo(() => {
     let result = value
@@ -59,6 +89,8 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
       input.focus()
     })
   }
+
+  const visibleVars = showAll ? ALL_VARIABLES : VARIABLES_PRIMARY
 
   return (
     <div className="space-y-3">
@@ -92,23 +124,34 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
       </div>
 
       {/* Variablen-Chips */}
-      <div className="flex flex-wrap gap-1.5">
-        {VARIABLES.map(v => (
-          <button
-            key={v.key}
-            onClick={() => insertVariable(v.key)}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
-                       border border-neutral-200 dark:border-neutral-700
-                       bg-neutral-50 dark:bg-neutral-800
-                       text-neutral-600 dark:text-neutral-400
-                       hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600
-                       dark:hover:bg-orange-900/20 dark:hover:border-orange-700 dark:hover:text-orange-400
-                       transition-colors"
-          >
-            <span className="font-mono">{v.key}</span>
-            <span className="text-neutral-400 dark:text-neutral-600">{v.label}</span>
-          </button>
-        ))}
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-1.5">
+          {visibleVars.map(v => (
+            <button
+              key={v.key}
+              onClick={() => insertVariable(v.key)}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
+                         border border-neutral-200 dark:border-neutral-700
+                         bg-neutral-50 dark:bg-neutral-800
+                         text-neutral-600 dark:text-neutral-400
+                         hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600
+                         dark:hover:bg-orange-900/20 dark:hover:border-orange-700 dark:hover:text-orange-400
+                         transition-colors"
+            >
+              <span className="font-mono">{v.key}</span>
+              <span className="text-neutral-400 dark:text-neutral-600">{v.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setShowAll(prev => !prev)}
+          className="text-xs text-neutral-400 hover:text-orange-500 dark:hover:text-orange-400 transition-colors"
+        >
+          {showAll
+            ? '↑ Weniger anzeigen'
+            : `↓ Alle anzeigen (${VARIABLES_EXTENDED.length} weitere Variablen)`}
+        </button>
       </div>
 
       {/* Live-Vorschau */}

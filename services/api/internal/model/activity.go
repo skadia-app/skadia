@@ -291,18 +291,20 @@ type GeoTag struct {
 
 // Tag represents a user-defined tag for categorizing activities.
 type Tag struct {
-	ID            string          `json:"id"`
-	UserID        string          `json:"user_id"`
-	Name          string          `json:"name"`
-	Color         string          `json:"color"`
-	TextColor     string          `json:"text_color"`
-	Category      string          `json:"category"`
-	IsSystem      bool            `json:"is_system"`
-	IsAuto        bool            `json:"is_auto"`
-	Conditions    json.RawMessage `json:"conditions,omitempty"`
-	Description   *string         `json:"description,omitempty"`
-	ActivityCount int             `json:"activity_count"`
-	CreatedAt     time.Time       `json:"created_at"`
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	Name            string          `json:"name"`
+	Color           string          `json:"color"`
+	TextColor       string          `json:"text_color"`
+	Category        string          `json:"category"`
+	IsSystem        bool            `json:"is_system"`
+	IsAuto          bool            `json:"is_auto"`
+	Conditions      json.RawMessage `json:"conditions,omitempty"`
+	ConditionGroups json.RawMessage `json:"condition_groups,omitempty"`
+	ConditionsLogic string          `json:"conditions_logic,omitempty"`
+	Description     *string         `json:"description,omitempty"`
+	ActivityCount   int             `json:"activity_count"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 // EnrichmentSettings holds user preferences for activity enrichment.

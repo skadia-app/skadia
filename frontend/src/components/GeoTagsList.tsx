@@ -9,9 +9,9 @@ interface GeoTagsListProps {
 const categoryLabels: Record<string, string> = {
   summit: 'Gipfel',
   place: 'Orte',
-  water: 'Gewaesser',
-  pass: 'Paesse',
-  poi: 'Sehenswuerdigkeiten',
+  water: 'Gewässer',
+  pass: 'Pässe',
+  poi: 'Sehenswürdigkeiten',
   stop: 'Stopps',
 }
 

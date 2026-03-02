@@ -2,6 +2,11 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
+import { getAllSportKeys } from '@/lib/sportOptions'
+
+// Re-export so existing consumers (if any) of the old MapPage exports still compile.
+export type { SportOption } from '@/lib/sportOptions'
+export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 type BaseStyle = 'osm' | 'topo' | 'cyclosm'
 type ViewMode = 'tracks' | 'heatmap'
@@ -38,6 +43,11 @@ function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification {
         tiles,
         tileSize: 256,
         attribution,
+        // maxzoom tells MapLibre the highest zoom tiles are actually available at.
+        // Without this, MapLibre requests tiles at zoom 20+ (which don't exist →
+        // blank tiles). With it, MapLibre overzooms zoom-19 tiles at higher zoom
+        // levels instead of showing white.
+        maxzoom: 19,
       },
     },
     layers: [
@@ -46,50 +56,10 @@ function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification {
         type: 'raster',
         source: 'basemap',
         minzoom: 0,
-        maxzoom: 19,
+        // No maxzoom on layer — allows overzoomed rendering beyond zoom 19.
       },
     ],
   }
-}
-
-export interface SportOption {
-  value: string
-  label: string
-  subType?: string  // sub_type filter value (for cycling subcategories)
-  children?: SportOption[]
-}
-
-export const SPORT_OPTIONS: SportOption[] = [
-  {
-    value: 'cycling', label: 'Radfahren',
-    children: [
-      { value: 'cycling', label: 'Straße' },
-      { value: 'cycling', label: 'MTB', subType: 'mountain' },
-      { value: 'cycling', label: 'Gravel', subType: 'gravel' },
-      { value: 'e_biking', label: 'E-Bike' },
-    ],
-  },
-  { value: 'running', label: 'Laufen' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'walking', label: 'Gehen' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'skiing', label: 'Ski' },
-  { value: 'paddling', label: 'Paddeln' },
-]
-
-// Flat list of all selectable leaf values (used for "all selected" checks)
-export function getAllSportKeys(): string[] {
-  const keys: string[] = []
-  for (const opt of SPORT_OPTIONS) {
-    if (opt.children) {
-      for (const child of opt.children) {
-        keys.push(child.subType ? `${child.value}:${child.subType}` : child.value)
-      }
-    } else {
-      keys.push(opt.value)
-    }
-  }
-  return keys
 }
 
 const ALL_SPORT_KEYS = getAllSportKeys()
@@ -115,16 +85,40 @@ function buildTileUrl(source: 'heatmap_lines' | 'heatmap_points', filters: MapFi
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
   if (!allSelected && filters.sportTypes.size > 0) {
-    // Separate sport_type and sub_type filters from the combined keys
+    // Split composite keys ("sport:subType") back into sport_type and sub_type sets.
+    // A key without a colon (e.g. "cycling" for road cycling) has no sub_type restriction —
+    // if such a key is selected alongside sub-typed keys we must NOT send a sub_type
+    // filter for that sport, or the road cycling activities would be excluded.
     const sportTypes = new Set<string>()
+    // Track which sports appear with a bare (no-subType) key — those must not be
+    // constrained by sub_type in the API query.
+    const sportsWithBareKey = new Set<string>()
     const subTypes = new Set<string>()
+
     for (const key of filters.sportTypes) {
-      const [sport, sub] = key.split(':')
-      sportTypes.add(sport)
-      if (sub) subTypes.add(sub)
+      const colonIdx = key.indexOf(':')
+      if (colonIdx === -1) {
+        // Bare key — no sub_type restriction for this sport
+        sportTypes.add(key)
+        sportsWithBareKey.add(key)
+      } else {
+        const sport = key.slice(0, colonIdx)
+        const sub = key.slice(colonIdx + 1)
+        sportTypes.add(sport)
+        subTypes.add(sub)
+      }
     }
+
     params.set('sport_type', Array.from(sportTypes).join(','))
-    if (subTypes.size > 0) {
+
+    // Only send sub_type when NO selected sport has a bare key (i.e. every selected
+    // cycling variant has an explicit sub_type). This prevents the filter from
+    // accidentally excluding road cycling when MTB/Gravel are also selected.
+    const subTypedSports = Array.from(subTypes).length > 0
+      ? Array.from(sportTypes).filter(s => !sportsWithBareKey.has(s))
+      : []
+    if (subTypedSports.length > 0 && sportsWithBareKey.size === 0) {
+      // All cycling selections carry a sub_type — safe to filter by sub_type
       params.set('sub_type', Array.from(subTypes).join(','))
     }
   }
@@ -159,12 +153,23 @@ export default function MapPage() {
 
     map.on('load', () => {
       styleLoadedRef.current = true
+      // Force a resize after load so MapLibre re-reads the container's actual
+      // pixel dimensions. Without this, MapLibre sometimes initialises with the
+      // height of the viewport *before* the navigation bar is subtracted,
+      // producing the "tiles only load in a horizontal band in the middle" effect.
+      map.resize()
       addOverlayLayers(map, filters, viewMode)
     })
+
+    // Keep the map in sync if the container is resized (e.g. browser window resize,
+    // DevTools open/close, sidebar toggled).
+    const ro = new ResizeObserver(() => map.resize())
+    ro.observe(mapContainerRef.current)
 
     mapRef.current = map
 
     return () => {
+      ro.disconnect()
       map.remove()
       mapRef.current = null
       styleLoadedRef.current = false
@@ -184,6 +189,7 @@ export default function MapPage() {
     map.once('style.load', () => {
       map.setCenter(center)
       map.setZoom(zoom)
+      map.resize()
       styleLoadedRef.current = true
       addOverlayLayers(map, filters, viewMode)
     })

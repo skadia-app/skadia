@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import type { MapFilterState, SportOption } from '@/pages/MapPage'
-import { SPORT_OPTIONS, getAllSportKeys } from '@/pages/MapPage'
+import type { MapFilterState } from '@/pages/MapPage'
+import type { SportOption } from '@/lib/sportOptions'
+import { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 

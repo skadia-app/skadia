@@ -17,7 +17,7 @@ export default function Layout() {
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-200 dark:border-neutral-800 bg-white/90 dark:bg-neutral-900/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-6">
-          <span className="font-bold text-lg text-orange-500 tracking-tight">Skadia</span>
+          <span className="font-bold text-lg text-orange-500 tracking-tight">skadia</span>
           <nav className="flex gap-1 flex-1">
             {navItems.map(({ to, label }) => (
               <NavLink
