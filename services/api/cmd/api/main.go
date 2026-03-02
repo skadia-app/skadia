@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
@@ -42,6 +43,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// Run database migrations
+	if err := migrate.Run(ctx, db.Pool); err != nil {
+		slog.Error("failed to run migrations", "error", err)
+		os.Exit(1)
+	}
 
 	// S3 Storage (Garage)
 	s3Client, err := storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
@@ -142,6 +149,7 @@ func main() {
 		r.Route("/api/v1", func(r chi.Router) {
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
+			r.Get("/activities/recompute-status", h.RecomputeStatus)
 			r.Get("/activities", h.ListActivities)
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)

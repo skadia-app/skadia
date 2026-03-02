@@ -13,7 +13,7 @@ import {
 } from '@/api/gear'
 import type {
   Gear, GearComponent, GearStatus,
-  ComponentAssignment, ChainRotationGroup,
+  ComponentAssignment,
   GearServiceEvent, ComponentTypePreset,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
@@ -168,11 +168,12 @@ function StatusMenu({ current, onSelect, disabled }: {
   disabled: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const options: { value: GearStatus; label: string; color: string }[] = [
+  const allOptions: { value: GearStatus; label: string; color: string }[] = [
     { value: 'active', label: 'Aktivieren', color: 'text-emerald-600 dark:text-emerald-400' },
     { value: 'stored', label: 'Lagern', color: 'text-amber-600 dark:text-amber-400' },
     { value: 'retired', label: 'Ausmustern', color: 'text-rose-600 dark:text-rose-400' },
-  ].filter(o => o.value !== current)
+  ]
+  const options = allOptions.filter(o => o.value !== current)
 
   return (
     <div className="relative">

@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity } from '@/api/activities'
 import { fetchTags, createTag } from '@/api/tags'
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
-import type { Tag } from '@/api/tags'
+// Tag type imported via api/tags is used indirectly through fetchTags
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
@@ -540,7 +540,7 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
           },
         ],
       },
-      attributionControl: true,
+      attributionControl: {},
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')

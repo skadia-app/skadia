@@ -103,7 +103,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       },
       center: [lng, lat],
       zoom: hasInitialPosition ? 14 : 6,
-      attributionControl: true,
+      attributionControl: {},
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')

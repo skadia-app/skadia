@@ -62,13 +62,17 @@ func scanComponent(row pgx.Row) (*model.GearComponent, error) {
 // --- Gear CRUD ---
 
 func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]model.Gear, error) {
-	query := `SELECT ` + gearSelectCols + ` FROM gear WHERE user_id = $1`
+	var rows pgx.Rows
+	var err error
 	if status != "" {
-		query += fmt.Sprintf(` AND status = '%s'`, status)
+		rows, err = db.Pool.Query(ctx,
+			`SELECT `+gearSelectCols+` FROM gear WHERE user_id = $1 AND status = $2 ORDER BY name`,
+			userID, status)
+	} else {
+		rows, err = db.Pool.Query(ctx,
+			`SELECT `+gearSelectCols+` FROM gear WHERE user_id = $1 ORDER BY name`,
+			userID)
 	}
-	query += ` ORDER BY name`
-
-	rows, err := db.Pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list gear: %w", err)
 	}
@@ -221,6 +225,26 @@ func (db *DB) RetireGear(ctx context.Context, id string) error {
 	tag, err := db.Pool.Exec(ctx, `UPDATE gear SET is_retired = true, status = 'retired' WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("retire gear: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("gear not found")
+	}
+	return nil
+}
+
+// DeleteGear permanently removes a gear item from the database.
+// FK constraints handle cascading:
+//   - gear_components.gear_id ON DELETE CASCADE  -> components are deleted
+//   - component_assignments.gear_id ON DELETE CASCADE -> assignments are deleted
+//   - chain_rotation_groups.gear_id ON DELETE CASCADE -> rotation groups are deleted
+//   - activities.gear_id ON DELETE SET NULL -> activity references are nullified
+func (db *DB) DeleteGear(ctx context.Context, userID, gearID string) error {
+	tag, err := db.Pool.Exec(ctx,
+		`DELETE FROM gear WHERE id = $1 AND user_id = $2`,
+		gearID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete gear: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("gear not found")

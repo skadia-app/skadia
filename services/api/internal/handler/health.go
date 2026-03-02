@@ -17,6 +17,8 @@ type Handler struct {
 	Events   *event.Publisher
 	Auth     *AuthConfig              // nil when auth is not configured
 	ShadowFS *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
+
+	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

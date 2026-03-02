@@ -16,7 +16,7 @@ const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
 
 export default function GearPage() {
   const queryClient = useQueryClient()
-  const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>(undefined)
+  const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>('active')
   const [showForm, setShowForm] = useState(false)
 
   const { data: gear, isLoading } = useQuery({

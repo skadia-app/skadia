@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
@@ -20,6 +24,17 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
+
+// recomputeJobState tracks the in-memory state of an async recompute-all job.
+type recomputeJobState struct {
+	mu        sync.Mutex
+	running   bool
+	jobID     string
+	total     int
+	processed atomic.Int64
+	errors    atomic.Int64
+	startedAt time.Time
+}
 
 // RecomputeActivity re-downloads the original file from S3, parses it again,
 // and replaces all derived data (streams, track, sensors, metrics). User-defined
@@ -64,8 +79,8 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// RecomputeAllActivities reprocesses activities for the authenticated user.
-// Accepts optional filter criteria in the request body.
+// RecomputeAllActivities starts an async background job that reprocesses all
+// activities for the authenticated user. Returns immediately with 202 Accepted.
 //
 // POST /api/v1/activities/recompute-all
 func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request) {
@@ -86,8 +101,18 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		filter = &f
 	}
 
+	// Prevent double execution.
+	h.recomputeJob.mu.Lock()
+	if h.recomputeJob.running {
+		h.recomputeJob.mu.Unlock()
+		writeError(w, http.StatusConflict, "Conflict", "a recompute job is already running", r.URL.Path)
+		return
+	}
+
+	// List IDs while we still have the request context.
 	ids, err := h.DB.ListActivityIDsFiltered(r.Context(), userID, filter)
 	if err != nil {
+		h.recomputeJob.mu.Unlock()
 		slog.Error("reprocess-all: list ids failed", "user_id", userID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
@@ -102,32 +127,100 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	var processed, errors int
+	// Initialize job state.
+	jobID := uuid.New().String()
+	h.recomputeJob.running = true
+	h.recomputeJob.jobID = jobID
+	h.recomputeJob.total = len(ids)
+	h.recomputeJob.processed.Store(0)
+	h.recomputeJob.errors.Store(0)
+	h.recomputeJob.startedAt = time.Now()
+	h.recomputeJob.mu.Unlock()
 
-	for _, id := range ids {
-		if err := h.reprocessActivity(r.Context(), id, userID, scope); err != nil {
-			slog.Error("reprocess-all: activity failed", "id", id, "error", err)
-			errors++
-			continue
+	// Launch background goroutine. Uses a detached context so it survives
+	// after the HTTP response is sent.
+	go func() {
+		ctx := context.Background()
+
+		for _, id := range ids {
+			if err := h.reprocessActivity(ctx, id, userID, scope); err != nil {
+				slog.Error("reprocess-all: activity failed", "id", id, "error", err)
+				h.recomputeJob.errors.Add(1)
+			} else {
+				h.recomputeJob.processed.Add(1)
+			}
 		}
-		processed++
-	}
 
-	slog.Info("reprocess-all: finished",
+		h.recomputeJob.mu.Lock()
+		h.recomputeJob.running = false
+		h.recomputeJob.mu.Unlock()
+
+		slog.Info("reprocess-all: finished",
+			"job_id", jobID,
+			"user_id", userID,
+			"total", len(ids),
+			"processed", h.recomputeJob.processed.Load(),
+			"errors", h.recomputeJob.errors.Load(),
+			"duration", time.Since(h.recomputeJob.startedAt).Round(time.Second),
+		)
+	}()
+
+	slog.Info("reprocess-all: job started",
+		"job_id", jobID,
 		"user_id", userID,
 		"total", len(ids),
-		"processed", processed,
-		"errors", errors,
 	)
 
-	writeJSON(w, http.StatusOK, map[string]int{
-		"processed": processed,
-		"errors":    errors,
-		"total":     len(ids),
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"status": "running",
+		"total":  len(ids),
 	})
 }
 
-// reprocessActivity is the shared core logic: download → parse → selectively replace data.
+// RecomputeStatus returns the current state of the async recompute-all job.
+//
+// GET /api/v1/activities/recompute-status
+func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
+	h.recomputeJob.mu.Lock()
+	running := h.recomputeJob.running
+	jobID := h.recomputeJob.jobID
+	total := h.recomputeJob.total
+	h.recomputeJob.mu.Unlock()
+
+	// No job has ever been started.
+	if jobID == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": "idle",
+		})
+		return
+	}
+
+	processed := h.recomputeJob.processed.Load()
+	errors := h.recomputeJob.errors.Load()
+
+	if running {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":    "running",
+			"job_id":    jobID,
+			"processed": processed,
+			"total":     total,
+			"errors":    errors,
+		})
+		return
+	}
+
+	// Job finished (completed).
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":    "completed",
+		"job_id":    jobID,
+		"processed": processed,
+		"total":     total,
+		"errors":    errors,
+	})
+}
+
+// reprocessActivity is the shared core logic: download -> parse -> selectively replace data.
 // scope controls which categories to reprocess (nil = all):
 //   - "streams": streams + track
 //   - "sensors": sensor records

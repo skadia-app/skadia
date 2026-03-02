@@ -213,7 +213,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
             },
           ],
         },
-        attributionControl: true,
+        attributionControl: {},
       })
 
       map.addControl(new maplibregl.NavigationControl(), 'top-right')
@@ -366,10 +366,6 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
 
     const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
     const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-    const xFormatter = xMode === 'distance'
-      ? (v: number) => v.toFixed(1)
-      : (v: number) => formatElapsed(v, data.maxElapsed)
 
     // Build y-axes and series for enabled streams
     const yAxes: echarts.EChartsCoreOption[] = []

@@ -94,15 +94,16 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
 
-	if err := h.DB.RetireGear(r.Context(), id); err != nil {
+	if err := h.DB.DeleteGear(r.Context(), userID, id); err != nil {
 		if err.Error() == "gear not found" {
 			writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 			return
 		}
-		slog.Error("retire gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to retire gear", r.URL.Path)
+		slog.Error("delete gear failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
 		return
 	}
 
