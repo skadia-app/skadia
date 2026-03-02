@@ -47,6 +47,11 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-8">
+      <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
+        Einstellung nicht gefunden? Einstellungen zur Medienverwaltung unter{' '}
+        <Link to="/workshop" className="text-orange-500 hover:text-orange-600 font-medium">Werkstatt</Link>.
+      </div>
+
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
 
       {/* Dateiablage */}
