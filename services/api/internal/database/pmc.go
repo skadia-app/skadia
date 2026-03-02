@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,9 @@ func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time
 		var d model.PMCDay
 		if err := rows.Scan(&d.Date, &d.TSS, &d.CTL, &d.ATL, &d.TSB); err != nil {
 			return nil, fmt.Errorf("scan pmc day: %w", err)
+		}
+		if d.CTL > 0 {
+			d.ACWR = math.Round(d.ATL/d.CTL*100) / 100
 		}
 		days = append(days, d)
 	}

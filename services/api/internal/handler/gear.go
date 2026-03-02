@@ -758,3 +758,19 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Write(data)
 }
+
+// GetGearCosts returns the cost summary for a gear item.
+func (h *Handler) GetGearCosts(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	summary, err := h.DB.GetGearCostSummary(r.Context(), id)
+	if err != nil {
+		slog.Error("get gear costs failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear costs", r.URL.Path)
+		return
+	}
+	if summary == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}

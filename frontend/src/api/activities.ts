@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor } from './types'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -84,4 +84,19 @@ export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<
     method: 'POST',
     body: filter ?? undefined,
   })
+}
+
+export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit'
+
+export function getActivityExportUrl(id: string, format: ExportFormat): string {
+  const base = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+  return `${base}/activities/${id}/export?format=${format}`
+}
+
+export async function getZoneDistribution(id: string): Promise<ZoneDistribution> {
+  return apiClient<ZoneDistribution>(`/activities/${id}/zone-distribution`)
+}
+
+export async function getPowerCurve(period: 'ytd' | '90d' | 'all' = 'ytd'): Promise<PowerCurveResponse> {
+  return apiClient<PowerCurveResponse>(`/stats/power-curve?period=${period}`)
 }

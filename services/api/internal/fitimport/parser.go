@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
 	"github.com/muktihari/fit/proto"
@@ -155,6 +156,9 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var sessions []*mesgdef.Session
 	var records []*mesgdef.Record
 	var deviceInfos []*mesgdef.DeviceInfo
+	var userProfile *mesgdef.UserProfile
+	var zonesTarget *mesgdef.ZonesTarget
+	var timeInZones []*mesgdef.TimeInZone
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -166,6 +170,12 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			records = append(records, mesgdef.NewRecord(&fit.Messages[i]))
 		case typedef.MesgNumDeviceInfo:
 			deviceInfos = append(deviceInfos, mesgdef.NewDeviceInfo(&fit.Messages[i]))
+		case typedef.MesgNumUserProfile:
+			userProfile = mesgdef.NewUserProfile(&fit.Messages[i])
+		case typedef.MesgNumZonesTarget:
+			zonesTarget = mesgdef.NewZonesTarget(&fit.Messages[i])
+		case typedef.MesgNumTimeInZone:
+			timeInZones = append(timeInZones, mesgdef.NewTimeInZone(&fit.Messages[i]))
 		}
 	}
 
@@ -262,6 +272,163 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// TSS (uint16, Scale: 10)
 	if session.TrainingStressScore != 0xFFFF {
 		data.TSS = float64(session.TrainingStressScore) / 10.0
+	}
+
+	// Min heart rate
+	if session.MinHeartRate != basetype.Uint8Invalid {
+		data.MinHeartRate = int(session.MinHeartRate)
+	}
+	// Total calories
+	if session.TotalCalories != basetype.Uint16Invalid {
+		data.TotalCalories = int(session.TotalCalories)
+	}
+	// Training effects (uint8, scale: 10)
+	if session.TotalTrainingEffect != basetype.Uint8Invalid {
+		data.AerobicTrainingEffect = float64(session.TotalTrainingEffect) / 10.0
+	}
+	if session.TotalAnaerobicTrainingEffect != basetype.Uint8Invalid {
+		data.AnaerobicTrainingEffect = float64(session.TotalAnaerobicTrainingEffect) / 10.0
+	}
+	// Training load peak (int32, Scale: 65536)
+	if session.TrainingLoadPeak != basetype.Sint32Invalid {
+		data.TrainingLoadPeak = float64(session.TrainingLoadPeak) / 65536.0
+	}
+	// SpO2, stress
+	if session.AvgSpo2 != basetype.Uint8Invalid {
+		data.AvgSpo2Pct = int(session.AvgSpo2)
+	}
+	if session.AvgStress != basetype.Uint8Invalid {
+		data.AvgStressLevel = int(session.AvgStress)
+	}
+	// Respiration (uint16, Scale: 100)
+	if session.EnhancedAvgRespirationRate != basetype.Uint16Invalid {
+		data.AvgRespirationRate = float64(session.EnhancedAvgRespirationRate) / 100.0
+	}
+	// RPE, feel
+	if session.WorkoutRpe != basetype.Uint8Invalid {
+		data.WorkoutRpe = int(session.WorkoutRpe)
+	}
+	if session.WorkoutFeel != basetype.Uint8Invalid {
+		data.WorkoutFeel = int(session.WorkoutFeel)
+	}
+	// HRV RMSSD
+	if session.RmssdHrv != basetype.Uint8Invalid {
+		data.SessionRmssdMs = int(session.RmssdHrv)
+	}
+	// Threshold power
+	if session.ThresholdPower != basetype.Uint16Invalid {
+		data.ThresholdPowerW = int(session.ThresholdPower)
+	}
+	// Core temperature (uint16, Scale: 100)
+	if session.AvgCoreTemperature != basetype.Uint16Invalid {
+		data.AvgCoreTemperatureC = float64(session.AvgCoreTemperature) / 100.0
+	}
+
+	// TimeInZone messages
+	for _, tiz := range timeInZones {
+		for i, raw := range tiz.TimeInHrZone {
+			if raw != basetype.Uint32Invalid {
+				zd := model.TimeInZoneData{
+					ZoneType:  "hr",
+					ZoneIndex: i,
+					Seconds:   int(raw / 1000),
+				}
+				if i < len(tiz.HrZoneHighBoundary) && tiz.HrZoneHighBoundary[i] != basetype.Uint8Invalid {
+					zd.ZoneHigh = float64(tiz.HrZoneHighBoundary[i])
+				}
+				data.TimeInZoneData = append(data.TimeInZoneData, zd)
+			}
+		}
+		for i, raw := range tiz.TimeInPowerZone {
+			if raw != basetype.Uint32Invalid {
+				zd := model.TimeInZoneData{
+					ZoneType:  "power",
+					ZoneIndex: i,
+					Seconds:   int(raw / 1000),
+				}
+				if i < len(tiz.PowerZoneHighBoundary) && tiz.PowerZoneHighBoundary[i] != basetype.Uint16Invalid {
+					zd.ZoneHigh = float64(tiz.PowerZoneHighBoundary[i])
+				}
+				data.TimeInZoneData = append(data.TimeInZoneData, zd)
+			}
+		}
+	}
+
+	// Fallback: session-level TimeInHrZone if no dedicated TimeInZone messages
+	if len(data.TimeInZoneData) == 0 && len(session.TimeInHrZone) > 0 {
+		for i, raw := range session.TimeInHrZone {
+			if raw != basetype.Uint32Invalid {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "hr",
+					ZoneIndex: i,
+					Seconds:   int(raw / 1000),
+				})
+			}
+		}
+	}
+	if len(data.TimeInZoneData) > 0 {
+		// Also check session-level power zones as fallback
+		hasPowerZones := false
+		for _, z := range data.TimeInZoneData {
+			if z.ZoneType == "power" {
+				hasPowerZones = true
+				break
+			}
+		}
+		if !hasPowerZones && len(session.TimeInPowerZone) > 0 {
+			for i, raw := range session.TimeInPowerZone {
+				if raw != basetype.Uint32Invalid {
+					data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+						ZoneType:  "power",
+						ZoneIndex: i,
+						Seconds:   int(raw / 1000),
+					})
+				}
+			}
+		}
+	}
+
+	// UserProfile + ZonesTarget import
+	if userProfile != nil || zonesTarget != nil {
+		imp := &model.UserProfileImport{}
+		if userProfile != nil {
+			if userProfile.Gender != typedef.GenderInvalid {
+				switch userProfile.Gender {
+				case typedef.GenderMale:
+					imp.Gender = "M"
+				case typedef.GenderFemale:
+					imp.Gender = "F"
+				}
+			}
+			if userProfile.Age != basetype.Uint8Invalid {
+				imp.AgeYears = int(userProfile.Age)
+			}
+			if userProfile.Height != basetype.Uint8Invalid {
+				// Height is in meters * 100, so raw value IS cm
+				imp.HeightCm = int(userProfile.Height)
+			}
+			if userProfile.Weight != basetype.Uint16Invalid {
+				imp.WeightKg = float32(userProfile.Weight) / 10.0
+			}
+			if userProfile.RestingHeartRate != basetype.Uint8Invalid {
+				imp.RestingHR = int(userProfile.RestingHeartRate)
+			}
+			if userProfile.DefaultMaxHeartRate != basetype.Uint8Invalid {
+				imp.MaxHRDetected = int(userProfile.DefaultMaxHeartRate)
+			}
+		}
+		if zonesTarget != nil {
+			if zonesTarget.ThresholdHeartRate != basetype.Uint8Invalid {
+				imp.LTHR = int(zonesTarget.ThresholdHeartRate)
+			}
+			if zonesTarget.FunctionalThresholdPower != basetype.Uint16Invalid {
+				imp.FTP = int(zonesTarget.FunctionalThresholdPower)
+			}
+			if zonesTarget.MaxHeartRate != basetype.Uint8Invalid {
+				imp.MaxHR = int(zonesTarget.MaxHeartRate)
+			}
+		}
+		data.UserProfileImport = imp
 	}
 
 	// Extract streams, track, sensors

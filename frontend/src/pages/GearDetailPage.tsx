@@ -12,12 +12,14 @@ import {
   fetchComponentPresets,
   listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
   fetchGearDocuments, uploadGearDocument, deleteGearDocument, getGearDocumentUrl,
+  getGearCosts,
 } from '@/api/gear'
 import type {
   Gear, GearComponent, GearStatus,
   ComponentAssignment,
   GearServiceEvent, ComponentTypePreset,
   BikeSetup, GearDocument,
+  GearCostSummary,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
@@ -30,6 +32,12 @@ export default function GearDetailPage() {
   const { data: gear, isLoading } = useQuery({
     queryKey: ['gear-detail', id],
     queryFn: () => fetchGearDetail(id!),
+    enabled: !!id,
+  })
+
+  const { data: costSummary } = useQuery({
+    queryKey: ['gear-costs', id],
+    queryFn: () => getGearCosts(id!),
     enabled: !!id,
   })
 
@@ -134,6 +142,37 @@ export default function GearDetailPage() {
 
           {/* Images */}
           <GearImagesSection gearId={gear.id} />
+
+          {/* Kosten */}
+          {costSummary && costSummary.total_cost > 0 && (
+            <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 space-y-4">
+              <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Kosten</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtkosten</div>
+                  <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+                    {costSummary.total_cost.toFixed(2)} {costSummary.currency}
+                  </div>
+                </div>
+                {costSummary.cost_per_km != null && (
+                  <div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/km</div>
+                    <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
+                      {costSummary.cost_per_km.toFixed(3)} {costSummary.currency}/km
+                    </div>
+                  </div>
+                )}
+                {costSummary.cost_per_hour != null && (
+                  <div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/Stunde</div>
+                    <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
+                      {costSummary.cost_per_hour.toFixed(2)} {costSummary.currency}/h
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Components */}
           <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />

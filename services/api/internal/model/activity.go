@@ -38,6 +38,22 @@ type ActivityData struct {
 	AvgCadence       float64
 	AvgTemperatureC  float64
 
+	MinHeartRate            int
+	TotalCalories           int
+	AerobicTrainingEffect   float64
+	AnaerobicTrainingEffect float64
+	TrainingLoadPeak        float64
+	AvgSpo2Pct              int
+	AvgRespirationRate      float64
+	AvgStressLevel          int
+	WorkoutRpe              int
+	WorkoutFeel             int
+	SessionRmssdMs          int
+	AvgCoreTemperatureC     float64
+	ThresholdPowerW         int
+	TimeInZoneData          []TimeInZoneData
+	UserProfileImport       *UserProfileImport
+
 	TSS   float64
 	TRIMP float64
 
@@ -66,8 +82,10 @@ type StreamPoint struct {
 	DistanceM    *float64
 	HeartRate    *int16
 	PowerW       *int16
-	Cadence      *int16
-	TemperatureC *int16
+	Cadence         *int16
+	TemperatureC    *int16
+	RespirationRate *int16
+	StressLevel     *int16
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.
@@ -127,6 +145,20 @@ type Activity struct {
 	AvgTemperatureC  *float64   `json:"avg_temperature_c,omitempty"`
 	TSS              *float64   `json:"tss,omitempty"`
 	TRIMP            *float64   `json:"trimp,omitempty"`
+	MinHeartRate            *int     `json:"min_heart_rate,omitempty"`
+	TotalCalories           *int     `json:"total_calories,omitempty"`
+	AerobicTrainingEffect   *float64 `json:"aerobic_training_effect,omitempty"`
+	AnaerobicTrainingEffect *float64 `json:"anaerobic_training_effect,omitempty"`
+	TrainingLoadPeak        *float64 `json:"training_load_peak,omitempty"`
+	AvgSpo2Pct              *int     `json:"avg_spo2_pct,omitempty"`
+	AvgRespirationRate      *float64 `json:"avg_respiration_rate,omitempty"`
+	AvgStressLevel          *int     `json:"avg_stress_level,omitempty"`
+	WorkoutRpe              *int     `json:"workout_rpe,omitempty"`
+	WorkoutFeel             *int     `json:"workout_feel,omitempty"`
+	ThresholdPowerW         *int     `json:"threshold_power_w,omitempty"`
+	VariabilityIndex        *float64 `json:"variability_index,omitempty"`
+	EfficiencyFactor        *float64 `json:"efficiency_factor,omitempty"`
+	AerobicDecoupling       *float64 `json:"aerobic_decoupling,omitempty"`
 	GearID           *string    `json:"gear_id,omitempty"`
 	IsIndoor         bool       `json:"is_indoor"`
 	Tags             []string   `json:"tags"`
@@ -198,8 +230,10 @@ type StreamResponse struct {
 	DistanceM    *float64  `json:"distance_m,omitempty"`
 	HeartRate    *int16    `json:"heart_rate,omitempty"`
 	PowerW       *int16    `json:"power_w,omitempty"`
-	Cadence      *int16    `json:"cadence,omitempty"`
-	TemperatureC *int16    `json:"temperature_c,omitempty"`
+	Cadence         *int16    `json:"cadence,omitempty"`
+	TemperatureC    *int16    `json:"temperature_c,omitempty"`
+	RespirationRate *int16    `json:"respiration_rate,omitempty"`
+	StressLevel     *int16    `json:"stress_level,omitempty"`
 }
 
 // SensorResponse is the API response for the sensors endpoint.
@@ -231,6 +265,7 @@ type PMCDay struct {
 	CTL    float64 `json:"ctl"`
 	ATL    float64 `json:"atl"`
 	TSB    float64 `json:"tsb"`
+	ACWR   float64 `json:"acwr"`
 }
 
 // ProblemDetail is an RFC 7807 error response.
@@ -603,4 +638,65 @@ type BikeSetupUpdate struct {
 	Brakes          json.RawMessage `json:"brakes,omitempty"`
 	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
 	IsActive        *bool           `json:"is_active,omitempty"`
+}
+
+// TimeInZoneData represents time spent in a specific training zone.
+type TimeInZoneData struct {
+	ZoneType  string  // "hr", "power", "speed", "cadence"
+	ZoneIndex int
+	ZoneHigh  float64 // zone upper boundary (bpm / watts / m/s / rpm)
+	Seconds   int
+}
+
+// UserProfileImport holds data extracted from FIT user_profile + zones_target messages.
+type UserProfileImport struct {
+	Gender        string
+	AgeYears      int
+	HeightCm      int
+	WeightKg      float32
+	RestingHR     int
+	MaxHRDetected int
+	LTHR          int
+	FTP           int
+	MaxHR         int
+}
+
+// GearCostSummary represents the cost overview for a gear item.
+type GearCostSummary struct {
+	GearID    string   `json:"gear_id"`
+	UserID    string   `json:"user_id"`
+	Name      string   `json:"name"`
+	TotalCost float64  `json:"total_cost"`
+	Currency  string   `json:"currency"`
+	CostPerKm  *float64 `json:"cost_per_km,omitempty"`
+	CostPerHour *float64 `json:"cost_per_hour,omitempty"`
+}
+
+// TimeInZone is the API response for a single zone.
+type TimeInZone struct {
+	ZoneType  string   `json:"zone_type"`
+	ZoneIndex int      `json:"zone_index"`
+	ZoneHigh  *float64 `json:"zone_high,omitempty"`
+	Seconds   int      `json:"seconds"`
+}
+
+// ZoneDistributionResponse is the API response for zone distribution.
+type ZoneDistributionResponse struct {
+	HRZones     []TimeInZone `json:"hr_zones"`
+	PowerZones  []TimeInZone `json:"power_zones"`
+	HasFitZones bool         `json:"has_fit_zones"`
+}
+
+// PowerCurvePoint is a single point on the power duration curve.
+type PowerCurvePoint struct {
+	DurationS   int      `json:"duration_s"`
+	PowerW      float64  `json:"power_w"`
+	PowerWPerKg *float64 `json:"power_w_per_kg,omitempty"`
+}
+
+// PowerCurveResponse is the API response for the power duration curve.
+type PowerCurveResponse struct {
+	Points   []PowerCurvePoint `json:"points"`
+	FtpW     *int              `json:"ftp_w,omitempty"`
+	WeightKg *float32          `json:"weight_kg,omitempty"`
 }

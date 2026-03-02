@@ -168,7 +168,10 @@ func main() {
 			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
 			r.Get("/activities/{id}/streams", h.GetStreams)
 			r.Get("/activities/{id}/sensors", h.GetSensors)
+			r.Get("/activities/{id}/export", h.ExportActivity)
+			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)
 			r.Get("/stats/pmc", h.GetPMC)
+			r.Get("/stats/power-curve", h.GetPowerCurve)
 
 			r.Get("/privacy-zones", h.ListPrivacyZones)
 			r.Post("/privacy-zones", h.CreatePrivacyZone)
@@ -194,6 +197,10 @@ func main() {
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
 			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 
+			r.Get("/settings/profile", h.GetProfile)
+			r.Patch("/settings/profile", h.PatchProfile)
+			r.Post("/admin/detect-max-hr", h.DetectMaxHR)
+
 			r.Get("/settings/heatmap", h.GetHeatmapSettings)
 			r.Put("/settings/heatmap", h.UpdateHeatmapSettings)
 			r.Get("/settings/enrichment", h.GetEnrichmentSettings)
@@ -203,6 +210,7 @@ func main() {
 			r.Post("/gear", h.CreateGear)
 			r.Get("/gear/component-presets", h.ListComponentPresets)
 			r.Get("/gear/maintenance-alerts", h.GetMaintenanceAlerts)
+			r.Get("/gear/{id}/costs", h.GetGearCosts)
 			r.Get("/gear/{id}", h.GetGear)
 			r.Put("/gear/{id}", h.UpdateGear)
 			r.Delete("/gear/{id}", h.DeleteGear)

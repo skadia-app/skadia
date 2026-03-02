@@ -1,0 +1,89 @@
+package database
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
+)
+
+// GetTimeInZones returns the pre-computed zone distribution for an activity.
+func (db *DB) GetTimeInZones(ctx context.Context, activityID string) ([]model.TimeInZone, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT zone_type, zone_index, zone_high, seconds
+		 FROM activity_time_in_zone
+		 WHERE activity_id = $1
+		 ORDER BY zone_type, zone_index`,
+		activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get time in zones: %w", err)
+	}
+	defer rows.Close()
+	var zones []model.TimeInZone
+	for rows.Next() {
+		var z model.TimeInZone
+		if err := rows.Scan(&z.ZoneType, &z.ZoneIndex, &z.ZoneHigh, &z.Seconds); err != nil {
+			return nil, fmt.Errorf("scan time in zone: %w", err)
+		}
+		zones = append(zones, z)
+	}
+	return zones, nil
+}
+
+// SaveTimeInZones upserts time-in-zone data for an activity.
+func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, zones []model.TimeInZoneData) error {
+	for _, z := range zones {
+		var zoneHigh *float64
+		if z.ZoneHigh > 0 {
+			zoneHigh = &z.ZoneHigh
+		}
+		_, err := db.Pool.Exec(ctx,
+			`INSERT INTO activity_time_in_zone (activity_id, zone_type, zone_index, zone_high, seconds)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (activity_id, zone_type, zone_index) DO UPDATE
+			 SET zone_high = EXCLUDED.zone_high, seconds = EXCLUDED.seconds`,
+			activityID, z.ZoneType, z.ZoneIndex, zoneHigh, z.Seconds,
+		)
+		if err != nil {
+			return fmt.Errorf("save time in zone: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetPowerStreamsForPeriod loads power streams for all activities in a date range.
+// Returns a map of activityID to ordered power values (one per stream point).
+func (db *DB) GetPowerStreamsForPeriod(ctx context.Context, userID string, from, to time.Time) (map[string][]int16, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT a.id, s.power_w
+		 FROM activities a
+		 JOIN activity_streams s ON s.activity_id = a.id
+		 WHERE a.user_id = $1
+		   AND a.started_at >= $2 AND a.started_at <= $3
+		   AND s.power_w IS NOT NULL AND s.power_w > 0
+		 ORDER BY a.id, s.time`,
+		userID, from, to,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get power streams: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string][]int16)
+	for rows.Next() {
+		var actID string
+		var power int16
+		if err := rows.Scan(&actID, &power); err != nil {
+			return nil, fmt.Errorf("scan power stream: %w", err)
+		}
+		result[actID] = append(result[actID], power)
+	}
+	return result, nil
+}
+
+// GetActivityStreams loads all stream points for an activity as StreamPoint slices.
+// This is an alias for GetStreamPoints for use in export/zone handlers.
+func (db *DB) GetActivityStreams(ctx context.Context, activityID string) ([]model.StreamPoint, error) {
+	return db.GetStreamPoints(ctx, activityID)
+}

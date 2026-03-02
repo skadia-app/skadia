@@ -174,6 +174,20 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert sensors failed", "error", err)
 	}
 
+	// Save time-in-zone data (from FIT time_in_zone messages or session arrays)
+	if len(data.TimeInZoneData) > 0 {
+		if err := h.DB.SaveTimeInZones(r.Context(), activity.ID, data.TimeInZoneData); err != nil {
+			slog.Error("save time in zones failed", "error", err)
+		}
+	}
+
+	// Import physiological profile fields from FIT user_profile / zones_target (only if not yet set)
+	if format == "fit" && data.UserProfileImport != nil {
+		if err := h.DB.SetUserProfileFieldsIfNull(r.Context(), userID, data.UserProfileImport); err != nil {
+			slog.Warn("set user profile fields failed", "error", err)
+		}
+	}
+
 	// Update file info
 	metaKey := s3Key + ".meta"
 	bucket := "skadia-originals"

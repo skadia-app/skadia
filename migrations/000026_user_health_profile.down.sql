@@ -1,0 +1,11 @@
+ALTER TABLE users
+  DROP COLUMN IF EXISTS birth_date,
+  DROP COLUMN IF EXISTS gender,
+  DROP COLUMN IF EXISTS height_cm,
+  DROP COLUMN IF EXISTS weight_kg,
+  DROP COLUMN IF EXISTS ftp_w,
+  DROP COLUMN IF EXISTS lthr_bpm,
+  DROP COLUMN IF EXISTS max_hr_bpm,
+  DROP COLUMN IF EXISTS max_hr_detected_bpm,
+  DROP COLUMN IF EXISTS resting_hr_bpm,
+  DROP COLUMN IF EXISTS max_hr_formula_bpm;

@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { UserProfile } from './types'
 
 export interface ShadowFSSettings {
   schema: string
@@ -62,4 +63,12 @@ export async function getHeatmapSettings(): Promise<HeatmapSettings> {
 
 export async function updateHeatmapSettings(settings: HeatmapSettings): Promise<HeatmapSettings> {
   return apiClient<HeatmapSettings>('/settings/heatmap', { method: 'PUT', body: settings })
+}
+
+export async function getUserProfile(): Promise<UserProfile> {
+  return apiClient<UserProfile>('/settings/profile')
+}
+
+export async function updateUserProfile(data: Partial<UserProfile>): Promise<UserProfile> {
+  return apiClient<UserProfile>('/settings/profile', { method: 'PATCH', body: data })
 }

@@ -5,10 +5,10 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
 import { fetchTags, createTag } from '@/api/tags'
-import type { Activity, StreamPoint, Sensor } from '@/api/types'
+import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
@@ -40,6 +40,12 @@ export default function ActivityDetailPage() {
   const { data: sensors } = useQuery({
     queryKey: ['activity-sensors', id],
     queryFn: () => fetchActivitySensors(id!),
+    enabled: !!id,
+  })
+
+  const { data: zoneDistribution } = useQuery({
+    queryKey: ['zone-distribution', id],
+    queryFn: () => getZoneDistribution(id!),
     enabled: !!id,
   })
 
@@ -89,6 +95,55 @@ export default function ActivityDetailPage() {
       {/* Stats */}
       <StatsGrid activity={activity} />
 
+      {/* Erweiterte Metriken */}
+      {(activity.variability_index != null || activity.efficiency_factor != null || activity.aerobic_decoupling != null || activity.workout_rpe != null || activity.aerobic_training_effect != null) && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {activity.variability_index != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Variabilität</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Variabilitätsindex: NP/Ø-Power. 1.0 = gleichmäßig, >1.05 = unruhig">
+                {activity.variability_index.toFixed(2)}
+              </div>
+            </div>
+          )}
+          {activity.efficiency_factor != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">EF</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Effizienzfaktor: Ø-Power/Ø-HR. Steigt bei besserer Fitness">
+                {activity.efficiency_factor.toFixed(2)}
+              </div>
+            </div>
+          )}
+          {activity.aerobic_decoupling != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Pw:Hr Drift</div>
+              <div className={`text-lg font-semibold ${
+                Math.abs(activity.aerobic_decoupling) < 5 ? 'text-green-600' :
+                Math.abs(activity.aerobic_decoupling) < 10 ? 'text-yellow-600' : 'text-red-600'
+              }`} title="Aerob. Decoupling Pw:Hr. <5% = gute Ausdauer">
+                {activity.aerobic_decoupling.toFixed(1)}%
+              </div>
+            </div>
+          )}
+          {activity.workout_rpe != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">RPE</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Subjektive Belastung (RPE 1-10, aus Garmin-Gerät)">
+                {activity.workout_rpe}/10
+              </div>
+            </div>
+          )}
+          {activity.aerobic_training_effect != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Training Effect</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Aerober Trainingseffekt (Garmin Firstbeat, 1-5)">
+                {activity.aerobic_training_effect.toFixed(1)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Weather */}
       {activity.weather_temp_c != null && (
         <WeatherBadge
@@ -132,6 +187,11 @@ export default function ActivityDetailPage() {
         />
       )}
 
+      {/* Zonen-Verteilung */}
+      {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (
+        <ZoneDistributionChart distribution={zoneDistribution} />
+      )}
+
       {/* Gear */}
       <GearSelector activityId={activity.id} currentGearId={activity.gear_id} />
 
@@ -151,7 +211,13 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [exportOpen, setExportOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleExport = (format: ExportFormat) => {
+    window.location.href = getActivityExportUrl(activity.id, format)
+    setExportOpen(false)
+  }
 
   const mutation = useMutation({
     mutationFn: (title: string) => updateActivity(activity.id, { title }),
@@ -240,6 +306,32 @@ function ActivityHeader({ activity }: { activity: Activity }) {
             <span className="text-neutral-400 dark:text-neutral-600">{activity.start_city}</span>
           )}
         </div>
+      </div>
+
+      {/* Export Dropdown */}
+      <div className="relative mt-1">
+        <button
+          onClick={() => setExportOpen(!exportOpen)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+        >
+          &#8595; Export
+        </button>
+        {exportOpen && (
+          <div className="absolute right-0 mt-1 w-48 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
+            <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg">
+              Original herunterladen
+            </button>
+            <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+              Als GPX exportieren
+            </button>
+            <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+              Als TCX exportieren
+            </button>
+            <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg">
+              Als FIT exportieren
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Reprocess button */}
@@ -903,6 +995,65 @@ function SensorList({ sensors }: { sensors: Sensor[] }) {
             )}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Zone Distribution Chart ──────────────────────────────────────────────────
+
+function ZoneDistributionChart({ distribution }: { distribution: ZoneDistribution }) {
+  const [activeType, setActiveType] = useState<'hr' | 'power'>(
+    distribution.hr_zones.length > 0 ? 'hr' : 'power'
+  )
+
+  const zones = activeType === 'hr' ? distribution.hr_zones : distribution.power_zones
+  if (zones.length === 0) return null
+
+  const totalSeconds = zones.reduce((sum, z) => sum + z.seconds, 0)
+  const ZONE_COLORS = ['#94a3b8', '#60a5fa', '#4ade80', '#facc15', '#f97316', '#ef4444', '#a855f7']
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Zonen-Verteilung</h3>
+        {distribution.hr_zones.length > 0 && distribution.power_zones.length > 0 && (
+          <div className="flex gap-2 text-xs">
+            <button
+              onClick={() => setActiveType('hr')}
+              className={`px-2 py-0.5 rounded ${activeType === 'hr' ? 'bg-orange-500 text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+            >HR</button>
+            <button
+              onClick={() => setActiveType('power')}
+              className={`px-2 py-0.5 rounded ${activeType === 'power' ? 'bg-orange-500 text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+            >Power</button>
+          </div>
+        )}
+      </div>
+      <div className="flex h-8 rounded-full overflow-hidden">
+        {zones.map((z, i) => {
+          const pct = totalSeconds > 0 ? (z.seconds / totalSeconds) * 100 : 0
+          const color = ZONE_COLORS[z.zone_index] ?? ZONE_COLORS[ZONE_COLORS.length - 1]
+          return (
+            <div
+              key={i}
+              style={{ width: `${pct}%`, backgroundColor: color }}
+              title={`Z${z.zone_index + 1}: ${Math.round(z.seconds / 60)}min (${pct.toFixed(1)}%)`}
+            />
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {zones.map((z, i) => {
+          const pct = totalSeconds > 0 ? (z.seconds / totalSeconds) * 100 : 0
+          const color = ZONE_COLORS[z.zone_index] ?? ZONE_COLORS[ZONE_COLORS.length - 1]
+          return (
+            <div key={i} className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
+              Z{z.zone_index + 1}: {Math.round(z.seconds / 60)}min ({pct.toFixed(0)}%)
+            </div>
+          )
+        })}
       </div>
     </div>
   )

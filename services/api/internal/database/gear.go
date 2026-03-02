@@ -1311,3 +1311,20 @@ func (db *DB) ActivateBikeSetup(ctx context.Context, id string) (*model.BikeSetu
 	}
 	return s, nil
 }
+
+// GetGearCostSummary returns the cost overview for a gear item.
+func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.GearCostSummary, error) {
+	var s model.GearCostSummary
+	err := db.Pool.QueryRow(ctx,
+		`SELECT gear_id, user_id, name, total_cost, currency, cost_per_km, cost_per_hour
+		 FROM gear_cost_summary WHERE gear_id = $1`,
+		gearID,
+	).Scan(&s.GearID, &s.UserID, &s.Name, &s.TotalCost, &s.Currency, &s.CostPerKm, &s.CostPerHour)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get gear cost summary: %w", err)
+	}
+	return &s, nil
+}

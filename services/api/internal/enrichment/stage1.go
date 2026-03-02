@@ -10,12 +10,20 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/pmc"
 )
 
 // RunStage1 executes synchronous enrichment for an activity after upload.
 // This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
 func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData) {
 	fields := make(map[string]any)
+
+	// Load user profile for HR-based calculations
+	profile, profileErr := db.GetUserProfile(ctx, userID)
+	if profileErr != nil {
+		slog.Warn("stage1: could not load user profile", "user_id", userID, "error", profileErr)
+		profile = &model.UserProfile{}
+	}
 
 	// Time of day (requires GPS + start/end time)
 	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
@@ -42,6 +50,112 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	if data.StartLat != 0 && data.EndLat != 0 {
 		isRT := IsRoundTrip(data.StartLat, data.StartLng, data.EndLat, data.EndLng, 500)
 		fields["is_round_trip"] = isRT
+	}
+
+	// TRIMP calculation (requires HR stream)
+	if len(data.Streams) > 0 {
+		var hrStream []int
+		for _, s := range data.Streams {
+			if s.HeartRate != nil && *s.HeartRate > 0 {
+				hrStream = append(hrStream, int(*s.HeartRate))
+			}
+		}
+		if len(hrStream) > 30 {
+			maxHR := profile.EffectiveMaxHR()
+			restingHR := profile.EffectiveRestingHR()
+			trimp := pmc.CalculateTRIMP(hrStream, restingHR, maxHR)
+			if trimp > 0 {
+				fields["trimp"] = trimp // activities.trimp (migration 000003)
+				data.TRIMP = trimp   // make available for intensity tag fallback
+			}
+		}
+	}
+
+	// Variability Index
+	if data.NormalizedPowerW > 0 && data.AvgPowerW > 0 {
+		vi := data.NormalizedPowerW / data.AvgPowerW
+		fields["variability_index"] = vi
+	}
+
+	// Efficiency Factor
+	if data.AvgPowerW > 0 && data.AvgHeartRate > 0 {
+		ef := data.AvgPowerW / data.AvgHeartRate
+		fields["efficiency_factor"] = ef
+	}
+
+	// Aerobic Decoupling: compare EF of first vs second half of streams
+	if data.AvgPowerW > 0 && data.AvgHeartRate > 0 && len(data.Streams) > 60 {
+		half := len(data.Streams) / 2
+		var p1Sum, hr1Sum, p2Sum, hr2Sum float64
+		var p1Count, hr1Count, p2Count, hr2Count int
+		for i, s := range data.Streams {
+			if s.PowerW != nil && *s.PowerW > 0 {
+				if i < half {
+					p1Sum += float64(*s.PowerW)
+					p1Count++
+				} else {
+					p2Sum += float64(*s.PowerW)
+					p2Count++
+				}
+			}
+			if s.HeartRate != nil && *s.HeartRate > 0 {
+				if i < half {
+					hr1Sum += float64(*s.HeartRate)
+					hr1Count++
+				} else {
+					hr2Sum += float64(*s.HeartRate)
+					hr2Count++
+				}
+			}
+		}
+		if p1Count > 0 && hr1Count > 0 && p2Count > 0 && hr2Count > 0 {
+			ef1 := (p1Sum / float64(p1Count)) / (hr1Sum / float64(hr1Count))
+			ef2 := (p2Sum / float64(p2Count)) / (hr2Sum / float64(hr2Count))
+			if ef1 > 0 {
+				decoupling := (ef1 - ef2) / ef1 * 100
+				fields["aerobic_decoupling"] = decoupling
+			}
+		}
+	}
+
+	// Intensity tag
+	var intensityTag string
+	if data.NormalizedPowerW > 0 && profile.FtpW != nil && *profile.FtpW > 0 {
+		iff := data.NormalizedPowerW / float64(*profile.FtpW)
+		switch {
+		case iff < 0.65:
+			intensityTag = "locker"
+		case iff < 0.80:
+			intensityTag = "aerob"
+		case iff < 0.95:
+			intensityTag = "schwellenbereich"
+		default:
+			intensityTag = "hochintensiv"
+		}
+		// intensity_factor (numeric IF) is derivable from NP/FTP in the frontend — not stored separately
+	} else if data.TSS > 0 && data.MovingTimeS > 0 {
+		tssPerHour := data.TSS / (float64(data.MovingTimeS) / 3600.0)
+		switch {
+		case tssPerHour < 60:
+			intensityTag = "locker"
+		case tssPerHour < 100:
+			intensityTag = "moderat"
+		default:
+			intensityTag = "hochintensiv"
+		}
+	} else if data.TRIMP > 0 && data.MovingTimeS > 0 {
+		trimpPerHour := data.TRIMP / (float64(data.MovingTimeS) / 3600.0)
+		switch {
+		case trimpPerHour < 60:
+			intensityTag = "locker"
+		case trimpPerHour < 100:
+			intensityTag = "moderat"
+		default:
+			intensityTag = "hochintensiv"
+		}
+	}
+	if intensityTag != "" {
+		fields["intensity"] = intensityTag
 	}
 
 	// Reverse geocoding (PostGIS)

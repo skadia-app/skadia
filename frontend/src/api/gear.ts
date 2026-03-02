@@ -4,6 +4,7 @@ import type {
   ComponentAssignment, ChainRotationGroup,
   GearServiceEvent, ComponentTypePreset,
   BikeSetup, GearDocument,
+  GearCostSummary,
 } from './types'
 
 export async function fetchGear(status?: GearStatus | boolean): Promise<Gear[]> {
@@ -167,4 +168,8 @@ export async function deleteGearDocument(docId: string): Promise<void> {
 
 export function getGearDocumentUrl(docId: string): string {
   return `${API_BASE}/gear/documents/${docId}/download`
+}
+
+export async function getGearCosts(id: string): Promise<GearCostSummary> {
+  return apiClient<GearCostSummary>(`/gear/${id}/costs`)
 }

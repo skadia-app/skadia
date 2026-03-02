@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
@@ -46,4 +49,97 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, days)
+}
+
+// GetPowerCurve returns the best-effort power duration curve for a user.
+func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		return
+	}
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "ytd"
+	}
+
+	var from time.Time
+	now := time.Now()
+	switch period {
+	case "ytd":
+		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	case "90d":
+		from = now.AddDate(0, 0, -90)
+	case "all":
+		from = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	default:
+		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	}
+
+	powerStreams, err := h.DB.GetPowerStreamsForPeriod(r.Context(), userID, from, now)
+	if err != nil {
+		slog.Error("get power streams for period failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load power data", r.URL.Path)
+		return
+	}
+
+	durations := []int{1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600}
+	bestPower := make(map[int]float64)
+	for _, duration := range durations {
+		bestPower[duration] = 0
+	}
+
+	for _, stream := range powerStreams {
+		if len(stream) == 0 {
+			continue
+		}
+		for _, duration := range durations {
+			if len(stream) < duration {
+				continue
+			}
+			// Sliding window mean
+			var windowSum float64
+			for i := 0; i < duration; i++ {
+				windowSum += float64(stream[i])
+			}
+			best := windowSum / float64(duration)
+			for i := duration; i < len(stream); i++ {
+				windowSum += float64(stream[i]) - float64(stream[i-duration])
+				avg := windowSum / float64(duration)
+				if avg > best {
+					best = avg
+				}
+			}
+			if best > bestPower[duration] {
+				bestPower[duration] = best
+			}
+		}
+	}
+
+	profile, _ := h.DB.GetUserProfile(r.Context(), userID)
+
+	var points []model.PowerCurvePoint
+	for _, duration := range durations {
+		if bestPower[duration] > 0 {
+			pt := model.PowerCurvePoint{
+				DurationS: duration,
+				PowerW:    math.Round(bestPower[duration]*10) / 10,
+			}
+			if profile != nil && profile.WeightKg != nil && *profile.WeightKg > 0 {
+				wkg := math.Round(float64(bestPower[duration])/float64(*profile.WeightKg)*100) / 100
+				pt.PowerWPerKg = &wkg
+			}
+			points = append(points, pt)
+		}
+	}
+
+	resp := model.PowerCurveResponse{Points: points}
+	if profile != nil {
+		resp.FtpW = profile.FtpW
+		resp.WeightKg = profile.WeightKg
+	}
+	if resp.Points == nil {
+		resp.Points = []model.PowerCurvePoint{}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

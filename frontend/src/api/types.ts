@@ -69,6 +69,19 @@ export interface Activity {
   sunrise_at?: string | null
   sunset_at?: string | null
   gear_id?: string | null
+  min_heart_rate?: number | null
+  total_calories?: number | null
+  aerobic_training_effect?: number | null
+  anaerobic_training_effect?: number | null
+  training_load_peak?: number | null
+  avg_spo2_pct?: number | null
+  workout_rpe?: number | null
+  workout_feel?: number | null
+  threshold_power_w?: number | null
+  variability_index?: number | null
+  efficiency_factor?: number | null
+  aerobic_decoupling?: number | null
+  original_filename?: string | null
   created_at: string
   updated_at: string
 }
@@ -312,4 +325,53 @@ export interface RuleCondition {
 export interface RuleAction {
   action: string
   params: Record<string, any>
+}
+
+export interface UserProfile {
+  birth_date?: string | null
+  gender: '' | 'M' | 'F' | 'O'
+  height_cm?: number | null
+  weight_kg?: number | null
+  ftp_w?: number | null
+  lthr_bpm?: number | null
+  max_hr_bpm?: number | null
+  resting_hr_bpm?: number | null
+  max_hr_formula?: number | null
+  max_hr_detected?: number | null
+  effective_max_hr: number
+}
+
+export interface TimeInZone {
+  zone_type: 'hr' | 'power' | 'speed' | 'cadence'
+  zone_index: number
+  zone_high?: number | null
+  seconds: number
+}
+
+export interface ZoneDistribution {
+  hr_zones: TimeInZone[]
+  power_zones: TimeInZone[]
+  has_fit_zones: boolean
+}
+
+export interface PowerCurvePoint {
+  duration_s: number
+  power_w: number
+  power_w_per_kg?: number | null
+}
+
+export interface PowerCurveResponse {
+  points: PowerCurvePoint[]
+  ftp_w?: number | null
+  weight_kg?: number | null
+}
+
+export interface GearCostSummary {
+  gear_id: string
+  user_id: string
+  name: string
+  total_cost: number
+  currency: string
+  cost_per_km?: number | null
+  cost_per_hour?: number | null
 }
