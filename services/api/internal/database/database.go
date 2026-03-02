@@ -940,6 +940,7 @@ type ReprocessFilter struct {
 	Before     *time.Time `json:"before,omitempty"`
 	After      *time.Time `json:"after,omitempty"`
 	IDs        []string   `json:"ids,omitempty"`
+	Scope      []string   `json:"scope,omitempty"` // streams, sensors, metrics, sport_type
 }
 
 // ListActivityIDsFiltered returns activity IDs matching the given filter criteria.

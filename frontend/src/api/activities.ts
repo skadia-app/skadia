@@ -41,6 +41,7 @@ export interface ReprocessFilter {
   before?: string
   after?: string
   ids?: string[]
+  scope?: string[]
 }
 
 export interface ReprocessResult {

@@ -46,7 +46,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID); err != nil {
+	if err := h.reprocessActivity(r.Context(), id, userID, nil); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
@@ -92,10 +92,19 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Build scope set from filter.
+	var scope map[string]bool
+	if filter != nil && len(filter.Scope) > 0 {
+		scope = make(map[string]bool, len(filter.Scope))
+		for _, s := range filter.Scope {
+			scope[s] = true
+		}
+	}
+
 	var processed, errors int
 
 	for _, id := range ids {
-		if err := h.reprocessActivity(r.Context(), id, userID); err != nil {
+		if err := h.reprocessActivity(r.Context(), id, userID, scope); err != nil {
 			slog.Error("reprocess-all: activity failed", "id", id, "error", err)
 			errors++
 			continue
