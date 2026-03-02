@@ -176,16 +176,21 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   }, [])
 
   // ── Initialize map ────────────────────────────────────────────────────────
-  // Delay by one frame so the browser can calculate flex layout dimensions.
-  // Without this, the map container can have 0×0 size → black canvas.
+  // MapLibre needs a container with non-zero dimensions. In a flex-col layout
+  // the container may have 0×0 at mount time. We use ResizeObserver to defer
+  // initialization until the browser has computed the layout, then keep
+  // observing for future size changes (e.g. window resize).
   useEffect(() => {
     const el = mapContainerRef.current
     if (!el || coordinates.length < 2) return
 
     let map: maplibregl.Map | null = null
-    let ro: ResizeObserver | null = null
+    let disposed = false
 
-    const rafId = requestAnimationFrame(() => {
+    const initMap = () => {
+      if (disposed || map) return
+      if (el.clientWidth === 0 || el.clientHeight === 0) return
+
       map = new maplibregl.Map({
         container: el,
         style: {
@@ -251,19 +256,25 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         map!.fitBounds(bounds, { padding: 60, maxZoom: 15 })
       })
 
-      // Extra resize calls while layout settles
-      setTimeout(() => map?.resize(), 100)
-      setTimeout(() => map?.resize(), 400)
-
       mapRef.current = map
+    }
 
-      ro = new ResizeObserver(() => map?.resize())
-      ro.observe(el)
+    // Observe container: init when sized, resize when dimensions change
+    const ro = new ResizeObserver(() => {
+      if (!map) {
+        initMap()
+      } else {
+        map.resize()
+      }
     })
+    ro.observe(el)
+
+    // Try immediately (container might already have dimensions)
+    initMap()
 
     return () => {
-      cancelAnimationFrame(rafId)
-      ro?.disconnect()
+      disposed = true
+      ro.disconnect()
       map?.remove()
       mapRef.current = null
     }
@@ -434,7 +445,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         selected: legendSelected,
       },
 
-      grid: { left: 50, right: rightMargin, top: 30, bottom: 30 },
+      grid: { left: 50, right: rightMargin, top: 30, bottom: 8 },
 
       brush: {
         toolbox: [],
@@ -498,10 +509,10 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         type: 'value',
         min: 0,
         max: xMax,
-        axisLabel: { fontSize: 10, color: '#888', formatter: xFormatter },
+        axisLabel: { show: false },
         splitLine: { show: false },
-        axisLine: { lineStyle: { color: 'rgba(200,200,200,0.4)' } },
-        axisTick: { lineStyle: { color: 'rgba(200,200,200,0.4)' } },
+        axisLine: { show: false },
+        axisTick: { show: false },
       },
 
       yAxis: yAxes,
@@ -669,10 +680,10 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   }, [isZoomed, handleResetZoom])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black overflow-hidden">
       {/* Map fills the space */}
-      <div className="relative flex-1 min-h-0">
-        <div ref={mapContainerRef} className="absolute inset-0" />
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <div ref={mapContainerRef} className="w-full h-full" />
 
         {/* Close button */}
         <button

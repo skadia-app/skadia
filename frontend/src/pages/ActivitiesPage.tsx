@@ -21,14 +21,24 @@ type SortDir = 'asc' | 'desc'
 
 /**
  * Erzeugt einen Cursor für ein bestimmtes Datum.
- * Der Cursor nutzt das Ende des Tages (23:59:59.999999999 UTC) und eine lexikographisch
- * hohe Fake-ID, damit alle Aktivitäten an und vor diesem Tag eingeschlossen werden.
- * Format: base64url(RFC3339Nano_timestamp + "|" + id)
+ * Format: base64url(RFC3339Nano_timestamp + "|" + uuid)
+ *
+ * DESC: Cursor = Ende des Tages + max-UUID → erste Seite beginnt mit Aktivitäten an/vor diesem Tag.
+ * ASC:  Cursor = Anfang des Tages + min-UUID → erste Seite beginnt mit Aktivitäten ab diesem Tag.
+ *
+ * Die UUID muss gültig sein (Typ uuid in PostgreSQL), daher max/min-UUID statt Fake-ID.
  */
-function buildCursorForDate(dateStr: string): string {
+function buildCursorForDate(dateStr: string, direction: SortDir): string {
   // dateStr ist "YYYY-MM-DD"
-  const isoEnd = dateStr + 'T23:59:59.999999999Z'
-  const raw = isoEnd + '|zzzzzzzzz'
+  const MAX_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+  const MIN_UUID = '00000000-0000-0000-0000-000000000000'
+
+  let raw: string
+  if (direction === 'desc') {
+    raw = dateStr + 'T23:59:59.999999999Z|' + MAX_UUID
+  } else {
+    raw = dateStr + 'T00:00:00Z|' + MIN_UUID
+  }
   return btoa(raw)
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
@@ -169,7 +179,7 @@ export default function ActivitiesPage() {
     setPageSize(size)
     // Datumssprung beibehalten beim Wechsel der Seitengröße
     if (jumpDate) {
-      const dateCursor = buildCursorForDate(jumpDate)
+      const dateCursor = buildCursorForDate(jumpDate, effectiveSortDir)
       if (size === 0) {
         // Wechsel zu Infinite
         setInfiniteInitialCursor(dateCursor)
@@ -245,7 +255,7 @@ export default function ActivitiesPage() {
   }
 
   function performDateJump(dateStr: string) {
-    const dateCursor = buildCursorForDate(dateStr)
+    const dateCursor = buildCursorForDate(dateStr, effectiveSortDir)
 
     if (isInfinite) {
       // Reset Infinite-Scroll mit neuem Startcursor
@@ -405,7 +415,7 @@ export default function ActivitiesPage() {
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
             {activities.map(activity => (
-              <ActivityRow key={activity.id} activity={activity} />
+              <ActivityRow key={activity.id} activity={activity} highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)} />
             ))}
           </tbody>
         </table>
@@ -481,7 +491,7 @@ export default function ActivitiesPage() {
   )
 }
 
-function ActivityRow({ activity }: { activity: Activity }) {
+function ActivityRow({ activity, highlighted }: { activity: Activity; highlighted?: boolean }) {
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
@@ -491,7 +501,7 @@ function ActivityRow({ activity }: { activity: Activity }) {
   return (
     <tr
       onClick={() => navigate(`/activities/${activity.id}`)}
-      className="hover:bg-neutral-50 dark:hover:bg-neutral-900/40 transition-colors cursor-pointer group"
+      className={`even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group${highlighted ? ' bg-orange-50 dark:bg-orange-900/20 even:bg-orange-50 dark:even:bg-orange-900/20' : ''}`}
     >
       <td className="px-4 py-3 text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-orange-500 transition-colors">
         {activity.title ?? (
