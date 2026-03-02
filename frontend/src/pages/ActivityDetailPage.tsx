@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity } from '@/api/activities'
 import type { Activity, StreamPoint, Sensor } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
@@ -108,6 +108,7 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
+  const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const mutation = useMutation({
@@ -115,6 +116,22 @@ function ActivityHeader({ activity }: { activity: Activity }) {
     onSuccess: (updated) => {
       queryClient.setQueryData(['activity', activity.id], updated)
       setEditing(false)
+    },
+  })
+
+  const reprocessMutation = useMutation({
+    mutationFn: () => reprocessActivity(activity.id),
+    onMutate: () => setReprocessState('loading'),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['activity', activity.id], updated)
+      queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
+      setReprocessState('success')
+      setTimeout(() => setReprocessState('idle'), 2000)
+    },
+    onError: () => {
+      setReprocessState('error')
+      setTimeout(() => setReprocessState('idle'), 3000)
     },
   })
 
@@ -176,6 +193,37 @@ function ActivityHeader({ activity }: { activity: Activity }) {
           )}
         </div>
       </div>
+
+      {/* Reprocess button */}
+      <button
+        onClick={() => reprocessMutation.mutate()}
+        disabled={reprocessState === 'loading'}
+        className="mt-1 flex items-center justify-center w-8 h-8 rounded-lg
+                   text-neutral-400 dark:text-neutral-500
+                   hover:bg-neutral-100 dark:hover:bg-neutral-800
+                   hover:text-neutral-600 dark:hover:text-neutral-300
+                   disabled:opacity-50 disabled:cursor-not-allowed
+                   transition-colors cursor-pointer"
+        title="Aktivität neu verarbeiten"
+      >
+        {reprocessState === 'loading' ? (
+          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
+          </svg>
+        ) : reprocessState === 'success' ? (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500">
+            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+          </svg>
+        ) : reprocessState === 'error' ? (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-500">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.451a.75.75 0 000-1.5H4.5a.75.75 0 00-.75.75v3.75a.75.75 0 001.5 0v-2.033a7 7 0 0011.712-3.138.75.75 0 00-1.449-.391zm-10.624-3.85a5.5 5.5 0 019.201-2.465l.312.31H11.75a.75.75 0 000 1.5h3.75a.75.75 0 00.75-.75V2.419a.75.75 0 00-1.5 0v2.034A7 7 0 003.038 7.59a.75.75 0 001.449.392z" clipRule="evenodd" />
+          </svg>
+        )}
+      </button>
     </div>
   )
 }

@@ -30,3 +30,28 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
 export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility'>>): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
+
+export async function reprocessActivity(id: string): Promise<Activity> {
+  return apiClient<Activity>(`/activities/${id}/recompute`, { method: 'POST' })
+}
+
+export interface ReprocessFilter {
+  sport_types?: string[]
+  format?: string
+  before?: string
+  after?: string
+  ids?: string[]
+}
+
+export interface ReprocessResult {
+  processed: number
+  errors: number
+  total: number
+}
+
+export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<ReprocessResult> {
+  return apiClient<ReprocessResult>('/activities/recompute-all', {
+    method: 'POST',
+    body: filter ?? undefined,
+  })
+}

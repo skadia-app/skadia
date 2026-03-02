@@ -544,12 +544,12 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 		argIdx++
 	}
 	if update.SportType != nil {
-		sets = append(sets, fmt.Sprintf("sport_type = $%d", argIdx))
+		sets = append(sets, fmt.Sprintf("sport_type = $%d, sport_type_is_manual = true", argIdx))
 		args = append(args, *update.SportType)
 		argIdx++
 	}
 	if update.SubType != nil {
-		sets = append(sets, fmt.Sprintf("sub_type = $%d", argIdx))
+		sets = append(sets, fmt.Sprintf("sub_type = $%d, sport_type_is_manual = true", argIdx))
 		args = append(args, *update.SubType)
 		argIdx++
 	}
@@ -755,6 +755,266 @@ func sensorTypeLabel(deviceType string) string {
 		return label
 	}
 	return deviceType
+}
+
+// ReprocessInfo holds the data needed to reprocess an activity from its original file.
+type ReprocessInfo struct {
+	FileKey            string
+	FileFormat         string
+	SportTypeIsManual  bool
+	OriginalFilename   string
+}
+
+// GetActivityReprocessInfo loads the fields needed to re-parse an activity from S3.
+func (db *DB) GetActivityReprocessInfo(ctx context.Context, activityID string) (*ReprocessInfo, error) {
+	var info ReprocessInfo
+	var key, format, filename *string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT original_file_key, original_file_format, COALESCE(sport_type_is_manual, false), original_filename
+		 FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&key, &format, &info.SportTypeIsManual, &filename)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get reprocess info: %w", err)
+	}
+	if key != nil {
+		info.FileKey = *key
+	}
+	if format != nil {
+		info.FileFormat = *format
+	}
+	if filename != nil {
+		info.OriginalFilename = *filename
+	}
+	return &info, nil
+}
+
+// DeleteStreams removes all stream points for an activity.
+func (db *DB) DeleteStreams(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_streams WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete streams: %w", err)
+	}
+	return nil
+}
+
+// DeleteTrack removes the track geometry for an activity.
+func (db *DB) DeleteTrack(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_tracks WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete track: %w", err)
+	}
+	return nil
+}
+
+// DeleteSensors removes all sensor records for an activity.
+func (db *DB) DeleteSensors(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_sensors WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete sensors: %w", err)
+	}
+	return nil
+}
+
+// UpdateActivityMetrics updates all parser-derived fields on an activity.
+// If skipSportType is true, sport_type and sub_type are NOT overwritten (manual override).
+func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data *model.ActivityData, skipSportType bool) error {
+	args := []any{activityID} // $1
+	argIdx := 2
+
+	idx := func() string {
+		s := fmt.Sprintf("$%d", argIdx)
+		argIdx++
+		return s
+	}
+
+	var sets []string
+
+	if !skipSportType {
+		sets = append(sets, fmt.Sprintf("sport_type = %s", idx()))
+		args = append(args, data.SportType)
+		sets = append(sets, fmt.Sprintf("sub_type = %s", idx()))
+		args = append(args, nilIfEmpty(data.SubType))
+		sets = append(sets, fmt.Sprintf("fit_sport_id = %s", idx()))
+		args = append(args, nilIfZeroI16(data.FitSportID))
+		sets = append(sets, fmt.Sprintf("fit_sub_sport_id = %s", idx()))
+		args = append(args, nilIfZeroI16(data.FitSubSportID))
+	}
+
+	// Time fields
+	sets = append(sets, fmt.Sprintf("started_at = %s", idx()))
+	args = append(args, data.StartedAt)
+	sets = append(sets, fmt.Sprintf("ended_at = %s", idx()))
+	args = append(args, nilIfZeroTime(data.EndedAt))
+	sets = append(sets, fmt.Sprintf("elapsed_time_s = %s", idx()))
+	args = append(args, nilIfZeroInt(data.ElapsedTimeS))
+	sets = append(sets, fmt.Sprintf("moving_time_s = %s", idx()))
+	args = append(args, nilIfZeroInt(data.MovingTimeS))
+
+	// Distance / elevation
+	sets = append(sets, fmt.Sprintf("distance_m = %s", idx()))
+	args = append(args, nilIfZeroF64(data.DistanceM))
+	sets = append(sets, fmt.Sprintf("elevation_gain_m = %s", idx()))
+	args = append(args, nilIfZeroF64(data.ElevationGainM))
+	sets = append(sets, fmt.Sprintf("elevation_loss_m = %s", idx()))
+	args = append(args, nilIfZeroF64(data.ElevationLossM))
+	sets = append(sets, fmt.Sprintf("max_elevation_m = %s", idx()))
+	args = append(args, nilIfZeroF64(data.MaxElevationM))
+	sets = append(sets, fmt.Sprintf("min_elevation_m = %s", idx()))
+	args = append(args, nilIfZeroF64(data.MinElevationM))
+
+	// Speed
+	sets = append(sets, fmt.Sprintf("avg_speed_ms = %s", idx()))
+	args = append(args, nilIfZeroF64(data.AvgSpeedMS))
+	sets = append(sets, fmt.Sprintf("max_speed_ms = %s", idx()))
+	args = append(args, nilIfZeroF64(data.MaxSpeedMS))
+
+	// Heart rate
+	sets = append(sets, fmt.Sprintf("avg_heart_rate = %s", idx()))
+	args = append(args, nilIfZeroF64(data.AvgHeartRate))
+	sets = append(sets, fmt.Sprintf("max_heart_rate = %s", idx()))
+	args = append(args, nilIfZeroInt(data.MaxHeartRate))
+
+	// Power
+	sets = append(sets, fmt.Sprintf("avg_power_w = %s", idx()))
+	args = append(args, nilIfZeroF64(data.AvgPowerW))
+	sets = append(sets, fmt.Sprintf("max_power_w = %s", idx()))
+	args = append(args, nilIfZeroInt(data.MaxPowerW))
+	sets = append(sets, fmt.Sprintf("normalized_power_w = %s", idx()))
+	args = append(args, nilIfZeroF64(data.NormalizedPowerW))
+
+	// Cadence / temperature
+	sets = append(sets, fmt.Sprintf("avg_cadence = %s", idx()))
+	args = append(args, nilIfZeroF64(data.AvgCadence))
+	sets = append(sets, fmt.Sprintf("avg_temperature_c = %s", idx()))
+	args = append(args, nilIfZeroF64(data.AvgTemperatureC))
+
+	// Training load
+	sets = append(sets, fmt.Sprintf("tss = %s", idx()))
+	args = append(args, nilIfZeroF64(data.TSS))
+	sets = append(sets, fmt.Sprintf("trimp = %s", idx()))
+	args = append(args, nilIfZeroF64(data.TRIMP))
+	sets = append(sets, fmt.Sprintf("is_indoor = %s", idx()))
+	args = append(args, data.IsIndoor)
+
+	// Location (start)
+	latIdx := idx()
+	lngIdx := idx()
+	sets = append(sets, fmt.Sprintf(
+		"start_location = CASE WHEN %s::float8 != 0 THEN ST_SetSRID(ST_MakePoint(%s::float8, %s::float8), 4326) ELSE NULL END",
+		latIdx, lngIdx, latIdx))
+	args = append(args, data.StartLat, data.StartLng)
+
+	// Location (end)
+	latIdx = idx()
+	lngIdx = idx()
+	sets = append(sets, fmt.Sprintf(
+		"end_location = CASE WHEN %s::float8 != 0 THEN ST_SetSRID(ST_MakePoint(%s::float8, %s::float8), 4326) ELSE NULL END",
+		latIdx, lngIdx, latIdx))
+	args = append(args, data.EndLat, data.EndLng)
+
+	// Source
+	sets = append(sets, fmt.Sprintf("source = %s", idx()))
+	args = append(args, nilIfEmpty(data.Source))
+	sets = append(sets, fmt.Sprintf("source_device = %s", idx()))
+	args = append(args, nilIfEmpty(data.SourceDevice))
+
+	// Always reset enrichment and timestamp
+	sets = append(sets, "enrichment_status = 'pending'", "updated_at = NOW()")
+
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
+	_, err := db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update activity metrics: %w", err)
+	}
+	return nil
+}
+
+// ReprocessFilter defines optional filters for batch reprocessing.
+type ReprocessFilter struct {
+	SportTypes []string   `json:"sport_types,omitempty"`
+	Format     string     `json:"format,omitempty"`
+	Before     *time.Time `json:"before,omitempty"`
+	After      *time.Time `json:"after,omitempty"`
+	IDs        []string   `json:"ids,omitempty"`
+}
+
+// ListActivityIDsFiltered returns activity IDs matching the given filter criteria.
+func (db *DB) ListActivityIDsFiltered(ctx context.Context, userID string, filter *ReprocessFilter) ([]string, error) {
+	if filter == nil {
+		return db.ListActivityIDsForUser(ctx, userID)
+	}
+
+	// If explicit IDs are given, use only those (scoped to user).
+	if len(filter.IDs) > 0 {
+		rows, err := db.Pool.Query(ctx,
+			`SELECT id FROM activities WHERE user_id = $1 AND id = ANY($2) ORDER BY started_at DESC`,
+			userID, filter.IDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("list filtered ids: %w", err)
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return nil, fmt.Errorf("scan id: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		return ids, nil
+	}
+
+	// Build dynamic WHERE clause.
+	where := []string{"user_id = $1"}
+	args := []any{userID}
+	argIdx := 2
+
+	if len(filter.SportTypes) > 0 {
+		where = append(where, fmt.Sprintf("sport_type = ANY($%d)", argIdx))
+		args = append(args, filter.SportTypes)
+		argIdx++
+	}
+	if filter.Format != "" {
+		where = append(where, fmt.Sprintf("original_file_format = $%d", argIdx))
+		args = append(args, filter.Format)
+		argIdx++
+	}
+	if filter.Before != nil {
+		where = append(where, fmt.Sprintf("started_at < $%d", argIdx))
+		args = append(args, *filter.Before)
+		argIdx++
+	}
+	if filter.After != nil {
+		where = append(where, fmt.Sprintf("started_at >= $%d", argIdx))
+		args = append(args, *filter.After)
+		argIdx++
+	}
+
+	query := fmt.Sprintf(
+		`SELECT id FROM activities WHERE %s ORDER BY started_at DESC`,
+		strings.Join(where, " AND "),
+	)
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list filtered ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // Helper functions

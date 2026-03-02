@@ -1,17 +1,28 @@
 package handler
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/fitimport"
+	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
-// RecomputeActivity recomputes derived fields (currently moving_time_s) for a
-// single activity from its raw stream data and writes the result back to the DB.
+// RecomputeActivity re-downloads the original file from S3, parses it again,
+// and replaces all derived data (streams, track, sensors, metrics). User-defined
+// fields (title, description, tags, visibility) are preserved.
 //
 // POST /api/v1/activities/{id}/recompute
 func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
@@ -23,60 +34,37 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 
 	id := chi.URLParam(r, "id")
 
-	// Load the activity to verify ownership and get the sport type.
+	// Verify ownership.
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
-		slog.Error("recompute: get activity failed", "id", id, "error", err)
+		slog.Error("reprocess: get activity failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
-	if activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
+	if activity == nil || activity.UserID != userID {
 		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
-	// Load stream points for the computation.
-	streams, err := h.DB.GetStreamPoints(r.Context(), id)
-	if err != nil {
-		slog.Error("recompute: get stream points failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load stream data", r.URL.Path)
+	if err := h.reprocessActivity(r.Context(), id, userID); err != nil {
+		slog.Error("reprocess: failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	// Recompute moving time.
-	movingTimeS := activityutil.CalcMovingTime(streams, activity.SportType)
-
-	// Persist the updated value.
-	if err := h.DB.UpdateMovingTime(r.Context(), id, userID, movingTimeS); err != nil {
-		slog.Error("recompute: update moving time failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
-		return
-	}
-
-	slog.Info("recompute: activity updated",
-		"id", id,
-		"sport", activity.SportType,
-		"streams", len(streams),
-		"moving_time_s", movingTimeS,
-	)
-
-	// Return the full updated activity.
+	// Return updated activity.
 	updated, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil || updated == nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
 		return
 	}
 
+	slog.Info("reprocess: activity updated", "id", id)
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// RecomputeAllActivities recomputes derived fields for every activity owned by
-// the authenticated user. Errors on individual activities are logged but do not
-// abort the overall run.
+// RecomputeAllActivities reprocesses activities for the authenticated user.
+// Accepts optional filter criteria in the request body.
 //
 // POST /api/v1/activities/recompute-all
 func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request) {
@@ -86,10 +74,20 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Fetch all activity IDs for this user.
-	ids, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	// Parse optional filter from body.
+	var filter *database.ReprocessFilter
+	if r.Body != nil && r.ContentLength > 0 {
+		var f database.ReprocessFilter
+		if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+			writeError(w, http.StatusBadRequest, "Bad Request", "invalid filter JSON", r.URL.Path)
+			return
+		}
+		filter = &f
+	}
+
+	ids, err := h.DB.ListActivityIDsFiltered(r.Context(), userID, filter)
 	if err != nil {
-		slog.Error("recompute-all: list activity ids failed", "user_id", userID, "error", err)
+		slog.Error("reprocess-all: list ids failed", "user_id", userID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
@@ -97,35 +95,17 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	var processed, errors int
 
 	for _, id := range ids {
-		// Load the activity for its sport type.
-		activity, err := h.DB.GetActivity(r.Context(), id)
-		if err != nil || activity == nil {
-			slog.Error("recompute-all: get activity failed", "id", id, "error", err)
+		if err := h.reprocessActivity(r.Context(), id, userID); err != nil {
+			slog.Error("reprocess-all: activity failed", "id", id, "error", err)
 			errors++
 			continue
 		}
-
-		// Load stream points.
-		streams, err := h.DB.GetStreamPoints(r.Context(), id)
-		if err != nil {
-			slog.Error("recompute-all: get stream points failed", "id", id, "error", err)
-			errors++
-			continue
-		}
-
-		// Recompute and persist.
-		movingTimeS := activityutil.CalcMovingTime(streams, activity.SportType)
-		if err := h.DB.UpdateMovingTime(r.Context(), id, userID, movingTimeS); err != nil {
-			slog.Error("recompute-all: update moving time failed", "id", id, "error", err)
-			errors++
-			continue
-		}
-
 		processed++
 	}
 
-	slog.Info("recompute-all: finished",
+	slog.Info("reprocess-all: finished",
 		"user_id", userID,
+		"total", len(ids),
 		"processed", processed,
 		"errors", errors,
 	)
@@ -133,5 +113,92 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]int{
 		"processed": processed,
 		"errors":    errors,
+		"total":     len(ids),
 	})
+}
+
+// reprocessActivity is the shared core logic: download → parse → delete old → insert new.
+func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string) error {
+	// 1. Load reprocess info (S3 key, format, manual sport flag).
+	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
+	if err != nil {
+		return fmt.Errorf("load reprocess info: %w", err)
+	}
+	if info == nil || info.FileKey == "" {
+		return fmt.Errorf("no original file stored for activity %s", activityID)
+	}
+
+	// 2. Download original file from Garage.
+	fileBytes, err := h.Storage.Download(ctx, info.FileKey)
+	if err != nil {
+		return fmt.Errorf("download original file: %w", err)
+	}
+
+	// 3. Re-parse the file.
+	var data *model.ActivityData
+	switch info.FileFormat {
+	case "fit":
+		data, err = fitimport.ParseFIT(bytes.NewReader(fileBytes), info.OriginalFilename)
+	case "gpx":
+		data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), info.OriginalFilename)
+	case "tcx":
+		data, err = tcximport.ParseTCX(bytes.NewReader(fileBytes), info.OriginalFilename)
+	default:
+		return fmt.Errorf("unknown format %q for activity %s", info.FileFormat, activityID)
+	}
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", info.FileFormat, err)
+	}
+
+	// 4. Delete old derived data.
+	if err := h.DB.DeleteStreams(ctx, activityID); err != nil {
+		return fmt.Errorf("delete streams: %w", err)
+	}
+	if err := h.DB.DeleteTrack(ctx, activityID); err != nil {
+		return fmt.Errorf("delete track: %w", err)
+	}
+	if err := h.DB.DeleteSensors(ctx, activityID); err != nil {
+		return fmt.Errorf("delete sensors: %w", err)
+	}
+
+	// 5. Update metrics (preserve sport_type if manually set).
+	if err := h.DB.UpdateActivityMetrics(ctx, activityID, data, info.SportTypeIsManual); err != nil {
+		return fmt.Errorf("update metrics: %w", err)
+	}
+
+	// 6. Insert new derived data.
+	if err := h.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
+		return fmt.Errorf("insert streams: %w", err)
+	}
+	if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
+		return fmt.Errorf("insert track: %w", err)
+	}
+	if err := h.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
+		return fmt.Errorf("insert sensors: %w", err)
+	}
+
+	// 7. Rewrite sidecar metadata.
+	metaKey := info.FileKey + ".meta"
+	meta := sidecar.GenerateMeta(activityID, data)
+	metaBytes, mErr := meta.Marshal()
+	if mErr == nil {
+		if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
+			slog.Error("reprocess: meta upload failed", "id", activityID, "error", err)
+		}
+	}
+
+	// 8. Publish NATS event (triggers PMC recalculation).
+	if h.Events != nil {
+		evt := event.ActivityUploadedEvent{
+			ActivityID: activityID,
+			UserID:     userID,
+			SportType:  data.SportType,
+			HasGPS:     data.HasGPS,
+		}
+		if err := h.Events.PublishActivityUploaded(evt); err != nil {
+			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
+		}
+	}
+
+	return nil
 }
