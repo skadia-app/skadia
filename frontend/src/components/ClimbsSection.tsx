@@ -91,8 +91,8 @@ export default function ClimbsSection({ activityId }: Props) {
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">#</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Laenge</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Hoehengewinn</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Länge</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Höhengewinn</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Steigung</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Max. Steigung</th>
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Kategorie</th>

@@ -23,17 +23,8 @@ const categoryConfigs: Record<string, CategoryConfig> = {
       </svg>
     ),
   },
-  peak: {
-    label: 'Gipfel',
-    order: 1,
-    icon: (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 20l6.5-11L13 15l4-6 4 11H3z" />
-      </svg>
-    ),
-  },
   pass: {
-    label: 'Paesse',
+    label: 'Pässe',
     order: 2,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -52,7 +43,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   still_water: {
-    label: 'Gewaesser',
+    label: 'Gewässer',
     order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -61,7 +52,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   flowing_water: {
-    label: 'Gewaesser',
+    label: 'Gewässer',
     order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -70,7 +61,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   water: {
-    label: 'Gewaesser',
+    label: 'Gewässer',
     order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -79,7 +70,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   forest: {
-    label: 'Waelder',
+    label: 'Wälder',
     order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
