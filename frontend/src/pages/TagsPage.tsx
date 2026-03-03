@@ -783,13 +783,29 @@ function TagForm({
     setTextColor((0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff')
   }
 
+  function openColorPicker(triggerEl: HTMLElement) {
+    if (colorPickerRef.current) {
+      const rect = triggerEl.getBoundingClientRect()
+      const pickerW = 220
+      const pickerH = 250
+      let left = rect.left - pickerW - 4
+      if (left < 8) left = rect.right + 4
+      let top = rect.top
+      if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
+      if (top < 8) top = 8
+      colorPickerRef.current.style.top = `${top}px`
+      colorPickerRef.current.style.left = `${left}px`
+    }
+    colorPickerRef.current?.click()
+  }
+
   const colorPickerPortal = createPortal(
     <input
       ref={colorPickerRef}
       type="color"
       value={color}
       onChange={e => selectCustomColor(e.target.value)}
-      style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+      style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
       tabIndex={-1}
     />,
     document.body,
@@ -821,7 +837,7 @@ function TagForm({
           ))}
           <button
             type="button"
-            onClick={() => colorPickerRef.current?.click()}
+            onClick={e => openColorPicker(e.currentTarget)}
             className="w-6 h-6 rounded-full border-2 cursor-pointer transition-all"
             style={{ backgroundColor: color, borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', transform: !colorPalette.some(c => c.color === color) ? 'scale(1.2)' : 'scale(1)' }}
             title="Eigene Farbe (Farbwähler)"
@@ -884,7 +900,7 @@ function TagForm({
           {/* Pipette / vollständiger Color Picker */}
           <button
             type="button"
-            onClick={() => colorPickerRef.current?.click()}
+            onClick={e => openColorPicker(e.currentTarget)}
             className="w-6 h-6 rounded-full border-2 cursor-pointer"
             style={{ borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', backgroundColor: color }}
             title="Eigene Farbe (Farbwähler)"

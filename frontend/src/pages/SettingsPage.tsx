@@ -90,7 +90,21 @@ export default function SettingsPage() {
           {/* Custom color picker */}
           <button
             title="Benutzerdefinierte Farbe"
-            onClick={() => colorInputRef.current?.click()}
+            onClick={e => {
+              if (colorInputRef.current) {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const pickerW = 220
+                const pickerH = 250
+                let left = rect.left - pickerW - 4
+                if (left < 8) left = rect.right + 4
+                let top = rect.top
+                if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
+                if (top < 8) top = 8
+                colorInputRef.current.style.top = `${top}px`
+                colorInputRef.current.style.left = `${left}px`
+              }
+              colorInputRef.current?.click()
+            }}
             className="relative w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none overflow-hidden"
             style={{
               background: isCustomAccent
@@ -113,7 +127,7 @@ export default function SettingsPage() {
               type="color"
               value={isCustomAccent ? accent.shade500 : '#6366f1'}
               onChange={e => setAccent(deriveAccentEntry(e.target.value))}
-              style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
               tabIndex={-1}
             />,
             document.body,

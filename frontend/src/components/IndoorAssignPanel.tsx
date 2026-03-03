@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchActivities } from '@/api/activities'
 import { updateActivity } from '@/api/activities'
@@ -29,6 +30,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   const [showNewLocation, setShowNewLocation] = useState(false)
   const [newLocName, setNewLocName] = useState('')
   const [newLocColor, setNewLocColor] = useState('#f97316')
+  const colorInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch indoor activities (no GPS)
   const { data: activitiesData, isLoading } = useQuery({
@@ -299,13 +301,38 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                   style={{ backgroundColor: c, borderColor: newLocColor === c ? '#f97316' : 'transparent', transform: newLocColor === c ? 'scale(1.15)' : 'scale(1)' }}
                 />
               ))}
-              <input
-                type="color"
-                value={newLocColor}
-                onChange={(e) => setNewLocColor(e.target.value)}
-                className="w-5 h-5 rounded-full cursor-pointer border-0"
+              <button
+                type="button"
+                onClick={e => {
+                  if (colorInputRef.current) {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const pickerW = 220
+                    const pickerH = 250
+                    let left = rect.left - pickerW - 4
+                    if (left < 8) left = rect.right + 4
+                    let top = rect.top
+                    if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
+                    if (top < 8) top = 8
+                    colorInputRef.current.style.top = `${top}px`
+                    colorInputRef.current.style.left = `${left}px`
+                  }
+                  colorInputRef.current?.click()
+                }}
+                className="w-5 h-5 rounded-full cursor-pointer border-0 overflow-hidden"
+                style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}
                 title="Eigene Farbe"
               />
+              {createPortal(
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  value={newLocColor}
+                  onChange={(e) => setNewLocColor(e.target.value)}
+                  style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                  tabIndex={-1}
+                />,
+                document.body,
+              )}
             </div>
             <div className="flex gap-2">
               <button
