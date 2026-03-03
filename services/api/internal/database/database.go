@@ -832,13 +832,13 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 	var sensors []model.SensorResponse
 	for rows.Next() {
 		var s model.SensorResponse
-		var primaryType *string
+		var primaryType, manufacturer, productName, batteryStatus *string
 		var allTypes []string
 		var swVersion *float64
 
 		if err := rows.Scan(
 			&s.ID, &s.DeviceIndex, &s.SourceType, &primaryType, &allTypes,
-			&s.Manufacturer, &s.ProductName, &s.SerialNumber, &swVersion, &s.BatteryStatus,
+			&manufacturer, &productName, &s.SerialNumber, &swVersion, &batteryStatus,
 		); err != nil {
 			return nil, fmt.Errorf("scan sensor: %w", err)
 		}
@@ -846,6 +846,15 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 		if primaryType != nil {
 			s.PrimaryType = *primaryType
 			s.PrimaryTypeLabel = sensorTypeLabel(s.PrimaryType)
+		}
+		if manufacturer != nil {
+			s.Manufacturer = *manufacturer
+		}
+		if productName != nil {
+			s.ProductName = *productName
+		}
+		if batteryStatus != nil {
+			s.BatteryStatus = *batteryStatus
 		}
 		s.AllTypes = allTypes
 		if s.AllTypes == nil {
