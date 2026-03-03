@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getOptionKey, getAllSportKeys } from '@/lib/sportOptions'
 import { fetchGear } from '@/api/gear'
+import type { SportType } from '@/api/types'
 import { sportLabel } from '@/lib/utils'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
@@ -184,7 +185,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.sportTypes.size > 0 && filters.sportTypes.size < ALL_SPORT_KEYS.length) {
     const labels = [...filters.sportTypes].map(k => {
       const [sport, sub] = k.split(':')
-      return sportLabel(sport, sub || undefined)
+      return sportLabel(sport as SportType, sub || undefined)
     })
     const display = labels.length <= 3 ? labels.join(', ') : `${labels.length} Sportarten`
     chips.push({ label: display, onRemove: () => onChange({ ...filters, sportTypes: new Set<string>() }) })

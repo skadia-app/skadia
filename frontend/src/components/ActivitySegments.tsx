@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchActivitySegments, type SegmentEffort } from '@/api/segments'
+import { fetchActivitySegments } from '@/api/segments'
 
 interface Props {
   activityId: string

@@ -316,6 +316,7 @@ export interface AutomationRule {
   is_active: boolean
   priority: number
   conditions: RuleCondition[]
+  conditions_logic?: 'and' | 'or' | null
   // Optional group-based structure — multiple groups are AND-ed; within each group logic applies
   condition_groups?: RuleConditionGroup[] | null
   actions: RuleAction[]

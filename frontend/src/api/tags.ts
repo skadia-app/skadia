@@ -69,6 +69,7 @@ export async function createTag(data: {
   color?: string
   text_color?: string
   description?: string
+  is_auto?: boolean
   // Prefer condition_groups; falls back to flat conditions+logic if groups absent
   condition_groups?: TagConditionGroup[]
   conditions?: TagCondition[]
@@ -91,6 +92,7 @@ export async function updateTag(id: string, data: {
   color?: string
   text_color?: string
   description?: string
+  is_auto?: boolean
   condition_groups?: TagConditionGroup[]
   conditions?: TagCondition[]
   conditions_logic?: 'and' | 'or'

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { MapFilterState, SportColorConfig } from '@/pages/MapPage'
+import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 

@@ -10,7 +10,7 @@ import {
   formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
 } from '@/lib/utils'
 import { SportIcon } from '@/components/SportIcon'
-import ActivityFilters, { EMPTY_FILTERS, paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
+import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
 
 const PAGE_SIZES = [20, 50, 100] as const
@@ -67,7 +67,7 @@ export default function ActivitiesPage() {
 
   // Search with debounce
   const [searchInput, setSearchInput] = useState(filters.search)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Sort state: null = unsorted (default: started_at DESC)
   const [sortBy, setSortBy] = useState<SortColumn | null>(null)

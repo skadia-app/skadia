@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, type Segment, type LeaderboardEntry } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment } from '@/api/segments'
 import SegmentCreationPanel from '@/components/SegmentCreationPanel'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {

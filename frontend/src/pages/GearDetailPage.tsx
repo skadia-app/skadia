@@ -19,7 +19,6 @@ import type {
   ComponentAssignment,
   GearServiceEvent, ComponentTypePreset,
   BikeSetup, GearDocument,
-  GearCostSummary,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
