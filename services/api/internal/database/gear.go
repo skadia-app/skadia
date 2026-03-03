@@ -813,9 +813,27 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 
 // --- Automation Rules ---
 
+const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at`
+
+func scanRule(row pgx.Row) (*model.AutomationRule, error) {
+	var r model.AutomationRule
+	err := row.Scan(
+		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
+		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
+		&r.Actions, &r.TimesApplied, &r.CreatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationRule, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, user_id, name, is_active, priority, conditions, actions, times_applied, created_at
+		`SELECT `+ruleSelectCols+`
 		 FROM automation_rules WHERE user_id = $1 ORDER BY priority, name`, userID,
 	)
 	if err != nil {
@@ -828,7 +846,8 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 		var r model.AutomationRule
 		if err := rows.Scan(
 			&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
-			&r.Conditions, &r.Actions, &r.TimesApplied, &r.CreatedAt,
+			&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
+			&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
@@ -841,15 +860,20 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 }
 
 func (db *DB) CreateRule(ctx context.Context, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
+	condLogic := create.ConditionsLogic
+	if condLogic == "" {
+		condLogic = "and"
+	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO automation_rules (user_id, name, priority, conditions, actions)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, user_id, name, is_active, priority, conditions, actions, times_applied, created_at`,
-		userID, create.Name, create.Priority, create.Conditions, create.Actions,
+		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING `+ruleSelectCols,
+		userID, create.Name, create.Priority, create.Conditions, condLogic, create.ConditionGroups, create.Actions,
 	).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
-		&r.Conditions, &r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
+		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
@@ -882,6 +906,16 @@ func (db *DB) UpdateRule(ctx context.Context, id string, update *model.Automatio
 		args = append(args, *update.Conditions)
 		argIdx++
 	}
+	if update.ConditionsLogic != nil {
+		sets = append(sets, fmt.Sprintf("conditions_logic = $%d", argIdx))
+		args = append(args, *update.ConditionsLogic)
+		argIdx++
+	}
+	if update.ConditionGroups != nil {
+		sets = append(sets, fmt.Sprintf("condition_groups = $%d", argIdx))
+		args = append(args, *update.ConditionGroups)
+		argIdx++
+	}
 	if update.Actions != nil {
 		sets = append(sets, fmt.Sprintf("actions = $%d", argIdx))
 		args = append(args, *update.Actions)
@@ -890,32 +924,27 @@ func (db *DB) UpdateRule(ctx context.Context, id string, update *model.Automatio
 
 	if len(sets) == 0 {
 		// No changes
-		var r model.AutomationRule
-		err := db.Pool.QueryRow(ctx,
-			`SELECT id, user_id, name, is_active, priority, conditions, actions, times_applied, created_at
-			 FROM automation_rules WHERE id = $1`, id,
-		).Scan(&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
-			&r.Conditions, &r.Actions, &r.TimesApplied, &r.CreatedAt)
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
+		r, err := scanRule(db.Pool.QueryRow(ctx,
+			`SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1`, id,
+		))
 		if err != nil {
 			return nil, fmt.Errorf("get rule: %w", err)
 		}
-		return &r, nil
+		return r, nil
 	}
 
 	args = append(args, id)
 	query := fmt.Sprintf(
 		`UPDATE automation_rules SET %s WHERE id = $%d
-		 RETURNING id, user_id, name, is_active, priority, conditions, actions, times_applied, created_at`,
+		 RETURNING `+ruleSelectCols,
 		strings.Join(sets, ", "), argIdx,
 	)
 
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
-		&r.Conditions, &r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
+		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
