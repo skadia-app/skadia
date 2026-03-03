@@ -7,7 +7,8 @@ import { fetchActivities } from '@/api/activities'
 import type { Activity, Gear, MaintenanceAlert } from '@/api/types'
 import { fetchGear, fetchMaintenanceAlerts } from '@/api/gear'
 import { SportIcon } from '@/components/SportIcon'
-import { sportLabel, sportColor, formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
+import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
+import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
 import PMCChart from '@/components/PMCChart'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -35,6 +36,13 @@ export default function DashboardPage() {
     retry: 1,
   })
 
+  const weekStart = startOfWeekISO()
+  const { data: weekActivitiesData } = useQuery({
+    queryKey: ['activities-this-week', weekStart],
+    queryFn: () => fetchActivities(undefined, 50, undefined, undefined, { dateFrom: weekStart }),
+    retry: 1,
+  })
+
   const { data: gearList } = useQuery({
     queryKey: ['gear-active'],
     queryFn: () => fetchGear('active'),
@@ -53,16 +61,15 @@ export default function DashboardPage() {
 
   // ── This Week Stats ────────────────────────────────────────────────────────
 
-  const weekStart = startOfWeekISO()
+  const weekActivities: Activity[] = weekActivitiesData?.activities ?? []
   const weekStats = useMemo(() => {
-    const thisWeek = activities.filter(a => a.started_at.split('T')[0] >= weekStart)
     return {
-      count: thisWeek.length,
-      distance: thisWeek.reduce((sum, a) => sum + (a.distance_m ?? 0), 0),
-      duration: thisWeek.reduce((sum, a) => sum + (a.moving_time_s ?? a.elapsed_time_s ?? 0), 0),
-      elevation: thisWeek.reduce((sum, a) => sum + (a.elevation_gain_m ?? 0), 0),
+      count: weekActivities.length,
+      distance: weekActivities.reduce((sum, a) => sum + (a.distance_m ?? 0), 0),
+      duration: weekActivities.reduce((sum, a) => sum + (a.moving_time_s ?? a.elapsed_time_s ?? 0), 0),
+      elevation: weekActivities.reduce((sum, a) => sum + (a.elevation_gain_m ?? 0), 0),
     }
-  }, [activities, weekStart])
+  }, [weekActivities])
 
   // ── Gear with Alerts ───────────────────────────────────────────────────────
 
