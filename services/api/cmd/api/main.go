@@ -162,6 +162,7 @@ func main() {
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
+			r.Get("/activities/sport-type-stats", h.GetSportTypeStats)
 			r.Get("/activities", h.ListActivities)
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)

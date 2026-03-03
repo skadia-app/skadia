@@ -1,7 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isToday, isSameDay, getISOWeek } from 'date-fns'
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  addWeeks,
+  subWeeks,
+  isToday,
+  getISOWeek,
+  endOfMonth,
+  eachDayOfInterval,
+  getDay,
+} from 'date-fns'
 import { de } from 'date-fns/locale'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -13,15 +24,17 @@ import { fetchPMC } from '@/api/stats'
 import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
-import { SportIcon } from '@/components/SportIcon'
 import { formatDuration, formatDistance } from '@/lib/utils'
 
 echarts.use([HeatmapChart, CalendarComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
 type WeekCount = 4 | 8 | 12
 type ViewTab = 'weeks' | 'year'
+type YearViewMode = 'calendar' | 'heatmap'
 
 const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+// Short day headers for month grid (Mon-first, 7 columns)
+const MONTH_DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 const MAX_CARDS_PER_CELL = 3
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,6 +60,9 @@ export default function CalendarPage() {
   const navigate = useNavigate()
   const [weekCount, setWeekCount] = useState<WeekCount>(8)
   const [tab, setTab] = useState<ViewTab>('weeks')
+  const [yearViewMode, setYearViewMode] = useState<YearViewMode>('calendar')
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear())
+
   // anchorDate = the Monday of the "most recent" week shown.
   // We start with "this week's Monday" so the current week is visible.
   const [anchorDate, setAnchorDate] = useState<Date>(() =>
@@ -86,9 +102,9 @@ export default function CalendarPage() {
     return map
   }, [activities])
 
-  // ── Fetch Year Activities (for Heatmap) ───────────────────────────────────
-  const yearStart = `${new Date().getFullYear()}-01-01`
-  const yearEnd = `${new Date().getFullYear()}-12-31`
+  // ── Fetch Year Activities (for Calendar + Heatmap) ────────────────────────
+  const yearStart = `${selectedYear}-01-01`
+  const yearEnd = `${selectedYear}-12-31`
 
   const { data: yearActivitiesData } = useQuery({
     queryKey: ['activities-year', yearStart, yearEnd],
@@ -198,6 +214,14 @@ export default function CalendarPage() {
     setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))
   }
 
+  function goPrevYear() {
+    setSelectedYear((y) => y - 1)
+  }
+
+  function goNextYear() {
+    setSelectedYear((y) => y + 1)
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
@@ -207,7 +231,7 @@ export default function CalendarPage() {
           Kalender
         </h1>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Tab Toggle */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
@@ -277,6 +301,55 @@ export default function CalendarPage() {
               </div>
             </>
           )}
+
+          {tab === 'year' && (
+            <>
+              {/* Year view mode toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+                <button
+                  onClick={() => setYearViewMode('calendar')}
+                  className={
+                    yearViewMode === 'calendar'
+                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  }
+                >
+                  Kalender
+                </button>
+                <button
+                  onClick={() => setYearViewMode('heatmap')}
+                  className={
+                    yearViewMode === 'heatmap'
+                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  }
+                >
+                  TSS-Heatmap
+                </button>
+              </div>
+
+              {/* Year navigation */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={goPrevYear}
+                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
+                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  Zurück
+                </button>
+                <span className="px-2.5 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 min-w-[3.5rem] text-center">
+                  {selectedYear}
+                </span>
+                <button
+                  onClick={goNextYear}
+                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
+                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  Vor
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -287,8 +360,14 @@ export default function CalendarPage() {
           activitiesByDate={activitiesByDate}
           navigate={navigate}
         />
+      ) : yearViewMode === 'calendar' ? (
+        <YearCalendarView
+          year={selectedYear}
+          activitiesByDate={yearActivitiesByDate}
+          navigate={navigate}
+        />
       ) : (
-        <YearHeatmapView activitiesByDate={yearActivitiesByDate} />
+        <YearHeatmapView activitiesByDate={yearActivitiesByDate} year={selectedYear} />
       )}
     </div>
   )
@@ -505,15 +584,246 @@ function ActivityCard({ activity, onClick }: ActivityCardProps) {
   )
 }
 
+// ── Year Calendar View ────────────────────────────────────────────────────────
+
+interface YearCalendarViewProps {
+  year: number
+  activitiesByDate: Map<string, Activity[]>
+  navigate: (path: string) => void
+}
+
+// Returns 0=Mon…6=Sun index for a given Date (JS getDay is 0=Sun)
+function mondayFirstDayIndex(d: Date): number {
+  return (getDay(d) + 6) % 7
+}
+
+function YearCalendarView({ year, activitiesByDate, navigate }: YearCalendarViewProps) {
+  const months = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const firstDay = new Date(year, i, 1)
+      const lastDay = endOfMonth(firstDay)
+      const days = eachDayOfInterval({ start: firstDay, end: lastDay })
+      const leadingBlanks = mondayFirstDayIndex(firstDay)
+      return { month: i, firstDay, days, leadingBlanks }
+    })
+  }, [year])
+
+  const MONTH_NAMES = [
+    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+  ]
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {months.map(({ month, days, leadingBlanks }) => (
+        <MonthCard
+          key={month}
+          monthName={MONTH_NAMES[month]}
+          days={days}
+          leadingBlanks={leadingBlanks}
+          activitiesByDate={activitiesByDate}
+          navigate={navigate}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ── Month Card ────────────────────────────────────────────────────────────────
+
+interface MonthCardProps {
+  monthName: string
+  days: Date[]
+  leadingBlanks: number
+  activitiesByDate: Map<string, Activity[]>
+  navigate: (path: string) => void
+}
+
+function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate }: MonthCardProps) {
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
+      {/* Month header */}
+      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/80">
+        <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+          {monthName}
+        </span>
+      </div>
+
+      {/* Day-of-week header */}
+      <div className="grid grid-cols-7 px-2 pt-2 pb-1">
+        {MONTH_DAY_LABELS.map((d) => (
+          <div
+            key={d}
+            className="text-center text-[9px] font-medium text-neutral-400 dark:text-neutral-500 pb-1"
+          >
+            {d}
+          </div>
+        ))}
+
+        {/* Leading blank cells */}
+        {Array.from({ length: leadingBlanks }, (_, i) => (
+          <div key={`blank-${i}`} />
+        ))}
+
+        {/* Day cells */}
+        {days.map((day) => {
+          const key = dateKey(day)
+          const dayActivities = activitiesByDate.get(key) ?? []
+          return (
+            <MonthDayCell
+              key={key}
+              day={day}
+              activities={dayActivities}
+              navigate={navigate}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Month Day Cell ────────────────────────────────────────────────────────────
+
+interface MonthDayCellProps {
+  day: Date
+  activities: Activity[]
+  navigate: (path: string) => void
+}
+
+function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
+  const today = isToday(day)
+  const hasActivities = activities.length > 0
+
+  // For single activity: use that sport's color for faint bg tint
+  const singleColor = hasActivities && activities.length === 1
+    ? sportColor(activities[0].sport_type)
+    : null
+
+  // Dots — max 3 visible, then "+N"
+  const MAX_DOTS = 3
+  const shownDots = activities.slice(0, MAX_DOTS)
+  const extraDots = activities.length - MAX_DOTS
+
+  // Determine tooltip side: last 3 cols → open left; first 3 cols → open right; middle → center/right
+  // We use a relative container and position the tooltip accordingly
+
+  return (
+    <div className="relative flex flex-col items-center pb-1.5 group">
+      {/* Day number */}
+      <div
+        className={[
+          'w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium transition-colors cursor-default',
+          today
+            ? 'text-white font-bold'
+            : hasActivities
+              ? 'text-neutral-700 dark:text-neutral-200'
+              : 'text-neutral-400 dark:text-neutral-600',
+        ].join(' ')}
+        style={
+          today
+            ? { backgroundColor: 'var(--color-accent-DEFAULT)' }
+            : singleColor
+              ? { backgroundColor: `${singleColor}1a` } // ~10% opacity hex
+              : undefined
+        }
+      >
+        {day.getDate()}
+      </div>
+
+      {/* Activity dots */}
+      {hasActivities && (
+        <div className="flex items-center justify-center gap-0.5 mt-0.5 h-2">
+          {shownDots.map((a) => (
+            <div
+              key={a.id}
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: sportColor(a.sport_type) }}
+            />
+          ))}
+          {extraDots > 0 && (
+            <span className="text-[8px] leading-none text-neutral-400 dark:text-neutral-500 ml-0.5">
+              +{extraDots}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Hover tooltip */}
+      {hasActivities && (
+        <div
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50
+                     hidden group-hover:block
+                     w-52 rounded-lg shadow-lg border border-neutral-200 dark:border-neutral-700
+                     bg-white dark:bg-neutral-800 text-xs
+                     pointer-events-none"
+          style={{
+            // Prevent overflow on right side by shifting tooltip if needed — handled via CSS below
+          }}
+        >
+          {/* Arrow */}
+          <div className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5
+                          border-b border-r border-neutral-200 dark:border-neutral-700
+                          bg-white dark:bg-neutral-800 rotate-45" />
+
+          <div className="p-2 space-y-1.5">
+            <div className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1">
+              {format(day, 'EEEE, d. MMMM', { locale: de })}
+            </div>
+            {activities.map((a) => {
+              const color = sportColor(a.sport_type)
+              const label = sportLabel(a.sport_type, a.sub_type)
+              const title = a.title ?? label
+              return (
+                <a
+                  key={a.id}
+                  href={`/activities/${a.id}`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    navigate(`/activities/${a.id}`)
+                  }}
+                  className="flex items-start gap-1.5 rounded px-1 py-0.5
+                             hover:bg-neutral-50 dark:hover:bg-neutral-700/60 transition-colors
+                             pointer-events-auto cursor-pointer"
+                  style={{ borderLeft: `3px solid ${color}` }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="font-medium text-neutral-800 dark:text-neutral-100 truncate"
+                      style={{ color }}
+                    >
+                      {title}
+                    </div>
+                    <div className="text-neutral-500 dark:text-neutral-400 flex gap-2 tabular-nums text-[9px]">
+                      <span>{label}</span>
+                      {(a.moving_time_s ?? a.elapsed_time_s) > 0 && (
+                        <span>{formatDuration(a.moving_time_s ?? a.elapsed_time_s)}</span>
+                      )}
+                      {a.distance_m != null && a.distance_m > 0 && (
+                        <span>{formatDistance(a.distance_m)}</span>
+                      )}
+                    </div>
+                  </div>
+                </a>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Year Heatmap View (ECharts Calendar) ──────────────────────────────────────
 
 interface YearHeatmapProps {
   activitiesByDate: Map<string, Activity[]>
+  year: number
 }
 
-function YearHeatmapView({ activitiesByDate }: YearHeatmapProps) {
+function YearHeatmapView({ activitiesByDate, year }: YearHeatmapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const year = new Date().getFullYear()
 
   // Compute daily TSS sums for the year
   const heatmapData = useMemo(() => {

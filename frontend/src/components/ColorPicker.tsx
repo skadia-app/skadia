@@ -4,6 +4,11 @@ import { createPortal } from 'react-dom'
 export interface ColorPickerProps {
   value: string
   onChange: (hex: string) => void
+  /** Optional: wenn gesetzt, erscheint ein "Speichern"-Button im Popover.
+   *  onChange liefert nur eine Live-Vorschau; onConfirm übernimmt den Wert dauerhaft. */
+  onConfirm?: (hex: string) => void
+  /** Wird aufgerufen wenn das Popover ohne Speichern geschlossen wird (Revert-Signal). */
+  onCancel?: () => void
   className?: string
 }
 
@@ -57,7 +62,8 @@ const GH = 150 // gradient height
  * - Normal view: only a colored swatch button.
  * - Click: opens a popover with hue/saturation gradient, hue slider and hex input.
  */
-export default function ColorPicker({ value, onChange, className }: ColorPickerProps) {
+export default function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorPickerProps) {
+  const confirmMode = !!onConfirm
   const swatchRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const gradientRef = useRef<HTMLDivElement>(null)
@@ -86,6 +92,7 @@ export default function ColorPicker({ value, onChange, className }: ColorPickerP
         swatchRef.current && !swatchRef.current.contains(e.target as Node)
       ) {
         setOpen(false)
+        if (confirmMode) onCancel?.()
       }
     }
     document.addEventListener('mousedown', handle)
@@ -222,14 +229,49 @@ export default function ColorPicker({ value, onChange, className }: ColorPickerP
             onChange={handleTextChange}
             onBlur={handleTextBlur}
             onKeyDown={e => {
-              if (e.key === 'Enter') { handleTextBlur(); setOpen(false) }
-              if (e.key === 'Escape') setOpen(false)
+              if (e.key === 'Enter') {
+                handleTextBlur()
+                if (confirmMode) {
+                  onConfirm?.(normalizeHex(textValue) ?? value)
+                }
+                setOpen(false)
+              }
+              if (e.key === 'Escape') {
+                setOpen(false)
+                if (confirmMode) onCancel?.()
+              }
             }}
             maxLength={7}
             spellCheck={false}
             className="w-full px-2 py-1 text-xs font-mono rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 outline-none focus:border-orange-400 dark:focus:border-orange-500 uppercase"
             placeholder="#RRGGBB"
           />
+
+          {/* Confirm mode: Speichern / Abbrechen buttons */}
+          {confirmMode && (
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onConfirm?.(normalizeHex(textValue) ?? hsvToHex(h, s, v))
+                  setOpen(false)
+                }}
+                className="flex-1 py-1 text-xs rounded bg-[color:var(--color-accent-DEFAULT,#F97316)] text-white font-medium hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Speichern
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onCancel?.()
+                }}
+                className="flex-1 py-1 text-xs rounded border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Abbrechen
+              </button>
+            </div>
+          )}
         </div>,
         document.body,
       )}

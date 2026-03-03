@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchActivityClimbs } from '@/api/enrichment'
-import type { Climb } from '@/api/types'
 
 interface Props {
   activityId: string

@@ -87,3 +87,35 @@ func (db *DB) GetPowerStreamsForPeriod(ctx context.Context, userID string, from,
 func (db *DB) GetActivityStreams(ctx context.Context, activityID string) ([]model.StreamPoint, error) {
 	return db.GetStreamPoints(ctx, activityID)
 }
+
+// SportTypeStatRow holds a sport_type and its activity count for a user.
+type SportTypeStatRow struct {
+	SportType string `json:"sport_type"`
+	Count     int    `json:"count"`
+}
+
+// GetSportTypeStats returns the activity count per sport_type for a user,
+// ordered by count descending.
+func (db *DB) GetSportTypeStats(ctx context.Context, userID string) ([]SportTypeStatRow, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT sport_type, COUNT(*)::int AS count
+		 FROM activities
+		 WHERE user_id = $1
+		 GROUP BY sport_type
+		 ORDER BY count DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get sport type stats: %w", err)
+	}
+	defer rows.Close()
+	var result []SportTypeStatRow
+	for rows.Next() {
+		var row SportTypeStatRow
+		if err := rows.Scan(&row.SportType, &row.Count); err != nil {
+			return nil, fmt.Errorf("scan sport type stat: %w", err)
+		}
+		result = append(result, row)
+	}
+	return result, nil
+}

@@ -35,7 +35,7 @@ export const CATEGORIES: SportCategory[] = [
   { key: 'game', label: 'Spiele', color: '#10B981' },
   { key: 'climb', label: 'Klettern', color: '#A855F7' },
   { key: 'outdoor', label: 'Outdoor', color: '#84CC16' },
-  { key: 'multi', label: 'Mehrkampf', color: '#F59E0B' },
+  { key: 'multi', label: 'Multisport', color: '#F59E0B' },
   { key: 'other', label: 'Sonstiges', color: '#6B7280' },
 ]
 
@@ -79,8 +79,8 @@ export const SPORT_DEFS: SportDef[] = [
   def('mountaineering', 'run', 'Bergsteigen', true),
   def('snowshoeing', 'run', 'Schneeschuhwandern', true),
   def('floor_climbing', 'run', 'Treppensteigen', false),
-  def('wheelchair_push_walk', 'run', 'Rollstuhl (Gehen)', true),
-  def('wheelchair_push_run', 'run', 'Rollstuhl (Laufen)', true),
+  def('wheelchair_push_walk', 'run', 'Rollstuhl (Fahren)', true),
+  def('wheelchair_push_run', 'run', 'Rollstuhl (Rennen)', true),
 
   // ── bike ──
   def('cycling', 'bike', 'Radfahren', true, [
@@ -91,7 +91,6 @@ export const SPORT_DEFS: SportDef[] = [
     sub('track_cycling', 'Bahnrad'),
     sub('bmx', 'BMX'),
     sub('gravel_cycling', 'Gravel'),
-    sub('commuting', 'Pendeln'),
     sub('mixed_surface', 'Mixed Surface'),
     sub('indoor_cycling', 'Indoor'),
     sub('spin', 'Spinning'),
@@ -102,7 +101,8 @@ export const SPORT_DEFS: SportDef[] = [
     sub('e_bike_fitness', 'E-Bike Fitness'),
     sub('e_bike_mountain', 'E-MTB'),
   ]),
-  def('inline_skating', 'bike', 'Inline-Skaten', true),
+  def('virtual_ride', 'bike', 'Virtuelles Radfahren', false),
+  def('inline_skating', 'outdoor', 'Inline-Skaten', true),
 
   // ── winter ──
   def('alpine_skiing', 'winter', 'Alpin-Ski', true, [
@@ -110,6 +110,7 @@ export const SPORT_DEFS: SportDef[] = [
     sub('backcountry', 'Backcountry'),
     sub('indoor_skiing', 'Indoor'),
   ]),
+  def('backcountry_skiing', 'winter', 'Skitour', true),
   def('cross_country_skiing', 'winter', 'Langlauf', true, [
     sub('skate_skiing', 'Skating'),
   ]),
@@ -162,11 +163,15 @@ export const SPORT_DEFS: SportDef[] = [
     sub('elliptical', 'Crosstrainer'),
     sub('stair_climbing', 'Treppensteiger'),
   ]),
+  def('strength_training', 'fitness', 'Krafttraining', false, [
+    sub('amrap', 'AMRAP', 'As Many Reps As Possible'),
+    sub('emom', 'EMOM', 'Every Minute On the Minute'),
+  ]),
   def('hiit', 'fitness', 'HIIT', false, [
-    sub('amrap', 'AMRAP'),
-    sub('emom', 'EMOM'),
     sub('tabata', 'Tabata'),
   ]),
+  def('yoga', 'fitness', 'Yoga', false),
+  def('pilates', 'fitness', 'Pilates', false),
   def('dance', 'fitness', 'Tanzen', false),
   def('jump_rope', 'fitness', 'Seilspringen', false),
   def('meditation', 'fitness', 'Meditation', false),
@@ -212,12 +217,12 @@ export const SPORT_DEFS: SportDef[] = [
   def('hunting', 'outdoor', 'Jagen', true),
   def('motorcycling', 'outdoor', 'Motorrad', true),
   def('driving', 'outdoor', 'Autofahren', true),
-  def('boxing', 'outdoor', 'Boxen', false),
-  def('mixed_martial_arts', 'outdoor', 'MMA', false),
+  def('boxing', 'fitness', 'Boxen', false),
+  def('mixed_martial_arts', 'fitness', 'MMA', false),
   def('tactical', 'outdoor', 'Taktisch', false),
 
   // ── multi ──
-  def('multisport', 'multi', 'Mehrkampf', true),
+  def('multisport', 'multi', 'Multisport', true),
   def('transition', 'multi', 'Wechselzone', true),
 
   // ── other ──
@@ -242,7 +247,7 @@ for (const s of SPORT_DEFS) {
 
 // ── Sub-type promotion set ──────────────────────────────────────────────────────
 
-const PROMOTE_SUB_TYPE = new Set(['training', 'fitness_equipment', 'racket'])
+export const PROMOTE_SUB_TYPE = new Set(['training', 'fitness_equipment', 'racket'])
 
 // ── Fallback humanizer ──────────────────────────────────────────────────────────
 

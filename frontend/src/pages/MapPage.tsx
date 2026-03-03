@@ -600,9 +600,11 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     removeOverlayLayers(map)
-    addOverlayLayers(map, filters, viewMode, teleportThresholdM)
+    if (filters.sportTypes.size > 0) {
+      addOverlayLayers(map, filters, viewMode, teleportThresholdM)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings, teleportThresholdM])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -970,7 +972,7 @@ export default function MapPage() {
       try { activityIDs = JSON.parse(raw) } catch { return }
       const rect = canvas.getBoundingClientRect()
       const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
-      const lngLat = map.unproject(point)
+      const lngLat = mapRef.current?.unproject(point)
       if (!lngLat) return
 
       // Magnetische Pins: nächster Location-Tag innerhalb 100 m → direkt zuweisen
@@ -1554,7 +1556,7 @@ function buildLineColor(filters: MapFilterState): string | maplibregl.Expression
     'match', ['get', 'sport_type'],
     ...entries,
     filters.colorConfig.uniformColor, // Fallback
-  ] as maplibregl.ExpressionSpecification
+  ] as unknown as maplibregl.ExpressionSpecification
 }
 
 /** Erzeugt aus einer Hex-Farbe die 5 Glow-Stufen fuer den Heatmap-Modus. */

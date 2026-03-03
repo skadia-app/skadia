@@ -43,7 +43,7 @@ var categories = []Category{
 	{Key: "game", LabelDE: "Spiele"},
 	{Key: "climb", LabelDE: "Klettern"},
 	{Key: "outdoor", LabelDE: "Outdoor"},
-	{Key: "multi", LabelDE: "Mehrkampf"},
+	{Key: "multi", LabelDE: "Multisport"},
 	{Key: "other", LabelDE: "Sonstiges"},
 }
 
@@ -107,14 +107,14 @@ func init() {
 			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0,
 		},
 		{
-			SportType: "wheelchair_push_walk", CategoryKey: "run", LabelDE: "Rollstuhl (Gehen)", AutoTitleDE: "Rollstuhl-Spaziergang",
+			SportType: "wheelchair_push_walk", CategoryKey: "run", LabelDE: "Rollstuhl (Fahren)", AutoTitleDE: "Rollstuhl-Spaziergang",
 			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
 			SubTypes: map[string]SubTypeDef{
 				"indoor_wheelchair_walk": {SubType: "indoor_wheelchair_walk", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl", AutoTitleDE: "Indoor-Rollstuhl"},
 			},
 		},
 		{
-			SportType: "wheelchair_push_run", CategoryKey: "run", LabelDE: "Rollstuhl (Laufen)", AutoTitleDE: "Rollstuhl-Lauf",
+			SportType: "wheelchair_push_run", CategoryKey: "run", LabelDE: "Rollstuhl (Rennen)", AutoTitleDE: "Rollstuhl-Lauf",
 			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5,
 			SubTypes: map[string]SubTypeDef{
 				"indoor_wheelchair_run": {SubType: "indoor_wheelchair_run", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl-Lauf", AutoTitleDE: "Indoor-Rollstuhl-Lauf"},
@@ -137,7 +137,6 @@ func init() {
 				"spin":            {SubType: "spin", LabelDE: "Spinning", DetailDE: "Spinning", AutoTitleDE: "Spinning"},
 				"gravel_cycling":  {SubType: "gravel_cycling", LabelDE: "Gravel", DetailDE: "Gravel", AutoTitleDE: "Gravel-Tour"},
 				"e_bike_mountain": {SubType: "e_bike_mountain", LabelDE: "E-MTB", DetailDE: "E-Mountainbike", AutoTitleDE: "E-MTB-Tour"},
-				"commuting":       {SubType: "commuting", LabelDE: "Pendeln", DetailDE: "Pendeln", AutoTitleDE: "Pendelfahrt"},
 				"mixed_surface":   {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour"},
 				"bmx":             {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX"},
 				"virtual_activity": {SubType: "virtual_activity", LabelDE: "Virtuell", DetailDE: "Virtuelles Radfahren", AutoTitleDE: "Virtuelle Radfahrt"},
@@ -164,8 +163,8 @@ func init() {
 			},
 		},
 		{
-			SportType: "inline_skating", CategoryKey: "bike", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
+			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
+			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
 		{
 			SportType: "virtual_ride", CategoryKey: "bike", LabelDE: "Virtuelles Radfahren", AutoTitleDE: "Virtuelle Radfahrt",
@@ -347,13 +346,15 @@ func init() {
 		{
 			SportType: "strength_training", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SubTypes: map[string]SubTypeDef{
+				"amrap": {SubType: "amrap", LabelDE: "AMRAP", DetailDE: "As Many Reps As Possible", AutoTitleDE: "AMRAP"},
+				"emom": {SubType: "emom", LabelDE: "EMOM", DetailDE: "Every Minute On the Minute", AutoTitleDE: "EMOM"},
+			},
 		},
 		{
 			SportType: "hiit", CategoryKey: "fitness", LabelDE: "HIIT", AutoTitleDE: "HIIT",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 			SubTypes: map[string]SubTypeDef{
-				"amrap":  {SubType: "amrap", LabelDE: "AMRAP", DetailDE: "As Many Reps As Possible", AutoTitleDE: "AMRAP"},
-				"emom":   {SubType: "emom", LabelDE: "EMOM", DetailDE: "Every Minute On the Minute", AutoTitleDE: "EMOM"},
 				"tabata": {SubType: "tabata", LabelDE: "Tabata", DetailDE: "Tabata", AutoTitleDE: "Tabata"},
 			},
 		},
@@ -500,11 +501,11 @@ func init() {
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
 		{
-			SportType: "boxing", CategoryKey: "outdoor", LabelDE: "Boxen", AutoTitleDE: "Boxen",
+			SportType: "boxing", CategoryKey: "fitness", LabelDE: "Boxen", AutoTitleDE: "Boxen",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 		},
 		{
-			SportType: "mixed_martial_arts", CategoryKey: "outdoor", LabelDE: "MMA", AutoTitleDE: "MMA",
+			SportType: "mixed_martial_arts", CategoryKey: "fitness", LabelDE: "MMA", AutoTitleDE: "MMA",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 		},
 		{
@@ -514,7 +515,7 @@ func init() {
 
 		// ── Multi ──
 		{
-			SportType: "multisport", CategoryKey: "multi", LabelDE: "Mehrkampf", AutoTitleDE: "Mehrkampf",
+			SportType: "multisport", CategoryKey: "multi", LabelDE: "Multisport", AutoTitleDE: "Multisport",
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
 		},
 		{

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
+import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
 
@@ -37,6 +38,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <AccentColorProvider>
+      <GlobalSportSettingsProvider>
       <Suspense fallback={<LoadingSpinner />}>
         <Routes>
           {/* Public routes */}
@@ -68,6 +70,7 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      </GlobalSportSettingsProvider>
       </AccentColorProvider>
     </ThemeProvider>
   )

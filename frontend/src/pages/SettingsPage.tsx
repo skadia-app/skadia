@@ -1,11 +1,14 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { CATEGORIES, SPORT_DEFS } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
+import { fetchSportTypeStats } from '@/api/stats'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 
@@ -78,6 +81,9 @@ export default function SettingsPage() {
           </button>
         )}
       </section>
+
+      {/* Sportarten */}
+      <SportSettingsSection />
 
       {/* Dateiablage */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -238,6 +244,209 @@ export default function SettingsPage() {
 
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
     </div>
+  )
+}
+
+function SportSettingsSection() {
+  const { getSportColor, setSportColor, resetSportColor, customColors, resetAllColors, hideUnused, setHideUnused } =
+    useGlobalSportSettings()
+
+  // Aufgeklappt-Status für die Farbliste
+  const [colorsOpen, setColorsOpen] = useState(false)
+
+  // Vorschau-Farben (noch nicht gespeichert) — key: sportType
+  const [pendingColors, setPendingColors] = useState<Record<string, string>>({})
+
+  const { data: statsData, isLoading: statsLoading } = useQuery({
+    queryKey: ['sport-type-stats'],
+    queryFn: fetchSportTypeStats,
+  })
+
+  const existingSportTypes = useMemo<Set<string>>(() => {
+    if (!statsData) return new Set()
+    return new Set(statsData.map((s) => s.sport_type))
+  }, [statsData])
+
+  const categoryGroups = useMemo(() => {
+    return CATEGORIES.map((cat) => {
+      let sports = SPORT_DEFS.filter((s) => s.categoryKey === cat.key)
+      if (hideUnused && statsData) {
+        sports = sports.filter((s) => existingSportTypes.has(s.sportType))
+      }
+      return { cat, sports }
+    }).filter((g) => g.sports.length > 0)
+  }, [hideUnused, statsData, existingSportTypes])
+
+  const hasCustomColors = Object.keys(customColors).length > 0
+
+  // Vorschau-Farbe für einen Sport setzen
+  function previewSport(sportType: string, hex: string) {
+    setPendingColors((prev) => ({ ...prev, [sportType]: hex }))
+  }
+
+  // Vorschau bestätigen → dauerhaft speichern
+  function confirmSport(sportType: string, hex: string) {
+    setSportColor(sportType, hex)
+    setPendingColors((prev) => { const n = { ...prev }; delete n[sportType]; return n })
+  }
+
+  // Vorschau verwerfen → Picker auf Originalwert zurück
+  function cancelSport(sportType: string) {
+    setPendingColors((prev) => { const n = { ...prev }; delete n[sportType]; return n })
+  }
+
+  // Kategorie-Farbe vorschau: alle Sports in der Kategorie gleichzeitig
+  function previewCategory(catKey: string, hex: string) {
+    const sports = SPORT_DEFS.filter((s) => s.categoryKey === catKey)
+    setPendingColors((prev) => {
+      const n = { ...prev }
+      for (const s of sports) n[s.sportType] = hex
+      return n
+    })
+  }
+
+  function confirmCategory(catKey: string, hex: string) {
+    const sports = SPORT_DEFS.filter((s) => s.categoryKey === catKey)
+    for (const s of sports) setSportColor(s.sportType, hex)
+    setPendingColors((prev) => {
+      const n = { ...prev }
+      for (const s of sports) delete n[s.sportType]
+      return n
+    })
+  }
+
+  function cancelCategory(catKey: string) {
+    const sports = SPORT_DEFS.filter((s) => s.categoryKey === catKey)
+    setPendingColors((prev) => {
+      const n = { ...prev }
+      for (const s of sports) delete n[s.sportType]
+      return n
+    })
+  }
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+      {/* Header — immer sichtbar, klappt Farbliste auf/zu */}
+      <button
+        type="button"
+        onClick={() => setColorsOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+      >
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Sportarten</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
+            Farben pro Sportart, Filtereinstellungen.
+          </p>
+        </div>
+        {/* Chevron */}
+        <svg
+          className={`w-5 h-5 text-neutral-400 flex-shrink-0 transition-transform duration-200 ${colorsOpen ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Ausgeklappter Inhalt */}
+      {colorsOpen && (
+        <div className="px-6 pb-6 space-y-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+          {/* Hide unused toggle */}
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={hideUnused}
+              onChange={(e) => setHideUnused(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 accent-orange-500 cursor-pointer flex-shrink-0"
+            />
+            <div>
+              <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                Nicht vorhandene Sportarten in Filtern ausblenden
+              </span>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                Nur Sportarten anzeigen, für die bereits Aktivitäten hochgeladen wurden.
+              </p>
+            </div>
+          </label>
+
+          {/* Ladehinweis nur während des ersten Ladens */}
+          {hideUnused && statsLoading && (
+            <p className="text-xs text-neutral-400">Lade Sportarten-Statistiken…</p>
+          )}
+
+          {/* Farbliste */}
+          <div className="space-y-5">
+            {categoryGroups.map(({ cat, sports }) => {
+              // Repräsentative Farbe der Kategorie für den Kategorie-Picker:
+              // erster Sport der Kategorie (ggf. mit pending-Vorschau)
+              const catPreviewColor = sports.length > 0
+                ? (pendingColors[sports[0].sportType] ?? getSportColor(sports[0].sportType))
+                : cat.color
+
+              return (
+                <div key={cat.key}>
+                  {/* Kategorie-Header mit Kategorie-Farbpicker */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <ColorPicker
+                      value={catPreviewColor}
+                      onChange={(hex) => previewCategory(cat.key, hex)}
+                      onConfirm={(hex) => confirmCategory(cat.key, hex)}
+                      onCancel={() => cancelCategory(cat.key)}
+                    />
+                    <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                      {cat.label}
+                    </span>
+                    <span className="text-xs text-neutral-400 dark:text-neutral-600 font-normal normal-case tracking-normal">
+                      — alle auf diese Farbe setzen
+                    </span>
+                  </div>
+
+                  {/* Einzelne Sportarten */}
+                  <div className="space-y-1.5 pl-2 border-l-2 border-neutral-100 dark:border-neutral-800">
+                    {sports.map((s) => {
+                      const displayColor = pendingColors[s.sportType] ?? getSportColor(s.sportType)
+                      const isCustom = !!customColors[s.sportType]
+                      const hasPending = s.sportType in pendingColors
+
+                      return (
+                        <div key={s.sportType} className="flex items-center gap-3">
+                          <ColorPicker
+                            value={displayColor}
+                            onChange={(hex) => previewSport(s.sportType, hex)}
+                            onConfirm={(hex) => confirmSport(s.sportType, hex)}
+                            onCancel={() => cancelSport(s.sportType)}
+                          />
+                          <span className={`flex-1 text-sm ${hasPending ? 'text-[color:var(--color-accent-DEFAULT,#F97316)]' : 'text-neutral-800 dark:text-neutral-200'}`}>
+                            {s.label}
+                            {hasPending && <span className="text-xs ml-1 opacity-70">(Vorschau)</span>}
+                          </span>
+                          {(isCustom && !hasPending) && (
+                            <button
+                              onClick={() => resetSportColor(s.sportType)}
+                              className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors cursor-pointer"
+                            >
+                              Zurücksetzen
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {hasCustomColors && (
+            <button
+              onClick={resetAllColors}
+              className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline transition-colors cursor-pointer"
+            >
+              Alle Farben zurücksetzen
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 

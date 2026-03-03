@@ -17,9 +17,30 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 	"github.com/muktihari/fit/proto"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
+// GET /api/v1/activities/sport-type-stats
+func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		return
+	}
+	stats, err := h.DB.GetSportTypeStats(r.Context(), userID)
+	if err != nil {
+		slog.Error("get sport type stats failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get sport type stats", r.URL.Path)
+		return
+	}
+	if stats == nil {
+		stats = []database.SportTypeStatRow{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sport_types": stats})
+}
 
 func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

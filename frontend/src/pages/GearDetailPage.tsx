@@ -11,7 +11,7 @@ import {
   listServiceEvents, createServiceEvent, deleteServiceEvent,
   fetchComponentPresets,
   listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
-  fetchGearDocuments, uploadGearDocument, deleteGearDocument, getGearDocumentUrl,
+  fetchGearDocuments, uploadGearDocument, deleteGearDocument,
   downloadGearDocumentBlob,
   uploadComponentDocument, listComponentDocuments,
   getGearCosts,

@@ -1,7 +1,14 @@
 // Shared sport-option types and constants used by MapPage filters and activity filters.
 // Generated from sportTaxonomy.ts — single source of truth.
 
-import { CATEGORIES, SPORT_DEFS, sportColor, sportsInCategory, type SportDef } from '@/lib/sportTaxonomy'
+import {
+  CATEGORIES,
+  SPORT_DEFS,
+  PROMOTE_SUB_TYPE,
+  sportColor,
+  sportsInCategory,
+  type SportDef,
+} from '@/lib/sportTaxonomy'
 
 export interface SportOption {
   value: string
@@ -27,28 +34,37 @@ export function getOptionKey(opt: SportOption): string {
   return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
 }
 
-function defToOption(d: SportDef): SportOption {
-  if (d.subTypes.length > 0) {
-    return {
-      value: d.sportType,
-      label: d.label,
-      groupKey: d.sportType,
-      children: d.subTypes.map((st) => ({
-        value: d.sportType,
-        label: st.label,
-        subType: st.subType,
-      })),
-    }
-  }
-  return { value: d.sportType, label: d.label }
-}
+/**
+ * Sub-type labels that are too generic without a parent-sport prefix.
+ * For these, the filter label becomes "Sport: SubType" (e.g. "Fußball: Aufwärmen").
+ */
+const GENERIC_SUBTYPES = new Set(['warm_up', 'exercise', 'match'])
 
+/**
+ * Builds the children array for a category group.
+ *
+ * Rules:
+ * - Promoted sports (training, fitness_equipment, racket): only sub-type entries,
+ *   no parent entry (sub-type IS the label).
+ * - Sports with sub-types but NOT promoted: parent entry first (catches activities
+ *   without any sub_type), then each sub-type entry.
+ * - Generic sub-type labels (warm_up, exercise, match): prefixed with parent sport
+ *   label for context (e.g. "Fußball: Aufwärmen").
+ * - Sports without sub-types: plain entry.
+ */
 function categoryGroup(catKey: string, label: string, sports: SportDef[]): SportOption {
   const children: SportOption[] = []
   for (const s of sports) {
     if (s.subTypes.length > 0) {
+      if (!PROMOTE_SUB_TYPE.has(s.sportType)) {
+        // Parent entry first — catches activities stored with no sub_type
+        children.push({ value: s.sportType, label: s.label })
+      }
       for (const st of s.subTypes) {
-        children.push({ value: s.sportType, label: st.label, subType: st.subType })
+        const stLabel = GENERIC_SUBTYPES.has(st.subType)
+          ? `${s.label}: ${st.label}`
+          : st.label
+        children.push({ value: s.sportType, label: stLabel, subType: st.subType })
       }
     } else {
       children.push({ value: s.sportType, label: s.label })
@@ -153,4 +169,34 @@ export function generateGearSportOptions(): { value: string; label: string }[] {
     .filter((s) => s.sportType !== 'unknown')
     .map((s) => ({ value: s.sportType, label: s.label }))
     .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+}
+
+/**
+ * Filtert Sport-Optionen auf nur vorhandene Sport-Types.
+ * Kategorie-Gruppen werden entfernt wenn keine ihrer Kinder vorhandene Sport-Types enthaelt.
+ * Kinder werden gefiltert auf vorhandene Sport-Types.
+ *
+ * @param options - Alle Sport-Optionen
+ * @param existingSportTypes - Set der Sport-Types die in der DB vorhanden sind
+ */
+export function filterToExistingSports(
+  options: SportOption[],
+  existingSportTypes: Set<string>,
+): SportOption[] {
+  const filtered: SportOption[] = []
+  for (const opt of options) {
+    if (opt.children) {
+      const filteredChildren = opt.children.filter((child) =>
+        existingSportTypes.has(child.value),
+      )
+      if (filteredChildren.length > 0) {
+        filtered.push({ ...opt, children: filteredChildren })
+      }
+    } else {
+      if (existingSportTypes.has(opt.value)) {
+        filtered.push(opt)
+      }
+    }
+  }
+  return filtered
 }

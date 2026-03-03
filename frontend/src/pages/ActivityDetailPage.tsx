@@ -17,7 +17,7 @@ import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
-  sportLabel, sportColor, showIndoorBadge,
+  sportColor, showIndoorBadge,
 } from '@/lib/utils'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import EnrichmentTags from '@/components/EnrichmentTags'

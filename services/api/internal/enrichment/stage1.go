@@ -206,6 +206,32 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["title_auto"] = title
 	}
 
+	// Sub-type to automatic tag conversion:
+	// - cycling + commuting sub_type  → tag "Pendeln", clear sub_type
+	// - strength_training/hiit + amrap → tag "AMRAP"
+	// - strength_training/hiit + emom  → tag "EMOM"
+	if data.SubType == "commuting" && data.SportType == "cycling" {
+		tagBase := data.Tags
+		tagBase = appendTagIfMissing(tagBase, "Pendeln")
+		fields["tags"] = tagBase
+		fields["sub_type"] = ""
+		data.SubType = "" // prevent downstream use
+	}
+	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "amrap" {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "AMRAP")
+	}
+	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "emom" {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "EMOM")
+	}
+
 	// Autotag evaluation: collect enrichment context and evaluate all autotag rules
 	enrichCtx := &EnrichmentContext{
 		StartCity:    startCity,
@@ -223,7 +249,12 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	}
 
 	if autoTags := EvaluateAutoTags(ctx, db, userID, data, enrichCtx); len(autoTags) > 0 {
-		base := data.Tags
+		// Start from already-accumulated tags (e.g. from sub_type conversions above),
+		// falling back to the original activity tags.
+		base, _ := fields["tags"].([]string)
+		if base == nil {
+			base = data.Tags
+		}
 		for _, tag := range autoTags {
 			base = appendTagIfMissing(base, tag)
 		}
