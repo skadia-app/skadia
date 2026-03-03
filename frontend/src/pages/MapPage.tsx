@@ -100,6 +100,7 @@ export interface MapFilterState {
   opacity: number
   colorConfig: SportColorConfig
   showLocationTags: boolean
+  heatmapColor: string
 }
 
 const defaultFilters: MapFilterState = {
@@ -113,6 +114,7 @@ const defaultFilters: MapFilterState = {
     colors: { ...DEFAULT_SPORT_COLORS },
   },
   showLocationTags: false,
+  heatmapColor: '#F97316',
 }
 
 function loadColorConfig(): SportColorConfig {
@@ -121,6 +123,17 @@ function loadColorConfig(): SportColorConfig {
     if (saved) return { ...defaultFilters.colorConfig, ...JSON.parse(saved) }
   } catch { /* ignorieren */ }
   return defaultFilters.colorConfig
+}
+
+function loadHeatmapColor(): string {
+  try {
+    const saved = localStorage.getItem('skadia-sport-colors')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (typeof parsed.heatmapColor === 'string') return parsed.heatmapColor
+    }
+  } catch { /* ignorieren */ }
+  return defaultFilters.heatmapColor
 }
 
 function buildTileUrl(
@@ -348,6 +361,7 @@ export default function MapPage() {
   const [filters, setFilters] = useState<MapFilterState>({
     ...defaultFilters,
     colorConfig: loadColorConfig(),
+    heatmapColor: loadHeatmapColor(),
   })
   const [viewMode, setViewMode] = useState<ViewMode>('tracks')
   // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
@@ -378,6 +392,7 @@ export default function MapPage() {
     name: string
     color: string
     activityIDs: string[]
+    dropLngLat?: { lng: number; lat: number }
   } | null>(null)
   const [showIndoorAssign, setShowIndoorAssign] = useState(false)
 
@@ -755,11 +770,54 @@ export default function MapPage() {
     }
   }, [filters.showLocationTags, locationTags, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Drop-Location: Name-Dialog + direktes Erstellen ──────────────────────
+  const [dropNameInput, setDropNameInput] = useState('')
+  const [dropColorInput, setDropColorInput] = useState('#f97316')
+  const isDropMode = !!(newLocationPick?.dropLngLat)
+
+  async function handleDropConfirm() {
+    if (!newLocationPick?.dropLngLat || !dropNameInput.trim()) return
+    const { lng, lat } = newLocationPick.dropLngLat
+    const { createTag } = await import('@/api/tags')
+    const { updateActivity } = await import('@/api/activities')
+    try {
+      const newTag = await createTag({
+        name: dropNameInput.trim(),
+        color: dropColorInput,
+        lat,
+        lng,
+      })
+      if (newLocationPick.activityIDs.length > 0) {
+        const { fetchActivity } = await import('@/api/activities')
+        await Promise.all(
+          newLocationPick.activityIDs.map(async (actId) => {
+            try {
+              const act = await fetchActivity(actId)
+              const currentTags = act.tags ?? []
+              if (!currentTags.includes(newTag.name)) {
+                await updateActivity(actId, { tags: [...currentTags, newTag.name] })
+              }
+            } catch { /* ignore per-activity errors */ }
+          })
+        )
+      }
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['activities'] })
+      queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+    } catch (err) {
+      console.error('Failed to create location tag from drop:', err)
+    }
+    setNewLocationPick(null)
+    setDropNameInput('')
+    setDropColorInput('#f97316')
+  }
+
   // ── Crosshair-Modus für neues Standort-Tag ──────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (!newLocationPick) {
+    // Skip crosshair mode when in drop mode (coordinates already known)
+    if (!newLocationPick || newLocationPick.dropLngLat) {
       map.getCanvas().style.cursor = ''
       return
     }
@@ -940,7 +998,7 @@ export default function MapPage() {
 
   const handleFilterChange = useCallback((next: MapFilterState) => {
     setFilters(next)
-    localStorage.setItem('skadia-sport-colors', JSON.stringify(next.colorConfig))
+    localStorage.setItem('skadia-sport-colors', JSON.stringify({ ...next.colorConfig, heatmapColor: next.heatmapColor }))
   }, [])
 
   // Load activities for the selected location tag popup
@@ -959,7 +1017,29 @@ export default function MapPage() {
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="relative flex-1 min-h-0">
-        <div ref={mapContainerRef} className="w-full h-full" />
+        <div
+          ref={mapContainerRef}
+          className="w-full h-full"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('application/skadia-activities')) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const raw = e.dataTransfer.getData('application/skadia-activities')
+            if (!raw) return
+            const activityIDs: string[] = JSON.parse(raw)
+            const rect = e.currentTarget.getBoundingClientRect()
+            const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
+            const lngLat = mapRef.current?.unproject(point)
+            if (!lngLat) return
+            // Prompt for a name via the new-location flow
+            setShowIndoorAssign(false)
+            setNewLocationPick({ name: '', color: '#f97316', activityIDs, dropLngLat: { lng: lngLat.lng, lat: lngLat.lat } })
+          }}
+        />
 
         {/* Geocoding search */}
         <GeoSearch mapRef={mapRef} />
@@ -1088,8 +1168,55 @@ export default function MapPage() {
           />
         )}
 
+        {/* Drop-Location Name Dialog */}
+        {isDropMode && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-72 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Neuer Standort</span>
+              <button
+                onClick={() => { setNewLocationPick(null); setDropNameInput(''); setDropColorInput('#f97316') }}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {newLocationPick!.activityIDs.length} Aktivität(en) werden zugewiesen.
+            </p>
+            <input
+              type="text"
+              value={dropNameInput}
+              onChange={(e) => setDropNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleDropConfirm() }}
+              placeholder="Name des Standorts"
+              autoFocus
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+            />
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {['#f97316','#3b82f6','#10b981','#8b5cf6','#f43f5e','#06b6d4','#eab308','#6b7280'].map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setDropColorInput(c)}
+                  className="w-5 h-5 rounded-full border-2 cursor-pointer"
+                  style={{ backgroundColor: c, borderColor: dropColorInput === c ? '#f97316' : 'transparent', transform: dropColorInput === c ? 'scale(1.15)' : 'scale(1)' }}
+                />
+              ))}
+            </div>
+            <button
+              onClick={handleDropConfirm}
+              disabled={!dropNameInput.trim()}
+              className="w-full py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Standort erstellen + zuweisen
+            </button>
+          </div>
+        )}
+
         {/* Filters panel */}
-        <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} />
+        <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
 
         {/* Location Tag Info Popup */}
         {selectedLocationTag && (
@@ -1244,6 +1371,22 @@ function buildLineColor(filters: MapFilterState): string | maplibregl.Expression
   ] as maplibregl.ExpressionSpecification
 }
 
+/** Erzeugt aus einer Hex-Farbe die 5 Glow-Stufen fuer den Heatmap-Modus. */
+function deriveHeatmapGlowColors(hex: string): [string, string, string, string, string] {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  const toHex = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')
+  const rgb = (rr: number, gg: number, bb: number) => `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`
+  return [
+    rgb(r * 0.15, g * 0.15, b * 0.15),   // glow-outer: sehr dunkel
+    rgb(r * 0.35, g * 0.35, b * 0.35),   // glow-mid: dunkel
+    hex,                                   // base: Original
+    rgb(r + (255 - r) * 0.35, g + (255 - g) * 0.25, b * 0.6),  // bright: heller/waermer
+    rgb(r + (255 - r) * 0.7, g + (255 - g) * 0.7, b + (255 - b) * 0.5),  // hot: sehr hell
+  ]
+}
+
 function addOverlayLayers(
   map: maplibregl.Map,
   filters: MapFilterState,
@@ -1292,13 +1435,14 @@ function addOverlayLayers(
   } else {
     // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
     // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
+    const [cOuter, cMid, cBase, cBright, cHot] = deriveHeatmapGlowColors(filters.heatmapColor)
     map.addLayer({
       id: 'heatmap-glow-outer',
       type: 'line',
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#3D0000',
+        'line-color': cOuter,
         'line-width': 16,
         'line-opacity': 0.10,
         'line-blur': 8,
@@ -1310,7 +1454,7 @@ function addOverlayLayers(
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#8B0000',
+        'line-color': cMid,
         'line-width': 9,
         'line-opacity': 0.15,
         'line-blur': 4,
@@ -1322,7 +1466,7 @@ function addOverlayLayers(
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#F97316',
+        'line-color': cBase,
         'line-width': 4,
         'line-opacity': 0.28,
         'line-blur': 0,
@@ -1334,7 +1478,7 @@ function addOverlayLayers(
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#FFAA00',
+        'line-color': cBright,
         'line-width': 2,
         'line-opacity': 0.20,
         'line-blur': 0,
@@ -1346,7 +1490,7 @@ function addOverlayLayers(
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#FFFFA0',
+        'line-color': cHot,
         'line-width': 1,
         'line-opacity': 0.12,
         'line-blur': 0,

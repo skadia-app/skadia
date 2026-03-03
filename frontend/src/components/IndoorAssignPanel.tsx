@@ -111,6 +111,17 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
       })
   }
 
+  const hasSelection = selectedIds.size > 0
+
+  function handleDragStart(e: React.DragEvent) {
+    if (!hasSelection) {
+      e.preventDefault()
+      return
+    }
+    e.dataTransfer.setData('application/skadia-activities', JSON.stringify(Array.from(selectedIds)))
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   return (
     <div className="absolute top-4 right-[17.5rem] z-10 w-72 max-h-[calc(100vh-6rem)] flex flex-col rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
       {/* Header */}
@@ -121,6 +132,41 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
           </svg>
         </button>
+      </div>
+
+      {/* Action bar */}
+      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
+        <button
+          onClick={() => setShowNewLocation(true)}
+          className="px-2.5 py-1.5 text-xs text-orange-500 border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 cursor-pointer whitespace-nowrap"
+        >
+          + Neu
+        </button>
+        {hasSelection && (
+          <span className="text-xs text-neutral-500 dark:text-neutral-400 flex-1 truncate">
+            {selectedIds.size} ausgew.
+          </span>
+        )}
+        <div
+          draggable={hasSelection}
+          onDragStart={handleDragStart}
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors select-none ${
+            hasSelection
+              ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
+              : 'border-neutral-200 dark:border-neutral-700 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
+          }`}
+          title={hasSelection ? 'Auf die Karte ziehen' : 'Erst Aktivitäten auswählen'}
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="5" cy="3" r="1.2" />
+            <circle cx="11" cy="3" r="1.2" />
+            <circle cx="5" cy="8" r="1.2" />
+            <circle cx="11" cy="8" r="1.2" />
+            <circle cx="5" cy="13" r="1.2" />
+            <circle cx="11" cy="13" r="1.2" />
+          </svg>
+          <span>Karte</span>
+        </div>
       </div>
 
       {/* Search + Sport filter */}
@@ -198,10 +244,6 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
 
       {/* Assignment section */}
       <div className="border-t border-neutral-100 dark:border-neutral-800 px-3 py-3 space-y-2">
-        <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {selectedIds.size > 0 ? `${selectedIds.size} ausgewählt` : 'Aktivitäten auswählen'}
-        </div>
-
         {!showNewLocation ? (
           <>
             <select
@@ -209,26 +251,18 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               onChange={(e) => setSelectedTagId(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
             >
-              <option value="">Standort auswählen...</option>
+              <option value="">An Standort zuweisen...</option>
               {locationTags.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
-            <div className="flex gap-2">
-              <button
-                onClick={() => assignMutation.mutate()}
-                disabled={selectedIds.size === 0 || !selectedTagId || assignMutation.isPending}
-                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                {assignMutation.isPending ? 'Zuweisen...' : 'Zuweisen'}
-              </button>
-              <button
-                onClick={() => setShowNewLocation(true)}
-                className="px-2.5 py-1.5 text-xs text-orange-500 border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 cursor-pointer whitespace-nowrap"
-              >
-                + Neu
-              </button>
-            </div>
+            <button
+              onClick={() => assignMutation.mutate()}
+              disabled={selectedIds.size === 0 || !selectedTagId || assignMutation.isPending}
+              className="w-full py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >
+              {assignMutation.isPending ? 'Zuweisen...' : 'Zuweisen'}
+            </button>
           </>
         ) : (
           <div className="space-y-2">
@@ -272,7 +306,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                 disabled={!newLocName.trim()}
                 className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                {selectedIds.size > 0 ? 'Auf Karte setzen →' : 'Erstellen'}
+                {selectedIds.size > 0 ? 'Auf Karte setzen' : 'Erstellen'}
               </button>
               {selectedIds.size === 0 && (
                 <button
