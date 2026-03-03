@@ -1,4 +1,6 @@
 import { apiClient } from './client'
+import { getToken, clearToken } from '@/lib/auth'
+import { ApiError } from './client'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent } from './types'
 
 export interface ActivityFilterParams {
@@ -129,4 +131,62 @@ export async function fetchActivityLengths(id: string): Promise<SwimLength[]> {
 
 export async function fetchActivityClimbPro(id: string): Promise<ClimbProEvent[]> {
   return apiClient<ClimbProEvent[]>(`/activities/${id}/climb-pro`)
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+/** Delete a single activity. */
+export async function deleteActivity(id: string): Promise<void> {
+  await apiClient<void>(`/activities/${id}`, { method: 'DELETE' })
+}
+
+/** Bulk-delete multiple activities. Returns the number deleted. */
+export async function deleteActivities(ids: string[]): Promise<{ deleted: number }> {
+  return apiClient<{ deleted: number }>('/activities', {
+    method: 'DELETE',
+    body: { ids },
+  })
+}
+
+// ── ZIP Export ────────────────────────────────────────────────────────────────
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+
+/**
+ * Downloads multiple activities as a ZIP archive.
+ * @param ids     Activity IDs to export (empty = all activities of the user)
+ * @param format  'original' | 'gpx' | 'tcx' | 'fit'
+ */
+export async function downloadActivitiesZip(
+  ids: string[],
+  format: ExportFormat = 'original',
+): Promise<void> {
+  const token = getToken()
+  const url = `${API_BASE}/activities/export-zip`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+    credentials: 'include',
+    body: JSON.stringify({ ids, format }),
+  })
+  if (res.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError(401, 'Unauthorized')
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const match = cd.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : `skadia-export.zip`
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
 }
