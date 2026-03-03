@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
@@ -7,90 +7,37 @@ import { CATEGORIES } from '@/lib/sportTaxonomy'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
-const SWATCH_PRESETS = [
-  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16',
-  '#22c55e','#10b981','#06b6d4','#3b82f6','#6366f1',
-  '#8b5cf6','#a855f7','#ec4899','#6b7280','#1c1c1c',
-  '#ffffff','#e2e8f0','#fbbf24',
-]
+const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
+
+function loadUserDefaultColors(): Record<string, string> | null {
+  try {
+    const saved = localStorage.getItem(USER_DEFAULT_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch { /* ignore */ }
+  return null
+}
 
 function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [hex, setHex] = useState(value)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
-
-  useEffect(() => { setHex(value) }, [value])
-
-  const handleOpen = () => {
-    if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect()
-      const popW = 168
-      const popH = 130
-      let left = rect.left - popW - 6
-      let top = rect.top
-      if (left < 6) left = rect.right + 6
-      if (top + popH > window.innerHeight - 6) top = window.innerHeight - popH - 6
-      setPos({ top, left })
-    }
-    setOpen(v => !v)
-  }
-
-  useEffect(() => {
-    if (!open) return
-    const handle = (e: MouseEvent) => {
-      if (btnRef.current && !btnRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
-
-  const handleHexChange = (v: string) => {
-    setHex(v)
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v)
-  }
+  const inputRef = useRef<HTMLInputElement>(null)
 
   return (
     <>
       <button
-        ref={btnRef}
         type="button"
-        onClick={handleOpen}
+        onClick={() => inputRef.current?.click()}
         className="w-7 h-5 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer flex-shrink-0"
         style={{ backgroundColor: value }}
         title={value}
       />
-      {open && createPortal(
-        <div
-          className="fixed z-[9999] rounded-lg shadow-2xl p-2 border"
-          style={{
-            top: pos.top,
-            left: pos.left,
-            width: 168,
-            background: 'var(--tw-bg-opacity, 1)',
-            backgroundColor: 'rgb(255 255 255)',
-          }}
-        >
-          <div className="grid grid-cols-6 gap-1 mb-2">
-            {SWATCH_PRESETS.map(c => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => { onChange(c); setHex(c); setOpen(false) }}
-                className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border border-neutral-200"
-                style={{ backgroundColor: c }}
-              />
-            ))}
-          </div>
-          <input
-            type="text"
-            value={hex}
-            onChange={e => handleHexChange(e.target.value)}
-            className="w-full px-2 py-0.5 text-xs font-mono rounded border border-neutral-200 bg-white text-neutral-800 outline-none"
-            placeholder="#rrggbb"
-            maxLength={7}
-          />
-        </div>,
+      {createPortal(
+        <input
+          ref={inputRef}
+          type="color"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          tabIndex={-1}
+        />,
         document.body,
       )}
     </>
@@ -353,12 +300,23 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                       />
                     </div>
                   ))}
-                  <button
-                    onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })}
-                    className="w-full text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer mt-1"
-                  >
-                    Farben zurücksetzen
-                  </button>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      onClick={() => {
+                        const userDefault = loadUserDefaultColors()
+                        onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: userDefault ?? Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })
+                      }}
+                      className="flex-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+                    >
+                      Zurücksetzen
+                    </button>
+                    <button
+                      onClick={() => localStorage.setItem(USER_DEFAULT_KEY, JSON.stringify(filters.colorConfig.colors))}
+                      className="flex-1 text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer"
+                    >
+                      Als Standard speichern
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

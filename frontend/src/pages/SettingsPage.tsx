@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -106,13 +107,17 @@ export default function SettingsPage() {
               <span className="absolute inset-0 flex items-center justify-center text-white text-sm font-bold" style={{ textShadow: '0 0 3px rgba(0,0,0,0.6)' }}>+</span>
             )}
           </button>
-          <input
-            ref={colorInputRef}
-            type="color"
-            className="sr-only"
-            value={isCustomAccent ? accent.shade500 : '#6366f1'}
-            onChange={e => setAccent(deriveAccentEntry(e.target.value))}
-          />
+          {createPortal(
+            <input
+              ref={colorInputRef}
+              type="color"
+              value={isCustomAccent ? accent.shade500 : '#6366f1'}
+              onChange={e => setAccent(deriveAccentEntry(e.target.value))}
+              style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              tabIndex={-1}
+            />,
+            document.body,
+          )}
         </div>
         {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
           <button

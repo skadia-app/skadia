@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchTags, createTag, updateTag, deleteTag } from '@/api/tags'
@@ -700,6 +701,7 @@ function TagForm({
   allTags: Tag[]
 }) {
   const queryClient = useQueryClient()
+  const colorPickerRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState(tag?.name ?? '')
   const [color, setColor] = useState(tag?.color ?? colorPalette[0].color)
   const [textColor, setTextColor] = useState(tag?.text_color ?? colorPalette[0].text)
@@ -773,6 +775,26 @@ function TagForm({
     setTextColor(c.text)
   }
 
+  function selectCustomColor(hex: string) {
+    setColor(hex)
+    const r = parseInt(hex.slice(1, 3), 16)
+    const g = parseInt(hex.slice(3, 5), 16)
+    const b = parseInt(hex.slice(5, 7), 16)
+    setTextColor((0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff')
+  }
+
+  const colorPickerPortal = createPortal(
+    <input
+      ref={colorPickerRef}
+      type="color"
+      value={color}
+      onChange={e => selectCustomColor(e.target.value)}
+      style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+      tabIndex={-1}
+    />,
+    document.body,
+  )
+
   // Group management
   function addGroup() { setGroups([...groups, defaultGroup()]) }
   function updateGroup(i: number, g: TagConditionGroup) { setGroups(groups.map((old, idx) => idx === i ? g : old)) }
@@ -797,6 +819,14 @@ function TagForm({
               title={c.label}
             />
           ))}
+          <button
+            type="button"
+            onClick={() => colorPickerRef.current?.click()}
+            className="w-6 h-6 rounded-full border-2 cursor-pointer transition-all"
+            style={{ backgroundColor: color, borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', transform: !colorPalette.some(c => c.color === color) ? 'scale(1.2)' : 'scale(1)' }}
+            title="Eigene Farbe (Farbwähler)"
+          />
+          {colorPickerPortal}
         </div>
         <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
           {name || 'Vorschau'}
@@ -852,28 +882,14 @@ function TagForm({
             />
           ))}
           {/* Pipette / vollständiger Color Picker */}
-          <div className="relative" title="Eigene Farbe (Farbwähler)">
-            <div
-              className="w-6 h-6 rounded-full border-2 cursor-pointer overflow-hidden flex items-center justify-center"
-              style={{ borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', backgroundColor: color }}
-            >
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => {
-                  setColor(e.target.value)
-                  // Auto-compute text color: dark bg → white text, light bg → dark text
-                  const hex = e.target.value.replace('#', '')
-                  const r = parseInt(hex.slice(0, 2), 16)
-                  const g = parseInt(hex.slice(2, 4), 16)
-                  const b = parseInt(hex.slice(4, 6), 16)
-                  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-                  setTextColor(luminance > 0.5 ? '#1a1a1a' : '#ffffff')
-                }}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-              />
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => colorPickerRef.current?.click()}
+            className="w-6 h-6 rounded-full border-2 cursor-pointer"
+            style={{ borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', backgroundColor: color }}
+            title="Eigene Farbe (Farbwähler)"
+          />
+          {colorPickerPortal}
           <span className="ml-1 px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
             {name || 'Vorschau'}
           </span>
