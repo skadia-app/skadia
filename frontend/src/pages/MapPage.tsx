@@ -474,12 +474,14 @@ export default function MapPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Kartenstil wechseln ──────────────────────────────────────────────────
-  // Läuft auch beim ersten Render (baseStyle='osm'), was einen zweiten setStyle-
-  // Aufruf verursacht. Das ist kein Problem: removeOverlayLayers im style.load-
-  // Handler räumt vorher auf, und die Kameraposition ist noch unverändert.
+  // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
+  // Render (baseStyle='osm' == Initialstil der Map-Instanz). Ohne diesen Schutz
+  // würde MapLibre "Style is not done loading.. Rebuilding from scratch" werfen.
+  const prevBaseStyleRef = useRef<BaseStyle>('osm')
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || prevBaseStyleRef.current === baseStyle) return
+    prevBaseStyleRef.current = baseStyle
 
     const center = map.getCenter()
     const zoom = map.getZoom()
@@ -871,7 +873,7 @@ export default function MapPage() {
         )}
 
         {/* Filters panel */}
-        <MapFilters filters={filters} onChange={handleFilterChange} />
+        <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} />
 
         {/* Photo Lightbox */}
         {selectedPhoto && (

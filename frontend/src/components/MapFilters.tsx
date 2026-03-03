@@ -8,9 +8,10 @@ const ALL_SPORT_KEYS = getAllSportKeys()
 interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
+  forceDark?: boolean
 }
 
-export default function MapFilters({ filters, onChange }: Props) {
+export default function MapFilters({ filters, onChange, forceDark }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
@@ -75,7 +76,7 @@ export default function MapFilters({ filters, onChange }: Props) {
   }
 
   return (
-    <div className="absolute top-4 right-4 z-10 w-64">
+    <div className={`absolute top-4 right-4 z-10 w-64${forceDark ? ' dark' : ''}`}>
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
         {/* Header */}
         <button
