@@ -44,6 +44,8 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		ConditionGroups json.RawMessage `json:"condition_groups,omitempty"`
 		ConditionsLogic string          `json:"conditions_logic,omitempty"`
 		Description     *string         `json:"description,omitempty"`
+		Lat             *float64        `json:"lat"`
+		Lng             *float64        `json:"lng"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -65,7 +67,7 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	// Derive is_auto from presence of conditions — never trust client-supplied flag
 	isAuto := len(req.ConditionGroups) > 2 || len(req.Conditions) > 2
 
-	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), []byte(req.ConditionGroups), req.ConditionsLogic, req.Description)
+	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), []byte(req.ConditionGroups), req.ConditionsLogic, req.Description, req.Lat, req.Lng)
 	if err != nil {
 		slog.Error("create tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create tag", r.URL.Path)
@@ -84,6 +86,7 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tagID := chi.URLParam(r, "id")
 
+	// Use json.RawMessage for lat/lng so we can distinguish "absent" from "null".
 	var req struct {
 		Name            string           `json:"name"`
 		Color           string           `json:"color"`
@@ -92,6 +95,8 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		ConditionGroups *json.RawMessage `json:"condition_groups,omitempty"`
 		ConditionsLogic *string          `json:"conditions_logic,omitempty"`
 		Description     *string          `json:"description,omitempty"`
+		Lat             *json.RawMessage `json:"lat"`
+		Lng             *json.RawMessage `json:"lng"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -125,7 +130,24 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		isAuto = &v
 	}
 
-	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description)
+	// Parse lat/lng from raw JSON — nil raw = field absent = don't update.
+	// "null" raw = clear location. A number = set location.
+	var lat, lng *float64
+	locationPresent := req.Lat != nil || req.Lng != nil
+	if req.Lat != nil && string(*req.Lat) != "null" {
+		var f float64
+		if err := json.Unmarshal(*req.Lat, &f); err == nil {
+			lat = &f
+		}
+	}
+	if req.Lng != nil && string(*req.Lng) != "null" {
+		var f float64
+		if err := json.Unmarshal(*req.Lng, &f); err == nil {
+			lng = &f
+		}
+	}
+
+	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)

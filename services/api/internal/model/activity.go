@@ -577,6 +577,10 @@ type Tag struct {
 	Description     *string         `json:"description,omitempty"`
 	ActivityCount   int             `json:"activity_count"`
 	CreatedAt       time.Time       `json:"created_at"`
+	// Optional geo-coordinates — when set, the tag acts as a "location tag"
+	// that appears as a pin on the map.
+	Lat *float64 `json:"lat,omitempty"`
+	Lng *float64 `json:"lng,omitempty"`
 }
 
 // EnrichmentSettings holds user preferences for activity enrichment.

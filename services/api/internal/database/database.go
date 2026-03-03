@@ -1896,7 +1896,8 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+			lat, lng
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -1915,6 +1916,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
+			&t.Lat, &t.Lng,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -1927,21 +1929,23 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 }
 
 // CreateTag creates a new tag for a user.
-func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string) (*model.Tag, error) {
+func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
 	if conditionsLogic == "" {
 		conditionsLogic = "and"
 	}
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at`,
-		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description,
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+			lat, lng`,
+		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt)
+		&t.Description, &t.ActivityCount, &t.CreatedAt,
+		&t.Lat, &t.Lng)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -1949,7 +1953,11 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 }
 
 // UpdateTag updates an existing tag.
-func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string) (*model.Tag, error) {
+// lat and lng are treated as optional nullable fields:
+//   - locationPresent=false → lat/lng columns not touched
+//   - locationPresent=true, lat/lng=nil → SET lat=NULL, lng=NULL
+//   - locationPresent=true, lat/lng=non-nil → SET lat=*lat, lng=*lng
+func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
 	var sets []string
 	var args []any
 	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
@@ -1995,27 +2003,44 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		args = append(args, *description)
 		argIdx++
 	}
+	if locationPresent {
+		// lat and lng are either both NULL or both a value — update both together.
+		sets = append(sets, fmt.Sprintf("lat = $%d", argIdx))
+		args = append(args, lat) // pgx treats nil *float64 as SQL NULL
+		argIdx++
+		sets = append(sets, fmt.Sprintf("lng = $%d", argIdx))
+		args = append(args, lng)
+		argIdx++
+	}
 
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
-		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at`
+		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+		lat, lng`
 
-	if len(sets) == 0 {
-		// Nothing to update, return existing tag
+	scanTag := func(row interface{ Scan(...any) error }) (*model.Tag, error) {
 		var t model.Tag
-		err := db.Pool.QueryRow(ctx,
-			fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1 AND user_id = $2`, tagCols),
-			tagID, userID,
-		).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		err := row.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
-			&t.Description, &t.ActivityCount, &t.CreatedAt)
+			&t.Description, &t.ActivityCount, &t.CreatedAt,
+			&t.Lat, &t.Lng,
+		)
+		return &t, err
+	}
+
+	if len(sets) == 0 {
+		t, err := scanTag(db.Pool.QueryRow(ctx,
+			fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1 AND user_id = $2`, tagCols),
+			tagID, userID,
+		))
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		if err != nil {
 			return nil, fmt.Errorf("get tag: %w", err)
 		}
-		return &t, nil
+		return t, nil
 	}
 
 	query := fmt.Sprintf(`
@@ -2025,20 +2050,14 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		strings.Join(sets, ", "), tagCols,
 	)
 
-	var t model.Tag
-	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt,
-	)
+	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update tag: %w", err)
 	}
-	return &t, nil
+	return t, nil
 }
 
 // DeleteTag deletes a tag.
@@ -2060,7 +2079,8 @@ func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
 func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
-			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at
+			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
+			t.lat, t.lng
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -2080,6 +2100,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
+			&t.Lat, &t.Lng,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2095,7 +2116,8 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+			lat, lng
 		FROM tags
 		WHERE user_id = $1 AND is_auto = true
 		ORDER BY name ASC`,
@@ -2114,6 +2136,7 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
+			&t.Lat, &t.Lng,
 		); err != nil {
 			return nil, fmt.Errorf("scan auto tag: %w", err)
 		}

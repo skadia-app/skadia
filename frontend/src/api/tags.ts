@@ -36,6 +36,9 @@ export interface Tag {
   conditions_logic: 'and' | 'or'
   activity_count: number
   created_at: string
+  // Optional geo-coordinates — when set, the tag acts as a "location tag".
+  lat?: number | null
+  lng?: number | null
 }
 
 /**
@@ -74,6 +77,8 @@ export async function createTag(data: {
   condition_groups?: TagConditionGroup[]
   conditions?: TagCondition[]
   conditions_logic?: 'and' | 'or'
+  lat?: number | null
+  lng?: number | null
 }): Promise<Tag> {
   // Derive flat conditions from first group for backwards compatibility with
   // any backend that does not yet know condition_groups (should not happen
@@ -96,6 +101,8 @@ export async function updateTag(id: string, data: {
   condition_groups?: TagConditionGroup[]
   conditions?: TagCondition[]
   conditions_logic?: 'and' | 'or'
+  lat?: number | null
+  lng?: number | null
 }): Promise<Tag> {
   // Derive flat conditions from first group for backwards compatibility.
   const payload: Record<string, unknown> = { ...data }

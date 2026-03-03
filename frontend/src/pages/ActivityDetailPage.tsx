@@ -8,6 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
 import { fetchTags, createTag } from '@/api/tags'
+import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
 import { SportIcon } from '@/components/SportIcon'
@@ -83,6 +84,14 @@ export default function ActivityDetailPage() {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
+
+  // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
+  const { data: allTagsForLocation = [] } = useQuery({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
+    enabled: activity != null && !activity.has_gps,
+  })
+  const locationTagsForActivity = allTagsForLocation.filter(t => t.lat != null && t.lng != null)
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -187,6 +196,16 @@ export default function ActivityDetailPage() {
 
       {/* Geo Tags */}
       <GeoTagsList activityId={activity.id} />
+
+      {/* Standort (nur für Indoor-Aktivitäten ohne GPS) */}
+      {!activity.has_gps && (
+        <ActivityLocationTagSection
+          activityId={activity.id}
+          currentTags={activity.tags ?? []}
+          locationTags={locationTagsForActivity}
+          onUpdate={() => {}}
+        />
+      )}
 
       {/* Map */}
       <TrackMap

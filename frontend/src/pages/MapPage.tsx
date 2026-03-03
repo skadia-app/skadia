@@ -4,11 +4,13 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
+import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
+import { fetchTags, updateTag, type Tag } from '@/api/tags'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -96,6 +98,7 @@ export interface MapFilterState {
   dateTo: string
   opacity: number
   colorConfig: SportColorConfig
+  showLocationTags: boolean
 }
 
 const defaultFilters: MapFilterState = {
@@ -108,6 +111,7 @@ const defaultFilters: MapFilterState = {
     uniformColor: '#F97316',
     colors: { ...DEFAULT_SPORT_COLORS },
   },
+  showLocationTags: false,
 }
 
 function loadColorConfig(): SportColorConfig {
@@ -364,6 +368,16 @@ export default function MapPage() {
   const [segmentBbox, setSegmentBbox] = useState<string>('')
   const segmentPopupRef = useRef<maplibregl.Popup | null>(null)
 
+  // Location Tags
+  const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
+  const [selectedLocationTag, setSelectedLocationTag] = useState<Tag | null>(null)
+  const [newLocationPick, setNewLocationPick] = useState<{
+    name: string
+    color: string
+    activityIDs: string[]
+  } | null>(null)
+  const [showIndoorAssign, setShowIndoorAssign] = useState(false)
+
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
 
@@ -420,6 +434,25 @@ export default function MapPage() {
       queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
       queryClient.invalidateQueries({ queryKey: ['custom-maps'] })
       queryClient.invalidateQueries({ queryKey: ['custom-map-markers'] })
+    },
+  })
+
+  // Location Tags
+  const { data: allTags = [] } = useQuery({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
+    enabled: filters.showLocationTags || showIndoorAssign,
+  })
+  const locationTags = allTags.filter(t => t.lat != null && t.lng != null)
+
+  const updateTagLocationMutation = useMutation({
+    mutationFn: ({ id, lat, lng }: { id: string; lat: number; lng: number }) =>
+      updateTag(id, { lat, lng }),
+    onSuccess: (updatedTag) => {
+      // Optimistic update already done on dragend; sync with server response
+      queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
+        prev ? prev.map(t => t.id === updatedTag.id ? updatedTag : t) : prev
+      )
     },
   })
 
@@ -637,6 +670,145 @@ export default function MapPage() {
     }
   }, [showPhotos, mapPhotos, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Location Tag Markers ────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // Remove old location markers
+    locationTagMarkersRef.current.forEach(m => m.remove())
+    locationTagMarkersRef.current = []
+
+    if (!filters.showLocationTags || locationTags.length === 0) return
+
+    locationTags.forEach(tag => {
+      if (tag.lat == null || tag.lng == null) return
+
+      // Build bubble element
+      const el = document.createElement('div')
+      el.style.cssText = `
+        position: relative;
+        cursor: pointer;
+      `
+
+      const bubble = document.createElement('div')
+      bubble.style.cssText = `
+        background: ${tag.color || '#6366F1'};
+        color: ${tag.text_color || '#ffffff'};
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        border: 2px solid rgba(255,255,255,0.3);
+        user-select: none;
+      `
+      bubble.textContent = tag.name + (tag.activity_count > 0 ? ` (${tag.activity_count})` : '')
+
+      // CSS arrow below bubble
+      const arrow = document.createElement('div')
+      arrow.style.cssText = `
+        position: absolute;
+        bottom: -7px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 7px solid ${tag.color || '#6366F1'};
+      `
+
+      el.appendChild(bubble)
+      el.appendChild(arrow)
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setSelectedLocationTag(tag)
+      })
+
+      const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'bottom' })
+        .setLngLat([tag.lng, tag.lat])
+        .addTo(map)
+
+      marker.on('dragend', () => {
+        const { lat, lng } = marker.getLngLat()
+        // Optimistic update
+        queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
+          prev ? prev.map(t => t.id === tag.id ? { ...t, lat, lng } : t) : prev
+        )
+        updateTagLocationMutation.mutate({ id: tag.id, lat, lng })
+      })
+
+      locationTagMarkersRef.current.push(marker)
+    })
+
+    return () => {
+      locationTagMarkersRef.current.forEach(m => m.remove())
+      locationTagMarkersRef.current = []
+    }
+  }, [filters.showLocationTags, locationTags, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Crosshair-Modus für neues Standort-Tag ──────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!newLocationPick) {
+      map.getCanvas().style.cursor = ''
+      return
+    }
+    map.getCanvas().style.cursor = 'crosshair'
+
+    async function handleLocationClick(e: maplibregl.MapMouseEvent) {
+      if (!newLocationPick) return
+      const { lat, lng } = e.lngLat
+      const { createTag } = await import('@/api/tags')
+      const { updateActivity } = await import('@/api/activities')
+
+      try {
+        // Create the new location tag with coordinates
+        const newTag = await createTag({
+          name: newLocationPick.name,
+          color: newLocationPick.color,
+          lat,
+          lng,
+        })
+
+        // Tag all selected activities
+        if (newLocationPick.activityIDs.length > 0) {
+          // Fetch each activity to get current tags, then PATCH
+          const { fetchActivity } = await import('@/api/activities')
+          await Promise.all(
+            newLocationPick.activityIDs.map(async (actId) => {
+              try {
+                const act = await fetchActivity(actId)
+                const currentTags = act.tags ?? []
+                if (!currentTags.includes(newTag.name)) {
+                  await updateActivity(actId, { tags: [...currentTags, newTag.name] })
+                }
+              } catch { /* ignore per-activity errors */ }
+            })
+          )
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['tags'] })
+        queryClient.invalidateQueries({ queryKey: ['activities'] })
+      } catch (err) {
+        console.error('Failed to create location tag:', err)
+      }
+
+      setNewLocationPick(null)
+      map!.getCanvas().style.cursor = ''
+    }
+
+    map.on('click', handleLocationClick)
+    return () => {
+      map.off('click', handleLocationClick)
+      map.getCanvas().style.cursor = ''
+    }
+  }, [newLocationPick]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Segment Layer ──────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -830,8 +1002,18 @@ export default function MapPage() {
           </button>
         </div>
 
-        {/* Toggle buttons for custom maps + photos + segments */}
-        <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5">
+        {/* Toggle buttons for custom maps + photos + segments + indoor */}
+        <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
+          <button
+            onClick={() => setShowIndoorAssign(!showIndoorAssign)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
+              showIndoorAssign
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            Indoor
+          </button>
           <button
             onClick={() => setShowSegments(!showSegments)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
@@ -872,8 +1054,74 @@ export default function MapPage() {
           />
         )}
 
+        {/* Indoor Assign Panel */}
+        {showIndoorAssign && (
+          <IndoorAssignPanel
+            locationTags={locationTags}
+            onClose={() => setShowIndoorAssign(false)}
+            onPickLocation={(name, color, activityIDs) => {
+              setNewLocationPick({ name, color, activityIDs })
+              setShowIndoorAssign(false)
+            }}
+            onAssigned={() => {
+              queryClient.invalidateQueries({ queryKey: ['activities'] })
+              queryClient.invalidateQueries({ queryKey: ['tags'] })
+            }}
+          />
+        )}
+
         {/* Filters panel */}
         <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} />
+
+        {/* Location Tag Info Popup */}
+        {selectedLocationTag && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setSelectedLocationTag(null)}
+          >
+            <div
+              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3">
+                <span
+                  className="inline-block px-3 py-1 rounded-full text-sm font-semibold"
+                  style={{ backgroundColor: selectedLocationTag.color, color: selectedLocationTag.text_color }}
+                >
+                  {selectedLocationTag.name}
+                </span>
+                <span className="text-xs text-neutral-400 ml-auto">
+                  {selectedLocationTag.lat?.toFixed(4)}, {selectedLocationTag.lng?.toFixed(4)}
+                </span>
+              </div>
+              <div className="p-4">
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {selectedLocationTag.activity_count > 0
+                    ? `${selectedLocationTag.activity_count} Aktivitäten mit diesem Tag`
+                    : 'Noch keine Aktivitäten zugeordnet'}
+                </p>
+                {selectedLocationTag.description && (
+                  <p className="text-xs text-neutral-500 mt-1">{selectedLocationTag.description}</p>
+                )}
+              </div>
+              <div className="px-4 pb-4 flex gap-2">
+                <a
+                  href={`/activities?tag=${encodeURIComponent(selectedLocationTag.name)}`}
+                  className="flex-1 text-center px-3 py-1.5 rounded-lg text-sm text-orange-500 border border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                  onClick={() => setSelectedLocationTag(null)}
+                >
+                  Aktivitäten anzeigen
+                </a>
+                <button
+                  onClick={() => setSelectedLocationTag(null)}
+                  className="px-3 py-1.5 rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  Schließen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Photo Lightbox */}
         {selectedPhoto && (

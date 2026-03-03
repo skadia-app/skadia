@@ -283,8 +283,21 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
               )}
             </div>
 
+            {/* Standorte anzeigen */}
+            <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filters.showLocationTags ?? false}
+                  onChange={(e) => onChange({ ...filters, showLocationTags: e.target.checked })}
+                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                />
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">Standorte anzeigen</span>
+              </label>
+            </div>
+
             {/* Reset */}
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316') && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || filters.showLocationTags) && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -292,6 +305,7 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                   dateTo: '',
                   opacity: 70,
                   colorConfig: { mode: 'uniform', uniformColor: '#F97316', colors: { ...DEFAULT_SPORT_COLORS } },
+                  showLocationTags: false,
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >

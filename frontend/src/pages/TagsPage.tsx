@@ -632,11 +632,18 @@ function TagForm({
   const [groups, setGroups] = useState<TagConditionGroup[]>(() => normaliseGroups(tag))
   const [showConditions, setShowConditions] = useState(() => hasConditions(normaliseGroups(tag)))
 
+  // Location state
+  const [isLocationTag, setIsLocationTag] = useState(() => tag?.lat != null)
+  const [locationLat, setLocationLat] = useState<string>(() => tag?.lat?.toString() ?? '')
+  const [locationLng, setLocationLng] = useState<string>(() => tag?.lng?.toString() ?? '')
+
   const isAutotag = hasConditions(groups)
 
   const createMut = useMutation({
     mutationFn: () => {
       const flat = hasConditions(groups) ? flattenGroups(groups) : { conditions: undefined, conditions_logic: undefined }
+      const lat = isLocationTag && locationLat ? parseFloat(locationLat) : undefined
+      const lng = isLocationTag && locationLng ? parseFloat(locationLng) : undefined
       return createTag({
         name: name.trim(),
         color,
@@ -646,6 +653,8 @@ function TagForm({
         condition_groups: isAutotag ? groups : undefined,
         conditions: isAutotag ? flat.conditions : undefined,
         conditions_logic: isAutotag ? flat.conditions_logic : undefined,
+        lat: isLocationTag ? (lat ?? null) : undefined,
+        lng: isLocationTag ? (lng ?? null) : undefined,
       })
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }); onSave() },
@@ -654,6 +663,8 @@ function TagForm({
   const updateMut = useMutation({
     mutationFn: () => {
       const flat = hasConditions(groups) ? flattenGroups(groups) : { conditions: undefined, conditions_logic: undefined }
+      const lat = isLocationTag && locationLat ? parseFloat(locationLat) : null
+      const lng = isLocationTag && locationLng ? parseFloat(locationLng) : null
       return updateTag(tag!.id, {
         name: name.trim(),
         color,
@@ -663,6 +674,9 @@ function TagForm({
         condition_groups: isAutotag ? groups : undefined,
         conditions: isAutotag ? flat.conditions : undefined,
         conditions_logic: isAutotag ? flat.conditions_logic : undefined,
+        // Always send lat/lng when editing (null = clear, number = set)
+        lat: isLocationTag ? lat : null,
+        lng: isLocationTag ? lng : null,
       })
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }); onSave() },
@@ -754,7 +768,7 @@ function TagForm({
       {/* Color */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">Farbe</label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {colorPalette.map((c) => (
             <button key={c.color} type="button" onClick={() => selectColor(c)}
               className="w-6 h-6 rounded-full border-2 transition-all cursor-pointer"
@@ -762,15 +776,103 @@ function TagForm({
               title={c.label}
             />
           ))}
-          <span className="ml-2 px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
+          {/* Pipette / vollständiger Color Picker */}
+          <div className="relative" title="Eigene Farbe (Farbwähler)">
+            <div
+              className="w-6 h-6 rounded-full border-2 cursor-pointer overflow-hidden flex items-center justify-center"
+              style={{ borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', backgroundColor: color }}
+            >
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => {
+                  setColor(e.target.value)
+                  // Auto-compute text color: dark bg → white text, light bg → dark text
+                  const hex = e.target.value.replace('#', '')
+                  const r = parseInt(hex.slice(0, 2), 16)
+                  const g = parseInt(hex.slice(2, 4), 16)
+                  const b = parseInt(hex.slice(4, 6), 16)
+                  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+                  setTextColor(luminance > 0.5 ? '#1a1a1a' : '#ffffff')
+                }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </div>
+          </div>
+          <span className="ml-1 px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
             {name || 'Vorschau'}
           </span>
           {isAutotag && (
-            <span className="text-xs text-neutral-400 dark:text-neutral-500 ml-1" title="Dieser Tag wird automatisch vergeben">
+            <span className="text-xs text-neutral-400 dark:text-neutral-500" title="Dieser Tag wird automatisch vergeben">
               auto
             </span>
           )}
         </div>
+      </div>
+
+      {/* Standort-Abschnitt */}
+      <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setIsLocationTag(!isLocationTag)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-neutral-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 15.957 17 13.514 17 10c0-3.866-3.582-7-8-7S2 6.134 2 10c0 3.514 1.698 5.957 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.757.433 5.766 5.766 0 00.282.14l.018.008.006.003zM10 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" clipRule="evenodd" />
+            </svg>
+            <span>Standort</span>
+            {isLocationTag && locationLat && locationLng && (
+              <span className="text-xs font-normal text-orange-500">
+                {parseFloat(locationLat).toFixed(4)}, {parseFloat(locationLng).toFixed(4)}
+              </span>
+            )}
+          </span>
+          <div className="flex items-center gap-2">
+            <span className={`w-9 h-5 rounded-full transition-colors flex items-center ${isLocationTag ? 'bg-orange-500' : 'bg-neutral-200 dark:bg-neutral-700'}`}>
+              <span className={`w-4 h-4 rounded-full bg-white shadow mx-0.5 transition-transform ${isLocationTag ? 'translate-x-4' : ''}`} />
+            </span>
+          </div>
+        </button>
+
+        {isLocationTag && (
+          <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Dieser Tag erscheint als Pin auf der Karte. Drag &amp; Drop auf der Karte verschiebt den Pin.
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Breitengrad</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="-90"
+                  max="90"
+                  value={locationLat}
+                  onChange={(e) => setLocationLat(e.target.value)}
+                  placeholder="z.B. 48.1371"
+                  className={inputClass + ' w-full'}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Längengrad</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="-180"
+                  max="180"
+                  value={locationLng}
+                  onChange={(e) => setLocationLng(e.target.value)}
+                  placeholder="z.B. 11.5754"
+                  className={inputClass + ' w-full'}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Tipp: Auf der Karte den Filter „Standorte anzeigen" aktivieren — dann Pins per Drag &amp; Drop positionieren.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Automation conditions section */}
@@ -966,6 +1068,14 @@ export default function TagsPage() {
                             title="Automatisch vergeben (Bedingungen gesetzt)"
                           >
                             auto
+                          </span>
+                        )}
+                        {tag.lat != null && (
+                          <span
+                            className="text-xs text-orange-400"
+                            title={`Standort: ${tag.lat?.toFixed(4)}, ${tag.lng?.toFixed(4)}`}
+                          >
+                            📍
                           </span>
                         )}
                       </div>
