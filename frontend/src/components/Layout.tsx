@@ -6,6 +6,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/activities', label: 'Aktivitäten' },
   { to: '/map', label: 'Karte' },
+  { to: '/calendar', label: 'Kalender' },
   { to: '/segments', label: 'Segmente' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },

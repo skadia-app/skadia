@@ -17,6 +17,7 @@ const TagsPage = lazy(() => import('@/pages/TagsPage'))
 const WorkshopPage = lazy(() => import('@/pages/WorkshopPage'))
 const WorkshopReprocessPage = lazy(() => import('@/pages/WorkshopReprocessPage'))
 const PhysiologicalProfilePage = lazy(() => import('@/pages/PhysiologicalProfilePage'))
+const CalendarPage = lazy(() => import('@/pages/CalendarPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="activities" element={<ActivitiesPage />} />
               <Route path="activities/:id" element={<ActivityDetailPage />} />
               <Route path="map" element={<MapPage />} />
+              <Route path="calendar" element={<CalendarPage />} />
               <Route path="segments" element={<SegmentsPage />} />
               <Route path="workshop" element={<WorkshopPage />} />
               <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
