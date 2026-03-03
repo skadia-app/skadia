@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse } from './types'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -99,4 +99,20 @@ export async function getZoneDistribution(id: string): Promise<ZoneDistribution>
 
 export async function getPowerCurve(period: 'ytd' | '90d' | 'all' = 'ytd'): Promise<PowerCurveResponse> {
   return apiClient<PowerCurveResponse>(`/stats/power-curve?period=${period}`)
+}
+
+export async function fetchActivityLaps(id: string): Promise<Lap[]> {
+  return apiClient<Lap[]>(`/activities/${id}/laps`)
+}
+
+export async function fetchActivitySplits(id: string): Promise<{ splits: Split[]; summaries: SplitSummary[] }> {
+  return apiClient<{ splits: Split[]; summaries: SplitSummary[] }>(`/activities/${id}/splits`)
+}
+
+export async function fetchActivityLengths(id: string): Promise<SwimLength[]> {
+  return apiClient<SwimLength[]>(`/activities/${id}/lengths`)
+}
+
+export async function fetchActivityClimbPro(id: string): Promise<ClimbProEvent[]> {
+  return apiClient<ClimbProEvent[]>(`/activities/${id}/climb-pro`)
 }

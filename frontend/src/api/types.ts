@@ -375,3 +375,103 @@ export interface GearCostSummary {
   cost_per_km?: number | null
   cost_per_hour?: number | null
 }
+
+export interface Lap {
+  id: string
+  lap_index: number
+  start_time: string
+  end_time?: string
+  elapsed_time_s?: number
+  timer_time_s?: number
+  distance_m?: number
+  moving_time_s?: number
+  total_ascent_m?: number
+  total_descent_m?: number
+  avg_speed_ms?: number
+  max_speed_ms?: number
+  avg_heart_rate?: number
+  max_heart_rate?: number
+  avg_power_w?: number
+  max_power_w?: number
+  normalized_power_w?: number
+  avg_cadence?: number
+  max_cadence?: number
+  total_calories?: number
+  start_lat?: number
+  start_lng?: number
+  end_lat?: number
+  end_lng?: number
+  avg_vertical_oscillation_mm?: number
+  avg_stance_time_ms?: number
+  avg_step_length_mm?: number
+  num_lengths?: number
+  swim_stroke?: string
+  avg_stroke_distance_m?: number
+  intensity?: string
+  lap_trigger?: string
+}
+
+export interface Split {
+  id: string
+  split_index: number
+  split_type: string
+  start_time: string
+  end_time?: string
+  elapsed_time_s?: number
+  timer_time_s?: number
+  distance_m?: number
+  moving_time_s?: number
+  total_ascent_m?: number
+  total_descent_m?: number
+  avg_speed_ms?: number
+  max_speed_ms?: number
+  avg_vert_speed_ms?: number
+  total_calories?: number
+  start_elevation_m?: number
+  start_lat?: number
+  start_lng?: number
+  end_lat?: number
+  end_lng?: number
+  avg_hr?: number
+  max_hr?: number
+}
+
+export interface SplitSummary {
+  id: string
+  summary_index: number
+  split_type: string
+  num_splits: number
+  timer_time_s?: number
+  distance_m?: number
+  moving_time_s?: number
+  total_ascent_m?: number
+  total_descent_m?: number
+  avg_hr?: number
+  max_hr?: number
+  total_calories?: number
+}
+
+export interface SwimLength {
+  id: string
+  length_index: number
+  length_type: string
+  start_time: string
+  elapsed_time_s?: number
+  timer_time_s?: number
+  total_strokes?: number
+  avg_speed_ms?: number
+  swim_stroke?: string
+  avg_swimming_cadence?: number
+  total_calories?: number
+}
+
+export interface ClimbProEvent {
+  id: string
+  timestamp: string
+  climb_pro_event: string
+  climb_number?: number
+  climb_category?: number
+  current_dist_m?: number
+  lat?: number
+  lng?: number
+}
