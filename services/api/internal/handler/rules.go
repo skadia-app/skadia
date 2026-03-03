@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -37,8 +39,8 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
-	if len(create.Conditions) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "conditions are required", r.URL.Path)
+	if len(create.Conditions) == 0 && len(create.ConditionGroups) == 0 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "conditions or condition_groups are required", r.URL.Path)
 		return
 	}
 	if len(create.Actions) == 0 {
@@ -140,22 +142,38 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 
 		activityChanged := false
 		for _, rule := range activeRules {
-			var conditions []rules.Condition
-			if err := json.Unmarshal(rule.Conditions, &conditions); err != nil {
-				continue
-			}
 			var actions []rules.Action
 			if err := json.Unmarshal(rule.Actions, &actions); err != nil {
 				continue
 			}
 
-			if !rules.Evaluate(conditions, actMap) {
+			// Use condition_groups if present, fallback to legacy conditions
+			matched := false
+			if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
+				var groups []rules.ConditionGroup
+				if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
+					matched = rules.EvaluateGroups(groups, actMap)
+				}
+			} else if len(rule.Conditions) > 0 {
+				var conditions []rules.Condition
+				if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
+					matched = rules.Evaluate(conditions, actMap)
+				}
+			}
+
+			if !matched {
 				continue
 			}
 
 			changes := rules.Apply(actions)
 			for _, change := range changes {
-				if err := h.DB.ApplyRuleChange(r.Context(), activityID, change.Field, change.Value); err != nil {
+				val := change.Value
+				if change.Field == "set_name_template" {
+					if tmpl, ok := val.(string); ok {
+						val = resolveNameTemplate(tmpl, actMap)
+					}
+				}
+				if err := h.DB.ApplyRuleChange(r.Context(), activityID, change.Field, val); err != nil {
 					slog.Warn("apply rule change failed",
 						"activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
 					continue
@@ -180,4 +198,18 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		"applied":  applied,
 		"affected": affected,
 	})
+}
+
+func resolveNameTemplate(tmpl string, act map[string]any) string {
+	result := tmpl
+	if city, ok := act["start_city"].(string); ok {
+		result = strings.ReplaceAll(result, "{city}", city)
+	}
+	if dist, ok := act["distance_m"].(float64); ok {
+		result = strings.ReplaceAll(result, "{distance_km}", fmt.Sprintf("%.0f km", dist/1000))
+	}
+	if sport, ok := act["sport_type"].(string); ok {
+		result = strings.ReplaceAll(result, "{sport}", sport)
+	}
+	return result
 }

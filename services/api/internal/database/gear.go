@@ -1226,9 +1226,7 @@ func (db *DB) getSegmentEffortsForActivity(ctx context.Context, activityID strin
 func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field string, value any) error {
 	switch field {
 	case "gear_id":
-		_, err := db.Pool.Exec(ctx,
-			`UPDATE activities SET gear_id = $1 WHERE id = $2`,
-			value, activityID)
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET gear_id = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "add_tag":
 		tag, ok := value.(string)
@@ -1236,13 +1234,37 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 			return fmt.Errorf("add_tag value must be a string")
 		}
 		_, err := db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_append(tags, $1) WHERE id = $2 AND NOT ($1 = ANY(tags))`,
+			`UPDATE activities SET tags = array_append(tags, $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(tags, '{}')))`,
 			tag, activityID)
 		return err
+	case "remove_tag":
+		tag, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("remove_tag value must be a string")
+		}
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET tags = array_remove(tags, $1) WHERE id = $2`, tag, activityID)
+		return err
 	case "visibility":
-		_, err := db.Pool.Exec(ctx,
-			`UPDATE activities SET visibility = $1 WHERE id = $2`,
-			value, activityID)
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "sport_type":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "sub_type":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sub_type = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "intensity":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET intensity = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "is_indoor":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_indoor = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "set_name_template":
+		title, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_name_template value must be a resolved string")
+		}
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET title = $1, title_is_manual = true WHERE id = $2`, title, activityID)
 		return err
 	default:
 		return fmt.Errorf("unknown field: %s", field)
