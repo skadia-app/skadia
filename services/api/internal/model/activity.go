@@ -482,6 +482,19 @@ type ClimbProEventResponse struct {
 	Lng           *float64   `json:"lng,omitempty"`
 }
 
+// Climb represents a detected climb/ascent within an activity.
+type Climb struct {
+	ID             string  `json:"id"`
+	ClimbNumber    int     `json:"climb_number"`
+	StartDistanceM float64 `json:"start_distance_m"`
+	EndDistanceM   float64 `json:"end_distance_m"`
+	LengthM        float64 `json:"length_m"`
+	ElevationGainM float64 `json:"elevation_gain_m"`
+	AvgGradientPct float64 `json:"avg_gradient_pct"`
+	MaxGradientPct float64 `json:"max_gradient_pct"`
+	Category       string  `json:"category"`
+}
+
 // UploadResponse wraps the activity with optional warnings.
 type UploadResponse struct {
 	Activity *Activity `json:"activity"`

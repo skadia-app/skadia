@@ -172,6 +172,7 @@ func main() {
 			r.Get("/activities/{id}/laps", h.GetLaps)
 			r.Get("/activities/{id}/splits", h.GetSplits)
 			r.Get("/activities/{id}/lengths", h.GetLengths)
+			r.Get("/activities/{id}/climbs", h.GetActivityClimbs)
 			r.Get("/activities/{id}/climb-pro", h.GetClimbProEvents)
 			r.Get("/activities/{id}/export", h.ExportActivity)
 			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)

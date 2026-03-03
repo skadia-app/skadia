@@ -29,6 +29,7 @@ import LapTable from '@/components/LapTable'
 import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
 import ClimbProChart from '@/components/ClimbProChart'
+import ClimbsSection from '@/components/ClimbsSection'
 import ActivitySegments from '@/components/ActivitySegments'
 import DetectedLapsTable from '@/components/DetectedLapsTable'
 
@@ -260,6 +261,9 @@ export default function ActivityDetailPage() {
 
       {/* ClimbPro */}
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
+
+      {/* Anstiege */}
+      <ClimbsSection activityId={activity.id} />
 
       {/* Erkannte Runden */}
       <DetectedLapsTable activityId={activity.id} />

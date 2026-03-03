@@ -202,6 +202,24 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// GetActivityClimbs returns detected climbs for an activity.
+func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
+	activityID := chi.URLParam(r, "id")
+	if activityID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		return
+	}
+
+	climbs, err := h.DB.GetActivityClimbs(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get activity climbs failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity climbs", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, climbs)
+}
+
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

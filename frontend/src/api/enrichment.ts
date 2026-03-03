@@ -1,8 +1,12 @@
 import { apiClient } from './client'
-import type { GeoTag, EnrichmentSettings } from './types'
+import type { GeoTag, Climb, EnrichmentSettings } from './types'
 
 export async function fetchGeoTags(activityId: string): Promise<GeoTag[]> {
   return apiClient<GeoTag[]>(`/activities/${activityId}/geo-tags`)
+}
+
+export async function fetchActivityClimbs(activityId: string): Promise<Climb[]> {
+  return apiClient<Climb[]>(`/activities/${activityId}/climbs`)
 }
 
 export async function fetchEnrichmentSettings(): Promise<EnrichmentSettings> {
