@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchTags, createTag, updateTag, deleteTag, mergeTags } from '@/api/tags'
 import type { Tag, TagCondition, TagConditionGroup } from '@/api/tags'
+import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ColorPicker from '@/components/ColorPicker'
@@ -33,19 +34,11 @@ interface FieldDef {
   inputType: 'text' | 'number' | 'bool' | 'sport' | 'source' | 'season' | 'weekday' | 'time_range' | 'between' | 'tag' | 'geofence'
 }
 
-const SPORT_OPTIONS = [
-  { value: 'cycling',         label: 'Radfahren' },
-  { value: 'running',         label: 'Laufen' },
-  { value: 'hiking',          label: 'Wandern' },
-  { value: 'swimming',        label: 'Schwimmen' },
-  { value: 'e_biking',        label: 'E-Bike' },
-  { value: 'skiing',          label: 'Ski' },
-  { value: 'paddling',        label: 'Paddeln' },
-  { value: 'walking',         label: 'Gehen' },
-  { value: 'strength',        label: 'Kraft' },
-  { value: 'rock_climbing',   label: 'Klettern' },
-  { value: 'generic',         label: 'Sonstiges' },
-]
+const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
+  value: d.sportType,
+  label: d.label,
+  category: d.categoryKey,
+}))
 
 const SOURCE_OPTIONS = [
   { value: 'garmin',      label: 'Garmin' },

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction } from '@/api/types'
+import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
@@ -10,19 +11,13 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Constants
 // ---------------------------------------------------------------------------
 
-const SPORT_OPTIONS = [
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'e_biking', label: 'E-Bike' },
-  { value: 'skiing', label: 'Ski' },
-  { value: 'paddling', label: 'Paddeln' },
-  { value: 'walking', label: 'Gehen' },
-  { value: 'strength', label: 'Kraft' },
-  { value: 'rock_climbing', label: 'Klettern' },
-  { value: 'generic', label: 'Sonstiges' },
-]
+const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
+  value: d.sportType,
+  label: d.label,
+  category: d.categoryKey,
+}))
+
+
 
 const SOURCE_OPTIONS = [
   { value: 'garmin', label: 'Garmin' },
