@@ -160,6 +160,18 @@ export interface EnrichmentSettings {
   round_trip_threshold_m: number
 }
 
+export interface Climb {
+  id: string
+  climb_number: number
+  start_distance_m: number
+  end_distance_m: number
+  length_m: number
+  elevation_gain_m: number
+  avg_gradient_pct: number
+  max_gradient_pct: number
+  category: string
+}
+
 export interface DetectedLap {
   id: string
   activity_id: string
@@ -310,6 +322,13 @@ export interface GearDocument {
   original_filename: string
   content_type: string
   file_size_bytes: number
+  file_hash?: string
+  s3_bucket?: string
+  s3_key?: string
+  document_date?: string | null
+  document_amount?: number | null
+  document_currency?: string
+  processing_status?: 'pending' | 'processed' | 'failed'
   created_at: string
 }
 

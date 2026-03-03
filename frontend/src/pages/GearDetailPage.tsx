@@ -24,6 +24,7 @@ import type {
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
+import GearDocumentSection from '@/components/GearDocumentSection'
 
 export default function GearDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -143,6 +144,9 @@ export default function GearDetailPage() {
 
           {/* Images */}
           <GearImagesSection gearId={gear.id} />
+
+          {/* Documents */}
+          <GearDocumentSection gearId={gear.id} />
 
           {/* Kosten */}
           {costSummary && costSummary.total_cost > 0 && (

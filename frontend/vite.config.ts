@@ -31,6 +31,9 @@ export default defineConfig({
           if (id.includes('node_modules/zrender')) {
             return 'vendor-echarts'
           }
+          if (id.includes('node_modules/react-pdf') || id.includes('node_modules/pdfjs-dist')) {
+            return 'vendor-react-pdf'
+          }
           if (
             id.includes('node_modules/@tanstack/react-query') ||
             id.includes('node_modules/react-router-dom') ||

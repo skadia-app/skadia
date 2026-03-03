@@ -152,10 +152,20 @@ export async function activateBikeSetup(id: string): Promise<BikeSetup> {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-export async function uploadGearDocument(gearId: string, file: File, docType?: string): Promise<GearDocument> {
+export async function uploadGearDocument(gearId: string, file: File, opts?: {
+  doc_type?: string
+  title?: string
+  document_date?: string
+  document_amount?: number
+  document_currency?: string
+}): Promise<GearDocument> {
   const formData = new FormData()
   formData.append('file', file)
-  if (docType) formData.append('doc_type', docType)
+  if (opts?.doc_type) formData.append('doc_type', opts.doc_type)
+  if (opts?.title) formData.append('title', opts.title)
+  if (opts?.document_date) formData.append('document_date', opts.document_date)
+  if (opts?.document_amount != null) formData.append('document_amount', opts.document_amount.toString())
+  if (opts?.document_currency) formData.append('document_currency', opts.document_currency)
   return apiUpload<GearDocument>(`/gear/${gearId}/documents`, formData)
 }
 
