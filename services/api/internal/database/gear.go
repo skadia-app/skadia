@@ -989,19 +989,94 @@ func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportTy
 
 // GetActivityAsMap returns an activity as a map for rule evaluation.
 func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[string]any, error) {
-	var sportType string
-	var distanceM, avgSpeedMS *float64
-	var elapsedTimeS *int
-	var isIndoor bool
-	var intensity *string
-	var timeOfDay []string
+	row := db.Pool.QueryRow(ctx, `
+		SELECT
+			a.sport_type, a.sub_type, a.source, a.intensity, a.title, a.description,
+			a.is_indoor, a.has_gps, a.visibility, a.hide_map, a.is_round_trip,
+			a.elapsed_time_s, a.moving_time_s,
+			EXTRACT(DOW FROM a.started_at AT TIME ZONE 'UTC')::int AS weekday,
+			EXTRACT(MONTH FROM a.started_at AT TIME ZONE 'UTC')::int AS month,
+			a.time_of_day,
+			a.distance_m,
+			a.avg_speed_ms, a.max_speed_ms, a.min_speed_ms,
+			a.elevation_gain_m, a.elevation_loss_m, a.max_elevation_m, a.min_elevation_m,
+			a.avg_heart_rate, a.max_heart_rate, a.min_heart_rate,
+			a.avg_cadence, a.max_cadence,
+			a.avg_power_w, a.max_power_w, a.min_power_w, a.normalized_power_w, a.tss, a.trimp,
+			a.avg_temperature_c, a.min_temperature_c, a.max_temperature_c,
+			a.weather_temp_c, a.weather_temp_min_c, a.weather_temp_max_c,
+			a.weather_condition, a.weather_humidity, a.weather_wind_speed_ms, a.weather_wind_speed_max_ms,
+			a.start_city, a.start_state, a.start_country, a.start_country_code, a.end_city,
+			a.gear_id::text,
+			a.tags,
+			ST_Y(a.start_location::geometry) AS start_lat,
+			ST_X(a.start_location::geometry) AS start_lon,
+			COALESCE(pc.cnt, 0) AS photo_count,
+			COALESCE(lc.cnt, 0) AS detected_lap_count,
+			a.lift_count, a.lift_ascent_m, a.lift_descent_m, a.lift_distance_m, a.lift_duration_s,
+			a.net_ascent_m, a.net_descent_m, a.net_distance_m,
+			COALESCE(cd.climb_count, 0) AS climb_count,
+			cd.max_category AS climb_category_max
+		FROM activities a
+		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
+		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
+		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS climb_count, MIN(category)::int AS max_category FROM activity_climbs GROUP BY activity_id) cd ON cd.activity_id = a.id
+		WHERE a.id = $1`,
+		activityID,
+	)
 
-	err := db.Pool.QueryRow(ctx,
-		`SELECT sport_type, distance_m, elapsed_time_s, avg_speed_ms,
-		 is_indoor, intensity, time_of_day
-		 FROM activities WHERE id = $1`, activityID,
-	).Scan(&sportType, &distanceM, &elapsedTimeS, &avgSpeedMS,
-		&isIndoor, &intensity, &timeOfDay)
+	var (
+		sportType, subType, source, intensity, title, description *string
+		isIndoor, hasGPS, hideMap, isRoundTrip                    bool
+		visibility                                                *string
+		elapsedTimeS, movingTimeS                                 *int
+		weekday, month                                            *int
+		timeOfDay                                                 []string
+		distanceM, avgSpeedMS, maxSpeedMS, minSpeedMS             *float64
+		elevGainM, elevLossM, maxElevM, minElevM                  *float64
+		avgHR, maxHR, minHR                                       *float64
+		avgCadence, maxCadence                                    *float64
+		avgPowerW, maxPowerW, minPowerW, normPowerW, tss, trimp   *float64
+		avgTempC, minTempC, maxTempC                              *float64
+		weatherTempC, weatherTempMinC, weatherTempMaxC             *float64
+		weatherCondition                                          *string
+		weatherHumidity                                            *int
+		weatherWindMS, weatherWindMaxMS                            *float64
+		startCity, startState, startCountry, startCountryCode     *string
+		endCity                                                   *string
+		gearID                                                    *string
+		tags                                                      []string
+		startLat, startLon                                        *float64
+		photoCount, detectedLapCount                              int
+		liftCount                                                 *int
+		liftAscentM, liftDescentM, liftDistM                      *float64
+		liftDurationS                                             *int
+		netAscentM, netDescentM, netDistM                         *float64
+		climbCount                                                int
+		climbCategoryMax                                          *int
+	)
+
+	err := row.Scan(
+		&sportType, &subType, &source, &intensity, &title, &description,
+		&isIndoor, &hasGPS, &visibility, &hideMap, &isRoundTrip,
+		&elapsedTimeS, &movingTimeS, &weekday, &month, &timeOfDay,
+		&distanceM,
+		&avgSpeedMS, &maxSpeedMS, &minSpeedMS,
+		&elevGainM, &elevLossM, &maxElevM, &minElevM,
+		&avgHR, &maxHR, &minHR,
+		&avgCadence, &maxCadence,
+		&avgPowerW, &maxPowerW, &minPowerW, &normPowerW, &tss, &trimp,
+		&avgTempC, &minTempC, &maxTempC,
+		&weatherTempC, &weatherTempMinC, &weatherTempMaxC,
+		&weatherCondition, &weatherHumidity, &weatherWindMS, &weatherWindMaxMS,
+		&startCity, &startState, &startCountry, &startCountryCode, &endCity,
+		&gearID, &tags,
+		&startLat, &startLon,
+		&photoCount, &detectedLapCount,
+		&liftCount, &liftAscentM, &liftDescentM, &liftDistM, &liftDurationS,
+		&netAscentM, &netDescentM, &netDistM,
+		&climbCount, &climbCategoryMax,
+	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -1010,25 +1085,141 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	}
 
 	m := map[string]any{
-		"sport_type": sportType,
-		"is_indoor":  isIndoor,
+		"is_indoor":          isIndoor,
+		"has_gps":            hasGPS,
+		"hide_map":           hideMap,
+		"is_round_trip":      isRoundTrip,
+		"photo_count":        photoCount,
+		"detected_lap_count": detectedLapCount,
+		"climb_count":        climbCount,
 	}
-	if distanceM != nil {
-		m["distance_m"] = *distanceM
+	derefStr := func(s *string) any {
+		if s == nil {
+			return nil
+		}
+		return *s
 	}
-	if elapsedTimeS != nil {
-		m["elapsed_time_s"] = *elapsedTimeS
+	derefInt := func(i *int) any {
+		if i == nil {
+			return nil
+		}
+		return *i
 	}
-	if avgSpeedMS != nil {
-		m["avg_speed_ms"] = *avgSpeedMS
+	derefF := func(f *float64) any {
+		if f == nil {
+			return nil
+		}
+		return *f
 	}
-	if intensity != nil {
-		m["intensity"] = *intensity
+	setNN := func(key string, v any) {
+		if v != nil {
+			m[key] = v
+		}
 	}
+
+	setNN("sport_type", derefStr(sportType))
+	setNN("sub_type", derefStr(subType))
+	setNN("source", derefStr(source))
+	setNN("intensity", derefStr(intensity))
+	setNN("title", derefStr(title))
+	setNN("description", derefStr(description))
+	setNN("visibility", derefStr(visibility))
+	setNN("elapsed_time_s", derefInt(elapsedTimeS))
+	setNN("moving_time_s", derefInt(movingTimeS))
+	setNN("weekday", derefInt(weekday))
+	setNN("month", derefInt(month))
+	setNN("distance_m", derefF(distanceM))
+	setNN("avg_speed_ms", derefF(avgSpeedMS))
+	setNN("max_speed_ms", derefF(maxSpeedMS))
+	setNN("min_speed_ms", derefF(minSpeedMS))
+	setNN("elevation_gain_m", derefF(elevGainM))
+	setNN("elevation_loss_m", derefF(elevLossM))
+	setNN("max_elevation_m", derefF(maxElevM))
+	setNN("min_elevation_m", derefF(minElevM))
+	setNN("avg_heart_rate", derefF(avgHR))
+	setNN("max_heart_rate", derefF(maxHR))
+	setNN("min_heart_rate", derefF(minHR))
+	setNN("avg_cadence", derefF(avgCadence))
+	setNN("max_cadence", derefF(maxCadence))
+	setNN("avg_power_w", derefF(avgPowerW))
+	setNN("max_power_w", derefF(maxPowerW))
+	setNN("min_power_w", derefF(minPowerW))
+	setNN("normalized_power_w", derefF(normPowerW))
+	setNN("tss", derefF(tss))
+	setNN("trimp", derefF(trimp))
+	setNN("avg_temperature_c", derefF(avgTempC))
+	setNN("min_temperature_c", derefF(minTempC))
+	setNN("max_temperature_c", derefF(maxTempC))
+	setNN("weather_temp_c", derefF(weatherTempC))
+	setNN("weather_temp_min_c", derefF(weatherTempMinC))
+	setNN("weather_temp_max_c", derefF(weatherTempMaxC))
+	setNN("weather_condition", derefStr(weatherCondition))
+	setNN("weather_humidity", derefInt(weatherHumidity))
+	setNN("weather_wind_speed_ms", derefF(weatherWindMS))
+	setNN("weather_wind_speed_max_ms", derefF(weatherWindMaxMS))
+	setNN("start_city", derefStr(startCity))
+	setNN("start_state", derefStr(startState))
+	setNN("start_country", derefStr(startCountry))
+	setNN("start_country_code", derefStr(startCountryCode))
+	setNN("end_city", derefStr(endCity))
+	setNN("gear_id", derefStr(gearID))
+	setNN("start_lat", derefF(startLat))
+	setNN("start_lon", derefF(startLon))
+	setNN("lift_count", derefInt(liftCount))
+	setNN("lift_ascent_m", derefF(liftAscentM))
+	setNN("lift_descent_m", derefF(liftDescentM))
+	setNN("lift_distance_m", derefF(liftDistM))
+	setNN("lift_duration_s", derefInt(liftDurationS))
+	setNN("net_ascent_m", derefF(netAscentM))
+	setNN("net_descent_m", derefF(netDescentM))
+	setNN("net_distance_m", derefF(netDistM))
+	setNN("climb_category_max", derefInt(climbCategoryMax))
 	if len(timeOfDay) > 0 {
 		m["time_of_day"] = timeOfDay
 	}
+	if len(tags) > 0 {
+		m["tags"] = tags
+	}
+
+	segEfforts, err := db.getSegmentEffortsForActivity(ctx, activityID)
+	if err == nil && len(segEfforts) > 0 {
+		m["segment_efforts"] = segEfforts
+	}
+
 	return m, nil
+}
+
+func (db *DB) getSegmentEffortsForActivity(ctx context.Context, activityID string) ([]map[string]any, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			se.segment_id::text,
+			se.elapsed_time_s,
+			(SELECT COUNT(*) + 1 FROM segment_efforts se2
+			 WHERE se2.segment_id = se.segment_id AND se2.elapsed_time_s < se.elapsed_time_s
+			 AND se2.user_id = se.user_id)::int AS rank
+		FROM segment_efforts se
+		WHERE se.activity_id = $1`,
+		activityID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]any
+	for rows.Next() {
+		var segID string
+		var elapsedS, rank int
+		if err := rows.Scan(&segID, &elapsedS, &rank); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"segment_id":     segID,
+			"elapsed_time_s": elapsedS,
+			"rank":           rank,
+		})
+	}
+	return result, nil
 }
 
 // ApplyRuleChange applies a single rule change to an activity.
