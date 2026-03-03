@@ -794,32 +794,38 @@ type MaintenanceAlert struct {
 
 // AutomationRule represents a user-defined automation rule.
 type AutomationRule struct {
-	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"`
-	Name         string          `json:"name"`
-	IsActive     bool            `json:"is_active"`
-	Priority     int             `json:"priority"`
-	Conditions   json.RawMessage `json:"conditions"`
-	Actions      json.RawMessage `json:"actions"`
-	TimesApplied int             `json:"times_applied"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	Name            string          `json:"name"`
+	IsActive        bool            `json:"is_active"`
+	Priority        int             `json:"priority"`
+	Conditions      json.RawMessage `json:"conditions"`
+	ConditionsLogic string          `json:"conditions_logic"`
+	ConditionGroups json.RawMessage `json:"condition_groups"`
+	Actions         json.RawMessage `json:"actions"`
+	TimesApplied    int             `json:"times_applied"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 // AutomationRuleCreate is the request body for creating an automation rule.
 type AutomationRuleCreate struct {
-	Name       string          `json:"name"`
-	Priority   int             `json:"priority"`
-	Conditions json.RawMessage `json:"conditions"`
-	Actions    json.RawMessage `json:"actions"`
+	Name            string          `json:"name"`
+	Priority        int             `json:"priority"`
+	Conditions      json.RawMessage `json:"conditions"`
+	ConditionsLogic string          `json:"conditions_logic"`
+	ConditionGroups json.RawMessage `json:"condition_groups"`
+	Actions         json.RawMessage `json:"actions"`
 }
 
 // AutomationRuleUpdate is the request body for updating an automation rule.
 type AutomationRuleUpdate struct {
-	Name       *string          `json:"name,omitempty"`
-	IsActive   *bool            `json:"is_active,omitempty"`
-	Priority   *int             `json:"priority,omitempty"`
-	Conditions *json.RawMessage `json:"conditions,omitempty"`
-	Actions    *json.RawMessage `json:"actions,omitempty"`
+	Name            *string          `json:"name,omitempty"`
+	IsActive        *bool            `json:"is_active,omitempty"`
+	Priority        *int             `json:"priority,omitempty"`
+	Conditions      *json.RawMessage `json:"conditions,omitempty"`
+	ConditionsLogic *string          `json:"conditions_logic,omitempty"`
+	ConditionGroups *json.RawMessage `json:"condition_groups,omitempty"`
+	Actions         *json.RawMessage `json:"actions,omitempty"`
 }
 
 // BikeSetup represents a saved bike configuration/setup.
