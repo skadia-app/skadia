@@ -1,26 +1,48 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { fetchRules, createRule, updateRule, deleteRule, applyRules } from '@/api/rules'
 import type { AutomationRule } from '@/api/types'
 import RuleEditor from '@/components/RuleEditor'
 
 export default function AutomationRulesPage() {
   const queryClient = useQueryClient()
-  const [creating, setCreating] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // URL params: ?new=1&tag_name=foo or ?new=1&tag_id=uuid
+  const urlNew = searchParams.get('new') === '1'
+  const urlTagName = searchParams.get('tag_name')
+  const urlTagId = searchParams.get('tag_id')
+
+  const [creating, setCreating] = useState(urlNew)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<{ applied: number; errors: number } | null>(null)
+
+  // Build initial rule data from URL params
+  const initialRuleData: Partial<AutomationRule> | undefined = urlNew && (urlTagName || urlTagId)
+    ? {
+        name: urlTagName ? `Tag "${urlTagName}" vergeben` : '',
+        actions: [{ action: 'add_tag', params: { tag: urlTagName ?? '' } }],
+      }
+    : undefined
 
   const { data: rules, isLoading } = useQuery({
     queryKey: ['automation-rules'],
     queryFn: fetchRules,
   })
 
+  function clearUrlParams() {
+    if (urlNew || urlTagName || urlTagId) {
+      setSearchParams({}, { replace: true })
+    }
+  }
+
   const createMutation = useMutation({
     mutationFn: (data: Partial<AutomationRule>) => createRule(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
       setCreating(false)
+      clearUrlParams()
     },
   })
 
@@ -62,10 +84,10 @@ export default function AutomationRulesPage() {
   return (
     <div className="space-y-6">
       <Link
-        to="/settings"
+        to={urlTagName || urlTagId ? '/workshop/tags' : '/workshop'}
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> Einstellungen
+        <span>&#8592;</span> {urlTagName || urlTagId ? 'Tags' : 'Werkstatt'}
       </Link>
 
       <div className="flex items-center justify-between">
@@ -101,8 +123,9 @@ export default function AutomationRulesPage() {
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Regel</h2>
           <RuleEditor
+            initialData={initialRuleData}
             onSave={(data) => createMutation.mutate(data)}
-            onCancel={() => setCreating(false)}
+            onCancel={() => { setCreating(false); clearUrlParams() }}
             isSaving={createMutation.isPending}
           />
         </div>

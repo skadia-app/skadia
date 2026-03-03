@@ -64,7 +64,8 @@ export default function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/privacy" element={<PrivacySettingsPage />} />
               <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
-              <Route path="settings/rules" element={<AutomationRulesPage />} />
+              <Route path="workshop/rules" element={<AutomationRulesPage />} />
+              <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
               <Route path="settings/tags" element={<TagsPage />} />
             </Route>
           </Route>

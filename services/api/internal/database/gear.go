@@ -881,7 +881,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	return &r, nil
 }
 
-func (db *DB) UpdateRule(ctx context.Context, id string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
+func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
 	var sets []string
 	var args []any
 	argIdx := 1
@@ -925,7 +925,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, update *model.Automatio
 	if len(sets) == 0 {
 		// No changes
 		r, err := scanRule(db.Pool.QueryRow(ctx,
-			`SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1`, id,
+			`SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID,
 		))
 		if err != nil {
 			return nil, fmt.Errorf("get rule: %w", err)
@@ -933,11 +933,11 @@ func (db *DB) UpdateRule(ctx context.Context, id string, update *model.Automatio
 		return r, nil
 	}
 
-	args = append(args, id)
+	args = append(args, id, userID)
 	query := fmt.Sprintf(
-		`UPDATE automation_rules SET %s WHERE id = $%d
+		`UPDATE automation_rules SET %s WHERE id = $%d AND user_id = $%d
 		 RETURNING `+ruleSelectCols,
-		strings.Join(sets, ", "), argIdx,
+		strings.Join(sets, ", "), argIdx, argIdx+1,
 	)
 
 	var r model.AutomationRule
@@ -955,8 +955,8 @@ func (db *DB) UpdateRule(ctx context.Context, id string, update *model.Automatio
 	return &r, nil
 }
 
-func (db *DB) DeleteRule(ctx context.Context, id string) error {
-	tag, err := db.Pool.Exec(ctx, `DELETE FROM automation_rules WHERE id = $1`, id)
+func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete rule: %w", err)
 	}

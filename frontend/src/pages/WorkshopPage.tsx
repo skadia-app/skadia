@@ -20,9 +20,15 @@ const sections = [
     icon: TagIcon,
   },
   {
+    to: '/workshop/rules',
+    title: 'Automatisierungsregeln',
+    description: 'Regeln fuer automatisches Taggen, Sport-Typ, Sichtbarkeit und mehr',
+    icon: RulesIcon,
+  },
+  {
     to: '/workshop/reprocess',
     title: 'Neu verarbeiten',
-    description: 'Aktivitäten erneut durch die Enrichment-Pipeline verarbeiten',
+    description: 'Aktivitaeten erneut durch die Enrichment-Pipeline verarbeiten',
     icon: ReprocessIcon,
   },
 ]
@@ -84,6 +90,15 @@ function TagIcon() {
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
       <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  )
+}
+
+function RulesIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16v4H4zM4 12h8v4H4zM4 20h12v0H4" />
+      <polyline points="20 16 16 20 14 18" />
     </svg>
   )
 }

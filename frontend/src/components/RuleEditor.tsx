@@ -231,7 +231,7 @@ function opsForField(cf: ConditionField): string[] {
     case 'bool': return ['eq']
     case 'enum': return ['eq', 'neq', 'in']
     case 'text': return ['eq', 'neq', 'contains']
-    case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq', 'between']
+    case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq']
     case 'tag': return ['eq']
     case 'segment': return ['eq']
     case 'geofence': return ['eq']
@@ -240,7 +240,7 @@ function opsForField(cf: ConditionField): string[] {
 
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
-  between: 'zwischen', contains: 'enthält', in: 'in',
+  contains: 'enthält', in: 'in',
 }
 
 const ACTION_TYPES = [
@@ -852,24 +852,24 @@ function ActionParams({
   if (action === 'add_tag') {
     return (
       <select
-        value={params.tag ?? ''}
-        onChange={(e) => onChange({ tag: e.target.value })}
+        value={params.tag_id ?? ''}
+        onChange={(e) => onChange({ tag_id: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">Tag wählen...</option>
-        {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+        {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     )
   }
   if (action === 'remove_tag') {
     return (
       <select
-        value={params.tag ?? ''}
-        onChange={(e) => onChange({ tag: e.target.value })}
+        value={params.tag_id ?? ''}
+        onChange={(e) => onChange({ tag_id: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">Tag wählen...</option>
-        {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+        {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     )
   }
@@ -913,8 +913,8 @@ function ActionParams({
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <input
           type="text"
-          value={params.name ?? ''}
-          onChange={(e) => onChange({ name: e.target.value })}
+          value={params.template ?? ''}
+          onChange={(e) => onChange({ template: e.target.value })}
           placeholder="Neuer Titel"
           className={inputClass + ' w-full'}
         />
@@ -957,16 +957,19 @@ function ActionParams({
 
 interface RuleEditorProps {
   rule?: AutomationRule | null
+  /** Pre-fill values for new rules (e.g. from URL params) */
+  initialData?: Partial<AutomationRule> | null
   onSave: (data: Partial<AutomationRule>) => void
   onCancel: () => void
   isSaving?: boolean
 }
 
-export default function RuleEditor({ rule, onSave, onCancel, isSaving }: RuleEditorProps) {
-  const [name, setName] = useState(rule?.name ?? '')
-  const [priority, setPriority] = useState(rule?.priority ?? 0)
+export default function RuleEditor({ rule, initialData, onSave, onCancel, isSaving }: RuleEditorProps) {
+  const seed = rule ?? initialData
+  const [name, setName] = useState(seed?.name ?? '')
+  const [priority, setPriority] = useState(seed?.priority ?? 0)
   const [groups, setGroups] = useState<RuleConditionGroup[]>(() => normaliseGroups(rule))
-  const [actions, setActions] = useState<RuleAction[]>(rule?.actions ?? [])
+  const [actions, setActions] = useState<RuleAction[]>(seed?.actions ?? [])
 
   const { data: gearList } = useQuery({
     queryKey: ['gear-list'],

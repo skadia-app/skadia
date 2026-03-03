@@ -60,6 +60,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := middleware.GetUserID(r.Context())
 
 	var update model.AutomationRuleUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -67,7 +68,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rule, err := h.DB.UpdateRule(r.Context(), id, &update)
+	rule, err := h.DB.UpdateRule(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update rule failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
@@ -83,8 +84,9 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := middleware.GetUserID(r.Context())
 
-	if err := h.DB.DeleteRule(r.Context(), id); err != nil {
+	if err := h.DB.DeleteRule(r.Context(), id, userID); err != nil {
 		if err.Error() == "rule not found" {
 			writeError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
 			return
@@ -165,6 +167,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			ruleChanged := false
 			changes := rules.Apply(actions)
 			for _, change := range changes {
 				val := change.Value
@@ -178,10 +181,11 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 						"activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
 					continue
 				}
+				ruleChanged = true
 				activityChanged = true
 			}
 
-			if activityChanged {
+			if ruleChanged {
 				if err := h.DB.IncrementRuleApplied(r.Context(), rule.ID); err != nil {
 					slog.Warn("increment rule applied failed", "rule_id", rule.ID, "error", err)
 				}

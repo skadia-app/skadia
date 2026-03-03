@@ -2655,7 +2655,7 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 			continue
 		}
 		_, err = db.Pool.Exec(ctx,
-			`UPDATE tags SET conditions = NULL, condition_groups = NULL WHERE id = $1`,
+			`UPDATE tags SET conditions = NULL, condition_groups = NULL, conditions_logic = 'and' WHERE id = $1`,
 			tag.id,
 		)
 		if err != nil {
