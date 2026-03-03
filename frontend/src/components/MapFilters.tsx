@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
-import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
+import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS, filterToExistingSports } from '@/lib/sportOptions'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
+import { fetchSportTypeStats } from '@/api/stats'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
-
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
 
 function loadUserDefaultColors(): Record<string, string> | null {
@@ -28,7 +30,25 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
-  const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
+  const { hideUnused } = useGlobalSportSettings()
+  const { data: statsData } = useQuery({
+    queryKey: ['sport-type-stats'],
+    queryFn: fetchSportTypeStats,
+    enabled: hideUnused,
+  })
+  const existingSportTypes = useMemo<Set<string>>(() => {
+    if (!statsData) return new Set()
+    return new Set(statsData.map((s) => s.sport_type))
+  }, [statsData])
+  const visibleOptions = useMemo(() => {
+    if (hideUnused && existingSportTypes.size > 0) {
+      return filterToExistingSports(SPORT_OPTIONS, existingSportTypes)
+    }
+    return SPORT_OPTIONS
+  }, [hideUnused, existingSportTypes])
+  const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
+
+  const allSelected = visibleKeys.every(k => filters.sportTypes.has(k))
 
   function getKey(opt: SportOption): string {
     return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
@@ -84,7 +104,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
     if (allSelected) {
       onChange({ ...filters, sportTypes: new Set() })
     } else {
-      onChange({ ...filters, sportTypes: new Set(ALL_SPORT_KEYS) })
+      onChange({ ...filters, sportTypes: new Set(visibleKeys) })
     }
   }
 
@@ -120,7 +140,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 </button>
               </div>
               <div className="space-y-1.5">
-                {SPORT_OPTIONS.map((opt) => (
+                {visibleOptions.map((opt) => (
                   <div key={opt.label}>
                     {opt.children && opt.groupKey ? (
                       /* Parent with children */
