@@ -200,6 +200,17 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) MigrateTagConditions(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	count, err := h.DB.MigrateTagConditionsToRules(r.Context(), userID)
+	if err != nil {
+		slog.Error("migrate tag conditions failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "migration failed", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"migrated": count})
+}
+
 func resolveNameTemplate(tmpl string, act map[string]any) string {
 	result := tmpl
 	if city, ok := act["start_city"].(string); ok {

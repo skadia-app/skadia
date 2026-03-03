@@ -257,6 +257,7 @@ func main() {
 			r.Put("/automation-rules/{id}", h.UpdateRule)
 			r.Delete("/automation-rules/{id}", h.DeleteRule)
 			r.Post("/automation-rules/apply", h.ApplyRules)
+			r.Post("/automation-rules/migrate-from-tags", h.MigrateTagConditions)
 
 			// Custom Maps
 			r.Get("/custom-maps", h.ListCustomMaps)

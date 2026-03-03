@@ -2593,3 +2593,75 @@ func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model
 	}
 	return climbs, rows.Err()
 }
+
+// MigrateTagConditionsToRules converts tag auto-conditions into automation rules.
+func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (int, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name, conditions, conditions_logic, condition_groups
+		 FROM tags
+		 WHERE user_id = $1
+		   AND (conditions IS NOT NULL OR condition_groups IS NOT NULL)
+		   AND (jsonb_array_length(COALESCE(conditions, '[]'::jsonb)) > 0
+		        OR jsonb_array_length(COALESCE(condition_groups, '[]'::jsonb)) > 0)`,
+		userID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("load tags for migration: %w", err)
+	}
+	defer rows.Close()
+
+	type tagRow struct {
+		id              string
+		name            string
+		conditions      json.RawMessage
+		conditionsLogic string
+		conditionGroups json.RawMessage
+	}
+	var tags []tagRow
+	for rows.Next() {
+		var t tagRow
+		if err := rows.Scan(&t.id, &t.name, &t.conditions, &t.conditionsLogic, &t.conditionGroups); err != nil {
+			continue
+		}
+		tags = append(tags, t)
+	}
+	rows.Close()
+
+	count := 0
+	for _, tag := range tags {
+		action := map[string]any{
+			"action": "add_tag",
+			"params": map[string]any{"tag_id": tag.id},
+		}
+		actionsJSON, _ := json.Marshal([]any{action})
+
+		conditions := tag.conditions
+		if len(conditions) == 0 {
+			conditions = json.RawMessage(`[]`)
+		}
+		condLogic := tag.conditionsLogic
+		if condLogic == "" {
+			condLogic = "and"
+		}
+
+		ruleName := "Auto: " + tag.name
+		_, err := db.Pool.Exec(ctx,
+			`INSERT INTO automation_rules (user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions)
+			 VALUES ($1, $2, true, 0, $3, $4, $5, $6)`,
+			userID, ruleName, conditions, condLogic, tag.conditionGroups, actionsJSON,
+		)
+		if err != nil {
+			slog.Warn("migrate tag condition: insert rule failed", "tag_id", tag.id, "error", err)
+			continue
+		}
+		_, err = db.Pool.Exec(ctx,
+			`UPDATE tags SET conditions = NULL, condition_groups = NULL WHERE id = $1`,
+			tag.id,
+		)
+		if err != nil {
+			slog.Warn("migrate tag condition: clear tag conditions failed", "tag_id", tag.id, "error", err)
+		}
+		count++
+	}
+	return count, nil
+}
