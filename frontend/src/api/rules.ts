@@ -20,3 +20,7 @@ export async function deleteRule(id: string): Promise<void> {
 export async function applyRules(): Promise<{ applied: number; errors: number }> {
   return apiClient('/automation-rules/apply', { method: 'POST' })
 }
+
+export async function migrateTagConditions(): Promise<{ migrated: number }> {
+  return apiClient<{ migrated: number }>('/automation-rules/migrate-from-tags', { method: 'POST' })
+}
