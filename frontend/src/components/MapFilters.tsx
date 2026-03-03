@@ -19,12 +19,30 @@ function loadUserDefaultColors(): Record<string, string> | null {
 
 function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const handleClick = () => {
+    if (btnRef.current && inputRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      const pickerW = 220
+      const pickerH = 250
+      let left = rect.left - pickerW - 4
+      if (left < 8) left = rect.right + 4
+      let top = rect.top
+      if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
+      if (top < 8) top = 8
+      inputRef.current.style.top = `${top}px`
+      inputRef.current.style.left = `${left}px`
+    }
+    inputRef.current?.click()
+  }
 
   return (
     <>
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => inputRef.current?.click()}
+        onClick={handleClick}
         className="w-7 h-5 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer flex-shrink-0"
         style={{ backgroundColor: value }}
         title={value}
@@ -35,7 +53,7 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string)
           type="color"
           value={value}
           onChange={e => onChange(e.target.value)}
-          style={{ position: 'fixed', bottom: 16, left: 16, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
           tabIndex={-1}
         />,
         document.body,
@@ -48,9 +66,10 @@ interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
   forceDark?: boolean
+  viewMode?: 'tracks' | 'heatmap'
 }
 
-export default function MapFilters({ filters, onChange, forceDark }: Props) {
+export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks' }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
@@ -252,72 +271,85 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
               />
             </div>
 
-            {/* Track-Farben */}
+            {/* Track-Farben / Heatmap-Farbe */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Farben</span>
               </div>
-              {/* Toggle: Einheitlich / Nach Sportart */}
-              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs mb-2">
-                <button
-                  onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'uniform' } })}
-                  className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
-                >
-                  Einheitlich
-                </button>
-                <button
-                  onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'per-type' } })}
-                  className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
-                >
-                  Nach Sportart
-                </button>
-              </div>
 
-              {filters.colorConfig.mode === 'uniform' && (
+              {viewMode === 'heatmap' ? (
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
+                  <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Heatmap-Farbe</label>
                   <ColorSwatch
-                    value={filters.colorConfig.uniformColor}
-                    onChange={(c) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: c } })}
+                    value={filters.heatmapColor}
+                    onChange={(c) => onChange({ ...filters, heatmapColor: c })}
                   />
                 </div>
-              )}
-
-              {filters.colorConfig.mode === 'per-type' && (
-                <div className="space-y-1">
-                  {CATEGORIES.map(({ key, label, color }) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
-                      <ColorSwatch
-                        value={filters.colorConfig.colors[key] ?? color}
-                        onChange={(c) => onChange({
-                          ...filters,
-                          colorConfig: {
-                            ...filters.colorConfig,
-                            colors: { ...filters.colorConfig.colors, [key]: c },
-                          },
-                        })}
-                      />
-                    </div>
-                  ))}
-                  <div className="flex gap-2 mt-1">
+              ) : (
+                <>
+                  {/* Toggle: Einheitlich / Nach Sportart */}
+                  <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs mb-2">
                     <button
-                      onClick={() => {
-                        const userDefault = loadUserDefaultColors()
-                        onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: userDefault ?? Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })
-                      }}
-                      className="flex-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+                      onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'uniform' } })}
+                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
-                      Zurücksetzen
+                      Einheitlich
                     </button>
                     <button
-                      onClick={() => localStorage.setItem(USER_DEFAULT_KEY, JSON.stringify(filters.colorConfig.colors))}
-                      className="flex-1 text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer"
+                      onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'per-type' } })}
+                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
-                      Als Standard speichern
+                      Nach Sportart
                     </button>
                   </div>
-                </div>
+
+                  {filters.colorConfig.mode === 'uniform' && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
+                      <ColorSwatch
+                        value={filters.colorConfig.uniformColor}
+                        onChange={(c) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: c } })}
+                      />
+                    </div>
+                  )}
+
+                  {filters.colorConfig.mode === 'per-type' && (
+                    <div className="space-y-1">
+                      {CATEGORIES.map(({ key, label, color }) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
+                          <ColorSwatch
+                            value={filters.colorConfig.colors[key] ?? color}
+                            onChange={(c) => onChange({
+                              ...filters,
+                              colorConfig: {
+                                ...filters.colorConfig,
+                                colors: { ...filters.colorConfig.colors, [key]: c },
+                              },
+                            })}
+                          />
+                        </div>
+                      ))}
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          onClick={() => {
+                            const userDefault = loadUserDefaultColors()
+                            onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: userDefault ?? Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })
+                          }}
+                          className="flex-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+                        >
+                          Zurücksetzen
+                        </button>
+                        <button
+                          onClick={() => localStorage.setItem(USER_DEFAULT_KEY, JSON.stringify(filters.colorConfig.colors))}
+                          className="flex-1 text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer"
+                        >
+                          Als Standard speichern
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -335,7 +367,7 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
             </div>
 
             {/* Reset */}
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || filters.showLocationTags) && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || filters.showLocationTags || filters.heatmapColor !== '#F97316') && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -344,6 +376,7 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                   opacity: 70,
                   colorConfig: { mode: 'uniform', uniformColor: '#F97316', colors: { ...DEFAULT_SPORT_COLORS } },
                   showLocationTags: false,
+                  heatmapColor: '#F97316',
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >
