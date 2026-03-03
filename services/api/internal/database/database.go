@@ -222,13 +222,13 @@ func (db *DB) InsertSensors(ctx context.Context, activityID string, sensors []mo
 	for _, s := range sensors {
 		batch.Queue(`
 			INSERT INTO activity_sensors (
-				activity_id, device_index, serial_number, source_type,
+				activity_id, device_index, serial_number, ant_device_number, source_type,
 				antplus_device_type, all_device_types,
 				manufacturer, manufacturer_id, garmin_product, garmin_product_id,
 				product_name, software_version, hardware_version,
 				battery_status, battery_voltage
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-			activityID, s.DeviceIndex, s.SerialNumber, s.SourceType,
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+			activityID, s.DeviceIndex, s.SerialNumber, s.AntDeviceNumber, s.SourceType,
 			nilIfEmpty(s.AntplusDeviceType), s.AllDeviceTypes,
 			nilIfEmpty(s.Manufacturer), nilIfZeroI16(s.ManufacturerID),
 			nilIfEmpty(s.GarminProduct), nilIfZeroI32(s.GarminProductID),
@@ -852,7 +852,8 @@ func (db *DB) UpdateMovingTime(ctx context.Context, activityID, userID string, m
 func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.SensorResponse, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, device_index, source_type, antplus_device_type, all_device_types,
-			manufacturer, product_name, serial_number, software_version, battery_status
+			manufacturer, product_name, serial_number, ant_device_number,
+			software_version, battery_status
 		FROM activity_sensors
 		WHERE activity_id = $1
 		ORDER BY device_index`,
@@ -872,7 +873,8 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 
 		if err := rows.Scan(
 			&s.ID, &s.DeviceIndex, &s.SourceType, &primaryType, &allTypes,
-			&manufacturer, &productName, &s.SerialNumber, &swVersion, &batteryStatus,
+			&manufacturer, &productName, &s.SerialNumber, &s.AntDeviceNumber,
+			&swVersion, &batteryStatus,
 		); err != nil {
 			return nil, fmt.Errorf("scan sensor: %w", err)
 		}
@@ -1286,6 +1288,34 @@ func (db *DB) UpdateUserFileNamingSchema(ctx context.Context, userID, schema str
 	return nil
 }
 
+// GetUserHotfolderEnabled returns the user's hotfolder_enabled preference.
+func (db *DB) GetUserHotfolderEnabled(ctx context.Context, userID string) (bool, error) {
+	var enabled bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT hotfolder_enabled FROM users WHERE id = $1`,
+		userID,
+	).Scan(&enabled)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get hotfolder enabled: %w", err)
+	}
+	return enabled, nil
+}
+
+// UpdateUserHotfolderEnabled persists the hotfolder_enabled toggle for a user.
+func (db *DB) UpdateUserHotfolderEnabled(ctx context.Context, userID string, enabled bool) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET hotfolder_enabled = $2, updated_at = NOW() WHERE id = $1`,
+		userID, enabled,
+	)
+	if err != nil {
+		return fmt.Errorf("update hotfolder enabled: %w", err)
+	}
+	return nil
+}
+
 // UpdateActivityLocalFilePath sets the local_file_path for an activity.
 func (db *DB) UpdateActivityLocalFilePath(ctx context.Context, activityID, path string) error {
 	_, err := db.Pool.Exec(ctx,
@@ -1315,7 +1345,7 @@ func (db *DB) UpdateActivityLocalFilePathByOldPath(ctx context.Context, userID, 
 // ListActivitiesWithLocalPath returns activities that have a local_file_path set.
 func (db *DB) ListActivitiesWithLocalPath(ctx context.Context, userID string) ([]model.ActivityWithPath, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, started_at, sport_type, title, distance_m, elapsed_time_s,
+		SELECT id, started_at, sport_type, sub_type, title, city, distance_m, elapsed_time_s,
 			original_file_format, local_file_path
 		FROM activities
 		WHERE user_id = $1 AND local_file_path IS NOT NULL
@@ -1331,7 +1361,7 @@ func (db *DB) ListActivitiesWithLocalPath(ctx context.Context, userID string) ([
 	for rows.Next() {
 		var a model.ActivityWithPath
 		if err := rows.Scan(
-			&a.ID, &a.StartedAt, &a.SportType, &a.Title, &a.DistanceM,
+			&a.ID, &a.StartedAt, &a.SportType, &a.SubType, &a.Title, &a.City, &a.DistanceM,
 			&a.ElapsedTimeS, &a.OriginalFileFormat, &a.LocalFilePath,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity with path: %w", err)

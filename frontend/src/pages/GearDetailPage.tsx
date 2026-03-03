@@ -283,6 +283,7 @@ function ComponentsList({ gearId, gearType, components }: {
   const [transferringId, setTransferringId] = useState<string | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
   const [serviceId, setServiceId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const addMutation = useMutation({
     mutationFn: (data: any) => createComponent(gearId, data),
@@ -345,14 +346,23 @@ function ComponentsList({ gearId, gearType, components }: {
               ) : (
                 <div>
                   <div className="flex items-center justify-between">
-                    <div className="min-w-0">
+                    <button
+                      className="min-w-0 flex-1 text-left group"
+                      onClick={() => setExpandedId(expandedId === comp.id ? null : comp.id)}
+                    >
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                        <svg
+                          className={`w-3.5 h-3.5 text-neutral-400 transition-transform flex-shrink-0 ${expandedId === comp.id ? 'rotate-90' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
                           {comp.name}
                         </span>
                         <ComponentStatusBadge status={comp.status} />
                       </div>
-                      <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 ml-5">
                         {comp.type}
                         {comp.brand && ` - ${comp.brand}`}
                         {comp.model && ` ${comp.model}`}
@@ -361,11 +371,7 @@ function ComponentsList({ gearId, gearType, components }: {
                         {comp.total_elevation_gain_m > 0 && ` | ${formatElevationGain(comp.total_elevation_gain_m)}`}
                         {comp.weight_g != null && ` | ${comp.weight_g}g`}
                       </div>
-                      {comp.serial_number && (
-                        <div className="text-xs text-neutral-400 mt-0.5">SN: {comp.serial_number}</div>
-                      )}
-                      <ComponentImagesSection componentId={comp.id} />
-                    </div>
+                    </button>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
                         onClick={() => setServiceId(serviceId === comp.id ? null : comp.id)}
@@ -400,6 +406,15 @@ function ComponentsList({ gearId, gearType, components }: {
                       </button>
                     </div>
                   </div>
+
+                  {expandedId === comp.id && (
+                    <div className="mt-2 ml-5 space-y-1">
+                      {comp.serial_number && (
+                        <div className="text-xs text-neutral-400">SN: {comp.serial_number}</div>
+                      )}
+                      <ComponentImagesSection componentId={comp.id} />
+                    </div>
+                  )}
 
                   {transferringId === comp.id && (
                     <TransferDialog
@@ -722,9 +737,19 @@ function ChainRotationSection({ gearId, components }: {
     })
   }
 
-  const chainComponents = components.filter(c =>
-    c.type.toLowerCase().includes('kette') || c.type.toLowerCase().includes('chain')
-  )
+  // Match on both type and name so that components whose preset type was
+  // stored as "drivetrain" (API bug: no separate type column) are still
+  // recognised when their name contains "kette" or "chain".
+  function isChainLike(c: GearComponent) {
+    const haystack = `${c.type} ${c.name}`.toLowerCase()
+    return haystack.includes('kette') || haystack.includes('chain')
+  }
+
+  const chainComponents = components.filter(isChainLike)
+  // If the heuristic finds nothing, fall back to all active components so
+  // the user is never left with an empty list.
+  const selectableComponents = chainComponents.length > 0 ? chainComponents : components.filter(c => !c.is_retired)
+  const usingFallback = chainComponents.length === 0 && selectableComponents.length > 0
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
@@ -764,10 +789,17 @@ function ChainRotationSection({ gearId, components }: {
           </div>
 
           <div>
-            <label className="block text-xs text-neutral-500 mb-1">Ketten auswählen (min. 2)</label>
-            {chainComponents.length > 0 ? (
+            <label className="block text-xs text-neutral-500 mb-1">
+              Ketten auswählen (min. 2)
+              {usingFallback && (
+                <span className="ml-1.5 text-orange-500">
+                  — alle Komponenten gezeigt, da keine Ketten-Komponenten erkannt wurden
+                </span>
+              )}
+            </label>
+            {selectableComponents.length > 0 ? (
               <div className="space-y-1">
-                {chainComponents.map(c => (
+                {selectableComponents.map(c => (
                   <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
                     <input
                       type="checkbox"
@@ -776,13 +808,16 @@ function ChainRotationSection({ gearId, components }: {
                       className="rounded"
                     />
                     <span className="text-neutral-700 dark:text-neutral-300">{c.name}</span>
+                    {c.type && (
+                      <span className="text-xs text-neutral-400">({c.type})</span>
+                    )}
                     <span className="text-xs text-neutral-400">{formatDistance(c.total_distance_m)}</span>
                   </label>
                 ))}
               </div>
             ) : (
               <p className="text-xs text-neutral-400">
-                Keine Ketten-Komponenten gefunden. Füge zuerst Ketten als Komponenten hinzu.
+                Keine Komponenten vorhanden. Füge zuerst Ketten als Komponenten hinzu.
               </p>
             )}
           </div>
@@ -799,7 +834,9 @@ function ChainRotationSection({ gearId, components }: {
               disabled={selectedComps.size < 2 || createMut.isPending}
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
             >
-              Rotation erstellen
+              {selectedComps.size < 2
+                ? `Rotation erstellen (${selectedComps.size}/2 gewählt)`
+                : 'Rotation erstellen'}
             </button>
           </div>
         </div>
@@ -913,7 +950,10 @@ function ComponentForm({
     const preset = presets?.find(p => p.id === id)
     if (preset) {
       setName(preset.name)
-      setType(preset.type || preset.category)
+      // The API does not return a separate `type` field for presets;
+      // use the preset name as the component type so the chain-rotation
+      // filter (which matches on type) can find it later.
+      setType(preset.name)
     }
   }
 
@@ -1594,6 +1634,7 @@ function AuthenticatedGearImage({
 function ComponentImagesSection({ componentId }: { componentId: string }) {
   const queryClient = useQueryClient()
   const [uploading, setUploading] = useState(false)
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
 
   const { data: documents = [] } = useQuery({
     queryKey: ['component-documents', componentId],
@@ -1639,15 +1680,26 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
   return (
     <div className="mt-2">
       <div className="flex items-center gap-2 flex-wrap">
-        {images.map(doc => (
-          <div key={doc.id} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
+        {images.map((doc, idx) => (
+          <div
+            key={doc.id}
+            className="relative group w-16 h-16 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 cursor-pointer"
+            onClick={() => setLightboxIdx(idx)}
+          >
             <AuthenticatedGearImage
               docId={doc.id}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover transition-transform group-hover:scale-105"
               alt={doc.title ?? doc.original_filename}
             />
+            {/* Zoom-Indikator */}
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 8v6M8 11h6" />
+              </svg>
+            </div>
             <button
-              onClick={() => confirm('Foto löschen?') && deleteMutation.mutate(doc.id)}
+              onClick={(e) => { e.stopPropagation(); confirm('Foto löschen?') && deleteMutation.mutate(doc.id) }}
               className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
             >
               ×
@@ -1677,6 +1729,15 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
           />
         </label>
       </div>
+
+      {lightboxIdx !== null && images.length > 0 && (
+        <ImageLightbox
+          images={images}
+          currentIndex={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+          onChange={setLightboxIdx}
+        />
+      )}
     </div>
   )
 }

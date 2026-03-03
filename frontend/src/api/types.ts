@@ -128,6 +128,7 @@ export interface Sensor {
   manufacturer?: string
   product_name?: string
   serial_number?: number
+  ant_device_number?: number
   software_version?: string
   battery_status?: string
 }

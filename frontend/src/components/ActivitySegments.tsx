@@ -1,10 +1,16 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchActivitySegments } from '@/api/segments'
+import type { StreamPoint } from '@/api/types'
+import SegmentCreationPanel from '@/components/SegmentCreationPanel'
 
 interface Props {
   activityId: string
+  /** GPS stream data — enables the "Create segment from activity" button when present. */
+  streams?: StreamPoint[]
+  /** Sport type of the activity — pre-fills the sport group in the creation panel. */
+  activitySportType?: string
 }
 
 function fmtDuration(s: number): string {
@@ -15,44 +21,104 @@ function fmtDuration(s: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
-export default function ActivitySegments({ activityId }: Props) {
+/** Convert an array of StreamPoints to a GeoJSON LineString JSON string. */
+function streamsToGeoJSON(streams: StreamPoint[]): string | null {
+  const coords = streams
+    .filter(p => p.lat != null && p.lng != null)
+    .map(p => [p.lng!, p.lat!] as [number, number])
+  if (coords.length < 2) return null
+  return JSON.stringify({ type: 'LineString', coordinates: coords })
+}
+
+/** Map a Garmin sport_type to the nearest segment sport_group. */
+function sportTypeToGroup(sportType?: string): string {
+  if (!sportType) return 'generic'
+  const t = sportType.toLowerCase()
+  if (t.includes('cycling') || t.includes('bike') || t.includes('ride') || t === 'e_bike_fitness' || t === 'gravel_cycling') return 'bike'
+  if (t.includes('run') || t.includes('walk') || t.includes('hike') || t.includes('trail')) return 'foot'
+  if (t.includes('swim')) return 'swim'
+  if (t.includes('ski') || t.includes('snowboard') || t.includes('snow')) return 'ski'
+  if (t.includes('kayak') || t.includes('row') || t.includes('paddle') || t.includes('canoe') || t.includes('stand_up_paddleboarding')) return 'paddle'
+  return 'generic'
+}
+
+export default function ActivitySegments({ activityId, streams, activitySportType }: Props) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
+  const [showCreatePanel, setShowCreatePanel] = useState(false)
 
   const { data: efforts = [], isLoading } = useQuery({
     queryKey: ['activity-segments', activityId],
     queryFn: () => fetchActivitySegments(activityId),
   })
 
+  const gpsGeoJSON = streams ? streamsToGeoJSON(streams) : null
+  const hasGps = gpsGeoJSON != null
+
   if (isLoading) return null
-  if (efforts.length === 0) {
-    return (
-      <div>
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Segmente</h2>
-        <p className="text-sm text-neutral-400 dark:text-neutral-500">Keine Segment-Treffer</p>
-      </div>
-    )
-  }
 
   return (
     <div>
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center gap-2 mb-3 group"
-      >
-        <svg
-          className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '' : 'rotate-90'}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-2 group"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
-          Segmente
-        </h2>
-        <span className="text-sm text-neutral-400">({efforts.length})</span>
-      </button>
+          <svg
+            className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+            Segmente
+          </h2>
+          {efforts.length > 0 && (
+            <span className="text-sm text-neutral-400">({efforts.length})</span>
+          )}
+        </button>
 
-      {!collapsed && (
+        {hasGps && (
+          <button
+            onClick={() => setShowCreatePanel(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
+                       border border-neutral-200 dark:border-neutral-700
+                       text-neutral-700 dark:text-neutral-300
+                       hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700
+                       hover:text-orange-600 dark:hover:text-orange-400
+                       transition-colors"
+            title="Segment aus dem Track dieser Aktivitaet erstellen"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Segment erstellen
+          </button>
+        )}
+      </div>
+
+      {/* Inline creation panel */}
+      {showCreatePanel && hasGps && gpsGeoJSON && (
+        <div className="mb-4">
+          <SegmentCreationPanel
+            trackGeoJSON={gpsGeoJSON}
+            sourceActivityId={activityId}
+            defaultSportGroup={sportTypeToGroup(activitySportType)}
+            onSuccess={() => {
+              setShowCreatePanel(false)
+              queryClient.invalidateQueries({ queryKey: ['activity-segments', activityId] })
+              queryClient.invalidateQueries({ queryKey: ['segments'] })
+            }}
+          />
+        </div>
+      )}
+
+      {!collapsed && efforts.length === 0 && !showCreatePanel && (
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">Keine Segment-Treffer</p>
+      )}
+
+      {!collapsed && efforts.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
           <table className="w-full text-sm">
             <thead>

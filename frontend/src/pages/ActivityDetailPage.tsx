@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
@@ -269,7 +269,11 @@ export default function ActivityDetailPage() {
       <DetectedLapsTable activityId={activity.id} />
 
       {/* Segmente */}
-      <ActivitySegments activityId={activity.id} />
+      <ActivitySegments
+        activityId={activity.id}
+        streams={streams}
+        activitySportType={activity.sport_type}
+      />
 
       {/* Zonen-Verteilung */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (
@@ -404,16 +408,19 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
     try {
-      const url = getActivityExportUrl(activity.id, format)
-      const { blob, filename } = await apiDownload(url)
+      // Pass only the path relative to the API base (without /api/v1 prefix)
+      // so apiDownload() can add the prefix correctly.
+      const { blob, filename } = await apiDownload(`/activities/${activity.id}/export?format=${format}`)
       const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit' }
+      const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
+      a.href = objectUrl
       a.download = filename ?? `activity${extMap[format] ?? ''}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      URL.revokeObjectURL(a.href)
+      // Delay revoking so the browser has time to initiate the download.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
     } catch (err) {
       console.error('Export fehlgeschlagen', err)
     }
@@ -1234,6 +1241,14 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
 
 // ── Sensors ───────────────────────────────────────────────────────────────────
 
+function sensorSourceLabel(sourceType: string): string {
+  switch (sourceType) {
+    case 'antplus': return 'ANT+'
+    case 'bluetooth': return 'BT'
+    default: return sourceType
+  }
+}
+
 function SensorList({ sensors }: { sensors: Sensor[] }) {
   return (
     <div>
@@ -1242,19 +1257,24 @@ function SensorList({ sensors }: { sensors: Sensor[] }) {
         {sensors.map(sensor => (
           <div
             key={sensor.id}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5"
           >
+            {/* Header: product name + connection type badge */}
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                 {sensor.product_name || sensor.manufacturer || 'Unbekannt'}
               </span>
               <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
-                {sensor.source_type}
+                {sensorSourceLabel(sensor.source_type)}
               </span>
             </div>
+
+            {/* Manufacturer (when separate from product name) */}
             {sensor.manufacturer && sensor.product_name && (
               <div className="text-xs text-neutral-500 dark:text-neutral-400">{sensor.manufacturer}</div>
             )}
+
+            {/* Sensor type badges */}
             <div className="flex flex-wrap gap-1.5">
               {sensor.all_types.map(type_ => (
                 <span
@@ -1265,6 +1285,20 @@ function SensorList({ sensors }: { sensors: Sensor[] }) {
                 </span>
               ))}
             </div>
+
+            {/* IDs: serial number and ANT+ device number */}
+            {(sensor.serial_number != null || sensor.ant_device_number != null) && (
+              <div className="text-xs text-neutral-400 dark:text-neutral-500 space-y-0.5 pt-0.5 border-t border-neutral-100 dark:border-neutral-800">
+                {sensor.serial_number != null && (
+                  <div>S/N: <span className="font-mono">{sensor.serial_number}</span></div>
+                )}
+                {sensor.ant_device_number != null && (
+                  <div>ANT+: <span className="font-mono">{sensor.ant_device_number}</span></div>
+                )}
+              </div>
+            )}
+
+            {/* Battery status */}
             {sensor.battery_status && sensor.battery_status !== 'unknown' && (
               <div className="text-xs text-neutral-400">Batterie: {sensor.battery_status}</div>
             )}

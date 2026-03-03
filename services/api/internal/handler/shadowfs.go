@@ -20,7 +20,8 @@ type ShadowFSSettingsResponse struct {
 
 // ShadowFSSettingsRequest is the PUT request body for updating shadow FS settings.
 type ShadowFSSettingsRequest struct {
-	Schema string `json:"schema"`
+	Schema           string `json:"schema"`
+	HotfolderEnabled *bool  `json:"hotfolder_enabled,omitempty"`
 }
 
 // GetShadowFSSettings returns the user's shadow FS configuration.
@@ -42,19 +43,28 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 		schema = shadowfs.DefaultSchema
 	}
 
+	// Read hotfolder_enabled from DB (user preference overrides env default).
+	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
+	if err != nil {
+		slog.Warn("get hotfolder enabled failed, using env default", "error", err)
+		if h.ShadowFS != nil {
+			hotfolderEnabled = h.ShadowFS.HotfolderEnabled
+		}
+	}
+
 	resp := ShadowFSSettingsResponse{
-		Schema: schema,
+		Schema:           schema,
+		HotfolderEnabled: hotfolderEnabled,
 	}
 
 	if h.ShadowFS != nil {
 		resp.HotfolderPath = h.ShadowFS.HotfolderPath
-		resp.HotfolderEnabled = h.ShadowFS.HotfolderEnabled
 	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// UpdateShadowFSSettings updates the user's file naming schema.
+// UpdateShadowFSSettings updates the user's file naming schema and/or hotfolder toggle.
 func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -68,19 +78,43 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.Schema == "" {
-		req.Schema = shadowfs.DefaultSchema
+	// Update schema if provided.
+	if req.Schema != "" {
+		if err := h.DB.UpdateUserFileNamingSchema(r.Context(), userID, req.Schema); err != nil {
+			slog.Error("update file naming schema failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
+			return
+		}
 	}
 
-	if err := h.DB.UpdateUserFileNamingSchema(r.Context(), userID, req.Schema); err != nil {
-		slog.Error("update file naming schema failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
-		return
+	// Update hotfolder_enabled if provided.
+	if req.HotfolderEnabled != nil {
+		if err := h.DB.UpdateUserHotfolderEnabled(r.Context(), userID, *req.HotfolderEnabled); err != nil {
+			slog.Error("update hotfolder enabled failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update hotfolder setting", r.URL.Path)
+			return
+		}
 	}
 
-	writeJSON(w, http.StatusOK, ShadowFSSettingsResponse{
-		Schema: req.Schema,
-	})
+	// Return the current full state.
+	schema, err := h.DB.GetUserFileNamingSchema(r.Context(), userID)
+	if err != nil || schema == "" {
+		schema = shadowfs.DefaultSchema
+	}
+	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
+	if err != nil {
+		slog.Warn("get hotfolder enabled after update failed", "error", err)
+	}
+
+	resp := ShadowFSSettingsResponse{
+		Schema:           schema,
+		HotfolderEnabled: hotfolderEnabled,
+	}
+	if h.ShadowFS != nil {
+		resp.HotfolderPath = h.ShadowFS.HotfolderPath
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // PreviewRenameRequest is the POST body for previewing a rename.
@@ -234,8 +268,14 @@ func activityToShadowInfo(a model.ActivityWithPath) shadowfs.ActivityInfo {
 		FileExt:   "fit",
 	}
 
+	if a.SubType != nil {
+		info.SubCategory = *a.SubType
+	}
 	if a.Title != nil {
 		info.Title = *a.Title
+	}
+	if a.City != nil {
+		info.City = *a.City
 	}
 	if a.DistanceM != nil {
 		info.DistanceM = *a.DistanceM

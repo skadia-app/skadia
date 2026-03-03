@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fetchRules, createRule, updateRule, deleteRule, applyRules } from '@/api/rules'
+import { fetchRules, createRule, updateRule, deleteRule, applyRules, migrateTagConditions } from '@/api/rules'
 import type { AutomationRule } from '@/api/types'
 import RuleEditor from '@/components/RuleEditor'
 
@@ -17,6 +17,8 @@ export default function AutomationRulesPage() {
   const [creating, setCreating] = useState(urlNew)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<{ applied: number; errors: number } | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [migrateResult, setMigrateResult] = useState<{ migrated: number } | null>(null)
 
   // Build initial rule data from URL params
   const initialRuleData: Partial<AutomationRule> | undefined = urlNew && (urlTagName || urlTagId)
@@ -58,6 +60,16 @@ export default function AutomationRulesPage() {
     mutationFn: (id: string) => deleteRule(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
+      setDeleteConfirmId(null)
+    },
+  })
+
+  const migrateMutation = useMutation({
+    mutationFn: migrateTagConditions,
+    onSuccess: (result) => {
+      setMigrateResult(result)
+      queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
+      setTimeout(() => setMigrateResult(null), 6000)
     },
   })
 
@@ -94,6 +106,14 @@ export default function AutomationRulesPage() {
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Automatisierungsregeln</h1>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => migrateMutation.mutate()}
+            disabled={migrateMutation.isPending}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 disabled:opacity-50 transition-colors"
+            title="Tag-Bedingungen (z.B. 'Frost', 'Nacht') in Automatisierungsregeln umwandeln"
+          >
+            {migrateMutation.isPending ? 'Migriere...' : 'Tags migrieren'}
+          </button>
+          <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
@@ -114,6 +134,16 @@ export default function AutomationRulesPage() {
           <span className="text-emerald-700 dark:text-emerald-400">
             {applyResult.applied} Regel(n) angewendet
             {applyResult.errors > 0 && `, ${applyResult.errors} Fehler`}
+          </span>
+        </div>
+      )}
+
+      {migrateResult && (
+        <div className="rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm">
+          <span className="text-blue-700 dark:text-blue-400">
+            {migrateResult.migrated === 0
+              ? 'Keine Tag-Bedingungen gefunden (bereits migriert oder keine vorhanden).'
+              : `${migrateResult.migrated} Tag-Bedingung(en) in Automatisierungsregeln umgewandelt.`}
           </span>
         </div>
       )}
@@ -151,7 +181,7 @@ export default function AutomationRulesPage() {
                   rule={rule}
                   onEdit={() => setEditingId(rule.id)}
                   onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
-                  onDelete={() => deleteMutation.mutate(rule.id)}
+                  onDelete={() => setDeleteConfirmId(rule.id)}
                 />
               )}
             </div>
@@ -164,6 +194,43 @@ export default function AutomationRulesPage() {
           </div>
         )
       )}
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirmId !== null && (() => {
+        const ruleToDelete = rules?.find(r => r.id === deleteConfirmId)
+        if (!ruleToDelete) return null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDeleteConfirmId(null)}>
+            <div
+              className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 p-6 shadow-xl max-w-sm w-full mx-4 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Regel loschen?</h3>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                Soll die Automatisierungsregel{' '}
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">"{ruleToDelete.name}"</span>{' '}
+                wirklich geloscht werden? Diese Aktion kann nicht ruckgangig gemacht werden.
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setDeleteConfirmId(null)}
+                  disabled={deleteMutation.isPending}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={() => deleteMutation.mutate(deleteConfirmId)}
+                  disabled={deleteMutation.isPending}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {deleteMutation.isPending ? 'Wird geloscht...' : 'Loschen'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

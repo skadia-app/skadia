@@ -104,6 +104,7 @@ type TrackPoint struct {
 type SensorRecord struct {
 	DeviceIndex       int16
 	SerialNumber      *int64
+	AntDeviceNumber   *int32 // ANT+ device number (uint16 in FIT, nil if absent/invalid)
 	SourceType        string // "antplus" or "bluetooth"
 	AntplusDeviceType string
 	AllDeviceTypes    []string
@@ -250,17 +251,18 @@ type StreamResponse struct {
 
 // SensorResponse is the API response for the sensors endpoint.
 type SensorResponse struct {
-	ID               string   `json:"id"`
-	DeviceIndex      int16    `json:"device_index"`
-	SourceType       string   `json:"source_type"`
-	PrimaryType      string   `json:"primary_type"`
-	PrimaryTypeLabel string   `json:"primary_type_label"`
+	ID               string  `json:"id"`
+	DeviceIndex      int16   `json:"device_index"`
+	SourceType       string  `json:"source_type"`
+	PrimaryType      string  `json:"primary_type"`
+	PrimaryTypeLabel string  `json:"primary_type_label"`
 	AllTypes         []string `json:"all_types"`
-	Manufacturer     string   `json:"manufacturer,omitempty"`
-	ProductName      string   `json:"product_name,omitempty"`
-	SerialNumber     *int64   `json:"serial_number,omitempty"`
-	SoftwareVersion  string   `json:"software_version,omitempty"`
-	BatteryStatus    string   `json:"battery_status,omitempty"`
+	Manufacturer     string  `json:"manufacturer,omitempty"`
+	ProductName      string  `json:"product_name,omitempty"`
+	SerialNumber     *int64  `json:"serial_number,omitempty"`
+	AntDeviceNumber  *int32  `json:"ant_device_number,omitempty"`
+	SoftwareVersion  string  `json:"software_version,omitempty"`
+	BatteryStatus    string  `json:"battery_status,omitempty"`
 }
 
 // LapRecord holds extracted lap data from FIT lap messages.
@@ -526,7 +528,9 @@ type ActivityWithPath struct {
 	ID                 string    `json:"id"`
 	StartedAt          time.Time `json:"started_at"`
 	SportType          string    `json:"sport_type"`
+	SubType            *string   `json:"sub_type,omitempty"`
 	Title              *string   `json:"title,omitempty"`
+	City               *string   `json:"city,omitempty"`
 	DistanceM          *float64  `json:"distance_m,omitempty"`
 	ElapsedTimeS       *int      `json:"elapsed_time_s,omitempty"`
 	OriginalFileFormat *string   `json:"original_file_format,omitempty"`

@@ -12,14 +12,15 @@ import (
 
 // ActivityInfo holds the data needed to render a shadow file path.
 type ActivityInfo struct {
-	ID          string
-	StartedAt   time.Time
-	SportType   string
-	Title       string
-	DistanceM   float64
+	ID           string
+	StartedAt    time.Time
+	SportType    string
+	SubCategory  string // sport sub-type / sub-category (may be empty)
+	Title        string
+	DistanceM    float64
 	ElapsedTimeS int
-	City        string
-	FileExt     string // e.g. "fit", "gpx", "tcx"
+	City         string
+	FileExt      string // e.g. "fit", "gpx", "tcx"
 }
 
 // illegalChars matches characters not allowed in file/directory names.
@@ -39,6 +40,7 @@ func sanitize(s string) string {
 //
 //	{year}, {month}, {day}, {time} - from StartedAt
 //	{sport} - sport type
+//	{subCategory} - sport sub-category / sub-type (may be empty → "general")
 //	{city} - city name (may be empty)
 //	{title} - activity title (may be empty)
 //	{distance_km} - distance in km (1 decimal)
@@ -54,6 +56,11 @@ func RenderPath(info ActivityInfo, schema string) string {
 	sport := info.SportType
 	if sport == "" {
 		sport = "unknown"
+	}
+
+	subCategory := info.SubCategory
+	if subCategory == "" {
+		subCategory = "general"
 	}
 
 	city := info.City
@@ -79,6 +86,7 @@ func RenderPath(info ActivityInfo, schema string) string {
 	result = strings.ReplaceAll(result, "{day}", sanitize(day))
 	result = strings.ReplaceAll(result, "{time}", sanitize(timeStr))
 	result = strings.ReplaceAll(result, "{sport}", sanitize(sport))
+	result = strings.ReplaceAll(result, "{subCategory}", sanitize(subCategory))
 	result = strings.ReplaceAll(result, "{city}", sanitize(city))
 	result = strings.ReplaceAll(result, "{title}", sanitize(title))
 	result = strings.ReplaceAll(result, "{distance_km}", distStr)
@@ -118,4 +126,4 @@ func ResolveCollision(basePath, relativePath string) string {
 }
 
 // DefaultSchema is the default file naming schema.
-const DefaultSchema = "{year}/{month}/{day}_{time}_{sport}_{distance_km}km"
+const DefaultSchema = "{year}-{month}-{day}_{sport}_{subCategory}_{title}_{city}"

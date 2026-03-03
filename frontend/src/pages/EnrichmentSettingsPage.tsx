@@ -33,8 +33,7 @@ const TOGGLES: ToggleConfig[] = [
     key: 'enable_climb_detection',
     label: 'Anstiege erkennen',
     description: 'Erkennt und kategorisiert Anstiege nach Gradient und Höhenmeter.',
-    status: 'planned',
-    plannedPhase: 'Phase 4b (ML-Service)',
+    status: 'available',
   },
   {
     key: 'enable_summit_detection',

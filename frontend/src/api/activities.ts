@@ -105,8 +105,15 @@ export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<
 
 export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+
+/**
+ * Returns the full URL for a single-activity export endpoint.
+ * The URL includes the /api/v1 prefix so it can be used directly as an
+ * <a href> or passed to apiDownload() without double-prefixing.
+ */
 export function getActivityExportUrl(id: string, format: ExportFormat): string {
-  return `/activities/${id}/export?format=${format}`
+  return `${API_BASE_URL}/activities/${id}/export?format=${format}`
 }
 
 export async function getZoneDistribution(id: string): Promise<ZoneDistribution> {
@@ -150,8 +157,6 @@ export async function deleteActivities(ids: string[]): Promise<{ deleted: number
 
 // ── ZIP Export ────────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
-
 /**
  * Downloads multiple activities as a ZIP archive.
  * @param ids     Activity IDs to export (empty = all activities of the user)
@@ -162,7 +167,7 @@ export async function downloadActivitiesZip(
   format: ExportFormat = 'original',
 ): Promise<void> {
   const token = getToken()
-  const url = `${API_BASE}/activities/export-zip`
+  const url = `${API_BASE_URL}/activities/export-zip`
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -182,11 +187,15 @@ export async function downloadActivitiesZip(
   const cd = res.headers.get('Content-Disposition') ?? ''
   const match = cd.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
   const filename = match?.[1] ? decodeURIComponent(match[1]) : `skadia-export.zip`
+  const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
+  a.href = objectUrl
   a.download = filename
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(a.href)
+  // Delay revoking the object URL so the browser has time to initiate the download.
+  // Revoking synchronously after click() can race the browser's download initiation
+  // and silently abort the download in Firefox and some Chromium versions.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
 }

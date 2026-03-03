@@ -218,6 +218,76 @@ function ZipDropdown({
   )
 }
 
+// ── Dialog: "Alle in neuen Tabs öffnen" ──────────────────────────────────────
+// Browsers block window.open() in loops after the first call (popup blocker).
+// We show a dialog with real <a target="_blank"> links instead so the user
+// can open each tab with a single deliberate click.
+interface OpenTabsItem { id: string; title: string | null }
+
+function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: () => void }) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={onClose}
+    >
+      <div
+        className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+            {items.length} Aktivitäten öffnen
+          </span>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <p className="px-4 pt-3 pb-1 text-xs text-neutral-500 dark:text-neutral-400">
+          Browser-Popup-Blocker verhindern das automatische Öffnen mehrerer Tabs. Klicke jeden Link einzeln an.
+        </p>
+        <ul className="overflow-y-auto max-h-72 py-2 divide-y divide-neutral-100 dark:divide-neutral-800">
+          {items.map(({ id, title }) => (
+            <li key={id}>
+              <a
+                href={`/activities/${id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 no-underline transition-colors"
+              >
+                <svg className="w-3.5 h-3.5 flex-shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                <span className="truncate">
+                  {title ?? <span className="text-neutral-400 font-mono text-xs">{id.slice(0, 8)}&hellip;</span>}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+        <div className="px-4 py-3 border-t border-neutral-100 dark:border-neutral-800 flex justify-end">
+          <button
+            onClick={onClose}
+            className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Kontext-Menü-Komponente ──────────────────────────────────────────────────
 interface ContextMenuState {
   x: number
@@ -234,6 +304,7 @@ interface ContextMenuProps {
   onRecompute: (ids: string[]) => void
   onDelete: (ids: string[], title?: string | null) => void
   onZip: (ids: string[], format: ExportFormat) => void
+  onOpenTabs: (items: OpenTabsItem[]) => void
 }
 
 function ActivityContextMenu({
@@ -244,6 +315,7 @@ function ActivityContextMenu({
   onRecompute,
   onDelete,
   onZip,
+  onOpenTabs,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -283,7 +355,7 @@ function ActivityContextMenu({
           {count} ausgewählt
         </div>
         <button
-          onClick={() => { ids.forEach(id => window.open(`/activities/${id}`, '_blank')); onClose() }}
+          onClick={() => { onOpenTabs(ids.map(id => ({ id, title: null }))); onClose() }}
           className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
         >
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -398,6 +470,7 @@ export default function ActivitiesPage() {
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null)
   const [deleteTitle, setDeleteTitle] = useState<string | null>(null)
   const [zipLoading, setZipLoading] = useState(false)
+  const [openTabsItems, setOpenTabsItems] = useState<{ id: string; title: string | null }[] | null>(null)
 
   // Filter state (persisted in URL)
   const [filters, setFiltersRaw] = useState<ActivityFilterState>(() => paramsToFilters(searchParams))
@@ -750,6 +823,7 @@ export default function ActivitiesPage() {
           onRecompute={(ids) => setRecomputeIds(ids)}
           onDelete={(ids, title) => { setDeleteIds(ids); setDeleteTitle(title ?? null) }}
           onZip={handleZipDownload}
+          onOpenTabs={(items) => setOpenTabsItems(items)}
         />
       )}
 
@@ -771,6 +845,9 @@ export default function ActivitiesPage() {
             queryClient.invalidateQueries({ queryKey: ['activities'] })
           }}
         />
+      )}
+      {openTabsItems && (
+        <OpenTabsDialog items={openTabsItems} onClose={() => setOpenTabsItems(null)} />
       )}
 
       {/* Header */}
@@ -977,7 +1054,10 @@ export default function ActivitiesPage() {
             Abwählen
           </button>
           <button
-            onClick={() => [...selectedIds].forEach(id => window.open(`/activities/${id}`, '_blank'))}
+            onClick={() => {
+              const actMap = new Map(activities.map(a => [a.id, a.title ?? null]))
+              setOpenTabsItems([...selectedIds].map(id => ({ id, title: actMap.get(id) ?? null })))
+            }}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
             Alle öffnen

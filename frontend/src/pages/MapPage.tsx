@@ -162,6 +162,7 @@ function buildTileUrl(
   source: 'heatmap_lines' | 'heatmap_points',
   filters: MapFilterState,
   teleportThresholdM: number, // 0 = kein Filter
+  samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
 ): string {
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
   // (/tiles/...) nicht auflösen → immer absolute URL erzwingen.
@@ -213,6 +214,9 @@ function buildTileUrl(
   if (filters.dateTo) params.set('date_to', filters.dateTo)
   if (teleportThresholdM > 0) {
     params.set('teleport_threshold_m', String(teleportThresholdM))
+  }
+  if (samplingIntervalM != null && samplingIntervalM > 0) {
+    params.set('sample_interval_m', String(samplingIntervalM))
   }
 
   const qs = params.toString()
@@ -525,14 +529,18 @@ export default function MapPage() {
     ? (heatmapSettings.teleport_threshold_m ?? 2000)
     : 0
 
+  const samplingIntervalM = heatmapSettings?.sampling_interval_m ?? 20
+
   // Refs damit der style.load-Handler immer die aktuellen Werte sieht,
   // ohne jedes Mal neu registriert werden zu müssen.
   const filtersRef = useRef(filters)
   const viewModeRef = useRef(viewMode)
   const teleportRef = useRef(teleportThresholdM)
+  const samplingRef = useRef(samplingIntervalM)
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => { viewModeRef.current = viewMode }, [viewMode])
   useEffect(() => { teleportRef.current = teleportThresholdM }, [teleportThresholdM])
+  useEffect(() => { samplingRef.current = samplingIntervalM }, [samplingIntervalM])
 
   // ── Einmalige Karteninitialisierung ─────────────────────────────────────
   useEffect(() => {
@@ -555,7 +563,7 @@ export default function MapPage() {
     map.on('style.load', () => {
       map.resize()
       removeOverlayLayers(map)
-      addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current)
+      addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current)
       setStyleVersion(v => v + 1)
     })
 
@@ -601,10 +609,10 @@ export default function MapPage() {
     if (!map || !map.isStyleLoaded()) return
     removeOverlayLayers(map)
     if (filters.sportTypes.size > 0) {
-      addOverlayLayers(map, filters, viewMode, teleportThresholdM)
+      addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings, teleportThresholdM])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -1580,11 +1588,12 @@ function addOverlayLayers(
   filters: MapFilterState,
   viewMode: ViewMode,
   teleportThresholdM: number,
+  samplingIntervalM?: number,
 ) {
   // Linien-Layer fuer beide Modi
   map.addSource('heatmap', {
     type: 'vector',
-    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM)],
+    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM)],
     minzoom: 0,
     maxzoom: 14,
   })

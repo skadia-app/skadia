@@ -45,6 +45,9 @@ export interface CreateSegmentPayload {
   sport_group: string
   segment_type: string
   segment_type_meta?: Record<string, unknown>
+  geojson_track: string
+  source_activity_id?: string
+  description?: string
 }
 
 export async function fetchSegments(params?: {

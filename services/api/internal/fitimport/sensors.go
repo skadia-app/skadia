@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
 
@@ -54,6 +55,10 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			}
 		}
 
+		// ANT+ device number (uint16z, invalid = 0)
+		hasValidAntNum := di.AntDeviceNumber != basetype.Uint16zInvalid
+		antNum := int32(di.AntDeviceNumber)
+
 		if existingIdx >= 0 {
 			// Merge: add device type to existing entry
 			existing := &result[existingIdx]
@@ -64,6 +69,9 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			if hasValidSerial && existing.SerialNumber == nil {
 				s := int64(serial)
 				existing.SerialNumber = &s
+			}
+			if hasValidAntNum && existing.AntDeviceNumber == nil {
+				existing.AntDeviceNumber = &antNum
 			}
 			if existing.BatteryStatus == "" && di.BatteryStatus != typedef.BatteryStatusInvalid {
 				existing.BatteryStatus = strings.ToLower(di.BatteryStatus.String())
@@ -85,6 +93,10 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 		if hasValidSerial {
 			s := int64(serial)
 			rec.SerialNumber = &s
+		}
+
+		if hasValidAntNum {
+			rec.AntDeviceNumber = &antNum
 		}
 
 		mfr := di.Manufacturer.String()

@@ -35,25 +35,43 @@ const SURFACES = [
 
 interface Props {
   onSuccess: () => void
+  /** GeoJSON LineString string (already serialized) for the track.
+   *  Required when creating a segment — either passed in from an activity or
+   *  provided by the user via the raw GeoJSON input. */
+  trackGeoJSON?: string
+  /** If set, the segment will be linked to this activity as its source. */
+  sourceActivityId?: string
+  /** Initial sport group pre-filled from the source activity. */
+  defaultSportGroup?: string
 }
 
-export default function SegmentCreationPanel({ onSuccess }: Props) {
+export default function SegmentCreationPanel({
+  onSuccess,
+  trackGeoJSON: initialTrackGeoJSON,
+  sourceActivityId,
+  defaultSportGroup,
+}: Props) {
   const [name, setName] = useState('')
-  const [sportGroup, setSportGroup] = useState('bike')
+  const [sportGroup, setSportGroup] = useState(defaultSportGroup ?? 'bike')
   const [segmentType, setSegmentType] = useState('standard')
   const [sacScale, setSacScale] = useState('')
   const [mtbScale, setMtbScale] = useState('')
   const [surface, setSurface] = useState('')
+  // Raw GeoJSON fallback input (shown when no trackGeoJSON was passed)
+  const [rawGeoJSON, setRawGeoJSON] = useState('')
+
+  const trackGeoJSON = initialTrackGeoJSON ?? (rawGeoJSON.trim() || '')
 
   const mutation = useMutation({
     mutationFn: (payload: CreateSegmentPayload) => createSegment(payload),
     onSuccess: () => {
       setName('')
-      setSportGroup('bike')
+      setSportGroup(defaultSportGroup ?? 'bike')
       setSegmentType('standard')
       setSacScale('')
       setMtbScale('')
       setSurface('')
+      setRawGeoJSON('')
       onSuccess()
     },
   })
@@ -61,12 +79,13 @@ export default function SegmentCreationPanel({ onSuccess }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
+    if (!trackGeoJSON) return
 
     const meta: Record<string, unknown> = {}
     if (segmentType === 'trail') {
       if (sacScale) meta.sac_scale = sacScale
       if (mtbScale) meta.mtb_scale = mtbScale
-    } else {
+    } else if (segmentType === 'standard') {
       if (surface) meta.surface = surface
     }
 
@@ -75,12 +94,41 @@ export default function SegmentCreationPanel({ onSuccess }: Props) {
       sport_group: sportGroup,
       segment_type: segmentType,
       segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
+      geojson_track: trackGeoJSON,
+      source_activity_id: sourceActivityId,
     })
   }
 
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-4">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Neues Segment erstellen</h2>
+
+      {/* Track source indicator */}
+      {initialTrackGeoJSON ? (
+        <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <span>Track aus Aktivitaet wird verwendet</span>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            GeoJSON-Track *
+          </label>
+          <textarea
+            value={rawGeoJSON}
+            onChange={e => setRawGeoJSON(e.target.value)}
+            placeholder='{"type":"LineString","coordinates":[[lng,lat],...]}'
+            rows={3}
+            className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs font-mono
+                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                       placeholder:text-neutral-400 dark:placeholder:text-neutral-600
+                       focus:outline-none focus:ring-1 focus:ring-orange-400"
+          />
+          <p className="text-xs text-neutral-400">GeoJSON LineString-Geometrie (ohne Feature-Wrapper)</p>
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Name *</label>
@@ -124,9 +172,18 @@ export default function SegmentCreationPanel({ onSuccess }: Props) {
           >
             <option value="standard">Standard</option>
             <option value="trail">Trail</option>
+            <option value="lap">Rundkurs (Runde)</option>
           </select>
         </div>
       </div>
+
+      {/* Lap-type hint */}
+      {segmentType === 'lap' && (
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          Rundkurs: Start- und Endpunkt des Tracks muessen nah beieinander liegen (max. 50 m).
+          Falls noetig wird der Endpunkt automatisch an den Startpunkt angepasst.
+        </p>
+      )}
 
       {/* Trail-specific options */}
       {segmentType === 'trail' && (
@@ -184,17 +241,25 @@ export default function SegmentCreationPanel({ onSuccess }: Props) {
       )}
 
       {mutation.isError && (
-        <p className="text-sm text-red-500">Fehler beim Erstellen des Segments.</p>
+        <p className="text-sm text-red-500">
+          {mutation.error instanceof Error ? mutation.error.message : 'Fehler beim Erstellen des Segments.'}
+        </p>
       )}
 
       <button
         type="submit"
-        disabled={!name.trim() || mutation.isPending}
+        disabled={!name.trim() || !trackGeoJSON || mutation.isPending}
         className="px-4 py-2 text-sm font-medium rounded-lg bg-orange-500 text-white
                    hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {mutation.isPending ? 'Erstelle...' : 'Segment erstellen'}
       </button>
+
+      {!trackGeoJSON && (
+        <p className="text-xs text-amber-500 dark:text-amber-400">
+          Ein Track (GeoJSON) ist erforderlich, um das Segment zu erstellen.
+        </p>
+      )}
     </form>
   )
 }

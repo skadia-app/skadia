@@ -311,6 +311,10 @@ function GeofenceEditor({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const circleSourceId = 'geofence-circle'
+  // Keep a live ref to the current value so map callbacks always read the latest state
+  const valueRef = useRef<GeofenceValue>(value)
+  // Synchronously update ref on every render so event handlers stay current
+  valueRef.current = value
 
   // Build a GeoJSON circle polygon from lat/lon/radius
   function buildCircleGeoJSON(lat: number, lon: number, radiusM: number) {
@@ -395,16 +399,18 @@ function GeofenceEditor({
 
       marker.on('dragend', () => {
         const lngLat = marker.getLngLat()
-        updateCircle(map, lngLat.lat, lngLat.lng, value.radius_m || 1000)
-        onChange({ ...value, lat: lngLat.lat, lon: lngLat.lng })
+        const current = valueRef.current
+        updateCircle(map, lngLat.lat, lngLat.lng, current.radius_m || 1000)
+        onChange({ ...current, lat: lngLat.lat, lon: lngLat.lng })
       })
 
       // Click to relocate marker
       map.on('click', (e) => {
         const { lat, lng } = e.lngLat
         marker.setLngLat([lng, lat])
-        updateCircle(map, lat, lng, value.radius_m || 1000)
-        onChange({ ...value, lat, lon: lng })
+        const current = valueRef.current
+        updateCircle(map, lat, lng, current.radius_m || 1000)
+        onChange({ ...current, lat, lon: lng })
       })
     })
 
@@ -436,7 +442,7 @@ function GeofenceEditor({
             <option value="outside">außerhalb</option>
           </select>
         </div>
-        <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+        <div className="flex items-center gap-2 flex-1 min-w-[260px]">
           <label className="text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
             Radius: <span className="font-medium text-neutral-900 dark:text-neutral-100">{radiusKm}</span>
           </label>
@@ -449,6 +455,20 @@ function GeofenceEditor({
             onChange={(e) => onChange({ ...value, radius_m: Number(e.target.value) })}
             className="flex-1 accent-orange-500"
           />
+          <input
+            type="number"
+            min={50}
+            max={100000}
+            step={50}
+            value={value.radius_m}
+            onChange={(e) => {
+              const v = Math.max(50, Math.min(100000, Number(e.target.value) || 1000))
+              onChange({ ...value, radius_m: v })
+            }}
+            className={inputClass + ' w-24 py-1 text-xs'}
+            title="Radius in Metern"
+          />
+          <span className="text-xs text-neutral-400">m</span>
         </div>
         <div className="flex items-center gap-1 text-xs text-neutral-500">
           <span>Lat:</span>
