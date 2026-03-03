@@ -1120,7 +1120,7 @@ function ActivityRow({
         <input
           type="checkbox"
           checked={isSelected}
-          onChange={e => onToggleSelect(activity.id, idx, e.nativeEvent.shiftKey)}
+          onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
           className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
           aria-label={`Aktivität ${activity.title ?? activity.id} auswählen`}
         />
