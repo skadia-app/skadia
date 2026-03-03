@@ -46,45 +46,197 @@ const WEEKDAY_OPTIONS = [
   { value: '0', label: 'So' },
 ]
 
+const VISIBILITY_OPTIONS = [
+  { value: 'private',    label: 'Privat' },
+  { value: 'bekannte',   label: 'Bekannte' },
+  { value: 'instanz',    label: 'Instanz' },
+  { value: 'federation', label: 'Federation' },
+  { value: 'public',     label: 'Öffentlich' },
+]
+
 // Field definitions: each entry tells the editor how to render the value input
-interface FieldDef {
-  value: string
+interface ConditionField {
+  field: string
   label: string
-  ops: string[]
-  inputType: 'text' | 'number' | 'bool' | 'sport' | 'source' | 'season' | 'weekday' | 'time_range' | 'between' | 'tag' | 'geofence'
+  inputType: 'number' | 'text' | 'bool' | 'enum' | 'tag' | 'segment' | 'geofence'
+  unit?: string
+  options?: { value: string; label: string }[]
 }
 
-const CONDITION_FIELDS: FieldDef[] = [
-  // Activity properties
-  { value: 'sport_type',         label: 'Sportart',                ops: ['eq', 'neq', 'in'],         inputType: 'sport' },
-  { value: 'distance_m',         label: 'Distanz (m)',             ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'elapsed_time_s',     label: 'Dauer (s)',               ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'elevation_gain_m',   label: 'Höhenmeter (m)',          ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'avg_speed_ms',       label: 'Geschwindigkeit avg (m/s)',ops: ['gt', 'lt', 'gte', 'lte'], inputType: 'number' },
-  { value: 'avg_heart_rate',     label: 'Puls avg (bpm)',          ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'max_heart_rate',     label: 'Puls max (bpm)',          ops: ['gt', 'lt', 'gte', 'lte'], inputType: 'number' },
-  { value: 'avg_power_w',        label: 'Leistung avg (W)',        ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'avg_temperature_c',  label: 'Temperatur avg (°C)',     ops: ['gt', 'lt', 'gte', 'lte', 'between'], inputType: 'between' },
-  { value: 'min_temperature_c',  label: 'Temperatur min (°C)',     ops: ['gt', 'lt', 'gte', 'lte'], inputType: 'number' },
-  // Boolean
-  { value: 'is_indoor',          label: 'Indoor',                  ops: ['eq'],                      inputType: 'bool' },
-  { value: 'has_gps',            label: 'Hat GPS',                 ops: ['eq'],                      inputType: 'bool' },
-  { value: 'is_round_trip',      label: 'Rundtour',                ops: ['eq'],                      inputType: 'bool' },
-  // Location
-  { value: 'start_city',         label: 'Startort (Stadt)',        ops: ['eq', 'neq', 'contains'],   inputType: 'text' },
-  { value: 'start_country',      label: 'Startland',               ops: ['eq', 'neq'],               inputType: 'text' },
-  // Time/date
-  { value: 'time_of_day',        label: 'Tageszeit',               ops: ['eq', 'in'],                inputType: 'text' },
-  { value: 'time_range',         label: 'Uhrzeit-Bereich',         ops: ['between'],                 inputType: 'time_range' },
-  { value: 'weekday',            label: 'Wochentag',               ops: ['in'],                      inputType: 'weekday' },
-  { value: 'season',             label: 'Jahreszeit',              ops: ['in'],                      inputType: 'season' },
-  // Tag-based
-  { value: 'has_tag',            label: 'Tag ist gesetzt',         ops: ['eq'],                      inputType: 'tag' },
-  // Source
-  { value: 'source',             label: 'Gerät / Quelle',          ops: ['eq', 'neq', 'in'],         inputType: 'source' },
-  // Geofence
-  { value: 'geofence',           label: 'Gebiet (Geofence)',       ops: ['eq'],                      inputType: 'geofence' },
+interface ConditionCategory {
+  key: string
+  label: string
+  fields: ConditionField[]
+}
+
+const MONTH_OPTIONS = [
+  { value: '1', label: 'Januar' }, { value: '2', label: 'Februar' },
+  { value: '3', label: 'März' }, { value: '4', label: 'April' },
+  { value: '5', label: 'Mai' }, { value: '6', label: 'Juni' },
+  { value: '7', label: 'Juli' }, { value: '8', label: 'August' },
+  { value: '9', label: 'September' }, { value: '10', label: 'Oktober' },
+  { value: '11', label: 'November' }, { value: '12', label: 'Dezember' },
 ]
+const INTENSITY_OPTIONS = [
+  { value: 'locker', label: 'Locker' },
+  { value: 'moderat', label: 'Moderat' },
+  { value: 'intensiv', label: 'Intensiv' },
+]
+const TIME_OF_DAY_OPTIONS = [
+  { value: 'nacht', label: 'Nacht' },
+  { value: 'frueh', label: 'Früh' },
+  { value: 'morgen', label: 'Morgen' },
+  { value: 'mittag', label: 'Mittag' },
+  { value: 'nachmittag', label: 'Nachmittag' },
+  { value: 'abend', label: 'Abend' },
+]
+const WEATHER_CONDITION_OPTIONS = [
+  { value: 'clear', label: 'Sonnig' },
+  { value: 'cloudy', label: 'Bewölkt' },
+  { value: 'rain', label: 'Regen' },
+  { value: 'snow', label: 'Schnee' },
+  { value: 'fog', label: 'Nebel' },
+  { value: 'storm', label: 'Gewitter' },
+]
+
+const CONDITION_CATEGORIES: ConditionCategory[] = [
+  { key: 'title', label: 'Titel', fields: [{ field: 'title', label: 'Titel', inputType: 'text' }] },
+  { key: 'description', label: 'Beschreibung', fields: [{ field: 'description', label: 'Beschreibung', inputType: 'text' }] },
+  { key: 'sport', label: 'Sportart', fields: [
+    { field: 'sport_type', label: 'Sportart', inputType: 'enum', options: SPORT_OPTIONS },
+    { field: 'sub_type', label: 'Sub-Typ', inputType: 'text' },
+  ]},
+  { key: 'activity', label: 'Aktivität', fields: [
+    { field: 'source', label: 'Quelle', inputType: 'enum', options: SOURCE_OPTIONS },
+    { field: 'intensity', label: 'Intensität', inputType: 'enum', options: INTENSITY_OPTIONS },
+    { field: 'is_indoor', label: 'Indoor', inputType: 'bool' },
+    { field: 'has_gps', label: 'Hat GPS', inputType: 'bool' },
+    { field: 'visibility', label: 'Sichtbarkeit', inputType: 'enum', options: VISIBILITY_OPTIONS },
+  ]},
+  { key: 'time', label: 'Zeit', fields: [
+    { field: 'elapsed_time_s', label: 'Gesamtzeit', inputType: 'number', unit: 's' },
+    { field: 'moving_time_s', label: 'Bewegungszeit', inputType: 'number', unit: 's' },
+    { field: 'weekday', label: 'Wochentag', inputType: 'enum', options: WEEKDAY_OPTIONS },
+    { field: 'month', label: 'Monat', inputType: 'enum', options: MONTH_OPTIONS },
+    { field: 'season', label: 'Jahreszeit', inputType: 'enum', options: SEASON_OPTIONS },
+    { field: 'time_of_day', label: 'Tageszeit', inputType: 'enum', options: TIME_OF_DAY_OPTIONS },
+  ]},
+  { key: 'distance', label: 'Distanz', fields: [
+    { field: 'distance_m', label: 'Distanz', inputType: 'number', unit: 'm' },
+  ]},
+  { key: 'speed', label: 'Geschwindigkeit', fields: [
+    { field: 'avg_speed_ms', label: 'Ø Geschwindigkeit', inputType: 'number', unit: 'm/s' },
+    { field: 'max_speed_ms', label: 'Max. Geschwindigkeit', inputType: 'number', unit: 'm/s' },
+    { field: 'min_speed_ms', label: 'Min. Geschwindigkeit', inputType: 'number', unit: 'm/s' },
+  ]},
+  { key: 'pace', label: 'Tempo', fields: [
+    { field: 'avg_pace_min_km', label: 'Ø Tempo', inputType: 'number', unit: 'min/km' },
+    { field: 'min_pace_min_km', label: 'Bestes Tempo', inputType: 'number', unit: 'min/km' },
+    { field: 'max_pace_min_km', label: 'Langsamstes Tempo', inputType: 'number', unit: 'min/km' },
+  ]},
+  { key: 'elevation', label: 'Anstiege', fields: [
+    { field: 'elevation_gain_m', label: 'Höhenmeter aufwärts', inputType: 'number', unit: 'm' },
+    { field: 'elevation_loss_m', label: 'Höhenmeter abwärts', inputType: 'number', unit: 'm' },
+    { field: 'max_elevation_m', label: 'Max. Höhe', inputType: 'number', unit: 'm' },
+    { field: 'min_elevation_m', label: 'Min. Höhe', inputType: 'number', unit: 'm' },
+    { field: 'climb_count', label: 'Anzahl Anstiege', inputType: 'number' },
+    { field: 'climb_category_max', label: 'Härteste Kategorie', inputType: 'number' },
+  ]},
+  { key: 'heartrate', label: 'Herzfrequenz', fields: [
+    { field: 'avg_heart_rate', label: 'Ø HF', inputType: 'number', unit: 'bpm' },
+    { field: 'max_heart_rate', label: 'Max. HF', inputType: 'number', unit: 'bpm' },
+    { field: 'min_heart_rate', label: 'Min. HF', inputType: 'number', unit: 'bpm' },
+  ]},
+  { key: 'cadence', label: 'Kadenz', fields: [
+    { field: 'avg_cadence', label: 'Ø Kadenz', inputType: 'number', unit: 'rpm' },
+    { field: 'max_cadence', label: 'Max. Kadenz', inputType: 'number', unit: 'rpm' },
+  ]},
+  { key: 'power', label: 'Leistung', fields: [
+    { field: 'avg_power_w', label: 'Ø Leistung', inputType: 'number', unit: 'W' },
+    { field: 'max_power_w', label: 'Max. Leistung', inputType: 'number', unit: 'W' },
+    { field: 'min_power_w', label: 'Min. Leistung', inputType: 'number', unit: 'W' },
+    { field: 'normalized_power_w', label: 'Normalisierte Leistung', inputType: 'number', unit: 'W' },
+    { field: 'tss', label: 'TSS', inputType: 'number' },
+    { field: 'trimp', label: 'TRIMP', inputType: 'number' },
+  ]},
+  { key: 'sensor_temp', label: 'Sensor-Temperatur', fields: [
+    { field: 'avg_temperature_c', label: 'Ø Temperatur', inputType: 'number', unit: '°C' },
+    { field: 'min_temperature_c', label: 'Min. Temperatur', inputType: 'number', unit: '°C' },
+    { field: 'max_temperature_c', label: 'Max. Temperatur', inputType: 'number', unit: '°C' },
+  ]},
+  { key: 'weather', label: 'Wetter', fields: [
+    { field: 'weather_temp_c', label: 'Wetter-Temperatur', inputType: 'number', unit: '°C' },
+    { field: 'weather_temp_min_c', label: 'Min. Wetter-Temp.', inputType: 'number', unit: '°C' },
+    { field: 'weather_temp_max_c', label: 'Max. Wetter-Temp.', inputType: 'number', unit: '°C' },
+    { field: 'weather_condition', label: 'Wetterlage', inputType: 'enum', options: WEATHER_CONDITION_OPTIONS },
+    { field: 'weather_humidity', label: 'Luftfeuchtigkeit', inputType: 'number', unit: '%' },
+    { field: 'weather_wind_speed_ms', label: 'Windgeschwindigkeit', inputType: 'number', unit: 'm/s' },
+    { field: 'weather_wind_speed_max_ms', label: 'Max. Windgeschwindigkeit', inputType: 'number', unit: 'm/s' },
+  ]},
+  { key: 'location', label: 'Ort', fields: [
+    { field: 'start_city', label: 'Startort', inputType: 'text' },
+    { field: 'start_state', label: 'Bundesland/Region', inputType: 'text' },
+    { field: 'start_country', label: 'Land', inputType: 'text' },
+    { field: 'start_country_code', label: 'Ländercode', inputType: 'text' },
+    { field: 'end_city', label: 'Endort', inputType: 'text' },
+  ]},
+  { key: 'context', label: 'Kontext', fields: [
+    { field: 'gear_id', label: 'Ausrüstung', inputType: 'enum', options: [] },
+    { field: 'has_tag', label: 'Hat Tag', inputType: 'tag' },
+    { field: 'photo_count', label: 'Anzahl Fotos', inputType: 'number' },
+    { field: 'detected_lap_count', label: 'Anzahl Runden', inputType: 'number' },
+    { field: 'hide_map', label: 'Karte verborgen', inputType: 'bool' },
+  ]},
+  { key: 'lift', label: 'Lift', fields: [
+    { field: 'has_lift', label: 'Lift genutzt', inputType: 'bool' },
+    { field: 'lift_count', label: 'Anzahl Lifte', inputType: 'number' },
+    { field: 'lift_ascent_m', label: 'Lift-Aufstieg', inputType: 'number', unit: 'm' },
+    { field: 'lift_descent_m', label: 'Lift-Abstieg', inputType: 'number', unit: 'm' },
+    { field: 'lift_distance_m', label: 'Lift-Distanz', inputType: 'number', unit: 'm' },
+    { field: 'lift_duration_s', label: 'Lift-Dauer', inputType: 'number', unit: 's' },
+    { field: 'net_ascent_m', label: 'Netto-Aufstieg', inputType: 'number', unit: 'm' },
+    { field: 'net_descent_m', label: 'Netto-Abstieg', inputType: 'number', unit: 'm' },
+    { field: 'net_distance_m', label: 'Netto-Distanz', inputType: 'number', unit: 'm' },
+  ]},
+  { key: 'segments', label: 'Segmente', fields: [
+    { field: 'has_segment_effort', label: 'Segment gefahren', inputType: 'segment' },
+    { field: 'segment_effort_rank', label: 'Segment-Platzierung', inputType: 'segment' },
+    { field: 'segment_effort_time_s', label: 'Segment-Zeit', inputType: 'segment' },
+  ]},
+]
+
+// Internal-only fields not shown in category dropdown (geofence, round-trip)
+const INTERNAL_FIELDS: ConditionField[] = [
+  { field: 'geofence', label: 'Geofence', inputType: 'geofence' },
+  { field: 'is_round_trip', label: 'Rundtour', inputType: 'bool' },
+]
+
+// Flat lookup: find a ConditionField by its field name
+const ALL_CONDITION_FIELDS: ConditionField[] = [
+  ...CONDITION_CATEGORIES.flatMap(c => c.fields),
+  ...INTERNAL_FIELDS,
+]
+
+function findFieldDef(field: string): ConditionField | undefined {
+  return ALL_CONDITION_FIELDS.find(f => f.field === field)
+}
+
+function findCategory(field: string): ConditionCategory | undefined {
+  return CONDITION_CATEGORIES.find(cat => cat.fields.some(f => f.field === field))
+}
+
+// Operators per input type
+function opsForField(cf: ConditionField): string[] {
+  switch (cf.inputType) {
+    case 'bool': return ['eq']
+    case 'enum': return ['eq', 'neq', 'in']
+    case 'text': return ['eq', 'neq', 'contains']
+    case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq', 'between']
+    case 'tag': return ['eq']
+    case 'segment': return ['eq']
+    case 'geofence': return ['eq']
+  }
+}
 
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
@@ -94,15 +246,12 @@ const OP_LABELS: Record<string, string> = {
 const ACTION_TYPES = [
   { value: 'set_gear',        label: 'Ausrüstung zuweisen' },
   { value: 'add_tag',         label: 'Tag hinzufügen' },
+  { value: 'remove_tag',      label: 'Tag entfernen' },
   { value: 'set_visibility',  label: 'Sichtbarkeit setzen' },
-]
-
-const VISIBILITY_OPTIONS = [
-  { value: 'private',    label: 'Privat' },
-  { value: 'bekannte',   label: 'Bekannte' },
-  { value: 'instanz',    label: 'Instanz' },
-  { value: 'federation', label: 'Federation' },
-  { value: 'public',     label: 'Öffentlich' },
+  { value: 'set_sport_type',  label: 'Sportart setzen' },
+  { value: 'set_name',        label: 'Titel setzen' },
+  { value: 'set_intensity',   label: 'Intensität setzen' },
+  { value: 'set_indoor',      label: 'Indoor-Flag setzen' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -324,7 +473,7 @@ function ConditionValueEditor({
   onChange,
   tags,
 }: {
-  fieldDef: FieldDef
+  fieldDef: ConditionField
   cond: RuleCondition
   onChange: (patch: Partial<RuleCondition>) => void
   tags: Array<{ id: string; name: string; color: string }>
@@ -344,7 +493,7 @@ function ConditionValueEditor({
     )
   }
 
-  if (inputType === 'sport') {
+  if (inputType === 'enum' && fieldDef.options) {
     if (cond.op === 'in') {
       const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
       function toggle(v: string) {
@@ -352,7 +501,7 @@ function ConditionValueEditor({
       }
       return (
         <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-          {SPORT_OPTIONS.map(s => (
+          {fieldDef.options.map(s => (
             <button
               key={s.value}
               type="button"
@@ -375,102 +524,13 @@ function ConditionValueEditor({
         onChange={(e) => onChange({ value: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Sportart wählen...</option>
-        {SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        <option value="">Wählen...</option>
+        {fieldDef.options.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
       </select>
     )
   }
 
-  if (inputType === 'source') {
-    if (cond.op === 'in') {
-      const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
-      function toggle(v: string) {
-        onChange({ value: selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v] })
-      }
-      return (
-        <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-          {SOURCE_OPTIONS.map(s => (
-            <button key={s.value} type="button" onClick={() => toggle(s.value)}
-              className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors cursor-pointer ${
-                selected.includes(s.value)
-                  ? 'bg-orange-500 text-white border-orange-500'
-                  : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-orange-400'
-              }`}
-            >{s.label}</button>
-          ))}
-        </div>
-      )
-    }
-    return (
-      <select value={String(cond.value ?? '')} onChange={(e) => onChange({ value: e.target.value })}
-        className={inputClass + ' flex-1 min-w-0'}
-      >
-        <option value="">Quelle wählen...</option>
-        {SOURCE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-      </select>
-    )
-  }
-
-  if (inputType === 'season') {
-    const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
-    function toggle(v: string) {
-      onChange({ value: selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v] })
-    }
-    return (
-      <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-        {SEASON_OPTIONS.map(s => (
-          <button key={s.value} type="button" onClick={() => toggle(s.value)}
-            className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors cursor-pointer ${
-              selected.includes(s.value)
-                ? 'bg-orange-500 text-white border-orange-500'
-                : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-orange-400'
-            }`}
-          >{s.label}</button>
-        ))}
-      </div>
-    )
-  }
-
-  if (inputType === 'weekday') {
-    const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
-    function toggle(v: string) {
-      onChange({ value: selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v] })
-    }
-    return (
-      <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-        {WEEKDAY_OPTIONS.map(d => (
-          <button key={d.value} type="button" onClick={() => toggle(d.value)}
-            className={`w-9 py-0.5 rounded text-xs font-medium border transition-colors cursor-pointer ${
-              selected.includes(d.value)
-                ? 'bg-orange-500 text-white border-orange-500'
-                : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-orange-400'
-            }`}
-          >{d.label}</button>
-        ))}
-      </div>
-    )
-  }
-
-  if (inputType === 'time_range') {
-    const parts = typeof cond.value === 'string' ? cond.value.split(',') : ['', '']
-    const from = parts[0] ?? ''
-    const to = parts[1] ?? ''
-    return (
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <input type="time" value={from}
-          onChange={(e) => onChange({ value: `${e.target.value},${to}` })}
-          className={inputClass}
-        />
-        <span className="text-neutral-500 text-xs">bis</span>
-        <input type="time" value={to}
-          onChange={(e) => onChange({ value: `${from},${e.target.value}` })}
-          className={inputClass}
-        />
-      </div>
-    )
-  }
-
-  if (inputType === 'between' && cond.op === 'between') {
+  if (inputType === 'number' && cond.op === 'between') {
     const parts = typeof cond.value === 'string' ? cond.value.split(',') : ['', '']
     const from = parts[0] ?? ''
     const to = parts[1] ?? ''
@@ -485,17 +545,21 @@ function ConditionValueEditor({
           onChange={(e) => onChange({ value: `${from},${e.target.value}` })}
           className={inputClass + ' w-24'}
         />
+        {fieldDef.unit && <span className="text-xs text-neutral-400">{fieldDef.unit}</span>}
       </div>
     )
   }
 
-  if (inputType === 'number' || (inputType === 'between' && cond.op !== 'between')) {
+  if (inputType === 'number') {
     return (
-      <input type="number" value={cond.value ?? ''}
-        onChange={(e) => onChange({ value: Number(e.target.value) })}
-        placeholder="Wert"
-        className={inputClass + ' flex-1 min-w-0'}
-      />
+      <div className="flex items-center gap-1 flex-1 min-w-0">
+        <input type="number" value={cond.value ?? ''}
+          onChange={(e) => onChange({ value: Number(e.target.value) })}
+          placeholder="Wert"
+          className={inputClass + ' flex-1 min-w-0'}
+        />
+        {fieldDef.unit && <span className="text-xs text-neutral-400">{fieldDef.unit}</span>}
+      </div>
     )
   }
 
@@ -511,6 +575,16 @@ function ConditionValueEditor({
           </option>
         ))}
       </select>
+    )
+  }
+
+  if (inputType === 'segment') {
+    return (
+      <input type="text" value={cond.value ?? ''}
+        onChange={(e) => onChange({ value: e.target.value })}
+        placeholder="Segment-ID"
+        className={inputClass + ' flex-1 min-w-0'}
+      />
     )
   }
 
@@ -537,7 +611,7 @@ function ConditionValueEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Single condition row
+// Single condition row — two-level: Category → Field → Operator → Value
 // ---------------------------------------------------------------------------
 
 function ConditionRow({
@@ -551,41 +625,17 @@ function ConditionRow({
   onRemove: () => void
   tags: Array<{ id: string; name: string; color: string }>
 }) {
-  const fieldDef = CONDITION_FIELDS.find(f => f.value === cond.field) ?? CONDITION_FIELDS[0]
-  const isGeofence = fieldDef.inputType === 'geofence'
+  const currentCat = findCategory(cond.field)
+  const currentField = findFieldDef(cond.field)
+  const isInternalField = !currentCat  // geofence, is_round_trip etc.
 
-  function handleFieldChange(newField: string) {
-    const def = CONDITION_FIELDS.find(f => f.value === newField) ?? CONDITION_FIELDS[0]
-    onUpdate({ field: newField, op: def.ops[0], value: def.inputType === 'bool' ? true : '' })
-  }
-
-  return (
-    <div className={`${isGeofence ? 'flex flex-col gap-2' : 'flex items-center gap-2 flex-wrap'}`}>
-      <div className="flex items-center gap-2 flex-wrap">
-        <select
-          value={cond.field}
-          onChange={(e) => handleFieldChange(e.target.value)}
-          className={inputClass}
-        >
-          {CONDITION_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-        </select>
-
-        {/* Op selector — hide for geofence and weekday/season/time_range (implicit) */}
-        {!isGeofence && fieldDef.inputType !== 'weekday' && fieldDef.inputType !== 'season' && fieldDef.inputType !== 'time_range' && (
-          <select
-            value={cond.op}
-            onChange={(e) => onUpdate({ op: e.target.value })}
-            className={inputClass}
-          >
-            {fieldDef.ops.map(op => (
-              <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
-            ))}
-          </select>
-        )}
-
-        <button
-          type="button"
-          onClick={onRemove}
+  // For internal fields (geofence, round-trip), show a simplified row
+  if (isInternalField && currentField) {
+    return (
+      <div className={currentField.inputType === 'geofence' ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{currentField.label}</span>
+        <ConditionValueEditor fieldDef={currentField} cond={cond} onChange={onUpdate} tags={tags} />
+        <button type="button" onClick={onRemove}
           className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
           title="Bedingung entfernen"
         >
@@ -594,8 +644,79 @@ function ConditionRow({
           </svg>
         </button>
       </div>
+    )
+  }
 
-      <ConditionValueEditor fieldDef={fieldDef} cond={cond} onChange={onUpdate} tags={tags} />
+  const safeCat = currentCat ?? CONDITION_CATEGORIES[0]
+  const safeField = currentField ?? safeCat.fields[0]
+  const ops = opsForField(safeField)
+
+  function handleCategoryChange(catKey: string) {
+    const cat = CONDITION_CATEGORIES.find(c => c.key === catKey) ?? CONDITION_CATEGORIES[0]
+    const firstField = cat.fields[0]
+    const firstOps = opsForField(firstField)
+    onUpdate({ field: firstField.field, op: firstOps[0], value: firstField.inputType === 'bool' ? true : '' })
+  }
+
+  function handleFieldChange(fieldName: string) {
+    const fd = safeCat.fields.find(f => f.field === fieldName) ?? safeCat.fields[0]
+    const fieldOps = opsForField(fd)
+    onUpdate({ field: fd.field, op: fieldOps[0], value: fd.inputType === 'bool' ? true : '' })
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Category selector */}
+      <select
+        value={safeCat.key}
+        onChange={(e) => handleCategoryChange(e.target.value)}
+        className={inputClass}
+      >
+        {CONDITION_CATEGORIES.map(cat => (
+          <option key={cat.key} value={cat.key}>{cat.label}</option>
+        ))}
+      </select>
+
+      {/* Sub-field selector (only when category has > 1 field) */}
+      {safeCat.fields.length > 1 && (
+        <select
+          value={cond.field}
+          onChange={(e) => handleFieldChange(e.target.value)}
+          className={inputClass}
+        >
+          {safeCat.fields.map(f => (
+            <option key={f.field} value={f.field}>{f.label}</option>
+          ))}
+        </select>
+      )}
+
+      {/* Operator selector */}
+      {ops.length > 1 && (
+        <select
+          value={cond.op}
+          onChange={(e) => onUpdate({ op: e.target.value })}
+          className={inputClass}
+        >
+          {ops.map(op => (
+            <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
+          ))}
+        </select>
+      )}
+
+      {/* Value editor */}
+      <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} />
+
+      {/* Remove button */}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
+        title="Bedingung entfernen"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      </button>
     </div>
   )
 }
@@ -892,6 +1013,76 @@ export default function RuleEditor({ rule, onSave, onCancel, isSaving }: RuleEdi
             </div>
           ))}
         </div>
+
+        {/* Geofence block */}
+        <div className="rounded-lg border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            <span className="font-medium text-sm text-blue-700 dark:text-blue-300">Geofencing</span>
+            <span className="text-xs text-blue-500">-- ortsbasierte Regeln</span>
+          </div>
+          {groups.some(g => g.conditions.some(c => c.field === 'geofence')) ? (
+            <p className="text-xs text-blue-600 dark:text-blue-400">Geofence-Bedingung ist aktiv (in den Gruppen oben).</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const newCond: RuleCondition = {
+                  field: 'geofence',
+                  op: 'eq',
+                  value: '',
+                  geofence: { lat: 51.0, lon: 10.0, radius_m: 1000, mode: 'inside' },
+                }
+                if (groups.length > 0) {
+                  updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
+                } else {
+                  setGroups([{ logic: 'and', conditions: [newCond] }])
+                }
+              }}
+              className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer"
+            >
+              + Geofence hinzufuegen
+            </button>
+          )}
+        </div>
+
+        {/* Round trip block */}
+        {(() => {
+          const hasRoundTripCondition = groups.some(g => g.conditions.some(c => c.field === 'is_round_trip'))
+          const toggleRoundTrip = (checked: boolean) => {
+            if (checked) {
+              const newCond: RuleCondition = { field: 'is_round_trip', op: 'eq', value: true }
+              if (groups.length > 0) {
+                updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
+              } else {
+                setGroups([{ logic: 'and', conditions: [newCond] }])
+              }
+            } else {
+              setGroups(groups.map(g => ({
+                ...g,
+                conditions: g.conditions.filter(c => c.field !== 'is_round_trip'),
+              })).filter(g => g.conditions.length > 0))
+            }
+          }
+          return (
+            <div className="flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+              <svg className="w-4 h-4 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 109 9"/><path d="M3 12V6h6"/></svg>
+              <span className="text-sm font-medium">Rundtour</span>
+              <div className="ml-auto">
+                <button
+                  type="button"
+                  onClick={() => toggleRoundTrip(!hasRoundTripCondition)}
+                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer"
+                  style={{ backgroundColor: hasRoundTripCondition ? '#f97316' : '#d4d4d4' }}
+                  role="switch"
+                  aria-checked={hasRoundTripCondition}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${hasRoundTripCondition ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Actions */}
