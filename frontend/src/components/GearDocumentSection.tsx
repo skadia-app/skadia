@@ -8,7 +8,6 @@ import type { GearDocument } from '@/api/types'
 
 interface Props {
   gearId: string
-  componentId?: string
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -20,13 +19,40 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   other: 'Sonstiges',
 }
 
-const DOC_TYPE_ICONS: Record<string, string> = {
-  receipt: '\u{1F4C4}',
-  invoice: '\u{1F4B0}',
-  warranty: '\u{1F6E1}\uFE0F',
-  manual: '\u{1F4D6}',
-  photo: '\u{1F5BC}\uFE0F',
-  other: '\u{1F4CE}',
+function DocTypeIcon({ docType, className = 'w-5 h-5' }: { docType: string; className?: string }) {
+  switch (docType) {
+    case 'receipt':
+    case 'invoice':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+        </svg>
+      )
+    case 'warranty':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+        </svg>
+      )
+    case 'manual':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+        </svg>
+      )
+    case 'photo':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+        </svg>
+      )
+    default:
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+        </svg>
+      )
+  }
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -64,7 +90,7 @@ export default function GearDocumentSection({ gearId }: Props) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data: documents = [], isLoading } = useQuery({
-    queryKey: ['gear-documents-all', gearId],
+    queryKey: ['gear-documents', gearId],
     queryFn: () => fetchGearDocuments(gearId),
     enabled: !!gearId,
   })
@@ -75,7 +101,6 @@ export default function GearDocumentSection({ gearId }: Props) {
   const deleteMutation = useMutation({
     mutationFn: (docId: string) => deleteGearDocument(docId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['gear-documents-all', gearId] })
       queryClient.invalidateQueries({ queryKey: ['gear-documents', gearId] })
       queryClient.invalidateQueries({ queryKey: ['gear-costs', gearId] })
       setDeleteConfirmId(null)
@@ -134,7 +159,9 @@ export default function GearDocumentSection({ gearId }: Props) {
                     onClick={() => setPreviewDoc(doc)}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer text-left"
                   >
-                    <span className="text-lg flex-shrink-0">{DOC_TYPE_ICONS[doc.doc_type] ?? DOC_TYPE_ICONS.other}</span>
+                    <span className="flex-shrink-0 text-neutral-400">
+                      <DocTypeIcon docType={doc.doc_type} />
+                    </span>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
                         {doc.title || doc.original_filename}
@@ -179,7 +206,7 @@ export default function GearDocumentSection({ gearId }: Props) {
                 onClick={() => setUploadOpen(true)}
                 className="text-xs text-[var(--color-accent-DEFAULT,#F97316)] hover:text-[var(--color-accent-600,#EA580C)] cursor-pointer font-medium"
               >
-                + Dokument hinzufuegen
+                + Dokument hinzufügen
               </button>
             </div>
           </div>
@@ -192,7 +219,6 @@ export default function GearDocumentSection({ gearId }: Props) {
           gearId={gearId}
           onClose={() => setUploadOpen(false)}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ['gear-documents-all', gearId] })
             queryClient.invalidateQueries({ queryKey: ['gear-documents', gearId] })
             queryClient.invalidateQueries({ queryKey: ['gear-costs', gearId] })
             setUploadOpen(false)
@@ -271,7 +297,7 @@ function UploadDialog({
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Dokument hinzufuegen</h3>
+          <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Dokument hinzufügen</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-neutral-600 cursor-pointer transition-colors"
@@ -318,7 +344,7 @@ function UploadDialog({
                   <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                 </svg>
                 <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                  Datei hierher ziehen oder <span className="text-[var(--color-accent-DEFAULT,#F97316)] font-medium">auswaehlen</span>
+                  Datei hierher ziehen oder <span className="text-[var(--color-accent-DEFAULT,#F97316)] font-medium">auswählen</span>
                 </p>
                 <p className="text-xs text-neutral-400">PDF, JPG, PNG — max. 10 MB</p>
               </div>
@@ -377,7 +403,7 @@ function UploadDialog({
                 />
               </div>
               <div className="w-20">
-                <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Waehrung</label>
+                <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Währung</label>
                 <select
                   value={currency}
                   onChange={e => setCurrency(e.target.value)}
@@ -579,7 +605,7 @@ function PreviewPanel({
               <svg className="w-12 h-12" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
               </svg>
-              <p>Vorschau nicht verfuegbar</p>
+              <p>Vorschau nicht verfügbar</p>
               <p className="text-xs">{doc.content_type}</p>
             </div>
           )}
@@ -591,7 +617,7 @@ function PreviewPanel({
             onClick={() => onDelete(doc.id)}
             className="text-xs text-rose-500 hover:text-rose-600 cursor-pointer font-medium"
           >
-            Loeschen
+            Löschen
           </button>
           <button
             onClick={handleDownload}
@@ -624,10 +650,10 @@ function DeleteConfirmDialog({
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
-          Dokument loeschen?
+          Dokument löschen?
         </h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-5">
-          Das Dokument wird unwiderruflich geloescht. Dieser Vorgang kann nicht rueckgaengig gemacht werden.
+          Das Dokument wird unwiderruflich gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -641,7 +667,7 @@ function DeleteConfirmDialog({
             disabled={isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {isPending ? 'Wird geloescht...' : 'Loeschen'}
+            {isPending ? 'Wird gelöscht...' : 'Löschen'}
           </button>
         </div>
       </div>

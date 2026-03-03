@@ -86,6 +86,32 @@ export default function CalendarPage() {
     return map
   }, [activities])
 
+  // ── Fetch Year Activities (for Heatmap) ───────────────────────────────────
+  const yearStart = `${new Date().getFullYear()}-01-01`
+  const yearEnd = `${new Date().getFullYear()}-12-31`
+
+  const { data: yearActivitiesData } = useQuery({
+    queryKey: ['activities-year', yearStart, yearEnd],
+    queryFn: () => fetchActivities(undefined, 1000, 'started_at', 'desc', {
+      dateFrom: yearStart,
+      dateTo: yearEnd,
+    }),
+    enabled: tab === 'year',
+  })
+
+  const yearActivities = yearActivitiesData?.activities ?? []
+
+  const yearActivitiesByDate = useMemo(() => {
+    const map = new Map<string, Activity[]>()
+    for (const a of yearActivities) {
+      const key = a.started_at.slice(0, 10)
+      const list = map.get(key)
+      if (list) list.push(a)
+      else map.set(key, [a])
+    }
+    return map
+  }, [yearActivities])
+
   // ── Fetch PMC data ────────────────────────────────────────────────────────
   const { data: pmcData } = useQuery({
     queryKey: ['calendar-pmc', fromStr, toStr],
@@ -135,7 +161,7 @@ export default function CalendarPage() {
         for (const a of dayActivities) {
           totalTSS += a.tss ?? 0
           totalDistance += a.distance_m ?? 0
-          totalTime += a.elapsed_time_s ?? 0
+          totalTime += a.moving_time_s ?? a.elapsed_time_s ?? 0
           actCount++
         }
       }
@@ -161,11 +187,11 @@ export default function CalendarPage() {
 
   // ── Navigation ────────────────────────────────────────────────────────────
   function goBack() {
-    setAnchorDate((prev) => subWeeks(prev, weekCount === 4 ? 4 : 4))
+    setAnchorDate((prev) => subWeeks(prev, weekCount))
   }
 
   function goForward() {
-    setAnchorDate((prev) => addWeeks(prev, weekCount === 4 ? 4 : 4))
+    setAnchorDate((prev) => addWeeks(prev, weekCount))
   }
 
   function goToday() {
@@ -232,7 +258,7 @@ export default function CalendarPage() {
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Zurueck
+                  Zurück
                 </button>
                 <button
                   onClick={goToday}
@@ -262,7 +288,7 @@ export default function CalendarPage() {
           navigate={navigate}
         />
       ) : (
-        <YearHeatmapView activitiesByDate={activitiesByDate} />
+        <YearHeatmapView activitiesByDate={yearActivitiesByDate} />
       )}
     </div>
   )
