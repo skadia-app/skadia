@@ -741,3 +741,40 @@ func (db *DB) IsLapDetectionEnabled(ctx context.Context, userID string) bool {
 func sportGroupFromSportType(sportType string) string {
 	return sport.SegmentGroup(sportType)
 }
+
+// ListActivityIDsForSegmentBackfill returns IDs of all GPS activities belonging
+// to userID whose track passes within 50 m of the given segment's latest version track.
+// This mirrors GetSpatialCandidateSegments but in the opposite direction:
+// given a new segment, find which activities may traverse it.
+func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, segmentID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT at.activity_id
+		FROM activity_tracks at
+		JOIN activities a ON a.id = at.activity_id
+		JOIN LATERAL (
+			SELECT track FROM segment_versions
+			WHERE segment_id = $2
+			ORDER BY version_number DESC
+			LIMIT 1
+		) sv ON true
+		WHERE a.user_id = $1
+		  AND a.has_gps = true
+		  AND at.track_full IS NOT NULL
+		  AND sv.track IS NOT NULL
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 50)`,
+		userID, segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan activity id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}

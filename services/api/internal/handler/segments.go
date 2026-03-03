@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -65,6 +66,32 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, segment)
+
+	// Backfill: match new segment against all existing activities asynchronously.
+	go func(segID, uID string) {
+		ctx := context.Background()
+		ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, uID, segID)
+		if err != nil {
+			slog.Error("segment backfill: list activities failed",
+				"segment_id", segID, "error", err)
+			return
+		}
+		slog.Info("segment backfill: starting",
+			"segment_id", segID, "activity_count", len(ids))
+		for _, actID := range ids {
+			act, err := h.DB.GetActivity(ctx, actID)
+			if err != nil || act == nil {
+				continue
+			}
+			subType := ""
+			if act.SubType != nil {
+				subType = *act.SubType
+			}
+			MatchActivitySegments(ctx, h.DB, actID, uID,
+				act.SportType, subType, act.GearID)
+		}
+		slog.Info("segment backfill: done", "segment_id", segID)
+	}(segment.ID, userID)
 }
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
