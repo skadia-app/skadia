@@ -265,6 +265,15 @@ func main() {
 			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
 			r.Get("/map/photos", h.ListMapPhotos)
+
+			// Segments
+			r.Get("/segments", h.ListSegments)
+			r.Post("/segments", h.CreateSegment)
+			r.Get("/segments/{id}", h.GetSegment)
+			r.Put("/segments/{id}", h.UpdateSegment)
+			r.Delete("/segments/{id}", h.DeleteSegment)
+			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
+			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 		})
 	})
 

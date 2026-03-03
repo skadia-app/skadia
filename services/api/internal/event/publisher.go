@@ -65,6 +65,31 @@ func (p *Publisher) PublishActivityUploaded(event ActivityUploadedEvent) error {
 	return nil
 }
 
+// Stage2ReadyEvent is emitted after Stage 1 enrichment completes,
+// signalling the ML service to begin Stage 2 processing.
+type Stage2ReadyEvent struct {
+	ActivityID string `json:"activity_id"`
+	UserID     string `json:"user_id"`
+}
+
+func (p *Publisher) PublishStage2Ready(event Stage2ReadyEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal stage2 event: %w", err)
+	}
+
+	_, err = p.js.Publish("skadia.stage2.high", data)
+	if err != nil {
+		return fmt.Errorf("publish stage2 event: %w", err)
+	}
+
+	slog.Info("event published",
+		"subject", "skadia.stage2.high",
+		"activity_id", event.ActivityID,
+	)
+	return nil
+}
+
 // JetStream returns the JetStream context for creating consumers.
 func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js

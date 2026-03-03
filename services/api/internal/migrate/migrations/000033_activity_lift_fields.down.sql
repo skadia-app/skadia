@@ -1,0 +1,9 @@
+ALTER TABLE activities DROP COLUMN IF EXISTS lift_count;
+ALTER TABLE activities DROP COLUMN IF EXISTS lift_distance_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS lift_ascent_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS lift_descent_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS lift_duration_s;
+ALTER TABLE activities DROP COLUMN IF EXISTS net_distance_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS net_ascent_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS net_descent_m;
+ALTER TABLE activities DROP COLUMN IF EXISTS exclude_lift_subtraction;

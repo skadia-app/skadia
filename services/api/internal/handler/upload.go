@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -141,7 +142,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 1 Enrichment (synchronous, ~50ms)
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(r.Context(), h.DB, userID, activity.ID, data)
+		enrichment.RunStage1(r.Context(), h.DB, userID, activity.ID, data, h.Events)
 	}
 
 	// Insert streams
@@ -239,6 +240,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if err := h.WriteShadowForActivity(r.Context(), userID, activity.ID, data, fileBytes); err != nil {
 			slog.Error("shadow fs write failed", "id", activity.ID, "error", err)
 		}
+	}
+
+	// Segment matching (non-blocking background goroutine)
+	if data.HasGPS {
+		var gearIDPtr *string
+		if activity.GearID != nil {
+			gearIDPtr = activity.GearID
+		}
+		go MatchActivitySegments(context.Background(), h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr)
 	}
 
 	// Re-fetch full activity for response

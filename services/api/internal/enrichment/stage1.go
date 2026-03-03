@@ -9,13 +9,15 @@ import (
 	suncalc "github.com/sixdouglas/suncalc"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 )
 
 // RunStage1 executes synchronous enrichment for an activity after upload.
 // This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData) {
+// If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub ...*event.Publisher) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -219,6 +221,17 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 	if err := db.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
 		slog.Error("stage1 enrichment failed", "activity_id", activityID, "error", err)
+		return
+	}
+
+	// Emit stage-2 event (graceful degradation: log on failure, never panic)
+	if len(pub) > 0 && pub[0] != nil {
+		if err := pub[0].PublishStage2Ready(event.Stage2ReadyEvent{
+			ActivityID: activityID,
+			UserID:     userID,
+		}); err != nil {
+			slog.Warn("stage1: failed to publish stage2 event", "activity_id", activityID, "error", err)
+		}
 	}
 }
 

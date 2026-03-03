@@ -368,7 +368,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms).
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data)
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events)
 	}
 
 	// 8b. Tags-only reprocess: re-evaluate autotags without full enrichment.

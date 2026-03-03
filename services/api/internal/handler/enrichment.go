@@ -113,7 +113,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 			HasGPS:       true,
 		}
 
-		enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data)
+		enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events)
 		processed++
 	}
 
