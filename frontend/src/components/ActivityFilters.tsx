@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SportOption } from '@/lib/sportOptions'
-import { generateActivityFilterOptions, getOptionKey, getAllSportKeys } from '@/lib/sportOptions'
+import { generateActivityFilterOptions, getOptionKey, getAllSportKeys, filterToExistingSports } from '@/lib/sportOptions'
 import { fetchGear } from '@/api/gear'
+import { fetchSportTypeStats } from '@/api/stats'
 import { sportLabel } from '@/lib/utils'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
@@ -86,6 +88,24 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   const [sportSearch, setSportSearch] = useState('')
   const popoverRef = useRef<HTMLDivElement>(null)
 
+  const { hideUnused } = useGlobalSportSettings()
+  const { data: statsData } = useQuery({
+    queryKey: ['sport-type-stats'],
+    queryFn: fetchSportTypeStats,
+    enabled: hideUnused,
+  })
+  const existingSportTypes = useMemo<Set<string>>(() => {
+    if (!statsData) return new Set()
+    return new Set(statsData.map((s) => s.sport_type))
+  }, [statsData])
+  const visibleOptions = useMemo(() => {
+    if (hideUnused && existingSportTypes.size > 0) {
+      return filterToExistingSports(ACTIVITY_SPORT_OPTIONS, existingSportTypes)
+    }
+    return ACTIVITY_SPORT_OPTIONS
+  }, [hideUnused, existingSportTypes])
+  const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
+
   const { data: gearList } = useQuery({
     queryKey: ['gear'],
     queryFn: () => fetchGear(),
@@ -108,7 +128,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
   function countActive(f: ActivityFilterState): number {
     let n = 0
-    if (f.sportTypes.size > 0 && f.sportTypes.size < ALL_SPORT_KEYS.length) n++
+    if (f.sportTypes.size > 0 && !visibleKeys.every(k => f.sportTypes.has(k))) n++
     if (f.dateFrom) n++
     if (f.dateTo) n++
     if (f.isIndoor !== null) n++
@@ -146,13 +166,13 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     return checked > 0 && checked < parent.children.length
   }
 
-  const allSportsSelected = filters.sportTypes.size === 0 || filters.sportTypes.size === ALL_SPORT_KEYS.length
+  const allSportsSelected = filters.sportTypes.size === 0 || visibleKeys.every(k => filters.sportTypes.has(k))
 
   function toggleAllSports() {
     if (allSportsSelected) {
       onChange({ ...filters, sportTypes: new Set<string>() })
     } else {
-      onChange({ ...filters, sportTypes: new Set(ALL_SPORT_KEYS) })
+      onChange({ ...filters, sportTypes: new Set(visibleKeys) })
     }
   }
 
@@ -253,7 +273,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-orange-400"
               />
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {ACTIVITY_SPORT_OPTIONS.filter(matchesSportSearch).map(opt => (
+                {visibleOptions.filter(matchesSportSearch).map(opt => (
                   <div key={opt.label}>
                     {opt.children && opt.groupKey ? (
                       <div>
