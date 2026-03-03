@@ -149,6 +149,39 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteActivities bulk-deletes multiple activities owned by the authenticated user.
+//
+// DELETE /api/v1/activities
+// Body: {"ids": ["uuid1", "uuid2", ...]}
+func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "ids array required", r.URL.Path)
+		return
+	}
+	if len(body.IDs) > 500 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "max 500 ids per request", r.URL.Path)
+		return
+	}
+
+	deleted, err := h.DB.DeleteActivities(r.Context(), body.IDs)
+	if err != nil {
+		slog.Error("bulk delete activities failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activities", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+}
+
 // ExportActivity exports an activity in the requested format.
 func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

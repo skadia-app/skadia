@@ -167,6 +167,7 @@ func main() {
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)
 			r.Delete("/activities/{id}", h.DeleteActivity)
+			r.Delete("/activities", h.DeleteActivities)
 			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
 			r.Get("/activities/{id}/streams", h.GetStreams)
 			r.Get("/activities/{id}/sensors", h.GetSensors)

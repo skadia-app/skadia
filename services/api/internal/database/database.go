@@ -728,6 +728,28 @@ func (db *DB) DeleteActivity(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteActivities deletes multiple activities by ID in a single query.
+// Returns the number of rows deleted.
+func (db *DB) DeleteActivities(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	// Convert []string → []any for pgx
+	args := make([]any, len(ids))
+	placeholders := make([]string, len(ids))
+	for i, id := range ids {
+		args[i] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	query := fmt.Sprintf(`DELETE FROM activities WHERE id IN (%s)`,
+		strings.Join(placeholders, ", "))
+	result, err := db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete activities: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.StreamResponse, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT time, lat, lng, altitude_m, speed_ms, distance_m,
