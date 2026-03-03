@@ -243,6 +243,24 @@ func main() {
 			r.Put("/automation-rules/{id}", h.UpdateRule)
 			r.Delete("/automation-rules/{id}", h.DeleteRule)
 			r.Post("/automation-rules/apply", h.ApplyRules)
+
+			// Custom Maps
+			r.Get("/custom-maps", h.ListCustomMaps)
+			r.Post("/custom-maps", h.CreateCustomMap)
+			r.Put("/custom-maps/{mapID}", h.UpdateCustomMap)
+			r.Delete("/custom-maps/{mapID}", h.DeleteCustomMap)
+			r.Get("/custom-maps/{mapID}/markers", h.ListCustomMapMarkers)
+			r.Post("/custom-maps/{mapID}/markers", h.CreateCustomMapMarker)
+			r.Put("/custom-maps/{mapID}/markers/{markerID}", h.UpdateCustomMapMarker)
+			r.Delete("/custom-maps/{mapID}/markers/{markerID}", h.DeleteCustomMapMarker)
+
+			// Activity Photos
+			r.Post("/activities/{id}/photos", h.UploadActivityPhoto)
+			r.Get("/activities/{id}/photos", h.ListActivityPhotos)
+			r.Delete("/activities/{id}/photos/{photoID}", h.DeleteActivityPhoto)
+			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
+			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
+			r.Get("/map/photos", h.ListMapPhotos)
 		})
 	})
 

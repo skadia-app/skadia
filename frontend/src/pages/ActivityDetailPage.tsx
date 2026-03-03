@@ -21,6 +21,7 @@ import EnrichmentTags from '@/components/EnrichmentTags'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
+import ActivityPhotoSection from '@/components/ActivityPhotoSection'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -175,6 +176,9 @@ export default function ActivityDetailPage() {
           onClose={() => setMapFullscreen(false)}
         />
       )}
+
+      {/* Fotos */}
+      <ActivityPhotoSection activityId={activity.id} />
 
       {/* Charts */}
       {streams && streams.length > 0 && (

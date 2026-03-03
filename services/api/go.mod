@@ -14,6 +14,7 @@ require (
 	github.com/muktihari/fit v0.26.0
 	github.com/nats-io/nats.go v1.39.1
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
+	golang.org/x/image v0.23.0
 )
 
 require (
@@ -39,6 +40,7 @@ require (
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/nats-io/nkeys v0.4.9 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect

@@ -56,6 +56,22 @@ export const SPORT_OPTIONS: SportOption[] = [
   { value: 'generic', label: 'Sonstige' },
 ]
 
+/** Default-Farben pro Sportart fuer den Tracks-Overlay */
+export const DEFAULT_SPORT_COLORS: Record<string, string> = {
+  cycling:                  '#F97316', // orange
+  e_biking:                 '#F97316', // orange
+  running:                  '#EF4444', // rot
+  hiking:                   '#22C55E', // gruen
+  walking:                  '#22C55E', // gruen (wie Wandern)
+  swimming:                 '#3B82F6', // blau
+  paddling:                 '#3B82F6', // blau
+  stand_up_paddleboarding:  '#3B82F6', // blau
+  skiing:                   '#06B6D4', // cyan
+  rock_climbing:            '#A855F7', // lila
+  strength:                 '#6B7280', // grau
+  generic:                  '#6B7280', // grau
+}
+
 /**
  * Returns the composite filter key for a leaf option.
  * Options without a subType use the plain sport value (e.g. "cycling").

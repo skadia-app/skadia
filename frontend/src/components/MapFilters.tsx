@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import type { MapFilterState } from '@/pages/MapPage'
+import type { MapFilterState, SportColorConfig } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
-import { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
+import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -212,14 +212,85 @@ export default function MapFilters({ filters, onChange }: Props) {
               />
             </div>
 
+            {/* Track-Farben */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Farben</span>
+              </div>
+              {/* Toggle: Einheitlich / Nach Sportart */}
+              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs mb-2">
+                <button
+                  onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'uniform' } })}
+                  className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
+                >
+                  Einheitlich
+                </button>
+                <button
+                  onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'per-type' } })}
+                  className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
+                >
+                  Nach Sportart
+                </button>
+              </div>
+
+              {filters.colorConfig.mode === 'uniform' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
+                  <input
+                    type="color"
+                    value={filters.colorConfig.uniformColor}
+                    onChange={(e) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: e.target.value } })}
+                    className="w-8 h-6 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {filters.colorConfig.mode === 'per-type' && (
+                <div className="space-y-1">
+                  {[
+                    { label: 'Radfahren / E-Bike', key: 'cycling' },
+                    { label: 'Laufen / Trail', key: 'running' },
+                    { label: 'Wandern / Gehen', key: 'hiking' },
+                    { label: 'Wassersport', key: 'swimming' },
+                    { label: 'Ski', key: 'skiing' },
+                    { label: 'Klettern', key: 'rock_climbing' },
+                    { label: 'Sonstige', key: 'generic' },
+                  ].map(({ label, key }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
+                      <input
+                        type="color"
+                        value={filters.colorConfig.colors[key] ?? DEFAULT_SPORT_COLORS[key] ?? '#6B7280'}
+                        onChange={(e) => onChange({
+                          ...filters,
+                          colorConfig: {
+                            ...filters.colorConfig,
+                            colors: { ...filters.colorConfig.colors, [key]: e.target.value },
+                          },
+                        })}
+                        className="w-8 h-6 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer"
+                      />
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: { ...DEFAULT_SPORT_COLORS } } })}
+                    className="w-full text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer mt-1"
+                  >
+                    Farben zurücksetzen
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Reset */}
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70) && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316') && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
                   dateFrom: '',
                   dateTo: '',
                   opacity: 70,
+                  colorConfig: { mode: 'uniform', uniformColor: '#F97316', colors: { ...DEFAULT_SPORT_COLORS } },
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >

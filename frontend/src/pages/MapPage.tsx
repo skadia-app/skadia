@@ -1,10 +1,13 @@
 import { useRef, useEffect, useState, useCallback, type ChangeEvent, type KeyboardEvent } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
-import { getAllSportKeys } from '@/lib/sportOptions'
+import CustomMapsPanel from '@/components/CustomMapsPanel'
+import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { getHeatmapSettings } from '@/api/settings'
+import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
+import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -80,11 +83,18 @@ function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification {
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
+export interface SportColorConfig {
+  mode: 'uniform' | 'per-type'
+  uniformColor: string
+  colors: Record<string, string>
+}
+
 export interface MapFilterState {
   sportTypes: Set<string>
   dateFrom: string
   dateTo: string
   opacity: number
+  colorConfig: SportColorConfig
 }
 
 const defaultFilters: MapFilterState = {
@@ -92,6 +102,19 @@ const defaultFilters: MapFilterState = {
   dateFrom: '',
   dateTo: '',
   opacity: 70,
+  colorConfig: {
+    mode: 'uniform',
+    uniformColor: '#F97316',
+    colors: { ...DEFAULT_SPORT_COLORS },
+  },
+}
+
+function loadColorConfig(): SportColorConfig {
+  try {
+    const saved = localStorage.getItem('skadia-sport-colors')
+    if (saved) return { ...defaultFilters.colorConfig, ...JSON.parse(saved) }
+  } catch { /* ignorieren */ }
+  return defaultFilters.colorConfig
 }
 
 function buildTileUrl(
@@ -316,17 +339,75 @@ export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [baseStyle, setBaseStyle] = useState<BaseStyle>('osm')
-  const [filters, setFilters] = useState<MapFilterState>(defaultFilters)
+  const [filters, setFilters] = useState<MapFilterState>({
+    ...defaultFilters,
+    colorConfig: loadColorConfig(),
+  })
   const [viewMode, setViewMode] = useState<ViewMode>('tracks')
   // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
   // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
   const autoSwitchedToDark = useRef(false)
   const styleBeforeAutoSwitch = useRef<BaseStyle>('osm')
 
+  // Custom Maps
+  const [showCustomMaps, setShowCustomMaps] = useState(false)
+  const [addMarkerModeMapID, setAddMarkerModeMapID] = useState<string | null>(null)
+
+  // Photos
+  const [showPhotos, setShowPhotos] = useState(false)
+  const [selectedPhoto, setSelectedPhoto] = useState<MapPhotoEntry | null>(null)
+  const photoMarkersRef = useRef<maplibregl.Marker[]>([])
+
+  // Style version counter for re-adding layers after style changes
+  const [styleVersion, setStyleVersion] = useState(0)
+
+  const queryClient = useQueryClient()
+
   // Heatmap-Settings laden (Teleportfilter)
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
     queryFn: getHeatmapSettings,
+  })
+
+  // Custom Maps Daten laden
+  const { data: customMaps = [] } = useQuery({
+    queryKey: ['custom-maps'],
+    queryFn: listCustomMaps,
+  })
+
+  // Alle Marker fuer sichtbare Karten laden
+  const { data: allMarkers = [] } = useQuery({
+    queryKey: ['all-custom-map-markers', customMaps.filter(m => m.is_visible).map(m => m.id).join(',')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        customMaps.filter(m => m.is_visible).map(m =>
+          listCustomMapMarkers(m.id).then(markers => markers.map(mk => ({
+            ...mk,
+            mapColor: m.color,
+          })))
+        )
+      )
+      return results.flat()
+    },
+    enabled: customMaps.length > 0,
+  })
+
+  // Map Photos
+  const { data: mapPhotos = [] } = useQuery({
+    queryKey: ['map-photos'],
+    queryFn: listMapPhotos,
+    enabled: showPhotos,
+  })
+
+  // Create marker mutation
+  const createMarkerMutation = useMutation({
+    mutationFn: ({ mapID, lat, lng, name }: { mapID: string; lat: number; lng: number; name: string }) =>
+      createCustomMapMarker(mapID, { name, lat, lng }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
+      queryClient.invalidateQueries({ queryKey: ['custom-maps'] })
+      queryClient.invalidateQueries({ queryKey: ['custom-map-markers'] })
+    },
   })
 
   const teleportThresholdM = heatmapSettings?.teleport_filter_map
@@ -364,6 +445,7 @@ export default function MapPage() {
       map.resize()
       removeOverlayLayers(map)
       addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current)
+      setStyleVersion(v => v + 1)
     })
 
     const ro = new ResizeObserver(() => map.resize())
@@ -406,8 +488,143 @@ export default function MapPage() {
     addOverlayLayers(map, filters, viewMode, teleportThresholdM)
   }, [filters, viewMode, heatmapSettings])
 
+  // ── Custom Map Marker-Layer ──────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    // Entferne alte Marker-Layer
+    if (map.getLayer('custom-markers-labels')) map.removeLayer('custom-markers-labels')
+    if (map.getLayer('custom-markers-circles')) map.removeLayer('custom-markers-circles')
+    if (map.getSource('custom-markers')) map.removeSource('custom-markers')
+
+    if (!showCustomMaps || allMarkers.length === 0) return
+
+    const geojson: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: allMarkers.map(mk => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [mk.lng, mk.lat] },
+        properties: {
+          id: mk.id,
+          name: mk.name,
+          color: mk.color ?? mk.mapColor ?? '#F97316',
+          map_id: mk.map_id,
+        },
+      })),
+    }
+
+    map.addSource('custom-markers', { type: 'geojson', data: geojson })
+
+    map.addLayer({
+      id: 'custom-markers-circles',
+      type: 'circle',
+      source: 'custom-markers',
+      paint: {
+        'circle-radius': 8,
+        'circle-color': ['get', 'color'],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+      },
+    })
+
+    map.addLayer({
+      id: 'custom-markers-labels',
+      type: 'symbol',
+      source: 'custom-markers',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 11,
+        'text-offset': [0, 1.5],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': '#1a1a1a',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 2,
+      },
+    })
+  }, [showCustomMaps, allMarkers, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Click-Handler fuer Marker-Hinzufuegen ──────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!addMarkerModeMapID) {
+      map.getCanvas().style.cursor = ''
+      return
+    }
+    map.getCanvas().style.cursor = 'crosshair'
+
+    function handleClick(e: maplibregl.MapMouseEvent) {
+      if (!addMarkerModeMapID) return
+      const { lng, lat } = e.lngLat
+      const name = window.prompt('Marker-Name:')
+      if (!name) {
+        setAddMarkerModeMapID(null)
+        map!.getCanvas().style.cursor = ''
+        return
+      }
+      createMarkerMutation.mutate({ mapID: addMarkerModeMapID, lat, lng, name })
+      setAddMarkerModeMapID(null)
+      map!.getCanvas().style.cursor = ''
+    }
+
+    map.on('click', handleClick)
+    return () => {
+      map.off('click', handleClick)
+      map.getCanvas().style.cursor = ''
+    }
+  }, [addMarkerModeMapID]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Photo Markers ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // Alte Foto-Marker entfernen
+    photoMarkersRef.current.forEach(m => m.remove())
+    photoMarkersRef.current = []
+
+    if (!showPhotos || mapPhotos.length === 0) return
+
+    mapPhotos.forEach(photo => {
+      const el = document.createElement('div')
+      el.style.cssText = `
+        width: 48px; height: 48px;
+        border-radius: 4px;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        overflow: hidden;
+        cursor: pointer;
+        background: #333;
+      `
+      const img = document.createElement('img')
+      img.src = photo.thumb_url
+      img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;'
+      el.appendChild(img)
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setSelectedPhoto(photo)
+      })
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([photo.lng, photo.lat])
+        .addTo(map)
+
+      photoMarkersRef.current.push(marker)
+    })
+
+    return () => {
+      photoMarkersRef.current.forEach(m => m.remove())
+      photoMarkersRef.current = []
+    }
+  }, [showPhotos, mapPhotos, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleFilterChange = useCallback((next: MapFilterState) => {
     setFilters(next)
+    localStorage.setItem('skadia-sport-colors', JSON.stringify(next.colorConfig))
   }, [])
 
   return (
@@ -474,16 +691,122 @@ export default function MapPage() {
           </button>
         </div>
 
+        {/* Toggle buttons for custom maps + photos */}
+        <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5">
+          <button
+            onClick={() => setShowPhotos(!showPhotos)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
+              showPhotos
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            Bilder
+          </button>
+          <button
+            onClick={() => setShowCustomMaps(!showCustomMaps)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
+              showCustomMaps
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            Eigene Karten
+          </button>
+        </div>
+
+        {/* Custom Maps Panel */}
+        {showCustomMaps && (
+          <CustomMapsPanel
+            onAddMarkerMode={setAddMarkerModeMapID}
+            addMarkerModeMapID={addMarkerModeMapID}
+          />
+        )}
+
         {/* Filters panel */}
         <MapFilters filters={filters} onChange={handleFilterChange} />
+
+        {/* Photo Lightbox */}
+        {selectedPhoto && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+            onClick={() => setSelectedPhoto(null)}
+          >
+            <div
+              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              <img
+                src={selectedPhoto.thumb_url.replace('/thumb', '/full')}
+                alt={selectedPhoto.activity_title ?? 'Foto'}
+                className="w-full object-contain max-h-96"
+              />
+              <div className="p-4">
+                {selectedPhoto.activity_id && selectedPhoto.activity_title && (
+                  <a
+                    href={`/activities/${selectedPhoto.activity_id}`}
+                    className="text-sm font-medium text-orange-500 hover:underline"
+                  >
+                    {selectedPhoto.activity_title}
+                  </a>
+                )}
+                {selectedPhoto.taken_at && (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    {new Date(selectedPhoto.taken_at).toLocaleString('de-DE')}
+                  </p>
+                )}
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="mt-3 w-full text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
+                >
+                  Schliessen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+const HEATMAP_LAYER_IDS = [
+  'heatmap-glow-outer',
+  'heatmap-glow-mid',
+  'heatmap-base',
+  'heatmap-bright',
+  'heatmap-hot',
+  'heatmap-tracks-glow',
+  'heatmap-lines',
+] as const
+
 function removeOverlayLayers(map: maplibregl.Map) {
-  if (map.getLayer('heatmap-lines')) map.removeLayer('heatmap-lines')
+  for (const id of HEATMAP_LAYER_IDS) {
+    if (map.getLayer(id)) map.removeLayer(id)
+  }
   if (map.getSource('heatmap')) map.removeSource('heatmap')
+}
+
+function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {
+  if (filters.colorConfig.mode === 'uniform') {
+    return filters.colorConfig.uniformColor
+  }
+  return [
+    'match', ['get', 'sport_type'],
+    'cycling',                 filters.colorConfig.colors['cycling']                 ?? '#F97316',
+    'e_biking',                filters.colorConfig.colors['e_biking']                ?? '#F97316',
+    'running',                 filters.colorConfig.colors['running']                 ?? '#EF4444',
+    'hiking',                  filters.colorConfig.colors['hiking']                  ?? '#22C55E',
+    'walking',                 filters.colorConfig.colors['walking']                 ?? '#22C55E',
+    'swimming',                filters.colorConfig.colors['swimming']                ?? '#3B82F6',
+    'paddling',                filters.colorConfig.colors['paddling']                ?? '#3B82F6',
+    'stand_up_paddleboarding', filters.colorConfig.colors['stand_up_paddleboarding'] ?? '#3B82F6',
+    'skiing',                  filters.colorConfig.colors['skiing']                  ?? '#06B6D4',
+    'rock_climbing',           filters.colorConfig.colors['rock_climbing']           ?? '#A855F7',
+    'strength',                filters.colorConfig.colors['strength']                ?? '#6B7280',
+    'generic',                 filters.colorConfig.colors['generic']                 ?? '#6B7280',
+    filters.colorConfig.uniformColor, // Fallback
+  ] as maplibregl.ExpressionSpecification
 }
 
 function addOverlayLayers(
@@ -501,30 +824,97 @@ function addOverlayLayers(
   })
 
   if (viewMode === 'tracks') {
-    // Tracks: nutzerdefinierte Opacity, orange
+    const lineColor = buildLineColor(filters)
+    const opacity = Math.pow(filters.opacity / 100, 2)
+    const glowOpacity = opacity * 0.35
+
+    // Subtiler Glow-Layer unter den eigentlichen Tracks
+    map.addLayer({
+      id: 'heatmap-tracks-glow',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#F97316',
+        'line-width': 5,
+        'line-opacity': glowOpacity,
+        'line-blur': 2,
+      },
+    })
+
+    // Eigentliche Track-Linien mit nutzerdefinierter Farbe
     map.addLayer({
       id: 'heatmap-lines',
       type: 'line',
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
-        'line-color': '#F97316',
+        'line-color': lineColor,
         'line-width': 2,
-        'line-opacity': Math.pow(filters.opacity / 100, 2),
+        'line-opacity': opacity,
       },
     })
   } else {
-    // Heatmap: niedrige feste Opacity — Alpha-Compositing erzeugt natuerliche
-    // Helligkeitsunterschiede: viele ueberlagerte Tracks leuchten heller auf.
+    // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
+    // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
     map.addLayer({
-      id: 'heatmap-lines',
+      id: 'heatmap-glow-outer',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#3D0000',
+        'line-width': 16,
+        'line-opacity': 0.10,
+        'line-blur': 8,
+      },
+    })
+    map.addLayer({
+      id: 'heatmap-glow-mid',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#8B0000',
+        'line-width': 9,
+        'line-opacity': 0.15,
+        'line-blur': 4,
+      },
+    })
+    map.addLayer({
+      id: 'heatmap-base',
       type: 'line',
       source: 'heatmap',
       'source-layer': 'heatmap_lines',
       paint: {
         'line-color': '#F97316',
+        'line-width': 4,
+        'line-opacity': 0.28,
+        'line-blur': 0,
+      },
+    })
+    map.addLayer({
+      id: 'heatmap-bright',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#FFAA00',
         'line-width': 2,
-        'line-opacity': 0.25,
+        'line-opacity': 0.20,
+        'line-blur': 0,
+      },
+    })
+    map.addLayer({
+      id: 'heatmap-hot',
+      type: 'line',
+      source: 'heatmap',
+      'source-layer': 'heatmap_lines',
+      paint: {
+        'line-color': '#FFFFA0',
+        'line-width': 1,
+        'line-opacity': 0.12,
+        'line-blur': 0,
       },
     })
   }
