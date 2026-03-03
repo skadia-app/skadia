@@ -192,6 +192,9 @@ type Activity struct {
 	OriginalFilename   *string    `json:"original_filename,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
+	LocationLat *float64 `json:"location_lat,omitempty"`
+	LocationLng *float64 `json:"location_lng,omitempty"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.
@@ -205,6 +208,9 @@ type ActivityUpdate struct {
 	HideMap        *bool                  `json:"hide_map,omitempty"`
 	DataVisibility map[string]interface{} `json:"data_visibility,omitempty"`
 	GearID         json.RawMessage        `json:"gear_id,omitempty"`
+	// Manually assigned location (independent of GPS start_lat/start_lng).
+	LocationLat *float64 `json:"location_lat,omitempty"`
+	LocationLng *float64 `json:"location_lng,omitempty"`
 }
 
 // ActivityList is the paginated list response.

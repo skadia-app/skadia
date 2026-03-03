@@ -134,3 +134,25 @@ export interface TagActivity {
 export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> {
   return apiClient<TagActivity[]>(`/tags/${tagId}/activities`)
 }
+
+/**
+ * Sync location_lat/location_lng on all activities linked to tagId.
+ * The tag must have lat/lng set. Fire-and-forget safe.
+ */
+export async function syncTagLocation(tagId: string): Promise<{ updated_count: number }> {
+  return apiClient<{ updated_count: number }>(`/tags/${tagId}/sync-location`, { method: 'POST' })
+}
+
+/**
+ * Merge sourceId into targetId.
+ * All activities of sourceId are re-assigned to targetId.
+ * sourceId is deleted afterwards.
+ * Returns the surviving (target) tag.
+ */
+export async function mergeTags(targetId: string, sourceId: string): Promise<Tag> {
+  const tag = await apiClient<Tag>(`/tags/${targetId}/merge`, {
+    method: 'POST',
+    body: { source_tag_id: sourceId },
+  })
+  return normaliseTag(tag)
+}

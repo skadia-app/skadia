@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ListTags returns all tags for the authenticated user.
@@ -200,6 +201,102 @@ func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, activities)
+}
+
+// MergeTag merges a source tag into a target tag.
+// POST /api/v1/tags/{id}/merge   body: { "source_tag_id": "uuid" }
+// The tag identified by {id} survives; source_tag_id is deleted.
+func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	targetTagID := chi.URLParam(r, "id")
+
+	var req struct {
+		SourceTagID string `json:"source_tag_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if req.SourceTagID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "source_tag_id is required", r.URL.Path)
+		return
+	}
+	if req.SourceTagID == targetTagID {
+		writeError(w, http.StatusBadRequest, "Bad Request", "source and target tag must differ", r.URL.Path)
+		return
+	}
+
+	tag, err := h.DB.MergeTag(r.Context(), targetTagID, req.SourceTagID, userID)
+	if err != nil {
+		errMsg := err.Error()
+		if errMsg == "target tag not found" || errMsg == "source tag not found" {
+			writeError(w, http.StatusNotFound, "Not Found", errMsg, r.URL.Path)
+			return
+		}
+		slog.Error("merge tag failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge tags", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tag)
+}
+
+// SyncTagLocation sets location_lat/location_lng on all activities linked to this tag,
+// using the tag's own lat/lng coordinates. Only acts when the tag has a location set.
+// POST /api/v1/tags/{id}/sync-location
+func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	tagID := chi.URLParam(r, "id")
+
+	// Load the tag to get its coordinates.
+	tag, err := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if err != nil {
+		slog.Error("sync tag location: get tag failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		return
+	}
+	if tag == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		return
+	}
+	if tag.Lat == nil || tag.Lng == nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "tag has no location coordinates", r.URL.Path)
+		return
+	}
+
+	// Fetch all activity IDs linked to this tag.
+	activityIDs, err := h.DB.GetTagActivityIDs(r.Context(), tagID)
+	if err != nil {
+		slog.Error("sync tag location: get activity ids failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
+		return
+	}
+
+	// Update location_lat/location_lng for each linked activity.
+	lat := *tag.Lat
+	lng := *tag.Lng
+	updated := 0
+	for _, actID := range activityIDs {
+		_, err := h.DB.UpdateActivity(r.Context(), actID, &model.ActivityUpdate{
+			LocationLat: &lat,
+			LocationLng: &lng,
+		})
+		if err != nil {
+			slog.Warn("sync tag location: update activity failed", "activity_id", actID, "error", err)
+			continue
+		}
+		updated++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int{"updated_count": updated})
 }
 
 // SeedDefaultTags creates the default autotag definitions if they don't exist.

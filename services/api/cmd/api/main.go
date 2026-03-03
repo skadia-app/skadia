@@ -196,6 +196,8 @@ func main() {
 			r.Delete("/tags/{id}", h.DeleteTag)
 			r.Post("/tags/seed-defaults", h.SeedDefaultTags)
 			r.Get("/tags/{id}/activities", h.GetTagActivities)
+			r.Post("/tags/{id}/merge", h.MergeTag)
+			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
 
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)

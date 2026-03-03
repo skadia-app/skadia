@@ -289,7 +289,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.weather_temp_c, a.weather_condition, a.weather_humidity, a.weather_wind_speed_ms, a.weather_tags,
 			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at, a.gear_id,
 			a.created_at, a.updated_at,
-			COALESCE(t.point_count, 0) > 0
+			COALESCE(t.point_count, 0) > 0,
+			a.location_lat, a.location_lng
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.id = $1`, id,
@@ -311,6 +312,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.SunriseAt, &a.SunsetAt, &a.GearID,
 		&a.CreatedAt, &a.UpdatedAt,
 		&hasTrack,
+		&a.LocationLat, &a.LocationLng,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -688,6 +690,16 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 				argIdx++
 			}
 		}
+	}
+	if update.LocationLat != nil {
+		sets = append(sets, fmt.Sprintf("location_lat = $%d", argIdx))
+		args = append(args, *update.LocationLat)
+		argIdx++
+	}
+	if update.LocationLng != nil {
+		sets = append(sets, fmt.Sprintf("location_lng = $%d", argIdx))
+		args = append(args, *update.LocationLng)
+		argIdx++
 	}
 
 	if len(sets) == 0 {
@@ -1928,6 +1940,51 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 	return tags, nil
 }
 
+// GetTagByID returns a single tag by ID, scoped to the given user.
+func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag, error) {
+	var t model.Tag
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id, user_id, name, color, text_color, category, is_system,
+			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+			lat, lng
+		FROM tags
+		WHERE id = $1 AND user_id = $2`, tagID, userID,
+	).Scan(
+		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.ConditionGroups, &t.ConditionsLogic,
+		&t.Description, &t.ActivityCount, &t.CreatedAt,
+		&t.Lat, &t.Lng,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get tag by id: %w", err)
+	}
+	return &t, nil
+}
+
+// GetTagActivityIDs returns the IDs of all activities associated with the given tag.
+func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT activity_id FROM activity_tags WHERE tag_id = $1`, tagID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get tag activity ids: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan activity id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // CreateTag creates a new tag for a user.
 func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
 	if conditionsLogic == "" {
@@ -2204,6 +2261,134 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	}
 
 	return nil
+}
+
+// MergeTag merges sourceTagID into targetTagID in a single transaction:
+//  1. All activity_tags rows pointing to sourceTagID → replaced by targetTagID (skip
+//     if the activity already has targetTagID to avoid duplicate-key violation).
+//  2. activities.tags TEXT[] cache: remove source tag name, add target tag name if
+//     not already present.
+//  3. The source tag is deleted.
+//
+// Returns the surviving (target) tag on success.
+func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID string) (*model.Tag, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// 1. Resolve names of both tags and verify ownership.
+	var targetName, sourceName string
+	if err := tx.QueryRow(ctx,
+		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`,
+		targetTagID, userID,
+	).Scan(&targetName); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("target tag not found")
+		}
+		return nil, fmt.Errorf("get target tag: %w", err)
+	}
+	if err := tx.QueryRow(ctx,
+		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`,
+		sourceTagID, userID,
+	).Scan(&sourceName); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("source tag not found")
+		}
+		return nil, fmt.Errorf("get source tag: %w", err)
+	}
+	if targetTagID == sourceTagID {
+		return nil, fmt.Errorf("target and source tag must differ")
+	}
+
+	// 2. Move activity_tags rows: for activities that have source but not target,
+	//    update the tag_id. For activities that already have both, just delete the
+	//    source row (to avoid a unique constraint violation).
+	_, err = tx.Exec(ctx, `
+		UPDATE activity_tags
+		SET tag_id = $1
+		WHERE tag_id = $2
+		  AND activity_id NOT IN (
+		      SELECT activity_id FROM activity_tags WHERE tag_id = $1
+		  )`,
+		targetTagID, sourceTagID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("migrate activity_tags: %w", err)
+	}
+	// Delete any remaining rows that still reference sourceTagID (those activities
+	// already had targetTagID so the UPDATE above skipped them).
+	_, err = tx.Exec(ctx,
+		`DELETE FROM activity_tags WHERE tag_id = $1`,
+		sourceTagID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delete orphan activity_tags: %w", err)
+	}
+
+	// 3. Sync the denormalised activities.tags TEXT[] cache.
+	//    Remove sourceName, add targetName (if not already present).
+	_, err = tx.Exec(ctx, `
+		UPDATE activities
+		SET tags = array_append(
+		              array_remove(tags, $1::text),
+		              $2::text
+		          ),
+		    updated_at = NOW()
+		WHERE user_id = $3
+		  AND $1 = ANY(tags)
+		  AND NOT ($2 = ANY(tags))`,
+		sourceName, targetName, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update activities.tags (add target): %w", err)
+	}
+	// For activities that already had both names: just remove sourceName.
+	_, err = tx.Exec(ctx, `
+		UPDATE activities
+		SET tags = array_remove(tags, $1::text),
+		    updated_at = NOW()
+		WHERE user_id = $2
+		  AND $1 = ANY(tags)`,
+		sourceName, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update activities.tags (remove source): %w", err)
+	}
+
+	// 4. Delete the source tag.
+	_, err = tx.Exec(ctx,
+		`DELETE FROM tags WHERE id = $1 AND user_id = $2`,
+		sourceTagID, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delete source tag: %w", err)
+	}
+
+	// 5. Return the surviving target tag (with refreshed activity_count).
+	tagCols := `id, user_id, name, color, text_color, category, is_system,
+		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+		lat, lng`
+	var t model.Tag
+	err = tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1`, tagCols),
+		targetTagID,
+	).Scan(
+		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.ConditionGroups, &t.ConditionsLogic,
+		&t.Description, &t.ActivityCount, &t.CreatedAt,
+		&t.Lat, &t.Lng,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get merged tag: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit merge: %w", err)
+	}
+	return &t, nil
 }
 
 // UpdateEnrichmentFields updates enrichment-related fields on an activity.

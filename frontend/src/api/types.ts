@@ -85,6 +85,9 @@ export interface Activity {
   original_filename?: string | null
   created_at: string
   updated_at: string
+  // Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
+  location_lat?: number | null
+  location_lng?: number | null
 }
 
 export interface ActivitiesResponse {

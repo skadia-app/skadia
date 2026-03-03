@@ -1,5 +1,4 @@
-import { useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listCustomMaps,
@@ -11,6 +10,7 @@ import {
   type CustomMap,
   type CustomMapMarker,
 } from '@/api/customMaps'
+import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
   onAddMarkerMode: (mapID: string | null) => void
@@ -24,7 +24,6 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
   const [showNewForm, setShowNewForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('#F97316')
-  const colorInputRef = useRef<HTMLInputElement>(null)
 
   const { data: maps = [] } = useQuery({
     queryKey: ['custom-maps'],
@@ -205,38 +204,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
                   }}
                 />
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={e => {
-                      if (colorInputRef.current) {
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const pickerW = 220
-                        const pickerH = 250
-                        let left = rect.left - pickerW - 4
-                        if (left < 8) left = rect.right + 4
-                        let top = rect.top
-                        if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
-                        if (top < 8) top = 8
-                        colorInputRef.current.style.top = `${top}px`
-                        colorInputRef.current.style.left = `${left}px`
-                      }
-                      colorInputRef.current?.click()
-                    }}
-                    className="w-8 h-6 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer"
-                    style={{ backgroundColor: newColor }}
-                    title={newColor}
-                  />
-                  {createPortal(
-                    <input
-                      ref={colorInputRef}
-                      type="color"
-                      value={newColor}
-                      onChange={(e) => setNewColor(e.target.value)}
-                      style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-                      tabIndex={-1}
-                    />,
-                    document.body,
-                  )}
+                  <ColorPicker value={newColor} onChange={setNewColor} />
                   <button
                     onClick={() => {
                       if (newName.trim()) {

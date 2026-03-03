@@ -1,11 +1,11 @@
 import { useRef, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { fetchTags, createTag, updateTag, deleteTag } from '@/api/tags'
+import { fetchTags, createTag, updateTag, deleteTag, mergeTags } from '@/api/tags'
 import type { Tag, TagCondition, TagConditionGroup } from '@/api/tags'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import ColorPicker from '@/components/ColorPicker'
 
 // ---------------------------------------------------------------------------
 // Colour palette
@@ -701,7 +701,6 @@ function TagForm({
   allTags: Tag[]
 }) {
   const queryClient = useQueryClient()
-  const colorPickerRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState(tag?.name ?? '')
   const [color, setColor] = useState(tag?.color ?? colorPalette[0].color)
   const [textColor, setTextColor] = useState(tag?.text_color ?? colorPalette[0].text)
@@ -783,34 +782,6 @@ function TagForm({
     setTextColor((0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff')
   }
 
-  function openColorPicker(triggerEl: HTMLElement) {
-    if (colorPickerRef.current) {
-      const rect = triggerEl.getBoundingClientRect()
-      const pickerW = 220
-      const pickerH = 250
-      let left = rect.left - pickerW - 4
-      if (left < 8) left = rect.right + 4
-      let top = rect.top
-      if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
-      if (top < 8) top = 8
-      colorPickerRef.current.style.top = `${top}px`
-      colorPickerRef.current.style.left = `${left}px`
-    }
-    colorPickerRef.current?.click()
-  }
-
-  const colorPickerPortal = createPortal(
-    <input
-      ref={colorPickerRef}
-      type="color"
-      value={color}
-      onChange={e => selectCustomColor(e.target.value)}
-      style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-      tabIndex={-1}
-    />,
-    document.body,
-  )
-
   // Group management
   function addGroup() { setGroups([...groups, defaultGroup()]) }
   function updateGroup(i: number, g: TagConditionGroup) { setGroups(groups.map((old, idx) => idx === i ? g : old)) }
@@ -827,7 +798,7 @@ function TagForm({
           className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400 w-40"
           required
         />
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {colorPalette.map((c) => (
             <button key={c.color} type="button" onClick={() => selectColor(c)}
               className="w-6 h-6 rounded-full border-2 transition-all cursor-pointer"
@@ -835,14 +806,7 @@ function TagForm({
               title={c.label}
             />
           ))}
-          <button
-            type="button"
-            onClick={e => openColorPicker(e.currentTarget)}
-            className="w-6 h-6 rounded-full border-2 cursor-pointer transition-all"
-            style={{ backgroundColor: color, borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', transform: !colorPalette.some(c => c.color === color) ? 'scale(1.2)' : 'scale(1)' }}
-            title="Eigene Farbe (Farbwähler)"
-          />
-          {colorPickerPortal}
+          <ColorPicker value={color} onChange={selectCustomColor} />
         </div>
         <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
           {name || 'Vorschau'}
@@ -897,15 +861,7 @@ function TagForm({
               title={c.label}
             />
           ))}
-          {/* Pipette / vollständiger Color Picker */}
-          <button
-            type="button"
-            onClick={e => openColorPicker(e.currentTarget)}
-            className="w-6 h-6 rounded-full border-2 cursor-pointer"
-            style={{ borderColor: !colorPalette.some(c => c.color === color) ? '#f97316' : 'transparent', backgroundColor: color }}
-            title="Eigene Farbe (Farbwähler)"
-          />
-          {colorPickerPortal}
+          <ColorPicker value={color} onChange={selectCustomColor} />
           <span className="ml-1 px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
             {name || 'Vorschau'}
           </span>
@@ -1094,6 +1050,12 @@ export default function TagsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
+  // --- Merge state ---
+  const [mergeSourceId, setMergeSourceId] = useState<string>('')
+  const [mergeTargetId, setMergeTargetId] = useState<string>('')
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [mergeSuccess, setMergeSuccess] = useState<string | null>(null)
+
   const { data: tags, isLoading } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
@@ -1102,6 +1064,23 @@ export default function TagsPage() {
   const deleteMut = useMutation({
     mutationFn: deleteTag,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }); setDeleteConfirmId(null) },
+  })
+
+  const mergeMut = useMutation({
+    mutationFn: ({ targetId, sourceId }: { targetId: string; sourceId: string }) =>
+      mergeTags(targetId, sourceId),
+    onSuccess: (survivingTag) => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      setMergeSuccess(`Tags fusioniert. "${survivingTag.name}" bleibt bestehen.`)
+      setMergeSourceId('')
+      setMergeTargetId('')
+      setMergeError(null)
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+      setMergeError(`Fehler: ${msg}`)
+      setMergeSuccess(null)
+    },
   })
 
   if (isLoading) {
@@ -1274,6 +1253,87 @@ export default function TagsPage() {
             onSave={() => setEditingId(null)}
             onCancel={() => setEditingId(null)}
           />
+        </div>
+      )}
+
+      {/* Tags fusionieren */}
+      {allTags.length >= 2 && (
+        <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Tags fusionieren</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Alle Aktivitäten des Quell-Tags werden dem Ziel-Tag zugewiesen. Der Quell-Tag wird anschließend
+            gelöscht.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                Quell-Tag (wird gelöscht)
+              </label>
+              <select
+                value={mergeSourceId}
+                onChange={e => { setMergeSourceId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              >
+                <option value="">— Quell-Tag wählen —</option>
+                {allTags.filter(t => !t.is_system && t.id !== mergeTargetId).map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                Ziel-Tag (bleibt bestehen)
+              </label>
+              <select
+                value={mergeTargetId}
+                onChange={e => { setMergeTargetId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              >
+                <option value="">— Ziel-Tag wählen —</option>
+                {allTags.filter(t => t.id !== mergeSourceId).map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {mergeSourceId && mergeTargetId && (() => {
+            const src = allTags.find(t => t.id === mergeSourceId)
+            const tgt = allTags.find(t => t.id === mergeTargetId)
+            if (!src || !tgt) return null
+            return (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                Alle Aktivitäten von{' '}
+                <span className="font-semibold" style={{ color: src.color }}>{src.name}</span>
+                {' '}werden{' '}
+                <span className="font-semibold" style={{ color: tgt.color }}>{tgt.name}</span>
+                {' '}zugewiesen.{' '}
+                <span className="font-semibold" style={{ color: src.color }}>{src.name}</span>
+                {' '}wird anschließend gelöscht.
+              </div>
+            )
+          })()}
+
+          {mergeError && (
+            <p className="text-sm text-rose-500">{mergeError}</p>
+          )}
+          {mergeSuccess && (
+            <p className="text-sm text-emerald-600 dark:text-emerald-400">{mergeSuccess}</p>
+          )}
+
+          <button
+            onClick={() => {
+              if (!mergeSourceId || !mergeTargetId) return
+              setMergeError(null)
+              setMergeSuccess(null)
+              mergeMut.mutate({ targetId: mergeTargetId, sourceId: mergeSourceId })
+            }}
+            disabled={!mergeSourceId || !mergeTargetId || mergeSourceId === mergeTargetId || mergeMut.isPending}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            {mergeMut.isPending ? 'Fusioniere…' : 'Fusionieren'}
+          </button>
         </div>
       )}
     </div>

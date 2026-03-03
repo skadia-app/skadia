@@ -5,13 +5,15 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
 import IndoorAssignPanel from '@/components/IndoorAssignPanel'
+import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
-import { fetchTags, updateTag, fetchTagActivities, type Tag, type TagActivity } from '@/api/tags'
+import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, type Tag, type TagActivity } from '@/api/tags'
+import { updateActivity, fetchActivity } from '@/api/activities'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -113,7 +115,7 @@ const defaultFilters: MapFilterState = {
     uniformColor: '#F97316',
     colors: { ...DEFAULT_SPORT_COLORS },
   },
-  showLocationTags: false,
+  showLocationTags: true,
   heatmapColor: '#F97316',
 }
 
@@ -134,6 +136,26 @@ function loadHeatmapColor(): string {
     }
   } catch { /* ignorieren */ }
   return defaultFilters.heatmapColor
+}
+
+// ── Geo-Hilfe: Haversine-Distanz in Metern ───────────────────────────────
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000
+  const dLat = (lat2 - lat1) * (Math.PI / 180)
+  const dLng = (lng2 - lng1) * (Math.PI / 180)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function findNearbyLocationTag(lat: number, lng: number, tags: Tag[], thresholdM: number): Tag | null {
+  let nearest: Tag | null = null
+  let nearestDist = Infinity
+  for (const tag of tags) {
+    if (tag.lat == null || tag.lng == null) continue
+    const d = haversineM(lat, lng, tag.lat, tag.lng)
+    if (d <= thresholdM && d < nearestDist) { nearest = tag; nearestDist = d }
+  }
+  return nearest
 }
 
 function buildTileUrl(
@@ -395,11 +417,26 @@ export default function MapPage() {
     dropLngLat?: { lng: number; lat: number }
   } | null>(null)
   const [showIndoorAssign, setShowIndoorAssign] = useState(false)
+  const locationTagsRef = useRef<Tag[]>([])
+  const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // Drag-to-merge: dialog state
+  const [tagMergeDialog, setTagMergeDialog] = useState<{
+    draggedTag: Tag
+    nearbyTag: Tag
+    marker: maplibregl.Marker
+    originalLngLat: { lng: number; lat: number }
+  } | null>(null)
 
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
 
   const queryClient = useQueryClient()
+
+  // Cleanup locationSyncTimers on unmount
+  useEffect(() => () => {
+    locationSyncTimersRef.current.forEach(t => clearTimeout(t))
+  }, [])
 
   // Heatmap-Settings laden (Teleportfilter)
   const { data: heatmapSettings } = useQuery({
@@ -462,6 +499,7 @@ export default function MapPage() {
     enabled: filters.showLocationTags || showIndoorAssign,
   })
   const locationTags = allTags.filter(t => t.lat != null && t.lng != null)
+  locationTagsRef.current = locationTags
 
   const updateTagLocationMutation = useMutation({
     mutationFn: ({ id, lat, lng }: { id: string; lat: number; lng: number }) =>
@@ -471,6 +509,15 @@ export default function MapPage() {
       queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
         prev ? prev.map(t => t.id === updatedTag.id ? updatedTag : t) : prev
       )
+    },
+  })
+
+  const mergeTagMutation = useMutation({
+    mutationFn: ({ targetId, sourceId }: { targetId: string; sourceId: string }) =>
+      mergeTags(targetId, sourceId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      setTagMergeDialog(null)
     },
   })
 
@@ -547,12 +594,15 @@ export default function MapPage() {
   }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Overlay bei Filter-/Modus-/Settings-Änderung aktualisieren ──────────
+  // showLocationTags absichtlich NICHT in deps — das Flag beeinflusst nur
+  // MapLibre-Marker, nicht die Tile-Layer → kein unnötiger Layer-Rebuild.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     removeOverlayLayers(map)
     addOverlayLayers(map, filters, viewMode, teleportThresholdM)
-  }, [filters, viewMode, heatmapSettings])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -753,12 +803,38 @@ export default function MapPage() {
         .setLngLat([tag.lng, tag.lat])
         .addTo(map)
 
+      // Remember the position at drag start so we can roll back on merge-cancel
+      let originalLngLat = { lng: tag.lng, lat: tag.lat }
+      marker.on('dragstart', () => {
+        const pos = marker.getLngLat()
+        originalLngLat = { lng: pos.lng, lat: pos.lat }
+      })
+
       marker.on('dragend', () => {
         const { lat, lng } = marker.getLngLat()
-        queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
-          prev ? prev.map(t => t.id === tag.id ? { ...t, lat, lng } : t) : prev
-        )
-        updateTagLocationMutation.mutate({ id: tag.id, lat, lng })
+
+        // Check for a nearby location tag within 60 m (excluding self)
+        const others = locationTagsRef.current.filter(t => t.id !== tag.id)
+        const nearby = findNearbyLocationTag(lat, lng, others, 60)
+
+        if (nearby) {
+          // Show merge-confirmation dialog; do NOT save new position yet
+          setTagMergeDialog({ draggedTag: tag, nearbyTag: nearby, marker, originalLngLat })
+        } else {
+          // Normal position update
+          queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
+            prev ? prev.map(t => t.id === tag.id ? { ...t, lat, lng } : t) : prev
+          )
+          updateTagLocationMutation.mutate({ id: tag.id, lat, lng })
+          // Debounced sync (3s): location_lat/location_lng auf verknüpfte Aktivitäten übertragen
+          const existing = locationSyncTimersRef.current.get(tag.id)
+          if (existing) clearTimeout(existing)
+          const timer = setTimeout(() => {
+            locationSyncTimersRef.current.delete(tag.id)
+            syncTagLocation(tag.id).catch(() => {})
+          }, 3000)
+          locationSyncTimersRef.current.set(tag.id, timer)
+        }
       })
 
       locationTagMarkersRef.current.push(marker)
@@ -779,7 +855,6 @@ export default function MapPage() {
     if (!newLocationPick?.dropLngLat || !dropNameInput.trim()) return
     const { lng, lat } = newLocationPick.dropLngLat
     const { createTag } = await import('@/api/tags')
-    const { updateActivity } = await import('@/api/activities')
     try {
       const newTag = await createTag({
         name: dropNameInput.trim(),
@@ -788,7 +863,6 @@ export default function MapPage() {
         lng,
       })
       if (newLocationPick.activityIDs.length > 0) {
-        const { fetchActivity } = await import('@/api/activities')
         await Promise.all(
           newLocationPick.activityIDs.map(async (actId) => {
             try {
@@ -804,6 +878,7 @@ export default function MapPage() {
       queryClient.invalidateQueries({ queryKey: ['tags'] })
       queryClient.invalidateQueries({ queryKey: ['activities'] })
       queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+      syncTagLocation(newTag.id).catch(() => {})
     } catch (err) {
       console.error('Failed to create location tag from drop:', err)
     }
@@ -827,7 +902,6 @@ export default function MapPage() {
       if (!newLocationPick) return
       const { lat, lng } = e.lngLat
       const { createTag } = await import('@/api/tags')
-      const { updateActivity } = await import('@/api/activities')
 
       try {
         // Create the new location tag with coordinates
@@ -840,8 +914,6 @@ export default function MapPage() {
 
         // Tag all selected activities
         if (newLocationPick.activityIDs.length > 0) {
-          // Fetch each activity to get current tags, then PATCH
-          const { fetchActivity } = await import('@/api/activities')
           await Promise.all(
             newLocationPick.activityIDs.map(async (actId) => {
               try {
@@ -857,6 +929,7 @@ export default function MapPage() {
 
         queryClient.invalidateQueries({ queryKey: ['tags'] })
         queryClient.invalidateQueries({ queryKey: ['activities'] })
+        syncTagLocation(newTag.id).catch(() => {})
       } catch (err) {
         console.error('Failed to create location tag:', err)
       }
@@ -871,6 +944,65 @@ export default function MapPage() {
       map.getCanvas().style.cursor = ''
     }
   }, [newLocationPick]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Canvas-Drag-Listener: Aktivitäten auf Karte ziehen (Indoor-Tagging) ──
+  // Direktes Binden an den MapLibre-Canvas, weil React-onDrop am Container-div
+  // durch den Canvas geblockt wird (MapLibre fängt Pointer-Events ab).
+  // locationTagsRef hält immer den aktuellen Stand (kein Stale-Closure-Problem).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const canvas = map.getCanvas()
+
+    function onCanvasDragOver(e: DragEvent) {
+      if (e.dataTransfer?.types.includes('application/skadia-activities')) {
+        e.preventDefault()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      }
+    }
+
+    async function onCanvasDrop(e: DragEvent) {
+      e.preventDefault()
+      const raw = e.dataTransfer?.getData('application/skadia-activities')
+      if (!raw) return
+      let activityIDs: string[]
+      try { activityIDs = JSON.parse(raw) } catch { return }
+      const rect = canvas.getBoundingClientRect()
+      const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
+      const lngLat = map.unproject(point)
+      if (!lngLat) return
+
+      // Magnetische Pins: nächster Location-Tag innerhalb 100 m → direkt zuweisen
+      const nearbyTag = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
+      if (nearbyTag) {
+        await Promise.all(activityIDs.map(async (actId) => {
+          try {
+            const act = await fetchActivity(actId)
+            const cur = act.tags ?? []
+            if (!cur.includes(nearbyTag.name)) {
+              await updateActivity(actId, { tags: [...cur, nearbyTag.name] })
+            }
+          } catch { /* ignorieren */ }
+        }))
+        queryClient.invalidateQueries({ queryKey: ['activities'] })
+        queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+        syncTagLocation(nearbyTag.id).catch(() => {})
+        setShowIndoorAssign(false)
+      } else {
+        // Kein naher Pin → neuen Standort anlegen
+        setShowIndoorAssign(false)
+        setNewLocationPick({ name: '', color: '#f97316', activityIDs, dropLngLat: { lng: lngLat.lng, lat: lngLat.lat } })
+      }
+    }
+
+    canvas.addEventListener('dragover', onCanvasDragOver)
+    canvas.addEventListener('drop', onCanvasDrop)
+    return () => {
+      canvas.removeEventListener('dragover', onCanvasDragOver)
+      canvas.removeEventListener('drop', onCanvasDrop)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Segment Layer ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1020,26 +1152,8 @@ export default function MapPage() {
         <div
           ref={mapContainerRef}
           className="w-full h-full"
-          onDragOver={(e) => {
-            if (e.dataTransfer.types.includes('application/skadia-activities')) {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'copy'
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault()
-            const raw = e.dataTransfer.getData('application/skadia-activities')
-            if (!raw) return
-            const activityIDs: string[] = JSON.parse(raw)
-            const rect = e.currentTarget.getBoundingClientRect()
-            const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
-            const lngLat = mapRef.current?.unproject(point)
-            if (!lngLat) return
-            // Prompt for a name via the new-location flow
-            setShowIndoorAssign(false)
-            setNewLocationPick({ name: '', color: '#f97316', activityIDs, dropLngLat: { lng: lngLat.lng, lat: lngLat.lat } })
-          }}
         />
+
 
         {/* Geocoding search */}
         <GeoSearch mapRef={mapRef} />
@@ -1194,16 +1308,19 @@ export default function MapPage() {
               autoFocus
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
             />
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {['#f97316','#3b82f6','#10b981','#8b5cf6','#f43f5e','#06b6d4','#eab308','#6b7280'].map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setDropColorInput(c)}
-                  className="w-5 h-5 rounded-full border-2 cursor-pointer"
-                  style={{ backgroundColor: c, borderColor: dropColorInput === c ? '#f97316' : 'transparent', transform: dropColorInput === c ? 'scale(1.15)' : 'scale(1)' }}
-                />
-              ))}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {['#f97316','#3b82f6','#10b981','#8b5cf6','#f43f5e','#06b6d4','#eab308','#6b7280'].map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setDropColorInput(c)}
+                    className="w-5 h-5 rounded-full border-2 cursor-pointer"
+                    style={{ backgroundColor: c, borderColor: dropColorInput === c ? '#f97316' : 'transparent', transform: dropColorInput === c ? 'scale(1.15)' : 'scale(1)' }}
+                  />
+                ))}
+              </div>
+              <ColorPicker value={dropColorInput} onChange={setDropColorInput} />
             </div>
             <button
               onClick={handleDropConfirm}
@@ -1217,6 +1334,75 @@ export default function MapPage() {
 
         {/* Filters panel */}
         <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
+
+        {/* Drag-to-merge Bestätigungs-Dialog */}
+        {tagMergeDialog && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-80 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Tags fusionieren?</span>
+              <button
+                onClick={() => {
+                  // Roll back marker to original position
+                  tagMergeDialog.marker.setLngLat([
+                    tagMergeDialog.originalLngLat.lng,
+                    tagMergeDialog.originalLngLat.lat,
+                  ])
+                  setTagMergeDialog(null)
+                }}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed">
+              Tag{' '}
+              <span className="font-semibold" style={{ color: tagMergeDialog.draggedTag.color }}>
+                {tagMergeDialog.draggedTag.name}
+              </span>{' '}
+              mit{' '}
+              <span className="font-semibold" style={{ color: tagMergeDialog.nearbyTag.color }}>
+                {tagMergeDialog.nearbyTag.name}
+              </span>{' '}
+              fusionieren? Alle Aktivitäten werden{' '}
+              <span className="font-semibold" style={{ color: tagMergeDialog.nearbyTag.color }}>
+                {tagMergeDialog.nearbyTag.name}
+              </span>{' '}
+              zugewiesen.{' '}
+              <span className="font-semibold" style={{ color: tagMergeDialog.draggedTag.color }}>
+                {tagMergeDialog.draggedTag.name}
+              </span>{' '}
+              wird gelöscht.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  mergeTagMutation.mutate({
+                    targetId: tagMergeDialog.nearbyTag.id,
+                    sourceId: tagMergeDialog.draggedTag.id,
+                  })
+                }}
+                disabled={mergeTagMutation.isPending}
+                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                {mergeTagMutation.isPending ? 'Fusioniere…' : 'Fusionieren'}
+              </button>
+              <button
+                onClick={() => {
+                  tagMergeDialog.marker.setLngLat([
+                    tagMergeDialog.originalLngLat.lng,
+                    tagMergeDialog.originalLngLat.lat,
+                  ])
+                  setTagMergeDialog(null)
+                }}
+                className="flex-1 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Location Tag Info Popup */}
         {selectedLocationTag && (

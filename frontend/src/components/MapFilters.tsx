@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
+import ColorPicker from '@/components/ColorPicker'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -15,51 +15,6 @@ function loadUserDefaultColors(): Record<string, string> | null {
     if (saved) return JSON.parse(saved)
   } catch { /* ignore */ }
   return null
-}
-
-function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-
-  const handleClick = () => {
-    if (btnRef.current && inputRef.current) {
-      const rect = btnRef.current.getBoundingClientRect()
-      const pickerW = 220
-      const pickerH = 250
-      let left = rect.left - pickerW - 4
-      if (left < 8) left = rect.right + 4
-      let top = rect.top
-      if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
-      if (top < 8) top = 8
-      inputRef.current.style.top = `${top}px`
-      inputRef.current.style.left = `${left}px`
-    }
-    inputRef.current?.click()
-  }
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={handleClick}
-        className="w-7 h-5 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer flex-shrink-0"
-        style={{ backgroundColor: value }}
-        title={value}
-      />
-      {createPortal(
-        <input
-          ref={inputRef}
-          type="color"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-          tabIndex={-1}
-        />,
-        document.body,
-      )}
-    </>
-  )
 }
 
 interface Props {
@@ -280,7 +235,16 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
               {viewMode === 'heatmap' ? (
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Heatmap-Farbe</label>
-                  <ColorSwatch
+                  {filters.heatmapColor !== '#F97316' && (
+                    <button
+                      onClick={() => onChange({ ...filters, heatmapColor: '#F97316' })}
+                      className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+                      title="Auf Standard zurücksetzen"
+                    >
+                      ↺
+                    </button>
+                  )}
+                  <ColorPicker
                     value={filters.heatmapColor}
                     onChange={(c) => onChange({ ...filters, heatmapColor: c })}
                   />
@@ -306,7 +270,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   {filters.colorConfig.mode === 'uniform' && (
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
-                      <ColorSwatch
+                      <ColorPicker
                         value={filters.colorConfig.uniformColor}
                         onChange={(c) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: c } })}
                       />
@@ -318,7 +282,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                       {CATEGORIES.map(({ key, label, color }) => (
                         <div key={key} className="flex items-center gap-2">
                           <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
-                          <ColorSwatch
+                          <ColorPicker
                             value={filters.colorConfig.colors[key] ?? color}
                             onChange={(c) => onChange({
                               ...filters,
@@ -355,19 +319,22 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
 
             {/* Standorte anzeigen */}
             <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={filters.showLocationTags ?? false}
+                  checked={filters.showLocationTags ?? true}
                   onChange={(e) => onChange({ ...filters, showLocationTags: e.target.checked })}
-                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1 mt-0.5 flex-shrink-0"
                 />
-                <span className="text-sm text-neutral-700 dark:text-neutral-300">Standort-Pins einblenden</span>
+                <div>
+                  <span className="text-sm text-neutral-700 dark:text-neutral-300">Indoor-Standort-Pins</span>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">Standorte für Aktivitäten ohne GPS-Daten (Indoor-Tagging)</p>
+                </div>
               </label>
             </div>
 
             {/* Reset */}
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || filters.showLocationTags || filters.heatmapColor !== '#F97316') && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316') && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -375,7 +342,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   dateTo: '',
                   opacity: 70,
                   colorConfig: { mode: 'uniform', uniformColor: '#F97316', colors: { ...DEFAULT_SPORT_COLORS } },
-                  showLocationTags: false,
+                  showLocationTags: true,
                   heatmapColor: '#F97316',
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"

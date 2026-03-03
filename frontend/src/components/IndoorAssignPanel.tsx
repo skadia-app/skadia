@@ -1,19 +1,20 @@
-import { useState, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchActivities } from '@/api/activities'
 import { updateActivity } from '@/api/activities'
-import { createTag } from '@/api/tags'
+import { createTag, syncTagLocation } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { sportLabel } from '@/lib/utils'
+import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
   locationTags: Tag[]
   onClose: () => void
   onPickLocation: (name: string, color: string, activityIDs: string[]) => void
   onAssigned: () => void
+  onDragStateChange?: (isDragging: boolean) => void
 }
 
 const colorPalette = [
@@ -21,7 +22,7 @@ const colorPalette = [
   '#f43f5e', '#06b6d4', '#eab308', '#6b7280',
 ]
 
-export default function IndoorAssignPanel({ locationTags, onClose, onPickLocation, onAssigned }: Props) {
+export default function IndoorAssignPanel({ locationTags, onClose, onPickLocation, onAssigned, onDragStateChange }: Props) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [sportFilter, setSportFilter] = useState('')
@@ -29,8 +30,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   const [selectedTagId, setSelectedTagId] = useState<string>('')
   const [showNewLocation, setShowNewLocation] = useState(false)
   const [newLocName, setNewLocName] = useState('')
-  const [newLocColor, setNewLocColor] = useState('#f97316')
-  const colorInputRef = useRef<HTMLInputElement>(null)
+  const [newLocColor, setNewLocColor] = useState('#F97316')
 
   // Fetch indoor activities (no GPS)
   const { data: activitiesData, isLoading } = useQuery({
@@ -93,6 +93,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
       queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
       onAssigned()
       setSelectedIds(new Set())
+      if (selectedTagId) syncTagLocation(selectedTagId).catch(() => {})
       setSelectedTagId('')
     },
   })
@@ -115,13 +116,25 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
 
   const hasSelection = selectedIds.size > 0
 
+  // actId: das direkt gezogene Item. Ist es selektiert → alle selektierten mitnehmen.
+  // Ist es nicht selektiert → nur dieses eine Item.
+  function handleItemDragStart(e: React.DragEvent, actId: string) {
+    const ids = selectedIds.has(actId) ? Array.from(selectedIds) : [actId]
+    e.dataTransfer.setData('application/skadia-activities', JSON.stringify(ids))
+    e.dataTransfer.effectAllowed = 'copy'
+    onDragStateChange?.(true)
+  }
+
+  // Drag-Handle-Button (zieht alle selektierten)
   function handleDragStart(e: React.DragEvent) {
-    if (!hasSelection) {
-      e.preventDefault()
-      return
-    }
+    if (!hasSelection) { e.preventDefault(); return }
     e.dataTransfer.setData('application/skadia-activities', JSON.stringify(Array.from(selectedIds)))
     e.dataTransfer.effectAllowed = 'copy'
+    onDragStateChange?.(true)
+  }
+
+  function handleDragEnd() {
+    onDragStateChange?.(false)
   }
 
   return (
@@ -152,6 +165,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
         <div
           draggable={hasSelection}
           onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
           className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors select-none ${
             hasSelection
               ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
@@ -227,7 +241,13 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                 ? `${Math.floor(act.elapsed_time_s / 3600)}h ${Math.floor((act.elapsed_time_s % 3600) / 60)}m`
                 : ''
               return (
-                <label key={act.id} className="flex items-start gap-2 px-3 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/30 cursor-pointer border-b border-neutral-50 dark:border-neutral-800/50 last:border-0">
+                <label
+                  key={act.id}
+                  draggable
+                  onDragStart={(e) => handleItemDragStart(e, act.id)}
+                  onDragEnd={handleDragEnd}
+                  className="flex items-start gap-2 px-3 py-2 select-none cursor-grab active:cursor-grabbing hover:bg-neutral-50 dark:hover:bg-neutral-800/30 border-b border-neutral-50 dark:border-neutral-800/50 last:border-0"
+                >
                   <input
                     type="checkbox"
                     checked={selectedIds.has(act.id)}
@@ -291,48 +311,19 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               placeholder="Name des Standorts"
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
             />
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {colorPalette.map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setNewLocColor(c)}
-                  className="w-5 h-5 rounded-full border-2 cursor-pointer"
-                  style={{ backgroundColor: c, borderColor: newLocColor === c ? '#f97316' : 'transparent', transform: newLocColor === c ? 'scale(1.15)' : 'scale(1)' }}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={e => {
-                  if (colorInputRef.current) {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    const pickerW = 220
-                    const pickerH = 250
-                    let left = rect.left - pickerW - 4
-                    if (left < 8) left = rect.right + 4
-                    let top = rect.top
-                    if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
-                    if (top < 8) top = 8
-                    colorInputRef.current.style.top = `${top}px`
-                    colorInputRef.current.style.left = `${left}px`
-                  }
-                  colorInputRef.current?.click()
-                }}
-                className="w-5 h-5 rounded-full cursor-pointer border-0 overflow-hidden"
-                style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}
-                title="Eigene Farbe"
-              />
-              {createPortal(
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  value={newLocColor}
-                  onChange={(e) => setNewLocColor(e.target.value)}
-                  style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-                  tabIndex={-1}
-                />,
-                document.body,
-              )}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {colorPalette.map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setNewLocColor(c)}
+                    className="w-5 h-5 rounded-full border-2 cursor-pointer"
+                    style={{ backgroundColor: c, borderColor: newLocColor === c ? '#f97316' : 'transparent', transform: newLocColor === c ? 'scale(1.15)' : 'scale(1)' }}
+                  />
+                ))}
+              </div>
+              <ColorPicker value={newLocColor} onChange={setNewLocColor} />
             </div>
             <div className="flex gap-2">
               <button

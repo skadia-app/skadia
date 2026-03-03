@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
+import ColorPicker from '@/components/ColorPicker'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
@@ -87,7 +88,7 @@ export default function SettingsPage() {
             )
           })}
 
-          {/* Custom color picker */}
+          {/* Custom color picker button (conic-gradient = open full spectrum) */}
           <button
             title="Benutzerdefinierte Farbe"
             onClick={e => {
@@ -132,6 +133,15 @@ export default function SettingsPage() {
             />,
             document.body,
           )}
+        </div>
+
+        {/* Hex input for the current accent color */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-neutral-500 dark:text-neutral-400">Hex:</span>
+          <ColorPicker
+            value={accent.shade500}
+            onChange={(hex) => setAccent(deriveAccentEntry(hex))}
+          />
         </div>
         {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
           <button
