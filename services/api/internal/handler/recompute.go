@@ -236,6 +236,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doSportType := allScope || scope["sport_type"]
 	doTags := allScope || scope["tags"]
 	doDetails := allScope || scope["details"]
+	doSegments := allScope || scope["segments"]
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -379,7 +380,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8c. Segment-Efforts + Detected Laps recompute (when streams changed or full recompute).
-	if data.HasGPS && (doStreams || allScope) {
+	if data.HasGPS && (doStreams || doSegments || allScope) {
 		// Collect affected segment IDs before deletion (for rank updates)
 		affectedSegIDs, _ := h.DB.GetAffectedSegmentIDs(ctx, activityID)
 
