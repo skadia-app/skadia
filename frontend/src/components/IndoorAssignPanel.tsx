@@ -169,6 +169,13 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
         </div>
       </div>
 
+      {/* Drag hint */}
+      {!hasSelection && (
+        <p className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500 text-center border-b border-neutral-100 dark:border-neutral-800">
+          Aktivitäten wählen und auf die Karte ziehen
+        </p>
+      )}
+
       {/* Search + Sport filter */}
       <div className="px-3 py-2 space-y-2 border-b border-neutral-100 dark:border-neutral-800">
         <input
