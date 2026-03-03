@@ -285,7 +285,7 @@ func mapTCXSport(sport string) (sportType, subType string) {
 	case "ebikeride", "e_bike_ride", "ebike":
 		return "e_biking", ""
 	case "gravelride", "gravel_ride":
-		return "cycling", "gravel"
+		return "cycling", "gravel_cycling"
 
 	// Walking / Hiking
 	case "hiking", "hike":
@@ -297,7 +297,23 @@ func mapTCXSport(sport string) (sportType, subType string) {
 	case "swimming", "swim":
 		return "swimming", ""
 
-	// Other (TCX standard: "Other")
+	// Winter
+	case "skiing", "alpine_skiing":
+		return "alpine_skiing", ""
+	case "cross_country_skiing":
+		return "cross_country_skiing", ""
+	case "snowboarding":
+		return "snowboarding", ""
+
+	// Other
+	case "strength_training", "strength":
+		return "strength_training", ""
+	case "rowing":
+		return "rowing", ""
+	case "kayaking":
+		return "kayaking", ""
+	case "multisport":
+		return "multisport", ""
 	case "other":
 		return "unknown", ""
 

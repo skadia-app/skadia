@@ -257,7 +257,7 @@ func mapGPXType(gpxType string) (sport, subType string) {
 	case "6":
 		return "e_biking", ""
 	case "9":
-		return "skiing", ""
+		return "alpine_skiing", ""
 	case "10":
 		return "cross_country_skiing", ""
 	case "11":
@@ -271,12 +271,12 @@ func mapGPXType(gpxType string) (sport, subType string) {
 	case "15":
 		return "strength_training", ""
 	case "17":
-		return "yoga", ""
+		return "training", "yoga"
 
 	// Running
-	case "running", "run", "trail_running", "trailrunning", "trailrun":
+	case "running", "run":
 		return "running", ""
-	case "trail running":
+	case "trail_running", "trailrunning", "trailrun", "trail running":
 		return "running", "trail"
 
 	// Cycling
@@ -287,29 +287,83 @@ func mapGPXType(gpxType string) (sport, subType string) {
 	case "ebikeride", "e_bike_ride", "ebike", "e-bike":
 		return "e_biking", ""
 	case "gravelride", "gravel_ride", "gravel":
-		return "cycling", "gravel"
+		return "cycling", "gravel_cycling"
 
 	// Walking / Hiking
 	case "hiking", "hike":
 		return "hiking", ""
 	case "walking", "walk":
 		return "walking", ""
+	case "mountaineering":
+		return "mountaineering", ""
 
 	// Swimming
-	case "swimming", "swim", "open_water_swimming":
+	case "swimming", "swim":
 		return "swimming", ""
+	case "open_water_swimming":
+		return "swimming", "open_water"
+	case "lap_swimming":
+		return "swimming", "lap_swimming"
 
-	// Other
+	// Winter
 	case "skiing", "ski", "alpine_skiing":
 		return "alpine_skiing", ""
 	case "cross_country_skiing", "nordicski":
 		return "cross_country_skiing", ""
+	case "snowboarding", "snowboard":
+		return "snowboarding", ""
+	case "snowshoeing":
+		return "snowshoeing", ""
+	case "ice_skating":
+		return "ice_skating", ""
+
+	// Water
 	case "rowing", "row":
 		return "rowing", ""
-	case "kayaking", "canoeing", "paddling":
+	case "kayaking", "canoeing":
 		return "kayaking", ""
+	case "paddling", "paddle":
+		return "paddling", ""
+	case "stand_up_paddleboarding", "sup":
+		return "stand_up_paddleboarding", ""
+	case "surfing", "surf":
+		return "surfing", ""
+	case "sailing", "sail":
+		return "sailing", ""
+
+	// Fitness
 	case "strength_training", "strength", "weighttraining":
 		return "strength_training", ""
+	case "training":
+		return "training", ""
+	case "yoga":
+		return "training", "yoga"
+	case "pilates":
+		return "training", "pilates"
+	case "hiit":
+		return "hiit", ""
+
+	// Climb
+	case "rock_climbing", "climbing":
+		return "rock_climbing", ""
+	case "bouldering":
+		return "rock_climbing", "bouldering"
+
+	// Game
+	case "soccer", "football":
+		return "soccer", ""
+	case "tennis":
+		return "tennis", ""
+	case "golf":
+		return "golf", ""
+
+	// Other
+	case "inline_skating", "inlineskating":
+		return "inline_skating", ""
+	case "horseback_riding":
+		return "horseback_riding", ""
+	case "multisport":
+		return "multisport", ""
 
 	default:
 		return "unknown", ""

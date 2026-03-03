@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
+import { CATEGORIES } from '@/lib/sportTaxonomy'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -248,20 +249,12 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
 
               {filters.colorConfig.mode === 'per-type' && (
                 <div className="space-y-1">
-                  {[
-                    { label: 'Radfahren / E-Bike', key: 'cycling' },
-                    { label: 'Laufen / Trail', key: 'running' },
-                    { label: 'Wandern / Gehen', key: 'hiking' },
-                    { label: 'Wassersport', key: 'swimming' },
-                    { label: 'Ski', key: 'skiing' },
-                    { label: 'Klettern', key: 'rock_climbing' },
-                    { label: 'Sonstige', key: 'generic' },
-                  ].map(({ label, key }) => (
+                  {CATEGORIES.map(({ key, label, color }) => (
                     <div key={key} className="flex items-center gap-2">
                       <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
                       <input
                         type="color"
-                        value={filters.colorConfig.colors[key] ?? DEFAULT_SPORT_COLORS[key] ?? '#6B7280'}
+                        value={filters.colorConfig.colors[key] ?? color}
                         onChange={(e) => onChange({
                           ...filters,
                           colorConfig: {
@@ -274,7 +267,7 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                     </div>
                   ))}
                   <button
-                    onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: { ...DEFAULT_SPORT_COLORS } } })}
+                    onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })}
                     className="w-full text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer mt-1"
                   >
                     Farben zurücksetzen

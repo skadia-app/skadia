@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { Gear, SportType } from '@/api/types'
+import { useState, useMemo } from 'react'
+import type { Gear } from '@/api/types'
+import { generateGearSportOptions } from '@/lib/sportOptions'
 
 const GEAR_TYPES = [
   { value: 'bike', label: 'Fahrrad' },
@@ -10,19 +11,6 @@ const GEAR_TYPES = [
   { value: 'other', label: 'Sonstiges' },
 ]
 
-const SPORT_OPTIONS: { value: SportType; label: string }[] = [
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'e_biking', label: 'E-Bike' },
-  { value: 'skiing', label: 'Ski' },
-  { value: 'paddling', label: 'Paddeln' },
-  { value: 'walking', label: 'Gehen' },
-  { value: 'strength', label: 'Kraft' },
-  { value: 'generic', label: 'Sonstige' },
-]
-
 interface GearFormProps {
   gear?: Gear | null
   onSave: (data: Partial<Gear>) => void
@@ -31,6 +19,7 @@ interface GearFormProps {
 }
 
 export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormProps) {
+  const sportOptions = useMemo(() => generateGearSportOptions(), [])
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')
   const [subType, setSubType] = useState(gear?.sub_type ?? '')
@@ -155,7 +144,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           Standard für Sportarten
         </label>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {SPORT_OPTIONS.map(({ value, label }) => (
+          {sportOptions.map(({ value, label }) => (
             <label key={value} className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"

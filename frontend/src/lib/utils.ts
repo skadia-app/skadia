@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { SportType } from '@/api/types'
+import { sportLabel as taxonomySportLabel, sportColor as taxonomySportColor } from '@/lib/sportTaxonomy'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -20,7 +20,7 @@ export function formatDistance(meters: number | null): string {
   return `${Math.round(meters)} m`
 }
 
-// Gibt null zurück wenn kein sinnvoller Wert vorhanden (null, undefined, NaN, ≤ 0)
+// Gibt null zurueck wenn kein sinnvoller Wert vorhanden (null, undefined, NaN, <= 0)
 export function formatElevationGain(meters: number | null | undefined): string | null {
   if (meters == null || isNaN(meters) || meters <= 0) return null
   return `+${Math.round(meters)} m`
@@ -31,37 +31,15 @@ export function formatElevationLoss(meters: number | null | undefined): string |
   return `−${Math.round(meters)} m`
 }
 
-export function sportColor(_sport: SportType): string {
-  // Einheitliche Trackfarbe für alle Sportarten (Orange-500, wie MTB/Cycling)
-  return '#F97316'
+export function sportColor(sport: string): string {
+  return taxonomySportColor(sport)
 }
 
-export function sportLabel(sport: SportType, subType?: string | null): string {
-  const labels: Record<string, string> = {
-    cycling: 'Radfahren',
-    running: 'Laufen',
-    hiking: 'Wandern',
-    swimming: 'Schwimmen',
-    e_biking: 'E-Bike',
-    skiing: 'Ski',
-    paddling: 'Paddeln',
-    walking: 'Gehen',
-    strength: 'Kraft',
-    rock_climbing: 'Klettern',
-    stand_up_paddleboarding: 'SUP',
-    generic: 'Sonstige',
-    unknown: 'Unbekannt',
-  }
-  if (subType === 'mountain') return 'MTB'
-  if (subType === 'road') return 'Rennrad'
-  if (subType === 'e_bike_fitness') return 'E-Bike'
-  if (subType === 'trail') return 'Trail Running'
-  if (subType === 'bouldering') return 'Bouldern'
-  if (subType === 'indoor_climbing') return 'Klettern (Halle)'
-  return labels[sport] ?? sport
+export function sportLabel(sport: string, subType?: string | null): string {
+  return taxonomySportLabel(sport, subType)
 }
 
-// Sub-Types die Indoor schon semantisch implizieren – kein separates Badge nötig
+// Sub-Types die Indoor schon semantisch implizieren – kein separates Badge noetig
 const implicitlyIndoorSubTypes = new Set(['bouldering', 'indoor_climbing'])
 
 export function showIndoorBadge(isIndoor: boolean, subType?: string | null): boolean {

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segmentType, name, bbox string) ([]model.Segment, error) {
@@ -738,18 +739,5 @@ func (db *DB) IsLapDetectionEnabled(ctx context.Context, userID string) bool {
 }
 
 func sportGroupFromSportType(sportType string) string {
-	switch sportType {
-	case "cycling", "e_biking", "mountain_biking", "gravel_cycling", "indoor_cycling":
-		return "bike"
-	case "running", "trail_running", "hiking", "walking", "treadmill_running":
-		return "foot"
-	case "swimming", "open_water_swimming", "lap_swimming":
-		return "swim"
-	case "alpine_skiing", "cross_country_skiing", "backcountry_skiing", "snowboarding":
-		return "ski"
-	case "kayaking", "stand_up_paddleboarding", "rowing":
-		return "paddle"
-	default:
-		return "generic"
-	}
+	return sport.SegmentGroup(sportType)
 }

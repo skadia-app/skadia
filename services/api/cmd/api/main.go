@@ -135,6 +135,7 @@ func main() {
 
 	// Public routes (no authentication required)
 	r.Get("/health", h.Health)
+	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Get("/login", h.AuthLogin)
 		r.Get("/callback", h.AuthCallback)

@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // maxGapSeconds is the maximum time gap between two consecutive stream points
@@ -12,47 +13,9 @@ import (
 const maxGapSeconds = 300 // 5 minutes
 
 // movingThreshold returns the minimum speed in m/s that counts as "moving"
-// for the given sport type.
-//
-// Research summary:
-//   - Strava: ~0.45 m/s threshold for running (30-min/mile pace); GPS-based for cycling.
-//   - Low-threshold analytics tools may treat near-zero movement as moving.
-//   - Cycling streams: speed > 0 OR cadence > 0 can classify movement near standstill.
-//   - Automatic pause detection can avoid a single fixed threshold.
-//   - Device auto-pause in stop mode typically fires near standstill.
-//
-// Skadia uses sport-specific thresholds that balance noise rejection against
-// legitimate slow movement (e.g. steep hike, open-water swim):
-//
-//   - Cycling / e-biking: 0.5 m/s (1.8 km/h) — slow enough to capture
-//     technical descents, high enough to ignore GPS drift at lights.
-//   - Running / trail: 0.5 m/s — same; also filters walk breaks.
-//   - Walking / hiking: 0.2 m/s (0.72 km/h) — captures very slow uphill.
-//   - Swimming: 0.1 m/s (0.36 km/h) — pool turnarounds and slow open water.
-//   - Paddling / rowing / kayaking: 0.1 m/s — similar to swimming.
-//   - Skiing (alpine / nordic): 0.3 m/s — lift pauses produce near-zero speed.
-//   - Strength / indoor / unknown: 0.0 m/s — no GPS, always moving if recorded.
+// for the given sport type. Delegates to the centralized sport taxonomy.
 func movingThreshold(sportType string) float64 {
-	switch sportType {
-	case "cycling", "e_biking", "virtual_ride":
-		return 0.5
-	case "running", "trail_running":
-		return 0.5
-	case "walking":
-		return 0.2
-	case "hiking":
-		return 0.2
-	case "swimming":
-		return 0.1
-	case "rowing", "kayaking", "stand_up_paddleboarding", "canoeing", "paddling":
-		return 0.1
-	case "alpine_skiing", "skiing", "cross_country_skiing", "snowboarding":
-		return 0.3
-	default:
-		// Indoor activities (strength, yoga, etc.) or unknown sport types:
-		// use a very small positive value so that any recorded data counts.
-		return 0.0
-	}
+	return sport.MovingThreshold(sportType)
 }
 
 // haversineDistance returns the great-circle distance in metres between two

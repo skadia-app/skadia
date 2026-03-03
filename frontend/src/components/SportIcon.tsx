@@ -1,7 +1,7 @@
-import type { SportType } from '@/api/types'
+import { categoryForSport } from '@/lib/sportTaxonomy'
 
 interface Props {
-  sport: SportType
+  sport: string
   subType?: string | null
   className?: string
 }
@@ -15,23 +15,57 @@ export function SportIcon({ sport, subType, className = 'w-4 h-4' }: Props) {
     return <BikeIcon className={className} />
   }
 
-  const icons: Partial<Record<SportType, React.FC<{ className?: string }>>> = {
+  // Direct sport → icon mapping
+  const directIcons: Record<string, React.FC<{ className?: string }>> = {
     cycling: BikeIcon,
     e_biking: EBikeIcon,
+    inline_skating: BikeIcon,
     running: RunIcon,
     hiking: HikeIcon,
-    swimming: SwimIcon,
-    skiing: SkiIcon,
-    paddling: PaddleIcon,
     walking: WalkIcon,
-    strength: StrengthIcon,
-    rock_climbing: RockClimbingIcon,
+    mountaineering: HikeIcon,
+    snowshoeing: HikeIcon,
+    swimming: SwimIcon,
+    alpine_skiing: SkiIcon,
+    cross_country_skiing: SkiIcon,
+    snowboarding: SkiIcon,
+    ice_skating: SkiIcon,
+    snowmobiling: SkiIcon,
+    paddling: PaddleIcon,
+    kayaking: PaddleIcon,
     stand_up_paddleboarding: SupIcon,
+    rowing: PaddleIcon,
+    training: StrengthIcon,
+    fitness_equipment: StrengthIcon,
+    hiit: StrengthIcon,
+    rock_climbing: RockClimbingIcon,
     generic: GenericIcon,
+    unknown: UnknownIcon,
   }
 
-  const Icon = icons[sport] ?? UnknownIcon
-  return <Icon className={className} />
+  const directIcon = directIcons[sport]
+  if (directIcon) {
+    const Icon = directIcon
+    return <Icon className={className} />
+  }
+
+  // Category-based fallback for unknown sport types
+  const cat = categoryForSport(sport)
+  const fallbacks: Record<string, React.FC<{ className?: string }>> = {
+    run: RunIcon,
+    bike: BikeIcon,
+    winter: SkiIcon,
+    water: SwimIcon,
+    fitness: StrengthIcon,
+    game: GenericIcon,
+    climb: RockClimbingIcon,
+    outdoor: HikeIcon,
+    multi: GenericIcon,
+    other: GenericIcon,
+  }
+
+  const FallbackIcon = fallbacks[cat.key] ?? UnknownIcon
+  return <FallbackIcon className={className} />
 }
 
 // ── Fahrrad-Varianten ─────────────────────────────────────────────────────────
@@ -238,7 +272,7 @@ function RockClimbingIcon({ className }: { className?: string }) {
       <path d="M15 7.5 L20 4" />
       {/* Linker Arm — Balance */}
       <path d="M15 7.5 L11 8.5" />
-      {/* Rechtes Bein — Fuß an Wand */}
+      {/* Rechtes Bein — Fuss an Wand */}
       <path d="M13 12 L19 16" />
       {/* Linkes Bein */}
       <path d="M13 12 L11 17" />
@@ -274,7 +308,7 @@ function SupIcon({ className }: { className?: string }) {
 }
 
 /**
- * Sonstige / Generic — Aktivitäts-Pulslinie
+ * Sonstige / Generic — Aktivitaets-Pulslinie
  */
 function GenericIcon({ className }: { className?: string }) {
   return (

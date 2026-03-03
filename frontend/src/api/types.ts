@@ -1,3 +1,4 @@
+/** @deprecated Use sportTaxonomy.ts for sport type lookups. Kept for backwards compatibility. */
 export type SportType =
   | 'cycling'
   | 'running'
@@ -22,7 +23,7 @@ export interface Activity {
   user_id: string
   title: string | null
   description?: string | null
-  sport_type: SportType
+  sport_type: string
   sub_type: string | null
   is_ebike: boolean
   started_at: string

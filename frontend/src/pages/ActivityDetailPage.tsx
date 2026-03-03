@@ -18,6 +18,7 @@ import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportLabel, sportColor, showIndoorBadge,
 } from '@/lib/utils'
+import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import EnrichmentTags from '@/components/EnrichmentTags'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
@@ -335,7 +336,7 @@ function ActivityHeader({ activity }: { activity: Activity }) {
     }
   }
 
-  const label = sportLabel(activity.sport_type, activity.sub_type)
+  const label = sportDetailLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
 
   return (

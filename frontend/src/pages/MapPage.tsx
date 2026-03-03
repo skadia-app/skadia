@@ -6,6 +6,7 @@ import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
 import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
+import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
@@ -1188,20 +1189,15 @@ function buildLineColor(filters: MapFilterState): string | maplibregl.Expression
   if (filters.colorConfig.mode === 'uniform') {
     return filters.colorConfig.uniformColor
   }
+  // Build match expression from taxonomy: each sport_type → its category color
+  const entries: string[] = []
+  for (const s of SPORT_DEFS) {
+    const catKey = categoryForSport(s.sportType).key
+    entries.push(s.sportType, filters.colorConfig.colors[catKey] ?? sportColor(s.sportType))
+  }
   return [
     'match', ['get', 'sport_type'],
-    'cycling',                 filters.colorConfig.colors['cycling']                 ?? '#F97316',
-    'e_biking',                filters.colorConfig.colors['e_biking']                ?? '#F97316',
-    'running',                 filters.colorConfig.colors['running']                 ?? '#EF4444',
-    'hiking',                  filters.colorConfig.colors['hiking']                  ?? '#22C55E',
-    'walking',                 filters.colorConfig.colors['walking']                 ?? '#22C55E',
-    'swimming',                filters.colorConfig.colors['swimming']                ?? '#3B82F6',
-    'paddling',                filters.colorConfig.colors['paddling']                ?? '#3B82F6',
-    'stand_up_paddleboarding', filters.colorConfig.colors['stand_up_paddleboarding'] ?? '#3B82F6',
-    'skiing',                  filters.colorConfig.colors['skiing']                  ?? '#06B6D4',
-    'rock_climbing',           filters.colorConfig.colors['rock_climbing']           ?? '#A855F7',
-    'strength',                filters.colorConfig.colors['strength']                ?? '#6B7280',
-    'generic',                 filters.colorConfig.colors['generic']                 ?? '#6B7280',
+    ...entries,
     filters.colorConfig.uniformColor, // Fallback
   ] as maplibregl.ExpressionSpecification
 }

@@ -1,37 +1,21 @@
 package enrichment
 
-import "fmt"
+import (
+	"fmt"
 
-// sportLabels maps sport types to German labels for auto-naming.
-var sportLabels = map[string]string{
-	"cycling":                    "Radfahrt",
-	"running":                    "Lauf",
-	"hiking":                     "Wanderung",
-	"walking":                    "Spaziergang",
-	"swimming":                   "Schwimmen",
-	"e_biking":                   "E-Bike-Tour",
-	"skiing":                     "Skifahrt",
-	"cross_country_skiing":       "Langlauf",
-	"paddling":                   "Paddeltour",
-	"strength":                   "Krafttraining",
-	"strength_training":          "Krafttraining",
-	"rock_climbing":              "Klettern",
-	"stand_up_paddleboarding":    "SUP-Tour",
-	"trail_running":              "Trailrun",
-	"mountaineering":             "Bergtour",
-	"inline_skating":             "Inline-Skaten",
-	"open_water_swimming":        "Freiwasserschwimmen",
-	"mountain_biking":            "MTB-Tour",
-	"gravel_cycling":             "Gravel-Tour",
-	"generic":                    "Training",
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
+
+// GenerateAutoTitle creates a German auto-title like "Radfahrt in München".
+// Delegates to the centralized sport taxonomy for label resolution.
+func GenerateAutoTitle(sportType, city string) string {
+	return GenerateAutoTitleWithSubType(sportType, "", city)
 }
 
-// GenerateAutoTitle creates a German auto-title like "Radfahrt in Muenchen"
-func GenerateAutoTitle(sportType, city string) string {
-	label, ok := sportLabels[sportType]
-	if !ok {
-		label = "Training"
-	}
+// GenerateAutoTitleWithSubType creates a German auto-title using both sport type
+// and sub-type for more specific naming (e.g. "MTB-Tour in München").
+func GenerateAutoTitleWithSubType(sportType, subType, city string) string {
+	label := sport.AutoTitle(sportType, subType)
 
 	if city != "" {
 		return fmt.Sprintf("%s in %s", label, city)
