@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from '@/lib/theme'
+import { AccentColorProvider } from '@/lib/accentColor'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
 
@@ -15,6 +16,7 @@ const GearDetailPage = lazy(() => import('@/pages/GearDetailPage'))
 const TagsPage = lazy(() => import('@/pages/TagsPage'))
 const WorkshopPage = lazy(() => import('@/pages/WorkshopPage'))
 const WorkshopReprocessPage = lazy(() => import('@/pages/WorkshopReprocessPage'))
+const PhysiologicalProfilePage = lazy(() => import('@/pages/PhysiologicalProfilePage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
@@ -33,6 +35,7 @@ function LoadingSpinner() {
 export default function App() {
   return (
     <ThemeProvider>
+      <AccentColorProvider>
       <Suspense fallback={<LoadingSpinner />}>
         <Routes>
           {/* Public routes */}
@@ -50,6 +53,7 @@ export default function App() {
               <Route path="segments" element={<SegmentsPage />} />
               <Route path="workshop" element={<WorkshopPage />} />
               <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
+              <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
               <Route path="workshop/tags" element={<TagsPage />} />
               <Route path="gear" element={<GearPage />} />
               <Route path="gear/:id" element={<GearDetailPage />} />
@@ -62,6 +66,7 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      </AccentColorProvider>
     </ThemeProvider>
   )
 }

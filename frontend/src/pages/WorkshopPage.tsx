@@ -2,6 +2,12 @@ import { Link } from 'react-router-dom'
 
 const sections = [
   {
+    to: '/workshop/profile',
+    title: 'Physiologisches Profil',
+    description: 'Körperdaten, FTP, LTHR und Herzfrequenz-Werte verwalten',
+    icon: ProfileIcon,
+  },
+  {
     to: '/gear',
     title: 'Ausrüstung',
     description: 'Räder, Schuhe, Zubehör und Komponenten verwalten',
@@ -52,6 +58,15 @@ export default function WorkshopPage() {
         ))}
       </div>
     </div>
+  )
+}
+
+function ProfileIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
   )
 }
 

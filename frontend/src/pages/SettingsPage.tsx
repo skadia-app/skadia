@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef } from 'react'
+import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
-import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings, getUserProfile, updateUserProfile } from '@/api/settings'
-import type { UserProfile } from '@/api/types'
+import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+  const { accent, setAccent } = useAccentColor()
+  const colorInputRef = useRef<HTMLInputElement>(null)
+  const isCustomAccent = !ACCENT_PALETTE.some(e => e.shade500.toLowerCase() === accent.shade500.toLowerCase())
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
 
@@ -42,35 +45,6 @@ export default function SettingsPage() {
     },
   })
 
-  const { data: profile } = useQuery({
-    queryKey: ['user-profile'],
-    queryFn: getUserProfile,
-  })
-
-  const [profileForm, setProfileForm] = useState<Partial<UserProfile>>({})
-
-  useEffect(() => {
-    if (profile) {
-      setProfileForm({
-        birth_date: profile.birth_date ?? undefined,
-        gender: profile.gender,
-        height_cm: profile.height_cm ?? undefined,
-        weight_kg: profile.weight_kg ?? undefined,
-        ftp_w: profile.ftp_w ?? undefined,
-        lthr_bpm: profile.lthr_bpm ?? undefined,
-        max_hr_bpm: profile.max_hr_bpm ?? undefined,
-        resting_hr_bpm: profile.resting_hr_bpm ?? undefined,
-      })
-    }
-  }, [profile])
-
-  const profileMutation = useMutation({
-    mutationFn: updateUserProfile,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] })
-    },
-  })
-
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Einstellungen...</div>
   }
@@ -84,144 +58,70 @@ export default function SettingsPage() {
 
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
 
-      {/* Physiologisches Profil */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
+      {/* Erscheinungsbild */}
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Physiologisches Profil</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Erscheinungsbild</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Für genaue Leistungszonen, TRIMP und Intensitäts-Auswertung
+            Wähle eine Akzentfarbe für die Benutzeroberfläche.
           </p>
         </div>
+        <div className="flex flex-wrap gap-3">
+          {ACCENT_PALETTE.map((entry) => {
+            const isActive = accent.shade500.toLowerCase() === entry.shade500.toLowerCase()
+            return (
+              <button
+                key={entry.shade500}
+                title={entry.label}
+                onClick={() => setAccent(entry)}
+                className="relative w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none"
+                style={{ backgroundColor: entry.shade500, boxShadow: isActive ? `0 0 0 2px white, 0 0 0 4px ${entry.shade500}` : undefined }}
+              >
+                {isActive && (
+                  <svg className="absolute inset-0 m-auto w-4 h-4 text-white" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l3.5 3.5L13 4.5" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
 
-        <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-          Werte aus deinen Garmin-Dateien werden automatisch vorgeschlagen (nur wenn das Feld noch leer ist).
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Geburtsdatum */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Geburtsdatum</label>
-            <input
-              type="date"
-              value={profileForm.birth_date ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, birth_date: e.target.value || undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-            />
-            {profileForm.birth_date && (
-              <p className="text-xs text-neutral-500">
-                Alter: {calcAge(profileForm.birth_date)} Jahre · Tanaka-Formel: {tanakaFormula(profileForm.birth_date)} bpm
-              </p>
-            )}
-          </div>
-
-          {/* Geschlecht */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Geschlecht</label>
-            <select
-              value={profileForm.gender ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, gender: e.target.value as any }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-            >
-              <option value="">Keine Angabe</option>
-              <option value="M">Männlich</option>
-              <option value="F">Weiblich</option>
-              <option value="O">Divers</option>
-            </select>
-          </div>
-
-          {/* Gewicht + Größe */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Gewicht (kg)</label>
-            <input
-              type="number"
-              min="20" max="300" step="0.1"
-              value={profileForm.weight_kg ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, weight_kg: e.target.value ? parseFloat(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 72.5"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Größe (cm)</label>
-            <input
-              type="number"
-              min="100" max="250"
-              value={profileForm.height_cm ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, height_cm: e.target.value ? parseInt(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 178"
-            />
-          </div>
-
-          {/* FTP */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              FTP (Watt)
-              <span className="ml-1 text-xs text-neutral-400 font-normal">Functional Threshold Power (~1h Max-Dauerleistung)</span>
-            </label>
-            <input
-              type="number" min="0" max="1000"
-              value={profileForm.ftp_w ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, ftp_w: e.target.value ? parseInt(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 280"
-            />
-          </div>
-
-          {/* LTHR */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              LTHR (bpm)
-              <span className="ml-1 text-xs text-neutral-400 font-normal">Laktatschwellen-Herzfrequenz</span>
-            </label>
-            <input
-              type="number" min="0" max="250"
-              value={profileForm.lthr_bpm ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, lthr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 165"
-            />
-          </div>
-
-          {/* HR-Max */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">HR-Max Override (bpm)</label>
-            <input
-              type="number" min="0" max="250"
-              value={profileForm.max_hr_bpm ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, max_hr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="Optional"
-            />
-            <div className="text-xs text-neutral-400 space-x-3">
-              {profile?.max_hr_formula && <span>Formel: {profile.max_hr_formula} bpm</span>}
-              {profile?.max_hr_detected && <span>Erkannt: {profile.max_hr_detected} bpm</span>}
-              <span className="font-medium text-neutral-600 dark:text-neutral-300">Effektiv: {profile?.effective_max_hr ?? 220} bpm</span>
-            </div>
-          </div>
-
-          {/* Ruhepuls */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Ruhepuls (bpm)</label>
-            <input
-              type="number" min="0" max="120"
-              value={profileForm.resting_hr_bpm ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, resting_hr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
-              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 52"
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end">
+          {/* Custom color picker */}
           <button
-            onClick={() => profileMutation.mutate(profileForm)}
-            disabled={profileMutation.isPending}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50 transition-colors"
+            title="Benutzerdefinierte Farbe"
+            onClick={() => colorInputRef.current?.click()}
+            className="relative w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none overflow-hidden"
+            style={{
+              background: isCustomAccent
+                ? accent.shade500
+                : 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
+              boxShadow: isCustomAccent ? `0 0 0 2px white, 0 0 0 4px ${accent.shade500}` : undefined,
+            }}
           >
-            {profileMutation.isPending ? 'Speichern...' : 'Profil speichern'}
+            {isCustomAccent ? (
+              <svg className="absolute inset-0 m-auto w-4 h-4 text-white" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l3.5 3.5L13 4.5" />
+              </svg>
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center text-white text-sm font-bold" style={{ textShadow: '0 0 3px rgba(0,0,0,0.6)' }}>+</span>
+            )}
           </button>
+          <input
+            ref={colorInputRef}
+            type="color"
+            className="sr-only"
+            value={isCustomAccent ? accent.shade500 : '#6366f1'}
+            onChange={e => setAccent(deriveAccentEntry(e.target.value))}
+          />
         </div>
+        {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
+          <button
+            onClick={() => setAccent(ACCENT_PALETTE[0])}
+            className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline transition-colors"
+          >
+            Auf Standard zurücksetzen
+          </button>
+        )}
       </section>
 
       {/* Dateiablage */}
@@ -276,7 +176,7 @@ export default function SettingsPage() {
             onClick={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
             disabled={toggleMutation.isPending}
             className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
-            style={{ backgroundColor: settings?.hotfolder_enabled ? '#f97316' : '#d4d4d4' }}
+            style={{ backgroundColor: settings?.hotfolder_enabled ? 'var(--color-orange-500)' : '#d4d4d4' }}
             role="switch"
             aria-checked={settings?.hotfolder_enabled}
           >
@@ -466,7 +366,7 @@ function HeatmapSettingsSection() {
               setLocalFilterActivity(next)
             }}
             className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? '#f97316' : '#d4d4d4' }}
+            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? 'var(--color-orange-500)' : '#d4d4d4' }}
             role="switch"
             aria-checked={currentFilterMap || currentFilterActivity}
           >
@@ -547,20 +447,6 @@ function HeatmapSettingsSection() {
       )}
     </section>
   )
-}
-
-function calcAge(birthDate: string | null | undefined): number | null {
-  if (!birthDate) return null
-  const birth = new Date(birthDate)
-  const now = new Date()
-  const age = now.getFullYear() - birth.getFullYear()
-  return age
-}
-
-function tanakaFormula(birthDate: string | null | undefined): number | null {
-  const age = calcAge(birthDate)
-  if (age === null) return null
-  return Math.round(208 - 0.7 * age)
 }
 
 function ImportStatusBadge({ status }: { status: string }) {
