@@ -861,6 +861,18 @@ function ActionParams({
       </select>
     )
   }
+  if (action === 'remove_tag') {
+    return (
+      <select
+        value={params.tag ?? ''}
+        onChange={(e) => onChange({ tag: e.target.value })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="">Tag wählen...</option>
+        {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+      </select>
+    )
+  }
   if (action === 'set_visibility') {
     return (
       <select
@@ -872,6 +884,67 @@ function ActionParams({
         {VISIBILITY_OPTIONS.map(({ value, label }) => (
           <option key={value} value={value}>{label}</option>
         ))}
+      </select>
+    )
+  }
+  if (action === 'set_sport_type') {
+    return (
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <select
+          value={params.sport_type ?? ''}
+          onChange={(e) => onChange({ ...params, sport_type: e.target.value })}
+          className={inputClass + ' flex-1 min-w-0'}
+        >
+          <option value="">Sportart wählen...</option>
+          {SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+        <input
+          type="text"
+          value={params.sub_type ?? ''}
+          onChange={(e) => onChange({ ...params, sub_type: e.target.value })}
+          placeholder="Sub-Typ (optional)"
+          className={inputClass + ' w-32'}
+        />
+      </div>
+    )
+  }
+  if (action === 'set_name') {
+    return (
+      <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <input
+          type="text"
+          value={params.name ?? ''}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="Neuer Titel"
+          className={inputClass + ' w-full'}
+        />
+        <span className="text-xs text-neutral-400">Platzhalter: {'{city}'}, {'{distance_km}'}, {'{sport}'}</span>
+      </div>
+    )
+  }
+  if (action === 'set_intensity') {
+    return (
+      <select
+        value={params.intensity ?? ''}
+        onChange={(e) => onChange({ intensity: e.target.value })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="">Intensität wählen...</option>
+        {INTENSITY_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    )
+  }
+  if (action === 'set_indoor') {
+    return (
+      <select
+        value={String(params.indoor ?? 'true')}
+        onChange={(e) => onChange({ indoor: e.target.value === 'true' })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="true">Ja (Indoor)</option>
+        <option value="false">Nein (Outdoor)</option>
       </select>
     )
   }
