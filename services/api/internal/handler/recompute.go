@@ -378,6 +378,47 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
+	// 8c. Segment-Efforts + Detected Laps recompute (when streams changed or full recompute).
+	if data.HasGPS && (doStreams || allScope) {
+		// Collect affected segment IDs before deletion (for rank updates)
+		affectedSegIDs, _ := h.DB.GetAffectedSegmentIDs(ctx, activityID)
+
+		// Delete existing efforts and detected laps
+		if err := h.DB.DeleteSegmentEffortsByActivity(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete segment efforts failed", "id", activityID, "error", err)
+		}
+		if err := h.DB.DeleteDetectedLaps(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete detected laps failed", "id", activityID, "error", err)
+		}
+
+		// Re-run segment matching synchronously (includes lap detection)
+		var gearIDPtr *string
+		activity, aErr := h.DB.GetActivity(ctx, activityID)
+		if aErr == nil && activity != nil && activity.GearID != nil {
+			gearIDPtr = activity.GearID
+		}
+		MatchActivitySegments(ctx, h.DB, activityID, userID, data.SportType, data.SubType, gearIDPtr)
+
+		// Lap detection
+		if h.DB.IsLapDetectionEnabled(ctx, userID) {
+			gpsStream, gpsErr := h.DB.GetActivityGPSStream(ctx, activityID)
+			if gpsErr == nil && len(gpsStream) >= 20 {
+				if laps := DetectLaps(ctx, h.DB, activityID, gpsStream); len(laps) > 0 {
+					if err := h.DB.InsertDetectedLaps(ctx, activityID, laps); err != nil {
+						slog.Error("reprocess: insert detected laps failed", "id", activityID, "error", err)
+					}
+				}
+			}
+		}
+
+		// Update ranks for previously affected segments
+		for _, segID := range affectedSegIDs {
+			if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
+				slog.Warn("reprocess: update segment ranks failed", "segment_id", segID, "error", err)
+			}
+		}
+	}
+
 	// 9. Publish NATS event (triggers PMC recalculation).
 	if h.Events != nil {
 		evt := event.ActivityUploadedEvent{

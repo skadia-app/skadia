@@ -242,13 +242,30 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Segment matching (non-blocking background goroutine)
+	// Segment matching + lap detection (non-blocking background goroutine)
 	if data.HasGPS {
 		var gearIDPtr *string
 		if activity.GearID != nil {
 			gearIDPtr = activity.GearID
 		}
-		go MatchActivitySegments(context.Background(), h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr)
+		go func() {
+			bgCtx := context.Background()
+			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr)
+
+			// Lap detection (after segment matching, same goroutine)
+			if h.DB.IsLapDetectionEnabled(bgCtx, userID) {
+				gpsStream, err := h.DB.GetActivityGPSStream(bgCtx, activity.ID)
+				if err == nil && len(gpsStream) >= 20 {
+					if laps := DetectLaps(bgCtx, h.DB, activity.ID, gpsStream); len(laps) > 0 {
+						if err := h.DB.InsertDetectedLaps(bgCtx, activity.ID, laps); err != nil {
+							slog.Error("upload: insert detected laps failed", "id", activity.ID, "error", err)
+						} else {
+							slog.Info("upload: detected laps", "id", activity.ID, "count", len(laps))
+						}
+					}
+				}
+			}
+		}()
 	}
 
 	// Re-fetch full activity for response

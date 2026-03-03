@@ -150,9 +150,28 @@ export interface EnrichmentSettings {
   enable_climb_detection: boolean
   enable_commute_detection: boolean
   enable_auto_naming: boolean
+  enable_lap_detection: boolean
   climb_min_gradient_pct: number
   climb_min_elevation_m: number
   round_trip_threshold_m: number
+}
+
+export interface DetectedLap {
+  id: string
+  activity_id: string
+  lap_number: number
+  start_time: string
+  end_time: string
+  elapsed_time_s: number
+  distance_m?: number
+  avg_speed_ms?: number
+  avg_heart_rate?: number
+  avg_power_w?: number
+  avg_cadence?: number
+  total_ascent_m?: number
+  total_descent_m?: number
+  start_lat?: number
+  start_lng?: number
 }
 
 export interface Gear {

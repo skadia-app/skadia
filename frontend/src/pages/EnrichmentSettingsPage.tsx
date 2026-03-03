@@ -57,6 +57,12 @@ const TOGGLES: ToggleConfig[] = [
     status: 'planned',
     plannedPhase: 'Phase 4b (ML-Service)',
   },
+  {
+    key: 'enable_lap_detection',
+    label: 'Automatische Rundenerkennung',
+    description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',
+    status: 'available',
+  },
 ]
 
 const THRESHOLDS: { key: keyof EnrichmentSettings; label: string; unit: string; step: string }[] = [

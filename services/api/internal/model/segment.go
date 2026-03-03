@@ -80,3 +80,22 @@ type SegmentEffort struct {
 	DisplayName *string `json:"display_name,omitempty"`
 	GearName    *string `json:"gear_name,omitempty"`
 }
+
+// DetectedLap represents an automatically detected lap/round within an activity.
+type DetectedLap struct {
+	ID            string    `json:"id"`
+	ActivityID    string    `json:"activity_id"`
+	LapNumber     int       `json:"lap_number"`
+	StartTime     time.Time `json:"start_time"`
+	EndTime       time.Time `json:"end_time"`
+	ElapsedTimeS  int       `json:"elapsed_time_s"`
+	DistanceM     *float64  `json:"distance_m,omitempty"`
+	AvgSpeedMs    *float64  `json:"avg_speed_ms,omitempty"`
+	AvgHeartRate  *float64  `json:"avg_heart_rate,omitempty"`
+	AvgPowerW     *float64  `json:"avg_power_w,omitempty"`
+	AvgCadence    *float64  `json:"avg_cadence,omitempty"`
+	TotalAscentM  *float64  `json:"total_ascent_m,omitempty"`
+	TotalDescentM *float64  `json:"total_descent_m,omitempty"`
+	StartLat      *float64  `json:"start_lat,omitempty"`
+	StartLng      *float64  `json:"start_lng,omitempty"`
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -54,6 +55,10 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
+		if strings.Contains(err.Error(), "lap segment must be a closed loop") {
+			writeError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("create segment failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create segment", r.URL.Path)
 		return
@@ -152,4 +157,17 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, efforts)
+}
+
+func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	laps, err := h.DB.GetDetectedLaps(r.Context(), id)
+	if err != nil {
+		slog.Error("get detected laps failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get detected laps", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, laps)
 }

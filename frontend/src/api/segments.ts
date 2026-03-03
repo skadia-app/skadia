@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { DetectedLap } from './types'
 
 export interface Segment {
   id: string
@@ -75,4 +76,8 @@ export async function deleteSegment(id: string): Promise<void> {
 
 export async function fetchActivitySegments(activityId: string): Promise<SegmentEffort[]> {
   return apiClient<SegmentEffort[]>(`/activities/${activityId}/segments`)
+}
+
+export async function fetchDetectedLaps(activityId: string): Promise<DetectedLap[]> {
+  return apiClient<DetectedLap[]>(`/activities/${activityId}/detected-laps`)
 }

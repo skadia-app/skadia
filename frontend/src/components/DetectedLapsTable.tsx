@@ -1,0 +1,134 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { fetchDetectedLaps } from '@/api/segments'
+
+interface Props {
+  activityId: string
+}
+
+function fmtDuration(s: number): string {
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+function fmtDistance(m: number | undefined): string {
+  if (m == null) return '--'
+  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
+  return `${Math.round(m)} m`
+}
+
+function fmtPace(speedMs: number | undefined): string {
+  if (speedMs == null || speedMs <= 0) return '--'
+  const minPerKm = (1000 / speedMs) / 60
+  const min = Math.floor(minPerKm)
+  const sec = Math.round((minPerKm - min) * 60)
+  return `${min}:${sec.toString().padStart(2, '0')} /km`
+}
+
+export default function DetectedLapsTable({ activityId }: Props) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  const { data: laps = [], isLoading } = useQuery({
+    queryKey: ['detected-laps', activityId],
+    queryFn: () => fetchDetectedLaps(activityId),
+  })
+
+  if (isLoading) return null
+  if (laps.length === 0) return null
+
+  // Find best lap (fastest elapsed time)
+  const bestIdx = laps.reduce((best, lap, i) =>
+    lap.elapsed_time_s < laps[best].elapsed_time_s ? i : best, 0)
+  const bestTime = laps[bestIdx].elapsed_time_s
+
+  return (
+    <div>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center gap-2 mb-3 group"
+      >
+        <svg
+          className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+          Erkannte Runden
+        </h2>
+        <span className="text-sm text-neutral-400">({laps.length})</span>
+      </button>
+
+      {!collapsed && (
+        <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
+                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">#</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeit</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Delta</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Distanz</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Tempo</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">HR</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Power</th>
+              </tr>
+            </thead>
+            <tbody>
+              {laps.map((lap, i) => {
+                const isBest = i === bestIdx
+                const delta = lap.elapsed_time_s - bestTime
+                return (
+                  <tr
+                    key={lap.id}
+                    className={`border-b border-neutral-100 dark:border-neutral-800 transition-colors ${
+                      isBest
+                        ? 'bg-amber-50/50 dark:bg-amber-900/10'
+                        : i % 2 !== 0
+                          ? 'bg-neutral-50/50 dark:bg-neutral-800/20'
+                          : ''
+                    }`}
+                  >
+                    <td className="px-3 py-2 text-center">
+                      {isBest ? (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                          {lap.lap_number}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-600 dark:text-neutral-400 text-xs">{lap.lap_number}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100 font-medium">
+                      {fmtDuration(lap.elapsed_time_s)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {delta === 0 ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-bold text-xs">BEST</span>
+                      ) : (
+                        <span className="text-neutral-500 dark:text-neutral-400 text-xs">+{fmtDuration(delta)}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {fmtDistance(lap.distance_m)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {fmtPace(lap.avg_speed_ms)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {lap.avg_heart_rate != null ? `${Math.round(lap.avg_heart_rate)}` : '--'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {lap.avg_power_w != null ? `${Math.round(lap.avg_power_w)} W` : '--'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}

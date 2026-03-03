@@ -132,8 +132,38 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		return nil, fmt.Errorf("insert segment: %w", err)
 	}
 
+	// For lap-type segments: auto-close if start≈end (≤50m), error if >50m
+	trackGeoJSON := create.GeoJSONTrack
+	if create.SegmentType == "lap" {
+		var gapM float64
+		err = tx.QueryRow(ctx, `
+			SELECT ST_Distance(
+				ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography,
+				ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography
+			)`, create.GeoJSONTrack).Scan(&gapM)
+		if err != nil {
+			return nil, fmt.Errorf("check lap gap: %w", err)
+		}
+		if gapM > 50 {
+			return nil, fmt.Errorf("lap segment must be a closed loop; start-end gap is %.0fm (max 50m)", gapM)
+		}
+		// Auto-close: snap end point to start point
+		if gapM > 0.1 {
+			err = tx.QueryRow(ctx, `
+				SELECT ST_AsGeoJSON(
+					ST_AddPoint(
+						ST_SetSRID(ST_GeomFromGeoJSON($1), 4326),
+						ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+					)
+				)`, create.GeoJSONTrack).Scan(&trackGeoJSON)
+			if err != nil {
+				return nil, fmt.Errorf("auto-close lap track: %w", err)
+			}
+		}
+	}
+
 	// Insert first version with track geometry
-	var trackGeoJSON string
+	var returnedTrackGeoJSON string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
 		VALUES (
@@ -144,12 +174,12 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 			CURRENT_DATE, $3
 		)
 		RETURNING ST_AsGeoJSON(track)`,
-		s.ID, create.GeoJSONTrack, userID,
-	).Scan(&trackGeoJSON)
+		s.ID, trackGeoJSON, userID,
+	).Scan(&returnedTrackGeoJSON)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment version: %w", err)
 	}
-	s.TrackGeoJSON = &trackGeoJSON
+	s.TrackGeoJSON = &returnedTrackGeoJSON
 
 	// Update distance_m via PostGIS
 	_, err = tx.Exec(ctx, `
@@ -433,19 +463,21 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 	return nil
 }
 
-// MatchableSegment holds the info needed for segment matching.
-type MatchableSegment struct {
+// CandidateSegment holds info for spatial pre-filtered segment matching.
+type CandidateSegment struct {
 	SegmentID  string
 	VersionID  string
 	SportGroup string
+	DistanceM  float64
 }
 
-// GetMatchableSegments returns segments that match the given sport type and are visible to the user.
-func (db *DB) GetMatchableSegments(ctx context.Context, userID, sportType string) ([]MatchableSegment, error) {
+// GetSpatialCandidateSegments returns segments within 50m of the activity track,
+// filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
+func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string) ([]CandidateSegment, error) {
 	sportGroup := sportGroupFromSportType(sportType)
 
 	rows, err := db.Pool.Query(ctx, `
-		SELECT s.id, sv.id, s.sport_group
+		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0)
 		FROM segments s
 		JOIN LATERAL (
 			SELECT id, track FROM segment_versions
@@ -453,65 +485,256 @@ func (db *DB) GetMatchableSegments(ctx context.Context, userID, sportType string
 			ORDER BY version_number DESC
 			LIMIT 1
 		) sv ON true
-		WHERE (s.visibility = 'public' OR s.created_by = $1)
-		  AND (s.sport_group = $2 OR s.sport_group = 'generic')`,
-		userID, sportGroup)
+		JOIN activity_tracks at ON at.activity_id = $1
+		WHERE (s.visibility = 'public' OR s.created_by = $2)
+		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
+		  AND at.track_full IS NOT NULL
+		  AND sv.track IS NOT NULL
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 50)`,
+		activityID, userID, sportGroup)
 	if err != nil {
-		return nil, fmt.Errorf("get matchable segments: %w", err)
+		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
 	defer rows.Close()
 
-	var result []MatchableSegment
+	var result []CandidateSegment
 	for rows.Next() {
-		var si MatchableSegment
-		if err := rows.Scan(&si.SegmentID, &si.VersionID, &si.SportGroup); err != nil {
-			return nil, fmt.Errorf("scan matchable segment: %w", err)
+		var c CandidateSegment
+		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM); err != nil {
+			return nil, fmt.Errorf("scan candidate segment: %w", err)
 		}
-		result = append(result, si)
+		result = append(result, c)
 	}
 	return result, nil
 }
 
-// GetActivityTimingForSegment returns the elapsed time in seconds and started_at for an activity.
-func (db *DB) GetActivityTimingForSegment(ctx context.Context, activityID string) (int, time.Time, error) {
-	var elapsedS *int
-	var startedAt time.Time
-	err := db.Pool.QueryRow(ctx,
-		`SELECT elapsed_time_s, started_at FROM activities WHERE id = $1`, activityID,
-	).Scan(&elapsedS, &startedAt)
-	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("get activity timing: %w", err)
-	}
-	elapsed := 0
-	if elapsedS != nil {
-		elapsed = *elapsedS
-	}
-	return elapsed, startedAt, nil
+// SegmentEndpoints holds start/end coordinates and length of a segment version.
+type SegmentEndpoints struct {
+	StartLat  float64
+	StartLng  float64
+	EndLat    float64
+	EndLng    float64
+	LengthM   float64
 }
 
-// MatchSegmentToActivity checks if an activity track matches a segment track using Hausdorff distance.
-// Returns the distance in meters; a match is typically < 30m.
-func (db *DB) MatchSegmentToActivity(ctx context.Context, activityID, segmentVersionID string) (*float64, error) {
+// GetSegmentEndpoints returns start/end point coordinates and geographic length of a segment version.
+func (db *DB) GetSegmentEndpoints(ctx context.Context, versionID string) (*SegmentEndpoints, error) {
+	var ep SegmentEndpoints
+	err := db.Pool.QueryRow(ctx, `
+		SELECT ST_Y(ST_StartPoint(track)), ST_X(ST_StartPoint(track)),
+		       ST_Y(ST_EndPoint(track)), ST_X(ST_EndPoint(track)),
+		       ST_Length(track::geography)
+		FROM segment_versions
+		WHERE id = $1 AND track IS NOT NULL`, versionID,
+	).Scan(&ep.StartLat, &ep.StartLng, &ep.EndLat, &ep.EndLng, &ep.LengthM)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get segment endpoints: %w", err)
+	}
+	return &ep, nil
+}
+
+// GPSStreamPoint is a lightweight GPS point with timestamp for matching.
+type GPSStreamPoint struct {
+	Time time.Time
+	Lat  float64
+	Lng  float64
+}
+
+// GetActivityGPSStream returns all GPS stream points (time, lat, lng) for an activity,
+// ordered chronologically. Only points with valid GPS coordinates are returned.
+func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GPSStreamPoint, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT "time", lat, lng
+		FROM activity_streams
+		WHERE activity_id = $1 AND lat IS NOT NULL AND lng IS NOT NULL
+		ORDER BY "time" ASC`, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get activity GPS stream: %w", err)
+	}
+	defer rows.Close()
+
+	var points []GPSStreamPoint
+	for rows.Next() {
+		var p GPSStreamPoint
+		if err := rows.Scan(&p.Time, &p.Lat, &p.Lng); err != nil {
+			return nil, fmt.Errorf("scan GPS stream point: %w", err)
+		}
+		points = append(points, p)
+	}
+	return points, nil
+}
+
+// VerifySubTrackMatch computes the Hausdorff distance between a sub-track LineString
+// (built from GPS points) and a segment version track. Returns distance in meters.
+func (db *DB) VerifySubTrackMatch(ctx context.Context, versionID string, subTrack []GPSStreamPoint) (*float64, error) {
+	if len(subTrack) < 2 {
+		return nil, nil
+	}
+
+	// Build WKT LINESTRING from sub-track points
+	var sb strings.Builder
+	sb.WriteString("LINESTRING(")
+	for i, p := range subTrack {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%.7f %.7f", p.Lng, p.Lat))
+	}
+	sb.WriteString(")")
+
 	var distance *float64
 	err := db.Pool.QueryRow(ctx, `
 		SELECT ST_HausdorffDistance(
-			ST_Transform(at.track_full, 3857),
+			ST_Transform(ST_SetSRID(ST_GeomFromText($1), 4326), 3857),
 			ST_Transform(sv.track, 3857)
 		)
-		FROM activity_tracks at,
-		     segment_versions sv
-		WHERE at.activity_id = $1
-		  AND sv.id = $2
-		  AND at.track_full IS NOT NULL`,
-		activityID, segmentVersionID,
+		FROM segment_versions sv
+		WHERE sv.id = $2 AND sv.track IS NOT NULL`,
+		sb.String(), versionID,
 	).Scan(&distance)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("match segment: %w", err)
+		return nil, fmt.Errorf("verify sub-track match: %w", err)
 	}
 	return distance, nil
+}
+
+// SegmentEffortMetrics holds stream-based metrics for a segment effort.
+type SegmentEffortMetrics struct {
+	AvgSpeedMs   *float64
+	AvgHeartRate *float64
+	AvgPowerW    *float64
+}
+
+// GetSegmentEffortMetrics computes average speed, heart rate and power from
+// the activity_streams table for a given time range within an activity.
+func (db *DB) GetSegmentEffortMetrics(ctx context.Context, activityID string, startTime, endTime time.Time) (*SegmentEffortMetrics, error) {
+	var m SegmentEffortMetrics
+	err := db.Pool.QueryRow(ctx, `
+		SELECT AVG(speed_ms), AVG(heart_rate::double precision), AVG(power_w::double precision)
+		FROM activity_streams
+		WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3`,
+		activityID, startTime, endTime,
+	).Scan(&m.AvgSpeedMs, &m.AvgHeartRate, &m.AvgPowerW)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get segment effort metrics: %w", err)
+	}
+	return &m, nil
+}
+
+// DeleteSegmentEffortsByActivity removes all segment efforts for a given activity.
+func (db *DB) DeleteSegmentEffortsByActivity(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete segment efforts by activity: %w", err)
+	}
+	return nil
+}
+
+// GetAffectedSegmentIDs returns all segment IDs that have efforts for a given activity.
+func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT DISTINCT segment_id FROM segment_efforts WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get affected segment IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan segment ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// InsertDetectedLaps batch-inserts detected laps for an activity.
+func (db *DB) InsertDetectedLaps(ctx context.Context, activityID string, laps []model.DetectedLap) error {
+	if len(laps) == 0 {
+		return nil
+	}
+	for _, lap := range laps {
+		_, err := db.Pool.Exec(ctx, `
+			INSERT INTO activity_detected_laps (
+				activity_id, lap_number, start_time, end_time, elapsed_time_s,
+				distance_m, avg_speed_ms, avg_heart_rate, avg_power_w, avg_cadence,
+				total_ascent_m, total_descent_m, start_lat, start_lng
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			activityID, lap.LapNumber, lap.StartTime, lap.EndTime, lap.ElapsedTimeS,
+			lap.DistanceM, lap.AvgSpeedMs, lap.AvgHeartRate, lap.AvgPowerW, lap.AvgCadence,
+			lap.TotalAscentM, lap.TotalDescentM, lap.StartLat, lap.StartLng,
+		)
+		if err != nil {
+			return fmt.Errorf("insert detected lap %d: %w", lap.LapNumber, err)
+		}
+	}
+	return nil
+}
+
+// GetDetectedLaps returns all detected laps for an activity, ordered by lap number.
+func (db *DB) GetDetectedLaps(ctx context.Context, activityID string) ([]model.DetectedLap, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, activity_id, lap_number, start_time, end_time, elapsed_time_s,
+		       distance_m, avg_speed_ms, avg_heart_rate, avg_power_w, avg_cadence,
+		       total_ascent_m, total_descent_m, start_lat, start_lng
+		FROM activity_detected_laps
+		WHERE activity_id = $1
+		ORDER BY lap_number ASC`, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get detected laps: %w", err)
+	}
+	defer rows.Close()
+
+	var laps []model.DetectedLap
+	for rows.Next() {
+		var l model.DetectedLap
+		if err := rows.Scan(
+			&l.ID, &l.ActivityID, &l.LapNumber, &l.StartTime, &l.EndTime, &l.ElapsedTimeS,
+			&l.DistanceM, &l.AvgSpeedMs, &l.AvgHeartRate, &l.AvgPowerW, &l.AvgCadence,
+			&l.TotalAscentM, &l.TotalDescentM, &l.StartLat, &l.StartLng,
+		); err != nil {
+			return nil, fmt.Errorf("scan detected lap: %w", err)
+		}
+		laps = append(laps, l)
+	}
+	if laps == nil {
+		laps = []model.DetectedLap{}
+	}
+	return laps, nil
+}
+
+// DeleteDetectedLaps removes all detected laps for an activity.
+func (db *DB) DeleteDetectedLaps(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM activity_detected_laps WHERE activity_id = $1`, activityID)
+	if err != nil {
+		return fmt.Errorf("delete detected laps: %w", err)
+	}
+	return nil
+}
+
+// IsLapDetectionEnabled checks if lap detection is enabled for a user.
+func (db *DB) IsLapDetectionEnabled(ctx context.Context, userID string) bool {
+	var enabled bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT enable_lap_detection FROM user_enrichment_settings WHERE user_id = $1`, userID,
+	).Scan(&enabled)
+	if err != nil {
+		return true // default enabled
+	}
+	return enabled
 }
 
 func sportGroupFromSportType(sportType string) string {

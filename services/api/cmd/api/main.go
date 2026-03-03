@@ -274,6 +274,7 @@ func main() {
 			r.Delete("/segments/{id}", h.DeleteSegment)
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
+			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 		})
 	})
 

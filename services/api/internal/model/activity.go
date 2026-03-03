@@ -588,6 +588,7 @@ type EnrichmentSettings struct {
 	EnableClimbDetection    bool    `json:"enable_climb_detection"`
 	EnableCommuteDetection  bool    `json:"enable_commute_detection"`
 	EnableAutoNaming        bool    `json:"enable_auto_naming"`
+	EnableLapDetection      bool    `json:"enable_lap_detection"`
 	ClimbMinGradientPct     float64 `json:"climb_min_gradient_pct"`
 	ClimbMinElevationM      float64 `json:"climb_min_elevation_m"`
 	RoundTripThresholdM     float64 `json:"round_trip_threshold_m"`

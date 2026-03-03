@@ -185,6 +185,21 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Weather (historical, from Open-Meteo)
+	if data.StartLat != 0 && !data.StartedAt.IsZero() {
+		if weather, err := FetchWeather(data.StartLat, data.StartLng, data.StartedAt); err == nil {
+			fields["weather_temp_c"] = weather.TempC
+			fields["weather_condition"] = weather.Condition
+			fields["weather_humidity"] = weather.Humidity
+			fields["weather_wind_speed_ms"] = weather.WindSpeedMS
+			if len(weather.Tags) > 0 {
+				fields["weather_tags"] = weather.Tags
+			}
+		} else {
+			slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+	}
+
 	// Auto title
 	startCity, _ := fields["start_city"].(string)
 	if title := GenerateAutoTitle(data.SportType, startCity); title != "" {

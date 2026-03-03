@@ -2191,13 +2191,14 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		ON CONFLICT (user_id) DO UPDATE SET user_id = $1
 		RETURNING user_id, enable_summit_detection, enable_weather_enrichment,
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
-			enable_auto_naming, climb_min_gradient_pct, climb_min_elevation_m,
+			enable_auto_naming, enable_lap_detection,
+			climb_min_gradient_pct, climb_min_elevation_m,
 			round_trip_threshold_m`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
 		&s.EnableStopDetection, &s.EnableClimbDetection, &s.EnableCommuteDetection,
-		&s.EnableAutoNaming, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
+		&s.EnableAutoNaming, &s.EnableLapDetection, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
 		&s.RoundTripThresholdM,
 	)
 	if err != nil {
@@ -2212,9 +2213,10 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		INSERT INTO user_enrichment_settings (
 			user_id, enable_summit_detection, enable_weather_enrichment,
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
-			enable_auto_naming, climb_min_gradient_pct, climb_min_elevation_m,
+			enable_auto_naming, enable_lap_detection,
+			climb_min_gradient_pct, climb_min_elevation_m,
 			round_trip_threshold_m
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
 			enable_weather_enrichment = $3,
@@ -2222,12 +2224,13 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_climb_detection = $5,
 			enable_commute_detection = $6,
 			enable_auto_naming = $7,
-			climb_min_gradient_pct = $8,
-			climb_min_elevation_m = $9,
-			round_trip_threshold_m = $10`,
+			enable_lap_detection = $8,
+			climb_min_gradient_pct = $9,
+			climb_min_elevation_m = $10,
+			round_trip_threshold_m = $11`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
-		s.EnableAutoNaming, s.ClimbMinGradientPct, s.ClimbMinElevationM,
+		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
 		s.RoundTripThresholdM,
 	)
 	if err != nil {

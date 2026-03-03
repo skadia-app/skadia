@@ -27,6 +27,7 @@ import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
 import ClimbProChart from '@/components/ClimbProChart'
 import ActivitySegments from '@/components/ActivitySegments'
+import DetectedLapsTable from '@/components/DetectedLapsTable'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -238,6 +239,9 @@ export default function ActivityDetailPage() {
 
       {/* ClimbPro */}
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
+
+      {/* Erkannte Runden */}
+      <DetectedLapsTable activityId={activity.id} />
 
       {/* Segmente */}
       <ActivitySegments activityId={activity.id} />
