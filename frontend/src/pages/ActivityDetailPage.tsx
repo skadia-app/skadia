@@ -26,6 +26,7 @@ import LapTable from '@/components/LapTable'
 import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
 import ClimbProChart from '@/components/ClimbProChart'
+import ActivitySegments from '@/components/ActivitySegments'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -237,6 +238,9 @@ export default function ActivityDetailPage() {
 
       {/* ClimbPro */}
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
+
+      {/* Segmente */}
+      <ActivitySegments activityId={activity.id} />
 
       {/* Zonen-Verteilung */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (

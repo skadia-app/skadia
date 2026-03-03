@@ -8,6 +8,7 @@ import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
+import { fetchSegments, type Segment } from '@/api/segments'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -358,6 +359,11 @@ export default function MapPage() {
   const [selectedPhoto, setSelectedPhoto] = useState<MapPhotoEntry | null>(null)
   const photoMarkersRef = useRef<maplibregl.Marker[]>([])
 
+  // Segments
+  const [showSegments, setShowSegments] = useState(false)
+  const [segmentBbox, setSegmentBbox] = useState<string>('')
+  const segmentPopupRef = useRef<maplibregl.Popup | null>(null)
+
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
 
@@ -397,6 +403,13 @@ export default function MapPage() {
     queryKey: ['map-photos'],
     queryFn: listMapPhotos,
     enabled: showPhotos,
+  })
+
+  // Segments
+  const { data: segmentData = [] } = useQuery({
+    queryKey: ['map-segments', segmentBbox],
+    queryFn: () => fetchSegments(segmentBbox ? { bbox: segmentBbox } : undefined),
+    enabled: showSegments,
   })
 
   // Create marker mutation
@@ -622,6 +635,130 @@ export default function MapPage() {
     }
   }, [showPhotos, mapPhotos, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Segment Layer ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    // Cleanup old segment layers
+    if (map.getLayer('segments-lines')) map.removeLayer('segments-lines')
+    if (map.getSource('segments-geojson')) map.removeSource('segments-geojson')
+    if (segmentPopupRef.current) {
+      segmentPopupRef.current.remove()
+      segmentPopupRef.current = null
+    }
+
+    if (!showSegments || segmentData.length === 0) return
+
+    // Segments API returns segment metadata; we need track geometry which
+    // the API could provide via a geojson field. For now, since segments
+    // are just points/metadata, we show them as markers. If the API returns
+    // a track/geometry field in the future, we can render lines.
+    // For now, show as circle markers using centroid approximation from the
+    // segment bbox / start coordinates if available.
+
+    // Build GeoJSON from segments that have coordinate data
+    const features: GeoJSON.Feature[] = segmentData
+      .filter((s: Segment) => {
+        const meta = s.segment_type_meta as Record<string, unknown> | undefined
+        return meta && typeof meta.start_lat === 'number' && typeof meta.start_lng === 'number'
+      })
+      .map((s: Segment) => {
+        const meta = s.segment_type_meta as Record<string, unknown>
+        return {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [meta.start_lng as number, meta.start_lat as number],
+          },
+          properties: {
+            id: s.id,
+            name: s.name,
+            sport_group: s.sport_group,
+            distance_m: s.distance_m ?? 0,
+            effort_count: s.effort_count,
+          },
+        }
+      })
+
+    if (features.length === 0) return
+
+    const SEGMENT_COLORS: Record<string, string> = {
+      bike: '#F97316',
+      foot: '#22C55E',
+      swim: '#06B6D4',
+      ski: '#3B82F6',
+      paddle: '#3B82F6',
+      generic: '#6B7280',
+    }
+
+    map.addSource('segments-geojson', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features },
+    })
+
+    map.addLayer({
+      id: 'segments-lines',
+      type: 'circle',
+      source: 'segments-geojson',
+      paint: {
+        'circle-radius': 7,
+        'circle-color': [
+          'match', ['get', 'sport_group'],
+          'bike', SEGMENT_COLORS.bike,
+          'foot', SEGMENT_COLORS.foot,
+          'swim', SEGMENT_COLORS.swim,
+          'ski', SEGMENT_COLORS.ski,
+          'paddle', SEGMENT_COLORS.paddle,
+          SEGMENT_COLORS.generic,
+        ] as maplibregl.ExpressionSpecification,
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+        'circle-opacity': 0.9,
+      },
+    })
+
+    // Hover tooltip
+    const popup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: 12,
+    })
+    segmentPopupRef.current = popup
+
+    map.on('mouseenter', 'segments-lines', (e) => {
+      map.getCanvas().style.cursor = 'pointer'
+      if (e.features?.[0]) {
+        const coords = (e.features[0].geometry as GeoJSON.Point).coordinates.slice() as [number, number]
+        const name = e.features[0].properties?.name ?? ''
+        popup.setLngLat(coords).setHTML(`<span style="font-size:12px;font-weight:500">${name}</span>`).addTo(map)
+      }
+    })
+
+    map.on('mouseleave', 'segments-lines', () => {
+      map.getCanvas().style.cursor = ''
+      popup.remove()
+    })
+  }, [showSegments, segmentData, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Update segment bbox on map move ────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !showSegments) return
+
+    function updateBbox() {
+      const bounds = map!.getBounds()
+      const bbox = `${bounds.getWest().toFixed(6)},${bounds.getSouth().toFixed(6)},${bounds.getEast().toFixed(6)},${bounds.getNorth().toFixed(6)}`
+      setSegmentBbox(bbox)
+    }
+
+    updateBbox()
+    map.on('moveend', updateBbox)
+    return () => {
+      map.off('moveend', updateBbox)
+    }
+  }, [showSegments]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleFilterChange = useCallback((next: MapFilterState) => {
     setFilters(next)
     localStorage.setItem('skadia-sport-colors', JSON.stringify(next.colorConfig))
@@ -691,8 +828,18 @@ export default function MapPage() {
           </button>
         </div>
 
-        {/* Toggle buttons for custom maps + photos */}
+        {/* Toggle buttons for custom maps + photos + segments */}
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5">
+          <button
+            onClick={() => setShowSegments(!showSegments)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
+              showSegments
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            Segmente
+          </button>
           <button
             onClick={() => setShowPhotos(!showPhotos)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${

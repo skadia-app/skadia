@@ -9,6 +9,7 @@ const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
 const ActivitiesPage = lazy(() => import('@/pages/ActivitiesPage'))
 const ActivityDetailPage = lazy(() => import('@/pages/ActivityDetailPage'))
 const MapPage = lazy(() => import('@/pages/MapPage'))
+const SegmentsPage = lazy(() => import('@/pages/SegmentsPage'))
 const GearPage = lazy(() => import('@/pages/GearPage'))
 const GearDetailPage = lazy(() => import('@/pages/GearDetailPage'))
 const TagsPage = lazy(() => import('@/pages/TagsPage'))
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="activities" element={<ActivitiesPage />} />
               <Route path="activities/:id" element={<ActivityDetailPage />} />
               <Route path="map" element={<MapPage />} />
+              <Route path="segments" element={<SegmentsPage />} />
               <Route path="workshop" element={<WorkshopPage />} />
               <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
               <Route path="workshop/tags" element={<TagsPage />} />
