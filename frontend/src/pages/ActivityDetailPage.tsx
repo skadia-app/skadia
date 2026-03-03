@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
 import { fetchTags, createTag } from '@/api/tags'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
@@ -22,6 +22,10 @@ import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
 import ActivityPhotoSection from '@/components/ActivityPhotoSection'
+import LapTable from '@/components/LapTable'
+import SplitTable from '@/components/SplitTable'
+import SwimLengthTable from '@/components/SwimLengthTable'
+import ClimbProChart from '@/components/ClimbProChart'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -47,6 +51,30 @@ export default function ActivityDetailPage() {
   const { data: zoneDistribution } = useQuery({
     queryKey: ['zone-distribution', id],
     queryFn: () => getZoneDistribution(id!),
+    enabled: !!id,
+  })
+
+  const { data: laps } = useQuery({
+    queryKey: ['activity-laps', id],
+    queryFn: () => fetchActivityLaps(id!),
+    enabled: !!id,
+  })
+
+  const { data: splitsData } = useQuery({
+    queryKey: ['activity-splits', id],
+    queryFn: () => fetchActivitySplits(id!),
+    enabled: !!id,
+  })
+
+  const { data: lengths } = useQuery({
+    queryKey: ['activity-lengths', id],
+    queryFn: () => fetchActivityLengths(id!),
+    enabled: !!id,
+  })
+
+  const { data: climbPro } = useQuery({
+    queryKey: ['activity-climbpro', id],
+    queryFn: () => fetchActivityClimbPro(id!),
     enabled: !!id,
   })
 
@@ -190,6 +218,25 @@ export default function ActivityDetailPage() {
           sunsetAt={activity.sunset_at}
         />
       )}
+
+      {/* Runden */}
+      {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} />}
+
+      {/* Splits (Klettern zuerst) */}
+      {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (
+        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" />
+      )}
+
+      {/* Bahnen */}
+      {lengths && lengths.length > 0 && <SwimLengthTable lengths={lengths} />}
+
+      {/* Splits (alle anderen) */}
+      {splitsData && splitsData.splits.length > 0 && activity.sport_type !== 'rock_climbing' && (
+        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType={activity.sport_type} />
+      )}
+
+      {/* ClimbPro */}
+      {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
 
       {/* Zonen-Verteilung */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (

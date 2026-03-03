@@ -69,6 +69,12 @@ type ActivityData struct {
 	Streams     []StreamPoint
 	Sensors     []SensorRecord
 	TrackPoints []TrackPoint
+
+	Laps            []LapRecord
+	Splits          []SplitRecord
+	SplitSummaries  []SplitSummaryRecord
+	Lengths         []LengthRecord
+	ClimbProEvents  []ClimbProEventRecord
 }
 
 // StreamPoint is a single time-series data point.
@@ -249,6 +255,225 @@ type SensorResponse struct {
 	SerialNumber     *int64   `json:"serial_number,omitempty"`
 	SoftwareVersion  string   `json:"software_version,omitempty"`
 	BatteryStatus    string   `json:"battery_status,omitempty"`
+}
+
+// LapRecord holds extracted lap data from FIT lap messages.
+type LapRecord struct {
+	MessageIndex     int
+	StartTime        time.Time
+	EndTime          time.Time
+	LapTrigger       string
+	Sport            string
+	SubSport         string
+	TotalElapsedTimeS float64
+	TotalTimerTimeS  float64
+	TotalMovingTimeS float64
+	TotalDistanceM   float64
+	TotalAscentM     int
+	TotalDescentM    int
+	TotalCalories    int
+	AvgSpeedMS       float64
+	MaxSpeedMS       float64
+	AvgHeartRate     int
+	MaxHeartRate     int
+	MinHeartRate     int
+	AvgCadence       int
+	MaxCadence       int
+	AvgPowerW        int
+	MaxPowerW        int
+	NormalizedPowerW int
+	AvgTemperatureC  int
+	StartLat         float64
+	StartLng         float64
+	EndLat           float64
+	EndLng           float64
+	TotalWorkJ       int
+	Intensity        string
+	SwimStroke       string
+	NumLengths       int
+	NumActiveLengths int
+	AvgAltitudeM     float64
+	MaxAltitudeM     float64
+	MinAltitudeM     float64
+}
+
+// LapResponse is the API response for a single lap.
+type LapResponse struct {
+	ID               string     `json:"id"`
+	MessageIndex     int        `json:"message_index"`
+	StartTime        *time.Time `json:"start_time,omitempty"`
+	EndTime          *time.Time `json:"end_time,omitempty"`
+	LapTrigger       string     `json:"lap_trigger,omitempty"`
+	Sport            string     `json:"sport,omitempty"`
+	SubSport         string     `json:"sub_sport,omitempty"`
+	TotalElapsedTimeS *float64  `json:"total_elapsed_time_s,omitempty"`
+	TotalTimerTimeS  *float64   `json:"total_timer_time_s,omitempty"`
+	TotalMovingTimeS *float64   `json:"total_moving_time_s,omitempty"`
+	TotalDistanceM   *float64   `json:"total_distance_m,omitempty"`
+	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
+	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
+	TotalCalories    *int       `json:"total_calories,omitempty"`
+	AvgSpeedMS       *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS       *float64   `json:"max_speed_ms,omitempty"`
+	AvgHeartRate     *int       `json:"avg_heart_rate,omitempty"`
+	MaxHeartRate     *int       `json:"max_heart_rate,omitempty"`
+	MinHeartRate     *int       `json:"min_heart_rate,omitempty"`
+	AvgCadence       *int       `json:"avg_cadence,omitempty"`
+	MaxCadence       *int       `json:"max_cadence,omitempty"`
+	AvgPowerW        *int       `json:"avg_power_w,omitempty"`
+	MaxPowerW        *int       `json:"max_power_w,omitempty"`
+	NormalizedPowerW *int       `json:"normalized_power_w,omitempty"`
+	AvgTemperatureC  *int       `json:"avg_temperature_c,omitempty"`
+	StartLat         *float64   `json:"start_lat,omitempty"`
+	StartLng         *float64   `json:"start_lng,omitempty"`
+	EndLat           *float64   `json:"end_lat,omitempty"`
+	EndLng           *float64   `json:"end_lng,omitempty"`
+	TotalWorkJ       *int       `json:"total_work_j,omitempty"`
+	Intensity        string     `json:"intensity,omitempty"`
+	SwimStroke       string     `json:"swim_stroke,omitempty"`
+	NumLengths       *int       `json:"num_lengths,omitempty"`
+	NumActiveLengths *int       `json:"num_active_lengths,omitempty"`
+	AvgAltitudeM     *float64   `json:"avg_altitude_m,omitempty"`
+	MaxAltitudeM     *float64   `json:"max_altitude_m,omitempty"`
+	MinAltitudeM     *float64   `json:"min_altitude_m,omitempty"`
+}
+
+// SplitRecord holds extracted split data from FIT split messages.
+type SplitRecord struct {
+	MessageIndex     int
+	SplitType        string
+	StartTime        time.Time
+	EndTime          time.Time
+	TotalElapsedTimeS float64
+	TotalTimerTimeS  float64
+	TotalMovingTimeS float64
+	TotalDistanceM   float64
+	TotalAscentM     int
+	TotalDescentM    int
+	TotalCalories    int
+	AvgSpeedMS       float64
+	MaxSpeedMS       float64
+	AvgVertSpeedMS   float64
+	StartLat         float64
+	StartLng         float64
+	EndLat           float64
+	EndLng           float64
+	StartElevationM  float64
+}
+
+// SplitResponse is the API response for a single split.
+type SplitResponse struct {
+	ID               string     `json:"id"`
+	MessageIndex     int        `json:"message_index"`
+	SplitType        string     `json:"split_type,omitempty"`
+	StartTime        *time.Time `json:"start_time,omitempty"`
+	EndTime          *time.Time `json:"end_time,omitempty"`
+	TotalElapsedTimeS *float64  `json:"total_elapsed_time_s,omitempty"`
+	TotalTimerTimeS  *float64   `json:"total_timer_time_s,omitempty"`
+	TotalMovingTimeS *float64   `json:"total_moving_time_s,omitempty"`
+	TotalDistanceM   *float64   `json:"total_distance_m,omitempty"`
+	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
+	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
+	TotalCalories    *int       `json:"total_calories,omitempty"`
+	AvgSpeedMS       *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS       *float64   `json:"max_speed_ms,omitempty"`
+	AvgVertSpeedMS   *float64   `json:"avg_vert_speed_ms,omitempty"`
+	StartLat         *float64   `json:"start_lat,omitempty"`
+	StartLng         *float64   `json:"start_lng,omitempty"`
+	EndLat           *float64   `json:"end_lat,omitempty"`
+	EndLng           *float64   `json:"end_lng,omitempty"`
+	StartElevationM  *float64   `json:"start_elevation_m,omitempty"`
+}
+
+// SplitSummaryRecord holds extracted split summary data from FIT split_summary messages.
+type SplitSummaryRecord struct {
+	MessageIndex     int
+	SplitType        string
+	NumSplits        int
+	TotalTimerTimeS  float64
+	TotalMovingTimeS float64
+	TotalDistanceM   float64
+	TotalAscentM     int
+	TotalDescentM    int
+	TotalCalories    int
+	AvgSpeedMS       float64
+	MaxSpeedMS       float64
+	AvgVertSpeedMS   float64
+	AvgHeartRate     int
+	MaxHeartRate     int
+}
+
+// SplitSummaryResponse is the API response for a single split summary.
+type SplitSummaryResponse struct {
+	ID               string   `json:"id"`
+	MessageIndex     int      `json:"message_index"`
+	SplitType        string   `json:"split_type,omitempty"`
+	NumSplits        *int     `json:"num_splits,omitempty"`
+	TotalTimerTimeS  *float64 `json:"total_timer_time_s,omitempty"`
+	TotalMovingTimeS *float64 `json:"total_moving_time_s,omitempty"`
+	TotalDistanceM   *float64 `json:"total_distance_m,omitempty"`
+	TotalAscentM     *int     `json:"total_ascent_m,omitempty"`
+	TotalDescentM    *int     `json:"total_descent_m,omitempty"`
+	TotalCalories    *int     `json:"total_calories,omitempty"`
+	AvgSpeedMS       *float64 `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS       *float64 `json:"max_speed_ms,omitempty"`
+	AvgVertSpeedMS   *float64 `json:"avg_vert_speed_ms,omitempty"`
+	AvgHeartRate     *int     `json:"avg_heart_rate,omitempty"`
+	MaxHeartRate     *int     `json:"max_heart_rate,omitempty"`
+}
+
+// LengthRecord holds extracted swim length data from FIT length messages.
+type LengthRecord struct {
+	MessageIndex       int
+	StartTime          time.Time
+	EndTime            time.Time
+	TotalElapsedTimeS  float64
+	TotalTimerTimeS    float64
+	TotalStrokes       int
+	TotalCalories      int
+	AvgSpeedMS         float64
+	AvgSwimmingCadence int
+	SwimStroke         string
+	LengthType         string
+}
+
+// LengthResponse is the API response for a single swim length.
+type LengthResponse struct {
+	ID                 string     `json:"id"`
+	MessageIndex       int        `json:"message_index"`
+	StartTime          *time.Time `json:"start_time,omitempty"`
+	EndTime            *time.Time `json:"end_time,omitempty"`
+	TotalElapsedTimeS  *float64   `json:"total_elapsed_time_s,omitempty"`
+	TotalTimerTimeS    *float64   `json:"total_timer_time_s,omitempty"`
+	TotalStrokes       *int       `json:"total_strokes,omitempty"`
+	TotalCalories      *int       `json:"total_calories,omitempty"`
+	AvgSpeedMS         *float64   `json:"avg_speed_ms,omitempty"`
+	AvgSwimmingCadence *int       `json:"avg_swimming_cadence,omitempty"`
+	SwimStroke         string     `json:"swim_stroke,omitempty"`
+	LengthType         string     `json:"length_type,omitempty"`
+}
+
+// ClimbProEventRecord holds extracted ClimbPro event data from FIT climb_pro messages.
+type ClimbProEventRecord struct {
+	Timestamp     time.Time
+	EventType     string
+	ClimbNumber   int
+	ClimbCategory int
+	CurrentDistM  float64
+	Lat           float64
+	Lng           float64
+}
+
+// ClimbProEventResponse is the API response for a single ClimbPro event.
+type ClimbProEventResponse struct {
+	ID            string     `json:"id"`
+	Timestamp     *time.Time `json:"timestamp,omitempty"`
+	EventType     string     `json:"event_type,omitempty"`
+	ClimbNumber   *int       `json:"climb_number,omitempty"`
+	ClimbCategory *int       `json:"climb_category,omitempty"`
+	CurrentDistM  *float64   `json:"current_dist_m,omitempty"`
+	Lat           *float64   `json:"lat,omitempty"`
+	Lng           *float64   `json:"lng,omitempty"`
 }
 
 // UploadResponse wraps the activity with optional warnings.

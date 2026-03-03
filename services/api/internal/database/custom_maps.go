@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -21,7 +23,7 @@ func (db *DB) ListCustomMaps(ctx context.Context, userID string) ([]model.Custom
 		return nil, err
 	}
 	defer rows.Close()
-	var maps []model.CustomMap
+	maps := make([]model.CustomMap, 0)
 	for rows.Next() {
 		var m model.CustomMap
 		if err := rows.Scan(&m.ID, &m.UserID, &m.Name, &m.Description, &m.Color, &m.IsVisible,
@@ -65,8 +67,14 @@ func (db *DB) UpdateCustomMap(ctx context.Context, id, userID string, req model.
 }
 
 func (db *DB) DeleteCustomMap(ctx context.Context, id, userID string) error {
-	_, err := db.Pool.Exec(ctx, `DELETE FROM custom_maps WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM custom_maps WHERE id = $1 AND user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) ListCustomMapMarkers(ctx context.Context, mapID, userID string) ([]model.CustomMapMarker, error) {
@@ -80,7 +88,7 @@ func (db *DB) ListCustomMapMarkers(ctx context.Context, mapID, userID string) ([
 		return nil, err
 	}
 	defer rows.Close()
-	var markers []model.CustomMapMarker
+	markers := make([]model.CustomMapMarker, 0)
 	for rows.Next() {
 		var mk model.CustomMapMarker
 		if err := rows.Scan(&mk.ID, &mk.MapID, &mk.UserID, &mk.Name, &mk.Description,
@@ -125,6 +133,12 @@ func (db *DB) UpdateCustomMapMarker(ctx context.Context, id, mapID, userID strin
 }
 
 func (db *DB) DeleteCustomMapMarker(ctx context.Context, id, mapID, userID string) error {
-	_, err := db.Pool.Exec(ctx, `DELETE FROM custom_map_markers WHERE id = $1 AND map_id = $2 AND user_id = $3`, id, mapID, userID)
-	return err
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM custom_map_markers WHERE id = $1 AND map_id = $2 AND user_id = $3`, id, mapID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }

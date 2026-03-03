@@ -224,6 +224,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 // scope controls which categories to reprocess (nil = all):
 //   - "streams": streams + track
 //   - "sensors": sensor records
+//   - "details": laps, splits, split summaries, lengths, climb pro events
 //   - "metrics": all computed metrics (times, distances, HR, power, etc.)
 //   - "sport_type": sport_type + sub_type (only if not manually set)
 //   - "tags": re-evaluate autotag rules and update tags
@@ -234,6 +235,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doMetrics := allScope || scope["metrics"]
 	doSportType := allScope || scope["sport_type"]
 	doTags := allScope || scope["tags"]
+	doDetails := allScope || scope["details"]
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -309,6 +311,40 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 		if err := h.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
 			return fmt.Errorf("insert sensors: %w", err)
+		}
+	}
+
+	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro).
+	if doDetails {
+		if err := h.DB.DeleteLaps(ctx, activityID); err != nil {
+			return fmt.Errorf("delete laps: %w", err)
+		}
+		if err := h.DB.DeleteSplits(ctx, activityID); err != nil {
+			return fmt.Errorf("delete splits: %w", err)
+		}
+		if err := h.DB.DeleteSplitSummaries(ctx, activityID); err != nil {
+			return fmt.Errorf("delete split summaries: %w", err)
+		}
+		if err := h.DB.DeleteLengths(ctx, activityID); err != nil {
+			return fmt.Errorf("delete lengths: %w", err)
+		}
+		if err := h.DB.DeleteClimbProEvents(ctx, activityID); err != nil {
+			return fmt.Errorf("delete climb pro events: %w", err)
+		}
+		if err := h.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
+			return fmt.Errorf("insert laps: %w", err)
+		}
+		if err := h.DB.InsertSplits(ctx, activityID, data.Splits); err != nil {
+			return fmt.Errorf("insert splits: %w", err)
+		}
+		if err := h.DB.InsertSplitSummaries(ctx, activityID, data.SplitSummaries); err != nil {
+			return fmt.Errorf("insert split summaries: %w", err)
+		}
+		if err := h.DB.InsertLengths(ctx, activityID, data.Lengths); err != nil {
+			return fmt.Errorf("insert lengths: %w", err)
+		}
+		if err := h.DB.InsertClimbProEvents(ctx, activityID, data.ClimbProEvents); err != nil {
+			return fmt.Errorf("insert climb pro events: %w", err)
 		}
 	}
 

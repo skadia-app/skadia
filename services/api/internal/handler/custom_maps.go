@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -66,6 +67,10 @@ func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	mapID := chi.URLParam(r, "mapID")
 	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "Not Found", "custom map not found", r.URL.Path)
+			return
+		}
 		slog.Error("delete custom map failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete custom map", r.URL.Path)
 		return
@@ -129,6 +134,10 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
 	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
+			return
+		}
 		slog.Error("delete custom map marker failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete marker", r.URL.Path)
 		return

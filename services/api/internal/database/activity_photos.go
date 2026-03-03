@@ -35,7 +35,7 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 		return nil, err
 	}
 	defer rows.Close()
-	var photos []model.ActivityPhoto
+	photos := make([]model.ActivityPhoto, 0)
 	for rows.Next() {
 		var p model.ActivityPhoto
 		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb,
@@ -70,7 +70,7 @@ func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucke
 
 func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhotoEntry, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT ap.id, ap.activity_id, a.name, ap.lat, ap.lng, ap.taken_at
+		SELECT ap.id, ap.activity_id, a.title, ap.lat, ap.lng, ap.taken_at
 		FROM activity_photos ap
 		LEFT JOIN activities a ON a.id = ap.activity_id
 		WHERE ap.user_id = $1 AND ap.lat IS NOT NULL AND ap.lng IS NOT NULL
@@ -80,7 +80,7 @@ func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhot
 		return nil, err
 	}
 	defer rows.Close()
-	var entries []model.MapPhotoEntry
+	entries := make([]model.MapPhotoEntry, 0)
 	for rows.Next() {
 		var e model.MapPhotoEntry
 		if err := rows.Scan(&e.ID, &e.ActivityID, &e.ActivityTitle, &e.Lat, &e.Lng, &e.TakenAt); err != nil {

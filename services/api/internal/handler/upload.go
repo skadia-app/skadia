@@ -174,6 +174,23 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert sensors failed", "error", err)
 	}
 
+	// Insert activity details (laps, splits, lengths, climb pro)
+	if err := h.DB.InsertLaps(r.Context(), activity.ID, data.Laps); err != nil {
+		slog.Error("insert laps failed", "error", err)
+	}
+	if err := h.DB.InsertSplits(r.Context(), activity.ID, data.Splits); err != nil {
+		slog.Error("insert splits failed", "error", err)
+	}
+	if err := h.DB.InsertSplitSummaries(r.Context(), activity.ID, data.SplitSummaries); err != nil {
+		slog.Error("insert split summaries failed", "error", err)
+	}
+	if err := h.DB.InsertLengths(r.Context(), activity.ID, data.Lengths); err != nil {
+		slog.Error("insert lengths failed", "error", err)
+	}
+	if err := h.DB.InsertClimbProEvents(r.Context(), activity.ID, data.ClimbProEvents); err != nil {
+		slog.Error("insert climb pro events failed", "error", err)
+	}
+
 	// Save time-in-zone data (from FIT time_in_zone messages or session arrays)
 	if len(data.TimeInZoneData) > 0 {
 		if err := h.DB.SaveTimeInZones(r.Context(), activity.ID, data.TimeInZoneData); err != nil {

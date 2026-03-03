@@ -20,7 +20,7 @@ export default function WorkshopReprocessPage() {
   const [search, setSearch] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [result, setResult] = useState<ReprocessResult | null>(null)
-  const [scope, setScope] = useState<Set<string>>(new Set(['streams', 'sensors', 'metrics']))
+  const [scope, setScope] = useState<Set<string>>(new Set(['streams', 'sensors', 'metrics', 'details']))
 
   const { data: activitiesData } = useQuery({
     queryKey: ['activities-for-reprocess'],
@@ -49,7 +49,7 @@ export default function WorkshopReprocessPage() {
   }
 
   function buildFilter(): ReprocessFilter | undefined {
-    const scopeArr = scope.size > 0 && scope.size < 5 ? Array.from(scope) : undefined
+    const scopeArr = scope.size > 0 && scope.size < 6 ? Array.from(scope) : undefined
 
     if (mode === 'selection') {
       if (selectedIds.size === 0) return undefined
@@ -300,6 +300,7 @@ export default function WorkshopReprocessPage() {
               ['streams', 'Streams & Track'],
               ['sensors', 'Sensoren'],
               ['metrics', 'Metriken'],
+              ['details', 'Runden/Splits'],
               ['sport_type', 'Sportart'],
               ['tags', 'Tags'],
             ] as const).map(([key, label]) => (
@@ -355,6 +356,7 @@ export default function WorkshopReprocessPage() {
                   scope.has('streams') && 'Streams & Track',
                   scope.has('sensors') && 'Sensoren',
                   scope.has('metrics') && 'Metriken',
+                  scope.has('details') && 'Runden/Splits',
                   scope.has('sport_type') && 'Sportart',
                   scope.has('tags') && 'Tags',
                 ].filter(Boolean).join(', ')}

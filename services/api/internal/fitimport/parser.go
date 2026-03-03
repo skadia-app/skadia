@@ -159,6 +159,11 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var userProfile *mesgdef.UserProfile
 	var zonesTarget *mesgdef.ZonesTarget
 	var timeInZones []*mesgdef.TimeInZone
+	var laps []*mesgdef.Lap
+	var splits []*mesgdef.Split
+	var splitSummaries []*mesgdef.SplitSummary
+	var lengths []*mesgdef.Length
+	var climbPros []*mesgdef.ClimbPro
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -176,6 +181,16 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			zonesTarget = mesgdef.NewZonesTarget(&fit.Messages[i])
 		case typedef.MesgNumTimeInZone:
 			timeInZones = append(timeInZones, mesgdef.NewTimeInZone(&fit.Messages[i]))
+		case typedef.MesgNumLap:
+			laps = append(laps, mesgdef.NewLap(&fit.Messages[i]))
+		case typedef.MesgNumSplit:
+			splits = append(splits, mesgdef.NewSplit(&fit.Messages[i]))
+		case typedef.MesgNumSplitSummary:
+			splitSummaries = append(splitSummaries, mesgdef.NewSplitSummary(&fit.Messages[i]))
+		case typedef.MesgNumLength:
+			lengths = append(lengths, mesgdef.NewLength(&fit.Messages[i]))
+		case typedef.MesgNumClimbPro:
+			climbPros = append(climbPros, mesgdef.NewClimbPro(&fit.Messages[i]))
 		}
 	}
 
@@ -435,6 +450,13 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.Streams = ExtractStreams(records)
 	data.TrackPoints = ExtractTrackPoints(records)
 	data.Sensors = ExtractSensors(deviceInfos)
+
+	// Extract laps, splits, lengths, climb pro events
+	data.Laps = ExtractLaps(laps)
+	data.Splits = ExtractSplits(splits)
+	data.SplitSummaries = ExtractSplitSummaries(splitSummaries)
+	data.Lengths = ExtractLengths(lengths)
+	data.ClimbProEvents = ExtractClimbProEvents(climbPros)
 
 	// Refine MovingTimeS using stream data when speed or GPS information is
 	// available. The device's TotalTimerTime (already set above) is a valid
