@@ -1,10 +1,101 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
+
+const SWATCH_PRESETS = [
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16',
+  '#22c55e','#10b981','#06b6d4','#3b82f6','#6366f1',
+  '#8b5cf6','#a855f7','#ec4899','#6b7280','#1c1c1c',
+  '#ffffff','#e2e8f0','#fbbf24',
+]
+
+function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [hex, setHex] = useState(value)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  useEffect(() => { setHex(value) }, [value])
+
+  const handleOpen = () => {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      const popW = 168
+      const popH = 130
+      let left = rect.left - popW - 6
+      let top = rect.top
+      if (left < 6) left = rect.right + 6
+      if (top + popH > window.innerHeight - 6) top = window.innerHeight - popH - 6
+      setPos({ top, left })
+    }
+    setOpen(v => !v)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handle = (e: MouseEvent) => {
+      if (btnRef.current && !btnRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  const handleHexChange = (v: string) => {
+    setHex(v)
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v)
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={handleOpen}
+        className="w-7 h-5 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer flex-shrink-0"
+        style={{ backgroundColor: value }}
+        title={value}
+      />
+      {open && createPortal(
+        <div
+          className="fixed z-[9999] rounded-lg shadow-2xl p-2 border"
+          style={{
+            top: pos.top,
+            left: pos.left,
+            width: 168,
+            background: 'var(--tw-bg-opacity, 1)',
+            backgroundColor: 'rgb(255 255 255)',
+          }}
+        >
+          <div className="grid grid-cols-6 gap-1 mb-2">
+            {SWATCH_PRESETS.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => { onChange(c); setHex(c); setOpen(false) }}
+                className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border border-neutral-200"
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
+          <input
+            type="text"
+            value={hex}
+            onChange={e => handleHexChange(e.target.value)}
+            className="w-full px-2 py-0.5 text-xs font-mono rounded border border-neutral-200 bg-white text-neutral-800 outline-none"
+            placeholder="#rrggbb"
+            maxLength={7}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
 
 interface Props {
   filters: MapFilterState
@@ -238,11 +329,9 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
               {filters.colorConfig.mode === 'uniform' && (
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
-                  <input
-                    type="color"
+                  <ColorSwatch
                     value={filters.colorConfig.uniformColor}
-                    onChange={(e) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: e.target.value } })}
-                    className="w-8 h-6 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer"
+                    onChange={(c) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: c } })}
                   />
                 </div>
               )}
@@ -252,17 +341,15 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                   {CATEGORIES.map(({ key, label, color }) => (
                     <div key={key} className="flex items-center gap-2">
                       <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
-                      <input
-                        type="color"
+                      <ColorSwatch
                         value={filters.colorConfig.colors[key] ?? color}
-                        onChange={(e) => onChange({
+                        onChange={(c) => onChange({
                           ...filters,
                           colorConfig: {
                             ...filters.colorConfig,
-                            colors: { ...filters.colorConfig.colors, [key]: e.target.value },
+                            colors: { ...filters.colorConfig.colors, [key]: c },
                           },
                         })}
-                        className="w-8 h-6 rounded border border-neutral-300 dark:border-neutral-600 cursor-pointer"
                       />
                     </div>
                   ))}
@@ -285,7 +372,7 @@ export default function MapFilters({ filters, onChange, forceDark }: Props) {
                   onChange={(e) => onChange({ ...filters, showLocationTags: e.target.checked })}
                   className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
                 />
-                <span className="text-sm text-neutral-700 dark:text-neutral-300">Standorte anzeigen</span>
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">Standort-Pins einblenden</span>
               </label>
             </div>
 

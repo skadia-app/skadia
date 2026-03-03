@@ -101,3 +101,24 @@ export class ApiError extends Error {
     this.name = 'ApiError'
   }
 }
+
+/** Authenticated binary download: fetches a protected URL with auth header and returns a Blob */
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename?: string }> {
+  const token = getToken()
+  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const res = await fetch(url, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    credentials: 'include',
+  })
+  if (res.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError(401, 'Unauthorized')
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const match = cd.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : undefined
+  return { blob, filename }
+}

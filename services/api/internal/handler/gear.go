@@ -1,10 +1,15 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +18,9 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -596,10 +604,10 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	gearID := chi.URLParam(r, "id")
 
-	// Limit to 10MB
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 10MB", r.URL.Path)
+	// Limit to 30MB
+	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
+	if err := r.ParseMultipartForm(30 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
 		return
 	}
 
@@ -621,10 +629,29 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		contentType = http.DetectContentType(data)
 	}
 
-	allowed := map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true, "application/pdf": true}
+	allowed := map[string]bool{
+		"image/jpeg":      true,
+		"image/png":       true,
+		"image/webp":      true,
+		"image/gif":       true,
+		"image/tiff":      true,
+		"image/bmp":       true,
+		"application/pdf": true,
+	}
 	if !allowed[contentType] {
-		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, PDF", r.URL.Path)
+		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
 		return
+	}
+
+	// Check pixel dimensions for images (max 200 megapixels)
+	if strings.HasPrefix(contentType, "image/") {
+		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
+		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
+				writeError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
+				return
+			}
+		}
 	}
 
 	// SHA256 hash
@@ -641,6 +668,12 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			ext = ".png"
 		case "image/webp":
 			ext = ".webp"
+		case "image/gif":
+			ext = ".gif"
+		case "image/tiff":
+			ext = ".tiff"
+		case "image/bmp":
+			ext = ".bmp"
 		case "application/pdf":
 			ext = ".pdf"
 		}
@@ -703,6 +736,136 @@ func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
 	docs, err := h.DB.ListGearDocuments(r.Context(), gearID)
 	if err != nil {
 		slog.Error("list gear documents failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, docs)
+}
+
+// UploadComponentDocument uploads a photo/document for a specific gear component.
+func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	componentID := chi.URLParam(r, "id")
+
+	// Limit to 30MB
+	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
+	if err := r.ParseMultipartForm(30 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
+		return
+	}
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	allowed := map[string]bool{
+		"image/jpeg": true, "image/png": true, "image/webp": true,
+		"image/gif": true, "image/tiff": true, "image/bmp": true,
+		"application/pdf": true,
+	}
+	if !allowed[contentType] {
+		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
+		return
+	}
+
+	if strings.HasPrefix(contentType, "image/") {
+		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
+		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
+				writeError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
+				return
+			}
+		}
+	}
+
+	hash := sha256.Sum256(data)
+	hashStr := hex.EncodeToString(hash[:])
+
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		switch contentType {
+		case "image/jpeg":
+			ext = ".jpg"
+		case "image/png":
+			ext = ".png"
+		case "image/webp":
+			ext = ".webp"
+		case "image/gif":
+			ext = ".gif"
+		case "image/tiff":
+			ext = ".tiff"
+		case "image/bmp":
+			ext = ".bmp"
+		case "application/pdf":
+			ext = ".pdf"
+		}
+	}
+
+	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+	if mediaBucket == "" {
+		mediaBucket = "skadia-media"
+	}
+	s3Key := fmt.Sprintf("gear-component/%s/%s/%s%s", userID, componentID, hashStr, ext)
+
+	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
+		slog.Error("s3 upload failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+		return
+	}
+
+	docType := "photo"
+	if !strings.HasPrefix(contentType, "image/") {
+		docType = "other"
+	}
+	title := r.FormValue("title")
+	var titlePtr *string
+	if title != "" {
+		titlePtr = &title
+	}
+
+	doc := &model.GearDocument{
+		UserID:           userID,
+		ComponentID:      &componentID,
+		DocType:          docType,
+		Title:            titlePtr,
+		OriginalFilename: header.Filename,
+		ContentType:      contentType,
+		FileSizeBytes:    int64(len(data)),
+		FileHash:         &hashStr,
+		S3Bucket:         mediaBucket,
+		S3Key:            s3Key,
+	}
+
+	result, err := h.DB.InsertGearDocument(r.Context(), doc)
+	if err != nil {
+		slog.Error("insert component document failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// ListComponentDocuments returns all documents for a gear component.
+func (h *Handler) ListComponentDocuments(w http.ResponseWriter, r *http.Request) {
+	componentID := chi.URLParam(r, "id")
+	docs, err := h.DB.ListComponentDocuments(r.Context(), componentID)
+	if err != nil {
+		slog.Error("list component documents failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
 		return
 	}

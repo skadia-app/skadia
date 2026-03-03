@@ -195,6 +195,7 @@ func main() {
 			r.Patch("/tags/{id}", h.UpdateTag)
 			r.Delete("/tags/{id}", h.DeleteTag)
 			r.Post("/tags/seed-defaults", h.SeedDefaultTags)
+			r.Get("/tags/{id}/activities", h.GetTagActivities)
 
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)
@@ -242,6 +243,8 @@ func main() {
 			r.Get("/gear/components/{id}/services", h.ListServiceEvents)
 			r.Post("/gear/components/{id}/services", h.CreateServiceEvent)
 			r.Delete("/gear/services/{id}", h.DeleteServiceEvent)
+			r.Post("/gear/components/{id}/documents", h.UploadComponentDocument)
+			r.Get("/gear/components/{id}/documents", h.ListComponentDocuments)
 
 			r.Get("/automation-rules", h.ListRules)
 			r.Post("/automation-rules", h.CreateRule)

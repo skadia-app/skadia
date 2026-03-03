@@ -11,7 +11,7 @@ import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
-import { fetchTags, updateTag, type Tag } from '@/api/tags'
+import { fetchTags, updateTag, fetchTagActivities, type Tag, type TagActivity } from '@/api/tags'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -372,6 +372,8 @@ export default function MapPage() {
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
   const [selectedLocationTag, setSelectedLocationTag] = useState<Tag | null>(null)
+  const [tagActivitiesLoading, setTagActivitiesLoading] = useState(false)
+  const [tagActivities, setTagActivities] = useState<TagActivity[]>([])
   const [newLocationPick, setNewLocationPick] = useState<{
     name: string
     color: string
@@ -685,44 +687,47 @@ export default function MapPage() {
     locationTags.forEach(tag => {
       if (tag.lat == null || tag.lng == null) return
 
-      // Build bubble element
       const el = document.createElement('div')
       el.style.cssText = `
-        position: relative;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
         cursor: pointer;
+        width: 36px;
       `
 
-      const bubble = document.createElement('div')
-      bubble.style.cssText = `
+      // Pin circle
+      const circle = document.createElement('div')
+      circle.style.cssText = `
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
         background: ${tag.color || '#6366F1'};
+        border: 2px solid rgba(255,255,255,0.9);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
         color: ${tag.text_color || '#ffffff'};
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-        white-space: nowrap;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        border: 2px solid rgba(255,255,255,0.3);
-        user-select: none;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
       `
-      bubble.textContent = tag.name + (tag.activity_count > 0 ? ` (${tag.activity_count})` : '')
+      circle.textContent = tag.activity_count > 0 ? String(tag.activity_count) : tag.name.charAt(0).toUpperCase()
 
-      // CSS arrow below bubble
-      const arrow = document.createElement('div')
-      arrow.style.cssText = `
-        position: absolute;
-        bottom: -7px;
-        left: 50%;
-        transform: translateX(-50%);
+      // Pin tail
+      const tail = document.createElement('div')
+      tail.style.cssText = `
         width: 0;
         height: 0;
         border-left: 6px solid transparent;
         border-right: 6px solid transparent;
-        border-top: 7px solid ${tag.color || '#6366F1'};
+        border-top: 8px solid ${tag.color || '#6366F1'};
+        flex-shrink: 0;
       `
 
-      el.appendChild(bubble)
-      el.appendChild(arrow)
+      el.appendChild(circle)
+      el.appendChild(tail)
 
       el.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -735,7 +740,6 @@ export default function MapPage() {
 
       marker.on('dragend', () => {
         const { lat, lng } = marker.getLngLat()
-        // Optimistic update
         queryClient.setQueryData<Tag[]>(['tags'], (prev) =>
           prev ? prev.map(t => t.id === tag.id ? { ...t, lat, lng } : t) : prev
         )
@@ -939,6 +943,19 @@ export default function MapPage() {
     localStorage.setItem('skadia-sport-colors', JSON.stringify(next.colorConfig))
   }, [])
 
+  // Load activities for the selected location tag popup
+  useEffect(() => {
+    if (!selectedLocationTag) {
+      setTagActivities([])
+      return
+    }
+    setTagActivitiesLoading(true)
+    fetchTagActivities(selectedLocationTag.id)
+      .then(acts => setTagActivities(acts))
+      .catch(() => setTagActivities([]))
+      .finally(() => setTagActivitiesLoading(false))
+  }, [selectedLocationTag])
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="relative flex-1 min-h-0">
@@ -1081,10 +1098,11 @@ export default function MapPage() {
             onClick={() => setSelectedLocationTag(null)}
           >
             <div
-              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden"
+              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden max-h-[80vh] flex flex-col"
               onClick={e => e.stopPropagation()}
             >
-              <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3">
+              {/* Header */}
+              <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 flex-shrink-0">
                 <span
                   className="inline-block px-3 py-1 rounded-full text-sm font-semibold"
                   style={{ backgroundColor: selectedLocationTag.color, color: selectedLocationTag.text_color }}
@@ -1094,31 +1112,55 @@ export default function MapPage() {
                 <span className="text-xs text-neutral-400 ml-auto">
                   {selectedLocationTag.lat?.toFixed(4)}, {selectedLocationTag.lng?.toFixed(4)}
                 </span>
-              </div>
-              <div className="p-4">
-                <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                  {selectedLocationTag.activity_count > 0
-                    ? `${selectedLocationTag.activity_count} Aktivitäten mit diesem Tag`
-                    : 'Noch keine Aktivitäten zugeordnet'}
-                </p>
-                {selectedLocationTag.description && (
-                  <p className="text-xs text-neutral-500 mt-1">{selectedLocationTag.description}</p>
-                )}
-              </div>
-              <div className="px-4 pb-4 flex gap-2">
-                <a
-                  href={`/activities?tag=${encodeURIComponent(selectedLocationTag.name)}`}
-                  className="flex-1 text-center px-3 py-1.5 rounded-lg text-sm text-orange-500 border border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20"
-                  onClick={() => setSelectedLocationTag(null)}
-                >
-                  Aktivitäten anzeigen
-                </a>
                 <button
                   onClick={() => setSelectedLocationTag(null)}
-                  className="px-3 py-1.5 rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer ml-1"
                 >
-                  Schließen
+                  ✕
                 </button>
+              </div>
+
+              {/* Activity list */}
+              <div className="overflow-y-auto flex-1">
+                {tagActivitiesLoading ? (
+                  <div className="flex items-center justify-center py-6 text-sm text-neutral-400">Laden...</div>
+                ) : tagActivities.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-neutral-400 text-center">
+                    {selectedLocationTag.description && (
+                      <p className="mb-2 text-xs">{selectedLocationTag.description}</p>
+                    )}
+                    Noch keine Aktivitäten zugeordnet
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                    {tagActivities.map(act => {
+                      const displayTitle = act.title || act.title_auto || 'Aktivität'
+                      const date = new Date(act.started_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      const dist = act.distance_m != null
+                        ? act.distance_m >= 1000
+                          ? `${(act.distance_m / 1000).toFixed(1)} km`
+                          : `${Math.round(act.distance_m)} m`
+                        : null
+                      return (
+                        <li key={act.id}>
+                          <a
+                            href={`/activities/${act.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between px-4 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+                            onClick={() => setSelectedLocationTag(null)}
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate max-w-[180px]">{displayTitle}</p>
+                              <p className="text-xs text-neutral-400">{date}</p>
+                            </div>
+                            {dist && <span className="text-xs text-neutral-400 ml-2 flex-shrink-0">{dist}</span>}
+                          </a>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
               </div>
             </div>
           </div>

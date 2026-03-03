@@ -4,12 +4,12 @@ import { fetchSegments, fetchSegmentLeaderboard, deleteSegment } from '@/api/seg
 import SegmentCreationPanel from '@/components/SegmentCreationPanel'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
-  bike: 'Rad',
-  foot: 'Zu Fuss',
+  bike: 'Radfahren',
+  foot: 'Laufsport',
   swim: 'Schwimmen',
-  ski: 'Ski',
+  ski: 'Wintersport',
   paddle: 'Paddeln',
-  generic: 'Allgemein',
+  generic: 'Sonstiges',
 }
 
 const SPORT_GROUP_ICONS: Record<string, string> = {

@@ -121,3 +121,16 @@ export async function deleteTag(id: string): Promise<void> {
 export async function seedDefaultTags(): Promise<{ created: number }> {
   return apiClient<{ created: number }>('/tags/seed-defaults', { method: 'POST' })
 }
+
+export interface TagActivity {
+  id: string
+  title: string | null
+  title_auto?: string | null
+  started_at: string
+  sport_type: string
+  distance_m?: number | null
+}
+
+export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> {
+  return apiClient<TagActivity[]>(`/tags/${tagId}/activities`)
+}

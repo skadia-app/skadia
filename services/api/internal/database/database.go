@@ -2112,6 +2112,34 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 	return tags, nil
 }
 
+// GetTagActivities returns a lightweight list of activities that have the given tag.
+func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]model.TagActivity, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT a.id, a.title, a.title_auto, a.started_at, a.sport_type, a.distance_m
+		FROM activities a
+		JOIN activity_tags at_join ON at_join.activity_id = a.id
+		WHERE at_join.tag_id = $1 AND a.user_id = $2
+		ORDER BY a.started_at DESC
+		LIMIT 50
+	`, tagID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get tag activities: %w", err)
+	}
+	defer rows.Close()
+	var activities []model.TagActivity
+	for rows.Next() {
+		var a model.TagActivity
+		if err := rows.Scan(&a.ID, &a.Title, &a.TitleAuto, &a.StartedAt, &a.SportType, &a.DistanceM); err != nil {
+			return nil, fmt.Errorf("scan tag activity: %w", err)
+		}
+		activities = append(activities, a)
+	}
+	if activities == nil {
+		activities = []model.TagActivity{}
+	}
+	return activities, nil
+}
+
 // GetAutoTags returns all tags where is_auto=true for a user.
 func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `

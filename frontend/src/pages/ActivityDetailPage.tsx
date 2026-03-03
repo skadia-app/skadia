@@ -7,6 +7,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
+import { apiDownload } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
@@ -293,9 +294,22 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const [exportOpen, setExportOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleExport = (format: ExportFormat) => {
-    window.location.href = getActivityExportUrl(activity.id, format)
+  const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
+    try {
+      const url = getActivityExportUrl(activity.id, format)
+      const { blob, filename } = await apiDownload(url)
+      const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit' }
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = filename ?? `activity${extMap[format] ?? ''}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(a.href)
+    } catch (err) {
+      console.error('Export fehlgeschlagen', err)
+    }
   }
 
   const mutation = useMutation({

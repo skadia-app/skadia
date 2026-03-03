@@ -12,6 +12,8 @@ import {
   fetchComponentPresets,
   listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
   fetchGearDocuments, uploadGearDocument, deleteGearDocument, getGearDocumentUrl,
+  downloadGearDocumentBlob,
+  uploadComponentDocument, listComponentDocuments,
   getGearCosts,
 } from '@/api/gear'
 import type {
@@ -358,6 +360,7 @@ function ComponentsList({ gearId, gearType, components }: {
                       {comp.serial_number && (
                         <div className="text-xs text-neutral-400 mt-0.5">SN: {comp.serial_number}</div>
                       )}
+                      <ComponentImagesSection componentId={comp.id} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
@@ -1537,6 +1540,143 @@ function subTypeLabel(subType: string): string {
   return labels[subType] ?? subType
 }
 
+// ── Authenticated Image ──────────────────────────────────────────────────────────
+
+/** Renders a gear document image using an authenticated fetch (Blob URL). */
+function AuthenticatedGearImage({
+  docId,
+  className,
+  alt,
+}: {
+  docId: string
+  className?: string
+  alt?: string
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let url: string | null = null
+    downloadGearDocumentBlob(docId)
+      .then(u => { url = u; setBlobUrl(u) })
+      .catch(() => setError(true))
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [docId])
+
+  if (error) {
+    return (
+      <div className={`flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-xs ${className ?? ''}`}>
+        Fehler
+      </div>
+    )
+  }
+  if (!blobUrl) {
+    return (
+      <div className={`flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 ${className ?? ''}`}>
+        <svg className="animate-spin h-5 w-5 text-neutral-300" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      </div>
+    )
+  }
+  return <img src={blobUrl} alt={alt ?? ''} className={className} />
+}
+
+// ── Component Images ─────────────────────────────────────────────────────────────
+
+function ComponentImagesSection({ componentId }: { componentId: string }) {
+  const queryClient = useQueryClient()
+  const [uploading, setUploading] = useState(false)
+
+  const { data: documents = [] } = useQuery({
+    queryKey: ['component-documents', componentId],
+    queryFn: () => listComponentDocuments(componentId),
+    enabled: !!componentId,
+  })
+
+  const images = documents.filter(d => d.content_type.startsWith('image/'))
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadComponentDocument(componentId, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['component-documents', componentId] })
+      setUploading(false)
+    },
+    onError: () => setUploading(false),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (docId: string) => deleteGearDocument(docId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['component-documents', componentId] }),
+  })
+
+  if (images.length === 0 && !uploading) {
+    return (
+      <label className="text-xs text-neutral-400 hover:text-orange-500 cursor-pointer transition-colors">
+        + Foto
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            setUploading(true)
+            uploadMutation.mutate(file)
+          }}
+        />
+      </label>
+    )
+  }
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {images.map(doc => (
+          <div key={doc.id} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
+            <AuthenticatedGearImage
+              docId={doc.id}
+              className="w-full h-full object-cover"
+              alt={doc.title ?? doc.original_filename}
+            />
+            <button
+              onClick={() => confirm('Foto löschen?') && deleteMutation.mutate(doc.id)}
+              className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <label className="w-16 h-16 rounded-lg border-2 border-dashed border-neutral-200 dark:border-neutral-700 flex items-center justify-center cursor-pointer hover:border-orange-400 transition-colors text-neutral-400 hover:text-orange-500">
+          {uploading ? (
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <span className="text-lg">+</span>
+          )}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              setUploading(true)
+              uploadMutation.mutate(file)
+            }}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
 // ── Gear Images ─────────────────────────────────────────────────────────────────
 
 function GearImagesSection({ gearId }: { gearId: string }) {
@@ -1631,11 +1771,10 @@ function GearImagesSection({ gearId }: { gearId: string }) {
                 className="relative group aspect-square rounded-lg overflow-hidden cursor-pointer"
                 onClick={() => setLightboxIdx(idx)}
               >
-                <img
-                  src={getGearDocumentUrl(doc.id)}
-                  alt={doc.title ?? doc.original_filename}
+                <AuthenticatedGearImage
+                  docId={doc.id}
                   className="w-full h-full object-cover"
-                  loading="lazy"
+                  alt={doc.title ?? doc.original_filename}
                 />
                 <button
                   onClick={(e) => handleDelete(doc.id, e)}
@@ -1720,11 +1859,10 @@ function ImageLightbox({ images, currentIndex, onClose, onChange }: {
         </button>
       )}
 
-      <img
-        src={getGearDocumentUrl(doc.id)}
-        alt={doc.title ?? doc.original_filename}
+      <AuthenticatedGearImage
+        docId={doc.id}
         className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg"
-        onClick={(e) => e.stopPropagation()}
+        alt={doc.title ?? doc.original_filename}
       />
 
       {images.length > 1 && (

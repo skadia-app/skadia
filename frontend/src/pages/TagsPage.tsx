@@ -269,6 +269,81 @@ function GeofenceEditor({ value, onChange }: { value: GeofenceValue; onChange: (
 }
 
 // ---------------------------------------------------------------------------
+// Location pin mini-map
+// ---------------------------------------------------------------------------
+
+function LocationPinMiniMap({
+  lat,
+  lng,
+  onCoordinatesChange,
+}: {
+  lat: number | null
+  lng: number | null
+  onCoordinatesChange: (lat: number, lng: number) => void
+}) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
+
+  useEffect(() => {
+    const container = mapContainerRef.current
+    if (!container) return
+
+    const map = new maplibregl.Map({
+      container,
+      style: {
+        version: 8,
+        sources: { basemap: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '&copy; OpenStreetMap' } },
+        layers: [{ id: 'tiles', type: 'raster', source: 'basemap', minzoom: 0, maxzoom: 19 }],
+      },
+      center: [lng ?? 10.0, lat ?? 51.0],
+      zoom: lat != null ? 11 : 5,
+      attributionControl: false,
+    })
+    mapRef.current = map
+
+    map.on('load', () => {
+      const marker = new maplibregl.Marker({ color: '#f97316', draggable: true })
+        .setLngLat([lng ?? 10.0, lat ?? 51.0])
+        .addTo(map)
+      markerRef.current = marker
+
+      marker.on('dragend', () => {
+        const { lat: newLat, lng: newLng } = marker.getLngLat()
+        onCoordinatesChange(newLat, newLng)
+      })
+
+      map.on('click', (e) => {
+        const { lat: newLat, lng: newLng } = e.lngLat
+        marker.setLngLat([newLng, newLat])
+        onCoordinatesChange(newLat, newLng)
+      })
+    })
+
+    return () => { map.remove() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync marker when lat/lng changes externally (e.g., user types in inputs)
+  useEffect(() => {
+    const map = mapRef.current
+    const marker = markerRef.current
+    if (!map || !marker || lat == null || lng == null) return
+    marker.setLngLat([lng, lat])
+    if (!map.getBounds().contains([lng, lat])) {
+      map.flyTo({ center: [lng, lat], zoom: 11 })
+    }
+  }, [lat, lng])
+
+  return (
+    <div
+      ref={mapContainerRef}
+      className="w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700"
+      style={{ height: 200 }}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Condition value input (polymorphic)
 // ---------------------------------------------------------------------------
 
@@ -838,8 +913,16 @@ function TagForm({
         {isLocationTag && (
           <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Dieser Tag erscheint als Pin auf der Karte. Drag &amp; Drop auf der Karte verschiebt den Pin.
+              Klicke auf die Karte oder ziehe den Pin, um den Standort zu setzen.
             </p>
+            <LocationPinMiniMap
+              lat={locationLat ? parseFloat(locationLat) : null}
+              lng={locationLng ? parseFloat(locationLng) : null}
+              onCoordinatesChange={(lat, lng) => {
+                setLocationLat(lat.toFixed(6))
+                setLocationLng(lng.toFixed(6))
+              }}
+            />
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Breitengrad</label>
@@ -850,8 +933,8 @@ function TagForm({
                   max="90"
                   value={locationLat}
                   onChange={(e) => setLocationLat(e.target.value)}
-                  placeholder="z.B. 48.1371"
-                  className={inputClass + ' w-full'}
+                  placeholder="z.B. 48.1234"
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
                 />
               </div>
               <div className="flex-1">
@@ -863,14 +946,11 @@ function TagForm({
                   max="180"
                   value={locationLng}
                   onChange={(e) => setLocationLng(e.target.value)}
-                  placeholder="z.B. 11.5754"
-                  className={inputClass + ' w-full'}
+                  placeholder="z.B. 11.5678"
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
                 />
               </div>
             </div>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Tipp: Auf der Karte den Filter „Standorte anzeigen" aktivieren — dann Pins per Drag &amp; Drop positionieren.
-            </p>
           </div>
         )}
       </div>

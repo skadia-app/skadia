@@ -1,4 +1,5 @@
 import { apiClient, apiUpload } from './client'
+import { getToken } from '@/lib/auth'
 import type {
   Gear, MaintenanceAlert, GearStatus,
   ComponentAssignment, ChainRotationGroup,
@@ -168,6 +169,29 @@ export async function deleteGearDocument(docId: string): Promise<void> {
 
 export function getGearDocumentUrl(docId: string): string {
   return `${API_BASE}/gear/documents/${docId}/download`
+}
+
+/** Fetch a gear document as a Blob using the auth token */
+export async function downloadGearDocumentBlob(docId: string): Promise<string> {
+  const token = getToken()
+  const url = `${API_BASE}/gear/documents/${docId}/download`
+  const res = await fetch(url, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}
+
+export async function uploadComponentDocument(componentId: string, file: File): Promise<GearDocument> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiUpload<GearDocument>(`/gear/components/${componentId}/documents`, formData)
+}
+
+export async function listComponentDocuments(componentId: string): Promise<GearDocument[]> {
+  return apiClient<GearDocument[]>(`/gear/components/${componentId}/documents`)
 }
 
 export async function getGearCosts(id: string): Promise<GearCostSummary> {

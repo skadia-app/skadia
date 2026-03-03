@@ -183,6 +183,25 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetTagActivities returns a list of activities that have the given tag.
+func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	tagID := chi.URLParam(r, "id")
+
+	activities, err := h.DB.GetTagActivities(r.Context(), tagID, userID)
+	if err != nil {
+		slog.Error("get tag activities failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, activities)
+}
+
 // SeedDefaultTags creates the default autotag definitions if they don't exist.
 func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

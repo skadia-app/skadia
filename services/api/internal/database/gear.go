@@ -1264,6 +1264,26 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	return docs, nil
 }
 
+func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([]model.GearDocument, error) {
+	rows, err := db.Pool.Query(ctx, `SELECT `+gearDocSelectCols+` FROM gear_documents WHERE component_id = $1 ORDER BY created_at DESC`, componentID)
+	if err != nil {
+		return nil, fmt.Errorf("list component documents: %w", err)
+	}
+	defer rows.Close()
+	var docs []model.GearDocument
+	for rows.Next() {
+		var d model.GearDocument
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan component document: %w", err)
+		}
+		docs = append(docs, d)
+	}
+	if docs == nil {
+		docs = []model.GearDocument{}
+	}
+	return docs, nil
+}
+
 func (db *DB) GetGearDocument(ctx context.Context, docID string) (*model.GearDocument, error) {
 	return scanGearDocument(db.Pool.QueryRow(ctx, `SELECT `+gearDocSelectCols+` FROM gear_documents WHERE id = $1`, docID))
 }
