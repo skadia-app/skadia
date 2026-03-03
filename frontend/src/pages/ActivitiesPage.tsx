@@ -21,6 +21,42 @@ type PageSize = 20 | 50 | 100 | 0
 type SortColumn = 'started_at' | 'distance_m' | 'elevation_gain_m' | 'elapsed_time_s'
 type SortDir = 'asc' | 'desc'
 
+// ── sessionStorage-Schlüssel für Pagination-Persistenz ──────────────────────
+const SS_CURSORS = 'skadia-activities-cursors'
+const SS_LAST_ACTIVITY = 'skadia-last-activity-id'
+
+function saveCursors(cursors: (string | undefined)[]) {
+  try {
+    sessionStorage.setItem(SS_CURSORS, JSON.stringify(cursors))
+  } catch (_) { /* ignore */ }
+}
+
+function loadCursors(): (string | undefined)[] | null {
+  try {
+    const raw = sessionStorage.getItem(SS_CURSORS)
+    if (!raw) return null
+    return JSON.parse(raw) as (string | undefined)[]
+  } catch (_) { return null }
+}
+
+function saveLastActivity(id: string) {
+  try {
+    sessionStorage.setItem(SS_LAST_ACTIVITY, id)
+  } catch (_) { /* ignore */ }
+}
+
+function loadLastActivity(): string | null {
+  try {
+    return sessionStorage.getItem(SS_LAST_ACTIVITY)
+  } catch (_) { return null }
+}
+
+function clearLastActivity() {
+  try {
+    sessionStorage.removeItem(SS_LAST_ACTIVITY)
+  } catch (_) { /* ignore */ }
+}
+
 /**
  * Erzeugt einen Cursor für ein bestimmtes Datum.
  * Format: base64url(RFC3339Nano_timestamp + "|" + uuid)
@@ -46,21 +82,90 @@ function buildCursorForDate(dateStr: string, direction: SortDir): string {
     .replace(/\//g, '_')
 }
 
+// ── Kontext-Menü-Komponente ──────────────────────────────────────────────────
+interface ContextMenuState {
+  x: number
+  y: number
+  activityId: string
+}
+
+function ActivityContextMenu({ state, onClose }: { state: ContextMenuState; onClose: () => void }) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick() { onClose() }
+    function handleKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  // Viewport-sichere Positionierung
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    top: state.y,
+    left: state.x,
+    zIndex: 9999,
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      style={style}
+      onMouseDown={e => e.stopPropagation()}
+      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg py-1 min-w-[180px] text-sm"
+    >
+      <a
+        href={`/activities/${state.activityId}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClose}
+        className="flex items-center gap-2 px-3 py-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer no-underline"
+      >
+        <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+        In neuem Tab öffnen
+      </a>
+    </div>
+  )
+}
+
 export default function ActivitiesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // ── Seitenposition: aus URL (page) + sessionStorage (cursors) wiederherstellen ──
+  const initialPageFromUrl = Math.max(0, (parseInt(searchParams.get('page') ?? '1', 10) || 1) - 1)
+
   const [pageSize, setPageSize] = useState<PageSize>(20)
   // cursors[i] = cursor um Seite i+1 zu laden (cursors[0] = undefined = erste Seite)
-  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
-  const [pageIndex, setPageIndex] = useState(0)
-  const [pageInput, setPageInput] = useState('1')
+  const [cursors, setCursors] = useState<(string | undefined)[]>(() => {
+    const stored = loadCursors()
+    if (stored && stored.length > initialPageFromUrl) return stored
+    return [undefined]
+  })
+  const [pageIndex, setPageIndex] = useState(() => {
+    const stored = loadCursors()
+    if (stored && stored.length > initialPageFromUrl) return initialPageFromUrl
+    return 0
+  })
+  const [pageInput, setPageInput] = useState(() => String(pageIndex + 1))
   const [total, setTotal] = useState<number | null>(null)
   const [isJumping, setIsJumping] = useState(false)
   const [jumpDate, setJumpDate] = useState('')
   // Key für Infinite-Query-Reset bei Datumssprung
   const [infiniteKey, setInfiniteKey] = useState(0)
   const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
+
+  // Letzte aufgerufene Aktivität (für Hervorhebung bei Rücknavigation)
+  const [lastActivityId, setLastActivityId] = useState<string | null>(() => loadLastActivity())
+
+  // Kontext-Menü-State
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
   // Filter state (persisted in URL)
   const [filters, setFiltersRaw] = useState<ActivityFilterState>(() => paramsToFilters(searchParams))
@@ -83,6 +188,27 @@ export default function ActivitiesPage() {
   // API filter params (memoized for query key stability)
   const apiFilters = useMemo(() => filtersToApiParams(filters), [filters])
   const filterKey = useMemo(() => JSON.stringify(apiFilters ?? {}), [apiFilters])
+
+  // ── Cursors in sessionStorage speichern wenn sie sich ändern ───────────────
+  useEffect(() => {
+    saveCursors(cursors)
+  }, [cursors])
+
+  // ── Seitenzahl in URL schreiben wenn pageIndex sich ändert ─────────────────
+  useEffect(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (pageIndex === 0) {
+        next.delete('page')
+      } else {
+        next.set('page', String(pageIndex + 1))
+      }
+      return next
+    }, { replace: true })
+  }, [pageIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── lastActivityId nach kurzem Delay ausblenden (damit Hervorhebung sichtbar) ──
+  // Wir behalten sie solange die Seite offen ist; nur beim erneuten Filtern/Sortieren löschen.
 
   // Update URL when filters change
   const setFilters = useCallback((next: ActivityFilterState) => {
@@ -110,6 +236,8 @@ export default function ActivitiesPage() {
     setPageIndex(0)
     setPageInput('1')
     setTotal(null)
+    setLastActivityId(null)
+    clearLastActivity()
     if (isInfinite) {
       setInfiniteInitialCursor(undefined)
       setInfiniteKey(prev => prev + 1)
@@ -147,6 +275,8 @@ export default function ActivitiesPage() {
     setCursors([undefined])
     setPageIndex(0)
     setPageInput('1')
+    setLastActivityId(null)
+    clearLastActivity()
     if (isInfinite) {
       setInfiniteInitialCursor(undefined)
       setInfiniteKey(prev => prev + 1)
@@ -355,6 +485,14 @@ export default function ActivitiesPage() {
 
   return (
     <div>
+      {/* Kontext-Menü */}
+      {contextMenu && (
+        <ActivityContextMenu
+          state={contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-baseline gap-3">
@@ -490,7 +628,23 @@ export default function ActivitiesPage() {
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
             {activities.map(activity => (
-              <ActivityRow key={activity.id} activity={activity} highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)} />
+              <ActivityRow
+                key={activity.id}
+                activity={activity}
+                highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)}
+                isLastVisited={activity.id === lastActivityId}
+                onNavigate={(id) => {
+                  saveLastActivity(id)
+                  setLastActivityId(id)
+                }}
+                onContextMenu={(e, id) => {
+                  e.preventDefault()
+                  // Viewport-sichere Position
+                  const x = Math.min(e.clientX, window.innerWidth - 200)
+                  const y = Math.min(e.clientY, window.innerHeight - 60)
+                  setContextMenu({ x, y, activityId: id })
+                }}
+              />
             ))}
           </tbody>
         </table>
@@ -566,19 +720,48 @@ export default function ActivitiesPage() {
   )
 }
 
-function ActivityRow({ activity, highlighted }: { activity: Activity; highlighted?: boolean }) {
+interface ActivityRowProps {
+  activity: Activity
+  highlighted?: boolean
+  isLastVisited?: boolean
+  onNavigate: (id: string) => void
+  onContextMenu: (e: React.MouseEvent, id: string) => void
+}
+
+function ActivityRow({ activity, highlighted, isLastVisited, onNavigate, onContextMenu }: ActivityRowProps) {
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
   const gain = formatElevationGain(activity.elevation_gain_m)
   const loss = formatElevationLoss(activity.elevation_loss_m)
 
+  function handleClick() {
+    onNavigate(activity.id)
+    navigate(`/activities/${activity.id}`)
+  }
+
+  // Hintergrundklasse: Priorität lastVisited > jumpDate-highlight > normal
+  // Die orange-* Klassen werden durch das AccentColor-System dynamisch überschrieben,
+  // sodass die Hervorhebung immer in der gewählten Akzentfarbe erscheint.
+  let rowClass = 'even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
+  if (isLastVisited) {
+    rowClass = 'bg-orange-100/60 dark:bg-orange-900/25 ring-1 ring-inset ring-orange-400/40 dark:ring-orange-500/30 hover:bg-orange-100/80 dark:hover:bg-orange-900/35 transition-colors cursor-pointer group'
+  } else if (highlighted) {
+    rowClass = 'bg-orange-50 dark:bg-orange-900/20 even:bg-orange-50 dark:even:bg-orange-900/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
+  }
+
+  // Titelfarbe: bei lastVisited Akzentfarbe, sonst hover-Akzent
+  const titleClass = isLastVisited
+    ? 'text-orange-600 dark:text-orange-400 font-medium'
+    : 'text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors'
+
   return (
     <tr
-      onClick={() => navigate(`/activities/${activity.id}`)}
-      className={`even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group${highlighted ? ' bg-orange-50 dark:bg-orange-900/20 even:bg-orange-50 dark:even:bg-orange-900/20' : ''}`}
+      onClick={handleClick}
+      onContextMenu={e => onContextMenu(e, activity.id)}
+      className={rowClass}
     >
-      <td className="px-4 py-3 text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-orange-500 transition-colors">
+      <td className={`px-4 py-3 ${titleClass}`}>
         {activity.title ?? (
           <span className="text-neutral-400 font-normal italic">Kein Titel</span>
         )}

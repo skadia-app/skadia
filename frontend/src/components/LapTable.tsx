@@ -86,7 +86,7 @@ export default function LapTable({ laps, sportType }: Props) {
                 key={lap.id}
                 className={`border-b border-neutral-100 dark:border-neutral-800 ${i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''}`}
               >
-                <td className={tdClass}>{lap.lap_index + 1}</td>
+                <td className={tdClass}>{lap.lap_index != null ? lap.lap_index + 1 : '--'}</td>
                 <td className={tdClass}>{fmtDuration(lap.timer_time_s ?? lap.elapsed_time_s)}</td>
                 <td className={tdClass}>{fmtDist(lap.distance_m)}</td>
                 <td className={tdClass}>{showPace ? fmtPace(lap.avg_speed_ms) : fmtSpeed(lap.avg_speed_ms)}</td>

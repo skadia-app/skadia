@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SportOption } from '@/lib/sportOptions'
-import { SPORT_OPTIONS, getOptionKey, getAllSportKeys } from '@/lib/sportOptions'
+import { generateActivityFilterOptions, getOptionKey, getAllSportKeys } from '@/lib/sportOptions'
 import { fetchGear } from '@/api/gear'
 import { sportLabel } from '@/lib/utils'
 
-const ALL_SPORT_KEYS = getAllSportKeys()
+const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
+const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
 
 export interface ActivityFilterState {
   sportTypes: Set<string>
@@ -252,7 +253,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-orange-400"
               />
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {SPORT_OPTIONS.filter(matchesSportSearch).map(opt => (
+                {ACTIVITY_SPORT_OPTIONS.filter(matchesSportSearch).map(opt => (
                   <div key={opt.label}>
                     {opt.children && opt.groupKey ? (
                       <div>

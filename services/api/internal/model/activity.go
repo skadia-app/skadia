@@ -306,16 +306,16 @@ type LapRecord struct {
 // LapResponse is the API response for a single lap.
 type LapResponse struct {
 	ID               string     `json:"id"`
-	MessageIndex     int        `json:"message_index"`
+	MessageIndex     int        `json:"lap_index"`
 	StartTime        *time.Time `json:"start_time,omitempty"`
 	EndTime          *time.Time `json:"end_time,omitempty"`
 	LapTrigger       string     `json:"lap_trigger,omitempty"`
 	Sport            string     `json:"sport,omitempty"`
 	SubSport         string     `json:"sub_sport,omitempty"`
-	TotalElapsedTimeS *float64  `json:"total_elapsed_time_s,omitempty"`
-	TotalTimerTimeS  *float64   `json:"total_timer_time_s,omitempty"`
-	TotalMovingTimeS *float64   `json:"total_moving_time_s,omitempty"`
-	TotalDistanceM   *float64   `json:"total_distance_m,omitempty"`
+	TotalElapsedTimeS *float64  `json:"elapsed_time_s,omitempty"`
+	TotalTimerTimeS  *float64   `json:"timer_time_s,omitempty"`
+	TotalMovingTimeS *float64   `json:"moving_time_s,omitempty"`
+	TotalDistanceM   *float64   `json:"distance_m,omitempty"`
 	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
 	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
 	TotalCalories    *int       `json:"total_calories,omitempty"`
@@ -370,14 +370,14 @@ type SplitRecord struct {
 // SplitResponse is the API response for a single split.
 type SplitResponse struct {
 	ID               string     `json:"id"`
-	MessageIndex     int        `json:"message_index"`
+	MessageIndex     int        `json:"split_index"`
 	SplitType        string     `json:"split_type,omitempty"`
 	StartTime        *time.Time `json:"start_time,omitempty"`
 	EndTime          *time.Time `json:"end_time,omitempty"`
-	TotalElapsedTimeS *float64  `json:"total_elapsed_time_s,omitempty"`
-	TotalTimerTimeS  *float64   `json:"total_timer_time_s,omitempty"`
-	TotalMovingTimeS *float64   `json:"total_moving_time_s,omitempty"`
-	TotalDistanceM   *float64   `json:"total_distance_m,omitempty"`
+	TotalElapsedTimeS *float64  `json:"elapsed_time_s,omitempty"`
+	TotalTimerTimeS  *float64   `json:"timer_time_s,omitempty"`
+	TotalMovingTimeS *float64   `json:"moving_time_s,omitempty"`
+	TotalDistanceM   *float64   `json:"distance_m,omitempty"`
 	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
 	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
 	TotalCalories    *int       `json:"total_calories,omitempty"`
@@ -412,20 +412,20 @@ type SplitSummaryRecord struct {
 // SplitSummaryResponse is the API response for a single split summary.
 type SplitSummaryResponse struct {
 	ID               string   `json:"id"`
-	MessageIndex     int      `json:"message_index"`
+	MessageIndex     int      `json:"summary_index"`
 	SplitType        string   `json:"split_type,omitempty"`
 	NumSplits        *int     `json:"num_splits,omitempty"`
-	TotalTimerTimeS  *float64 `json:"total_timer_time_s,omitempty"`
-	TotalMovingTimeS *float64 `json:"total_moving_time_s,omitempty"`
-	TotalDistanceM   *float64 `json:"total_distance_m,omitempty"`
+	TotalTimerTimeS  *float64 `json:"timer_time_s,omitempty"`
+	TotalMovingTimeS *float64 `json:"moving_time_s,omitempty"`
+	TotalDistanceM   *float64 `json:"distance_m,omitempty"`
 	TotalAscentM     *int     `json:"total_ascent_m,omitempty"`
 	TotalDescentM    *int     `json:"total_descent_m,omitempty"`
 	TotalCalories    *int     `json:"total_calories,omitempty"`
 	AvgSpeedMS       *float64 `json:"avg_speed_ms,omitempty"`
 	MaxSpeedMS       *float64 `json:"max_speed_ms,omitempty"`
 	AvgVertSpeedMS   *float64 `json:"avg_vert_speed_ms,omitempty"`
-	AvgHeartRate     *int     `json:"avg_heart_rate,omitempty"`
-	MaxHeartRate     *int     `json:"max_heart_rate,omitempty"`
+	AvgHeartRate     *int     `json:"avg_hr,omitempty"`
+	MaxHeartRate     *int     `json:"max_hr,omitempty"`
 }
 
 // LengthRecord holds extracted swim length data from FIT length messages.
@@ -446,11 +446,11 @@ type LengthRecord struct {
 // LengthResponse is the API response for a single swim length.
 type LengthResponse struct {
 	ID                 string     `json:"id"`
-	MessageIndex       int        `json:"message_index"`
+	MessageIndex       int        `json:"length_index"`
 	StartTime          *time.Time `json:"start_time,omitempty"`
 	EndTime            *time.Time `json:"end_time,omitempty"`
-	TotalElapsedTimeS  *float64   `json:"total_elapsed_time_s,omitempty"`
-	TotalTimerTimeS    *float64   `json:"total_timer_time_s,omitempty"`
+	TotalElapsedTimeS  *float64   `json:"elapsed_time_s,omitempty"`
+	TotalTimerTimeS    *float64   `json:"timer_time_s,omitempty"`
 	TotalStrokes       *int       `json:"total_strokes,omitempty"`
 	TotalCalories      *int       `json:"total_calories,omitempty"`
 	AvgSpeedMS         *float64   `json:"avg_speed_ms,omitempty"`

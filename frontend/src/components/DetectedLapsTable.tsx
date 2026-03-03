@@ -6,7 +6,8 @@ interface Props {
   activityId: string
 }
 
-function fmtDuration(s: number): string {
+function fmtDuration(s: number | null | undefined): string {
+  if (s == null || isNaN(s) || s <= 0) return '--'
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   const sec = Math.floor(s % 60)
@@ -39,10 +40,13 @@ export default function DetectedLapsTable({ activityId }: Props) {
   if (isLoading) return null
   if (laps.length === 0) return null
 
-  // Find best lap (fastest elapsed time)
-  const bestIdx = laps.reduce((best, lap, i) =>
-    lap.elapsed_time_s < laps[best].elapsed_time_s ? i : best, 0)
-  const bestTime = laps[bestIdx].elapsed_time_s
+  // Find best lap (fastest elapsed time, ignoring laps with missing/zero time)
+  const validLaps = laps.filter(l => l.elapsed_time_s > 0)
+  const bestIdx = validLaps.length > 0
+    ? laps.indexOf(validLaps.reduce((best, lap) =>
+        lap.elapsed_time_s < best.elapsed_time_s ? lap : best))
+    : 0
+  const bestTime = laps[bestIdx]?.elapsed_time_s ?? 0
 
   return (
     <div>
@@ -79,7 +83,8 @@ export default function DetectedLapsTable({ activityId }: Props) {
             <tbody>
               {laps.map((lap, i) => {
                 const isBest = i === bestIdx
-                const delta = lap.elapsed_time_s - bestTime
+                const hasTime = lap.elapsed_time_s > 0 && bestTime > 0
+                const delta = hasTime ? lap.elapsed_time_s - bestTime : null
                 return (
                   <tr
                     key={lap.id}
@@ -104,7 +109,9 @@ export default function DetectedLapsTable({ activityId }: Props) {
                       {fmtDuration(lap.elapsed_time_s)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {delta === 0 ? (
+                      {delta == null ? (
+                        <span className="text-neutral-400 text-xs">--</span>
+                      ) : delta === 0 ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold text-xs">BEST</span>
                       ) : (
                         <span className="text-neutral-500 dark:text-neutral-400 text-xs">+{fmtDuration(delta)}</span>

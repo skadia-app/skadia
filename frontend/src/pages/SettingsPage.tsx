@@ -1,5 +1,4 @@
-import { useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import ColorPicker from '@/components/ColorPicker'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -13,8 +12,6 @@ import RenamePreview from '@/components/RenamePreview'
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
-  const colorInputRef = useRef<HTMLInputElement>(null)
-  const isCustomAccent = !ACCENT_PALETTE.some(e => e.shade500.toLowerCase() === accent.shade500.toLowerCase())
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
 
@@ -68,81 +65,10 @@ export default function SettingsPage() {
             Wähle eine Akzentfarbe für die Benutzeroberfläche.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          {ACCENT_PALETTE.map((entry) => {
-            const isActive = accent.shade500.toLowerCase() === entry.shade500.toLowerCase()
-            return (
-              <button
-                key={entry.shade500}
-                title={entry.label}
-                onClick={() => setAccent(entry)}
-                className="relative w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none"
-                style={{ backgroundColor: entry.shade500, boxShadow: isActive ? `0 0 0 2px white, 0 0 0 4px ${entry.shade500}` : undefined }}
-              >
-                {isActive && (
-                  <svg className="absolute inset-0 m-auto w-4 h-4 text-white" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l3.5 3.5L13 4.5" />
-                  </svg>
-                )}
-              </button>
-            )
-          })}
-
-          {/* Custom color picker button (conic-gradient = open full spectrum) */}
-          <button
-            title="Benutzerdefinierte Farbe"
-            onClick={e => {
-              if (colorInputRef.current) {
-                const rect = e.currentTarget.getBoundingClientRect()
-                const pickerW = 220
-                const pickerH = 250
-                let left = rect.left - pickerW - 4
-                if (left < 8) left = rect.right + 4
-                let top = rect.top
-                if (top + pickerH > window.innerHeight - 8) top = window.innerHeight - pickerH - 8
-                if (top < 8) top = 8
-                colorInputRef.current.style.top = `${top}px`
-                colorInputRef.current.style.left = `${left}px`
-              }
-              colorInputRef.current?.click()
-            }}
-            className="relative w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none overflow-hidden"
-            style={{
-              background: isCustomAccent
-                ? accent.shade500
-                : 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
-              boxShadow: isCustomAccent ? `0 0 0 2px white, 0 0 0 4px ${accent.shade500}` : undefined,
-            }}
-          >
-            {isCustomAccent ? (
-              <svg className="absolute inset-0 m-auto w-4 h-4 text-white" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l3.5 3.5L13 4.5" />
-              </svg>
-            ) : (
-              <span className="absolute inset-0 flex items-center justify-center text-white text-sm font-bold" style={{ textShadow: '0 0 3px rgba(0,0,0,0.6)' }}>+</span>
-            )}
-          </button>
-          {createPortal(
-            <input
-              ref={colorInputRef}
-              type="color"
-              value={isCustomAccent ? accent.shade500 : '#6366f1'}
-              onChange={e => setAccent(deriveAccentEntry(e.target.value))}
-              style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-              tabIndex={-1}
-            />,
-            document.body,
-          )}
-        </div>
-
-        {/* Hex input for the current accent color */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-neutral-500 dark:text-neutral-400">Hex:</span>
-          <ColorPicker
-            value={accent.shade500}
-            onChange={(hex) => setAccent(deriveAccentEntry(hex))}
-          />
-        </div>
+        <ColorPicker
+          value={accent.shade500}
+          onChange={hex => setAccent(deriveAccentEntry(hex))}
+        />
         {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
           <button
             onClick={() => setAccent(ACCENT_PALETTE[0])}

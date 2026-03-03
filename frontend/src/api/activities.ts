@@ -25,14 +25,29 @@ export async function fetchActivities(
 
   if (filters?.sportTypes?.length) {
     const sports = new Set<string>()
+    const sportsWithBareKey = new Set<string>()
     const subs = new Set<string>()
     for (const key of filters.sportTypes) {
-      const [sport, sub] = key.split(':')
-      sports.add(sport)
-      if (sub) subs.add(sub)
+      const colonIdx = key.indexOf(':')
+      if (colonIdx === -1) {
+        // Bare key — sport selected without sub-type restriction
+        sports.add(key)
+        sportsWithBareKey.add(key)
+      } else {
+        const sport = key.slice(0, colonIdx)
+        const sub = key.slice(colonIdx + 1)
+        sports.add(sport)
+        subs.add(sub)
+      }
     }
     if (sports.size) params.set('sport_type', [...sports].join(','))
-    if (subs.size) params.set('sub_type', [...subs].join(','))
+    // Only send sub_type filter when every selected sport carries an explicit sub-type.
+    // If any sport was selected without a sub-type (bare key), omitting sub_type ensures
+    // those activities (e.g. hiking, mountaineering with NULL sub_type) are not excluded
+    // by the backend AND-conjunction of sport_type and sub_type conditions.
+    if (subs.size > 0 && sportsWithBareKey.size === 0) {
+      params.set('sub_type', [...subs].join(','))
+    }
   }
   if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
@@ -89,8 +104,7 @@ export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<
 export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit'
 
 export function getActivityExportUrl(id: string, format: ExportFormat): string {
-  const base = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
-  return `${base}/activities/${id}/export?format=${format}`
+  return `/activities/${id}/export?format=${format}`
 }
 
 export async function getZoneDistribution(id: string): Promise<ZoneDistribution> {

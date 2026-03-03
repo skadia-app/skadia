@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getActivityExportUrl, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
@@ -284,6 +284,94 @@ export default function ActivityDetailPage() {
   )
 }
 
+// ── Reprocess Scope Modal ──────────────────────────────────────────────────────
+
+const REPROCESS_SCOPES = [
+  ['streams', 'Streams & Track'],
+  ['sensors', 'Sensoren'],
+  ['metrics', 'Metriken'],
+  ['details', 'Runden/Splits'],
+  ['sport_type', 'Sportart'],
+  ['tags', 'Tags'],
+] as const
+
+type ReprocessScopeKey = typeof REPROCESS_SCOPES[number][0]
+
+function ReprocessScopeModal({
+  onConfirm,
+  onClose,
+  isPending,
+}: {
+  onConfirm: (scope: string[]) => void
+  onClose: () => void
+  isPending: boolean
+}) {
+  const [scope, setScope] = useState<Set<ReprocessScopeKey>>(
+    new Set(['streams', 'sensors', 'metrics', 'details'])
+  )
+
+  function toggleScope(key: ReprocessScopeKey) {
+    setScope(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          Neu verarbeiten — Details auswählen
+        </h3>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Wähle, welche Teile dieser Aktivität neu verarbeitet werden sollen.
+          Nutzerdefinierte Felder (Titel, Beschreibung, Sichtbarkeit) bleiben immer erhalten.
+        </p>
+
+        <div className="space-y-2">
+          {REPROCESS_SCOPES.map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={scope.has(key)}
+                onChange={() => toggleScope(key)}
+                className="rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+
+        <div className="flex justify-end gap-3 pt-1">
+          <button
+            onClick={onClose}
+            disabled={isPending}
+            className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer
+                       disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={() => onConfirm(Array.from(scope))}
+            disabled={isPending || scope.size === 0}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white
+                       hover:bg-orange-600 transition-colors cursor-pointer
+                       disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPending ? 'Verarbeite...' : 'Starten'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Header ────────────────────────────────────────────────────────────────────
 
 function ActivityHeader({ activity }: { activity: Activity }) {
@@ -292,7 +380,22 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [exportOpen, setExportOpen] = useState(false)
+  const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
+  const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
+  const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Close reprocess dropdown when clicking outside
+  useEffect(() => {
+    if (!reprocessMenuOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (reprocessMenuRef.current && !reprocessMenuRef.current.contains(e.target as Node)) {
+        setReprocessMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [reprocessMenuOpen])
 
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
@@ -336,6 +439,28 @@ function ActivityHeader({ activity }: { activity: Activity }) {
     },
   })
 
+  // Scoped reprocess via recompute-all with ids=[activity.id] + scope
+  const reprocessScopedMutation = useMutation({
+    mutationFn: (scope: string[]) =>
+      reprocessAllActivities({ ids: [activity.id], scope }),
+    onMutate: () => {
+      setReprocessState('loading')
+      setReprocessScopeOpen(false)
+    },
+    onSuccess: () => {
+      // Reload full activity data since recompute-all doesn't return the updated record
+      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
+      setReprocessState('success')
+      setTimeout(() => setReprocessState('idle'), 2000)
+    },
+    onError: () => {
+      setReprocessState('error')
+      setTimeout(() => setReprocessState('idle'), 3000)
+    },
+  })
+
   useEffect(() => {
     if (editing) inputRef.current?.focus()
   }, [editing])
@@ -352,6 +477,25 @@ function ActivityHeader({ activity }: { activity: Activity }) {
 
   const label = sportDetailLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
+  const isReprocessing = reprocessState === 'loading'
+
+  const reprocessIcon = isReprocessing ? (
+    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
+    </svg>
+  ) : reprocessState === 'success' ? (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500">
+      <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+    </svg>
+  ) : reprocessState === 'error' ? (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-500">
+      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+    </svg>
+  ) : (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+      <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.451a.75.75 0 000-1.5H4.5a.75.75 0 00-.75.75v3.75a.75.75 0 001.5 0v-2.033a7 7 0 0011.712-3.138.75.75 0 00-1.449-.391zm-10.624-3.85a5.5 5.5 0 019.201-2.465l.312.31H11.75a.75.75 0 000 1.5h3.75a.75.75 0 00.75-.75V2.419a.75.75 0 00-1.5 0v2.034A7 7 0 003.038 7.59a.75.75 0 001.449.392z" clipRule="evenodd" />
+    </svg>
+  )
 
   return (
     <div className="flex items-start gap-4">
@@ -427,36 +571,70 @@ function ActivityHeader({ activity }: { activity: Activity }) {
         )}
       </div>
 
-      {/* Reprocess button */}
-      <button
-        onClick={() => reprocessMutation.mutate()}
-        disabled={reprocessState === 'loading'}
-        className="mt-1 flex items-center justify-center w-8 h-8 rounded-lg
-                   text-neutral-400 dark:text-neutral-500
-                   hover:bg-neutral-100 dark:hover:bg-neutral-800
-                   hover:text-neutral-600 dark:hover:text-neutral-300
-                   disabled:opacity-50 disabled:cursor-not-allowed
-                   transition-colors cursor-pointer"
-        title="Aktivität neu verarbeiten"
-      >
-        {reprocessState === 'loading' ? (
-          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
-          </svg>
-        ) : reprocessState === 'success' ? (
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500">
-            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-          </svg>
-        ) : reprocessState === 'error' ? (
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-500">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-          </svg>
-        ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.451a.75.75 0 000-1.5H4.5a.75.75 0 00-.75.75v3.75a.75.75 0 001.5 0v-2.033a7 7 0 0011.712-3.138.75.75 0 00-1.449-.391zm-10.624-3.85a5.5 5.5 0 019.201-2.465l.312.31H11.75a.75.75 0 000 1.5h3.75a.75.75 0 00.75-.75V2.419a.75.75 0 00-1.5 0v2.034A7 7 0 003.038 7.59a.75.75 0 001.449.392z" clipRule="evenodd" />
-          </svg>
+      {/* Reprocess button with dropdown */}
+      <div className="relative mt-1" ref={reprocessMenuRef}>
+        <div className="flex items-center">
+          {/* Main icon button — quick "reprocess all" */}
+          <button
+            onClick={() => {
+              if (isReprocessing) return
+              setReprocessMenuOpen(prev => !prev)
+            }}
+            disabled={isReprocessing}
+            className="flex items-center justify-center w-8 h-8 rounded-lg
+                       text-neutral-400 dark:text-neutral-500
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800
+                       hover:text-neutral-600 dark:hover:text-neutral-300
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-colors cursor-pointer"
+            title="Aktivität neu verarbeiten"
+          >
+            {reprocessIcon}
+          </button>
+        </div>
+
+        {/* Dropdown menu */}
+        {reprocessMenuOpen && !isReprocessing && (
+          <div className="absolute right-0 mt-1 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
+            <button
+              onClick={() => {
+                setReprocessMenuOpen(false)
+                reprocessMutation.mutate()
+              }}
+              className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
+                         hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg transition-colors"
+            >
+              <span className="font-medium">Alles</span>
+              <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                Vollständig neu verarbeiten
+              </span>
+            </button>
+            <div className="border-t border-neutral-100 dark:border-neutral-800" />
+            <button
+              onClick={() => {
+                setReprocessMenuOpen(false)
+                setReprocessScopeOpen(true)
+              }}
+              className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
+                         hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg transition-colors"
+            >
+              <span className="font-medium">Details auswählen</span>
+              <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                Nur bestimmte Bereiche
+              </span>
+            </button>
+          </div>
         )}
-      </button>
+      </div>
+
+      {/* Scoped reprocess modal */}
+      {reprocessScopeOpen && (
+        <ReprocessScopeModal
+          onConfirm={(scope) => reprocessScopedMutation.mutate(scope)}
+          onClose={() => setReprocessScopeOpen(false)}
+          isPending={reprocessScopedMutation.isPending}
+        />
+      )}
     </div>
   )
 }
