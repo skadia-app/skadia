@@ -3,8 +3,9 @@ import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-quer
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { fetchActivities } from '@/api/activities'
+import { fetchActivities, getActivityExportUrl, downloadActivitiesZip } from '@/api/activities'
 import type { Activity } from '@/api/types'
+import type { ExportFormat } from '@/api/activities'
 import {
   formatDuration, formatDistance,
   formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
@@ -12,6 +13,8 @@ import {
 import { SportIcon } from '@/components/SportIcon'
 import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
+import RecomputeModal from '@/components/RecomputeModal'
+import DeleteConfirmModal from '@/components/DeleteConfirmModal'
 
 const PAGE_SIZES = [20, 50, 100] as const
 
@@ -60,14 +63,8 @@ function clearLastActivity() {
 /**
  * Erzeugt einen Cursor für ein bestimmtes Datum.
  * Format: base64url(RFC3339Nano_timestamp + "|" + uuid)
- *
- * DESC: Cursor = Ende des Tages + max-UUID → erste Seite beginnt mit Aktivitäten an/vor diesem Tag.
- * ASC:  Cursor = Anfang des Tages + min-UUID → erste Seite beginnt mit Aktivitäten ab diesem Tag.
- *
- * Die UUID muss gültig sein (Typ uuid in PostgreSQL), daher max/min-UUID statt Fake-ID.
  */
 function buildCursorForDate(dateStr: string, direction: SortDir): string {
-  // dateStr ist "YYYY-MM-DD"
   const MAX_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
   const MIN_UUID = '00000000-0000-0000-0000-000000000000'
 
@@ -82,14 +79,172 @@ function buildCursorForDate(dateStr: string, direction: SortDir): string {
     .replace(/\//g, '_')
 }
 
+// ── Export-Untermenü (single activity) ──────────────────────────────────────
+const EXPORT_FORMATS: [ExportFormat, string][] = [
+  ['original', 'Original'],
+  ['gpx', 'GPX'],
+  ['tcx', 'TCX'],
+  ['fit', 'FIT'],
+]
+
+function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: () => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button className="w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer">
+        <span className="flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Exportieren
+        </span>
+        <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-50 py-1">
+          {EXPORT_FORMATS.map(([fmt, label]) => (
+            <a
+              key={fmt}
+              href={getActivityExportUrl(activityId, fmt)}
+              download
+              onClick={onClose}
+              className="block px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors no-underline cursor-pointer"
+            >
+              {label}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── ZIP-Untermenü (multi-select) ─────────────────────────────────────────────
+function ZipSubMenu({
+  ids,
+  onZip,
+  onClose,
+  zipLoading,
+}: {
+  ids: string[]
+  onZip: (ids: string[], format: ExportFormat) => void
+  onClose: () => void
+  zipLoading: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        disabled={zipLoading}
+        className="w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
+      >
+        <span className="flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {zipLoading ? 'Lädt…' : 'Als ZIP herunterladen'}
+        </span>
+        <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {open && !zipLoading && (
+        <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-50 py-1">
+          {EXPORT_FORMATS.map(([fmt, label]) => (
+            <button
+              key={fmt}
+              onClick={() => { onZip(ids, fmt); onClose() }}
+              className="w-full text-left block px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── ZIP-Dropdown für Bulk-Aktionsleiste ──────────────────────────────────────
+function ZipDropdown({
+  ids,
+  loading,
+  onDownload,
+}: {
+  ids: string[]
+  loading: boolean
+  onDownload: (ids: string[], format: ExportFormat) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        disabled={loading}
+        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+      >
+        {loading ? 'Lädt…' : 'ZIP'}
+        <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-1 left-0 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-30 py-1">
+          {EXPORT_FORMATS.map(([fmt, label]) => (
+            <button
+              key={fmt}
+              onClick={() => { onDownload(ids, fmt); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-xs text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Kontext-Menü-Komponente ──────────────────────────────────────────────────
 interface ContextMenuState {
   x: number
   y: number
   activityId: string
+  activityTitle?: string | null
 }
 
-function ActivityContextMenu({ state, onClose }: { state: ContextMenuState; onClose: () => void }) {
+interface ContextMenuProps {
+  state: ContextMenuState
+  selectedIds: Set<string>
+  zipLoading: boolean
+  onClose: () => void
+  onRecompute: (ids: string[]) => void
+  onDelete: (ids: string[], title?: string | null) => void
+  onZip: (ids: string[], format: ExportFormat) => void
+}
+
+function ActivityContextMenu({
+  state,
+  selectedIds,
+  zipLoading,
+  onClose,
+  onRecompute,
+  onDelete,
+  onZip,
+}: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -103,7 +258,6 @@ function ActivityContextMenu({ state, onClose }: { state: ContextMenuState; onCl
     }
   }, [onClose])
 
-  // Viewport-sichere Positionierung
   const style: React.CSSProperties = {
     position: 'fixed',
     top: state.y,
@@ -111,12 +265,63 @@ function ActivityContextMenu({ state, onClose }: { state: ContextMenuState; onCl
     zIndex: 9999,
   }
 
+  const isMulti = selectedIds.size > 1 && selectedIds.has(state.activityId)
+  const ids = isMulti ? [...selectedIds] : [state.activityId]
+  const count = ids.length
+
+  const menuClass = 'bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg py-1 min-w-[200px] text-sm'
+
+  if (isMulti) {
+    return (
+      <div
+        ref={menuRef}
+        style={style}
+        onMouseDown={e => e.stopPropagation()}
+        className={menuClass}
+      >
+        <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500 border-b border-neutral-100 dark:border-neutral-700 font-medium">
+          {count} ausgewählt
+        </div>
+        <button
+          onClick={() => { ids.forEach(id => window.open(`/activities/${id}`, '_blank')); onClose() }}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          Alle in neuen Tabs öffnen
+        </button>
+        <ZipSubMenu ids={ids} onZip={onZip} onClose={onClose} zipLoading={zipLoading} />
+        <button
+          onClick={() => { onRecompute(ids); onClose() }}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Neu berechnen
+        </button>
+        <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
+        <button
+          onClick={() => { onDelete(ids); onClose() }}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          {count} Aktivitäten löschen
+        </button>
+      </div>
+    )
+  }
+
+  // Single activity menu
   return (
     <div
       ref={menuRef}
       style={style}
       onMouseDown={e => e.stopPropagation()}
-      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg py-1 min-w-[180px] text-sm"
+      className={menuClass}
     >
       <a
         href={`/activities/${state.activityId}`}
@@ -130,6 +335,26 @@ function ActivityContextMenu({ state, onClose }: { state: ContextMenuState; onCl
         </svg>
         In neuem Tab öffnen
       </a>
+      <ExportSubMenu activityId={state.activityId} onClose={onClose} />
+      <button
+        onClick={() => { onRecompute([state.activityId]); onClose() }}
+        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+      >
+        <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Neu berechnen
+      </button>
+      <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
+      <button
+        onClick={() => { onDelete([state.activityId], state.activityTitle); onClose() }}
+        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+        Löschen
+      </button>
     </div>
   )
 }
@@ -142,7 +367,6 @@ export default function ActivitiesPage() {
   const initialPageFromUrl = Math.max(0, (parseInt(searchParams.get('page') ?? '1', 10) || 1) - 1)
 
   const [pageSize, setPageSize] = useState<PageSize>(20)
-  // cursors[i] = cursor um Seite i+1 zu laden (cursors[0] = undefined = erste Seite)
   const [cursors, setCursors] = useState<(string | undefined)[]>(() => {
     const stored = loadCursors()
     if (stored && stored.length > initialPageFromUrl) return stored
@@ -157,15 +381,23 @@ export default function ActivitiesPage() {
   const [total, setTotal] = useState<number | null>(null)
   const [isJumping, setIsJumping] = useState(false)
   const [jumpDate, setJumpDate] = useState('')
-  // Key für Infinite-Query-Reset bei Datumssprung
   const [infiniteKey, setInfiniteKey] = useState(0)
   const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
 
-  // Letzte aufgerufene Aktivität (für Hervorhebung bei Rücknavigation)
   const [lastActivityId, setLastActivityId] = useState<string | null>(() => loadLastActivity())
 
   // Kontext-Menü-State
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+
+  // Multi-Select-State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
+
+  // Modal-States
+  const [recomputeIds, setRecomputeIds] = useState<string[] | null>(null)
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null)
+  const [deleteTitle, setDeleteTitle] = useState<string | null>(null)
+  const [zipLoading, setZipLoading] = useState(false)
 
   // Filter state (persisted in URL)
   const [filters, setFiltersRaw] = useState<ActivityFilterState>(() => paramsToFilters(searchParams))
@@ -174,27 +406,64 @@ export default function ActivitiesPage() {
   const [searchInput, setSearchInput] = useState(filters.search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  // Sort state: null = unsorted (default: started_at DESC)
+  // Sort state
   const [sortBy, setSortBy] = useState<SortColumn | null>(null)
   const [sortDir, setSortDir] = useState<SortDir | null>(null)
 
-  // Effective sort values for API calls
   const effectiveSortBy = sortBy ?? 'started_at'
   const effectiveSortDir = sortDir ?? 'desc'
 
   const isInfinite = pageSize === 0
   const cursor = cursors[pageIndex]
 
-  // API filter params (memoized for query key stability)
   const apiFilters = useMemo(() => filtersToApiParams(filters), [filters])
   const filterKey = useMemo(() => JSON.stringify(apiFilters ?? {}), [apiFilters])
 
-  // ── Cursors in sessionStorage speichern wenn sie sich ändern ───────────────
+  // ── Multi-Select-Hilfsfunktionen ─────────────────────────────────────────
+  function toggleSelect(id: string, idx: number, shiftKey: boolean) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (shiftKey && lastSelectedIdx !== null && activities) {
+        const from = Math.min(lastSelectedIdx, idx)
+        const to = Math.max(lastSelectedIdx, idx)
+        const rangeIds = activities.slice(from, to + 1).map(a => a.id)
+        rangeIds.forEach(aid => next.add(aid))
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+    setLastSelectedIdx(idx)
+  }
+
+  function selectAll() {
+    if (!activities) return
+    setSelectedIds(new Set(activities.map(a => a.id)))
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+    setLastSelectedIdx(null)
+  }
+
+  async function handleZipDownload(ids: string[], fmt: ExportFormat = 'original') {
+    setZipLoading(true)
+    try {
+      await downloadActivitiesZip(ids, fmt)
+    } catch (err) {
+      console.error('ZIP download failed', err)
+    } finally {
+      setZipLoading(false)
+    }
+  }
+
+  // ── Cursors in sessionStorage speichern ──────────────────────────────────
   useEffect(() => {
     saveCursors(cursors)
   }, [cursors])
 
-  // ── Seitenzahl in URL schreiben wenn pageIndex sich ändert ─────────────────
+  // ── Seitenzahl in URL schreiben ──────────────────────────────────────────
   useEffect(() => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -207,9 +476,6 @@ export default function ActivitiesPage() {
     }, { replace: true })
   }, [pageIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── lastActivityId nach kurzem Delay ausblenden (damit Hervorhebung sichtbar) ──
-  // Wir behalten sie solange die Seite offen ist; nur beim erneuten Filtern/Sortieren löschen.
-
   // Update URL when filters change
   const setFilters = useCallback((next: ActivityFilterState) => {
     setFiltersRaw(next)
@@ -217,7 +483,7 @@ export default function ActivitiesPage() {
     setSearchParams(p, { replace: true })
   }, [setSearchParams])
 
-  // Debounced search: update filter.search after 300ms
+  // Debounced search
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
@@ -238,50 +504,44 @@ export default function ActivitiesPage() {
     setTotal(null)
     setLastActivityId(null)
     clearLastActivity()
+    clearSelection()
     if (isInfinite) {
       setInfiniteInitialCursor(undefined)
       setInfiniteKey(prev => prev + 1)
     }
   }, [filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sortierung umschalten ──────────────────────────────────────────────────
-  // Cycle: unsorted → asc → desc → unsorted
+  // ── Sortierung umschalten ────────────────────────────────────────────────
   function toggleSort(column: SortColumn) {
     let newSortBy: SortColumn | null
     let newSortDir: SortDir | null
 
     if (sortBy !== column) {
-      // Neue Spalte anklicken → aufsteigend starten
       newSortBy = column
       newSortDir = 'asc'
     } else if (sortDir === 'asc') {
-      // Gleiche Spalte, asc → desc
       newSortBy = column
       newSortDir = 'desc'
     } else if (sortDir === 'desc') {
-      // Gleiche Spalte, desc → unsorted (zurück zum Default)
       newSortBy = null
       newSortDir = null
     } else {
-      // sortDir === null (sollte nicht vorkommen, Fallback)
       newSortBy = column
       newSortDir = 'asc'
     }
 
     setSortBy(newSortBy)
     setSortDir(newSortDir)
-
-    // Reset pagination when sort changes
     setCursors([undefined])
     setPageIndex(0)
     setPageInput('1')
     setLastActivityId(null)
     clearLastActivity()
+    clearSelection()
     if (isInfinite) {
       setInfiniteInitialCursor(undefined)
       setInfiniteKey(prev => prev + 1)
     }
-    // Reset date jump as cursor format changes with sort column
     setJumpDate('')
   }
 
@@ -290,7 +550,7 @@ export default function ActivitiesPage() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC'
   }
 
-  // ── Paginierter Modus ──────────────────────────────────────────────────────
+  // ── Paginierter Modus ────────────────────────────────────────────────────
   const { data: pageData, isLoading: pageLoading } = useQuery({
     queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
     queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
@@ -309,7 +569,7 @@ export default function ActivitiesPage() {
     }
   }, [pageData, pageIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Infinite-Scroll-Modus ─────────────────────────────────────────────────
+  // ── Infinite-Scroll-Modus ────────────────────────────────────────────────
   const {
     data: infiniteData,
     fetchNextPage,
@@ -345,20 +605,19 @@ export default function ActivitiesPage() {
     return () => observer.disconnect()
   }, [isInfinite, hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
+  // ── Navigation ───────────────────────────────────────────────────────────
   function goToPage(idx: number) {
     if (idx < 0 || idx >= cursors.length) return
     setPageIndex(idx)
     setPageInput(String(idx + 1))
+    clearSelection()
   }
 
   function onPageSizeChange(size: PageSize) {
     setPageSize(size)
-    // Datumssprung beibehalten beim Wechsel der Seitengröße
     if (jumpDate) {
       const dateCursor = buildCursorForDate(jumpDate, effectiveSortDir)
       if (size === 0) {
-        // Wechsel zu Infinite
         setInfiniteInitialCursor(dateCursor)
         setInfiniteKey(prev => prev + 1)
       } else {
@@ -371,30 +630,28 @@ export default function ActivitiesPage() {
     }
     setPageIndex(0)
     setPageInput('1')
+    clearSelection()
   }
 
-  // Jumps to an arbitrary page index, fetching intermediate cursors as needed.
   async function jumpToPage(targetIdx: number) {
     if (targetIdx < 0) targetIdx = 0
 
-    // Fast path: cursor already in cache
     if (targetIdx < cursors.length) {
       goToPage(targetIdx)
       return
     }
 
-    // Sequentially prefetch pages until we have the cursor for targetIdx
     setIsJumping(true)
     let localCursors = [...cursors]
     try {
       while (localCursors.length <= targetIdx) {
-        const cursor = localCursors[localCursors.length - 1]
+        const cur = localCursors[localCursors.length - 1]
         const data = await queryClient.fetchQuery({
-          queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
-          queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
+          queryKey: ['activities', cur, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
+          queryFn: () => fetchActivities(cur, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
         })
         if (!data.next_cursor) {
-          targetIdx = localCursors.length - 1 // clamp to last available page
+          targetIdx = localCursors.length - 1
           break
         }
         localCursors = [...localCursors, data.next_cursor]
@@ -402,6 +659,7 @@ export default function ActivitiesPage() {
       setCursors(localCursors)
       setPageIndex(targetIdx)
       setPageInput(String(targetIdx + 1))
+      clearSelection()
     } finally {
       setIsJumping(false)
     }
@@ -413,16 +671,11 @@ export default function ActivitiesPage() {
     void jumpToPage(n - 1)
   }
 
-  // ── Datumssprung ────────────────────────────────────────────────────────────
-  // Date jump is only valid when sorting by started_at (default)
+  // ── Datumssprung ─────────────────────────────────────────────────────────
   const isDateJumpEnabled = sortBy === null || sortBy === 'started_at'
 
   function handleJumpDateChange(dateStr: string) {
     setJumpDate(dateStr)
-    // Only perform the actual jump when the date is complete and valid.
-    // HTML date inputs fire onChange on every keystroke in the year field,
-    // producing intermediate values like "0002", "0020", etc.
-    // We require a full "YYYY-MM-DD" (length 10) with a 4-digit year >= 1900.
     if (dateStr.length === 10) {
       const year = parseInt(dateStr.substring(0, 4), 10)
       if (year >= 1900 && !isNaN(Date.parse(dateStr + 'T00:00:00'))) {
@@ -433,17 +686,15 @@ export default function ActivitiesPage() {
 
   function performDateJump(dateStr: string) {
     const dateCursor = buildCursorForDate(dateStr, effectiveSortDir)
-
     if (isInfinite) {
-      // Reset Infinite-Scroll mit neuem Startcursor
       setInfiniteInitialCursor(dateCursor)
       setInfiniteKey(prev => prev + 1)
     } else {
-      // Im paginierten Modus: Setze Cursor direkt auf das Datum
       setCursors([dateCursor])
       setPageIndex(0)
       setPageInput('1')
     }
+    clearSelection()
   }
 
   function resetDateJump() {
@@ -456,9 +707,10 @@ export default function ActivitiesPage() {
       setPageIndex(0)
       setPageInput('1')
     }
+    clearSelection()
   }
 
-  // ── Daten ──────────────────────────────────────────────────────────────────
+  // ── Daten ────────────────────────────────────────────────────────────────
   const activities = isInfinite
     ? (infiniteData?.pages.flatMap(p => p.activities) ?? [])
     : (pageData?.activities ?? [])
@@ -467,9 +719,9 @@ export default function ActivitiesPage() {
   const totalPages = total != null && pageSize > 0
     ? Math.ceil(total / pageSize)
     : null
-  const maxNavigablePage = cursors.length // Seiten für die wir einen Cursor haben
+  const maxNavigablePage = cursors.length
 
-  // ── Sortierbare Spaltenheader ──────────────────────────────────────────────
+  // ── Sortierbare Spaltenheader ─────────────────────────────────────────────
   const sortableHeaderClass = (column: SortColumn) => {
     const base = 'px-4 py-3 font-medium select-none cursor-pointer transition-colors'
     const active = sortBy === column
@@ -478,7 +730,10 @@ export default function ActivitiesPage() {
     return `${base} ${active}`
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const allOnPageSelected = activities.length > 0 && activities.every(a => selectedIds.has(a.id))
+  const someSelected = selectedIds.size > 0 && !allOnPageSelected
+
+  // ── Render ────────────────────────────────────────────────────────────────
   if (isLoading && activities.length === 0) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivitäten...</div>
   }
@@ -489,7 +744,32 @@ export default function ActivitiesPage() {
       {contextMenu && (
         <ActivityContextMenu
           state={contextMenu}
+          selectedIds={selectedIds}
+          zipLoading={zipLoading}
           onClose={() => setContextMenu(null)}
+          onRecompute={(ids) => setRecomputeIds(ids)}
+          onDelete={(ids, title) => { setDeleteIds(ids); setDeleteTitle(title ?? null) }}
+          onZip={handleZipDownload}
+        />
+      )}
+
+      {/* Modals */}
+      {recomputeIds && (
+        <RecomputeModal
+          activityIds={recomputeIds}
+          onClose={() => setRecomputeIds(null)}
+          onSuccess={clearSelection}
+        />
+      )}
+      {deleteIds && (
+        <DeleteConfirmModal
+          activityIds={deleteIds}
+          activityTitle={deleteTitle}
+          onClose={() => { setDeleteIds(null); setDeleteTitle(null) }}
+          onDeleted={() => {
+            clearSelection()
+            queryClient.invalidateQueries({ queryKey: ['activities'] })
+          }}
         />
       )}
 
@@ -559,37 +839,37 @@ export default function ActivitiesPage() {
             )}
           </div>
 
-        {/* Seitengrößen-Auswahl */}
-        <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-          <span>Zeige</span>
-          <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-            {PAGE_SIZES.map(size => (
+          {/* Seitengrößen-Auswahl */}
+          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <span>Zeige</span>
+            <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+              {PAGE_SIZES.map(size => (
+                <button
+                  key={size}
+                  onClick={() => onPageSizeChange(size)}
+                  className={
+                    size === pageSize
+                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  }
+                >
+                  {size}
+                </button>
+              ))}
               <button
-                key={size}
-                onClick={() => onPageSizeChange(size)}
+                onClick={() => onPageSizeChange(0)}
+                title="Endlos scrollen"
                 className={
-                  size === pageSize
+                  isInfinite
                     ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
                     : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
                 }
               >
-                {size}
+                ∞
               </button>
-            ))}
-            <button
-              onClick={() => onPageSizeChange(0)}
-              title="Endlos scrollen"
-              className={
-                isInfinite
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-              }
-            >
-              ∞
-            </button>
+            </div>
+            {!isInfinite && <span>pro Seite</span>}
           </div>
-          {!isInfinite && <span>pro Seite</span>}
-        </div>
         </div>
       </div>
 
@@ -598,6 +878,17 @@ export default function ActivitiesPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+              {/* Checkbox-Spalte */}
+              <th className="w-8 pl-3 pr-2 py-3">
+                <input
+                  type="checkbox"
+                  checked={allOnPageSelected}
+                  ref={el => { if (el) el.indeterminate = someSelected }}
+                  onChange={() => allOnPageSelected ? clearSelection() : selectAll()}
+                  className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+                  aria-label="Alle auswählen"
+                />
+              </th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Sport</th>
               <th
@@ -624,25 +915,36 @@ export default function ActivitiesPage() {
               >
                 Höhenmeter{sortIndicator('elevation_gain_m')}
               </th>
+              {/* 3-Punkt-Menü-Spalte (Platzhalter für Ausrichtung) */}
+              <th className="w-8 pr-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-            {activities.map(activity => (
+            {activities.map((activity, idx) => (
               <ActivityRow
                 key={activity.id}
                 activity={activity}
+                idx={idx}
                 highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)}
                 isLastVisited={activity.id === lastActivityId}
+                isSelected={selectedIds.has(activity.id)}
                 onNavigate={(id) => {
                   saveLastActivity(id)
                   setLastActivityId(id)
                 }}
-                onContextMenu={(e, id) => {
+                onContextMenu={(e, id, title) => {
                   e.preventDefault()
-                  // Viewport-sichere Position
-                  const x = Math.min(e.clientX, window.innerWidth - 200)
-                  const y = Math.min(e.clientY, window.innerHeight - 60)
-                  setContextMenu({ x, y, activityId: id })
+                  const x = Math.min(e.clientX, window.innerWidth - 220)
+                  const y = Math.min(e.clientY, window.innerHeight - 80)
+                  setContextMenu({ x, y, activityId: id, activityTitle: title })
+                }}
+                onToggleSelect={toggleSelect}
+                onThreeDotClick={(e, id, title) => {
+                  e.stopPropagation()
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  const x = Math.min(rect.left, window.innerWidth - 220)
+                  const y = Math.min(rect.bottom + 4, window.innerHeight - 80)
+                  setContextMenu({ x, y, activityId: id, activityTitle: title })
                 }}
               />
             ))}
@@ -662,6 +964,47 @@ export default function ActivitiesPage() {
         </div>
       )}
 
+      {/* Bulk-Aktionsleiste */}
+      {selectedIds.size > 0 && (
+        <div className="sticky bottom-0 z-20 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mr-auto">
+            {selectedIds.size} ausgewählt
+          </span>
+          <button
+            onClick={clearSelection}
+            className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+          >
+            Abwählen
+          </button>
+          <button
+            onClick={() => [...selectedIds].forEach(id => window.open(`/activities/${id}`, '_blank'))}
+            className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            Alle öffnen
+          </button>
+          <ZipDropdown
+            ids={[...selectedIds]}
+            loading={zipLoading}
+            onDownload={handleZipDownload}
+          />
+          <button
+            onClick={() => setRecomputeIds([...selectedIds])}
+            className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            Neu berechnen
+          </button>
+          <button
+            onClick={() => setDeleteIds([...selectedIds])}
+            className="text-xs px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium cursor-pointer flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Löschen
+          </button>
+        </div>
+      )}
+
       {/* Pagination (nur im paginierten Modus) */}
       {!isInfinite && (
         <div className="flex items-center justify-between mt-4 gap-4">
@@ -676,7 +1019,6 @@ export default function ActivitiesPage() {
             ← Zurück
           </button>
 
-          {/* Seite X von Y mit Eingabefeld */}
           <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
             <span>Seite</span>
             <input
@@ -722,13 +1064,27 @@ export default function ActivitiesPage() {
 
 interface ActivityRowProps {
   activity: Activity
+  idx: number
   highlighted?: boolean
   isLastVisited?: boolean
+  isSelected: boolean
   onNavigate: (id: string) => void
-  onContextMenu: (e: React.MouseEvent, id: string) => void
+  onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined) => void
+  onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
+  onThreeDotClick: (e: React.MouseEvent<HTMLButtonElement>, id: string, title: string | null | undefined) => void
 }
 
-function ActivityRow({ activity, highlighted, isLastVisited, onNavigate, onContextMenu }: ActivityRowProps) {
+function ActivityRow({
+  activity,
+  idx,
+  highlighted,
+  isLastVisited,
+  isSelected,
+  onNavigate,
+  onContextMenu,
+  onToggleSelect,
+  onThreeDotClick,
+}: ActivityRowProps) {
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
@@ -740,27 +1096,35 @@ function ActivityRow({ activity, highlighted, isLastVisited, onNavigate, onConte
     navigate(`/activities/${activity.id}`)
   }
 
-  // Hintergrundklasse: Priorität lastVisited > jumpDate-highlight > normal
-  // Die orange-* Klassen werden durch das AccentColor-System dynamisch überschrieben,
-  // sodass die Hervorhebung immer in der gewählten Akzentfarbe erscheint.
   let rowClass = 'even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
-  if (isLastVisited) {
+  if (isSelected) {
+    rowClass = 'bg-orange-50/70 dark:bg-orange-900/15 hover:bg-orange-100/60 dark:hover:bg-orange-900/25 transition-colors cursor-pointer group'
+  } else if (isLastVisited) {
     rowClass = 'bg-orange-100/60 dark:bg-orange-900/25 ring-1 ring-inset ring-orange-400/40 dark:ring-orange-500/30 hover:bg-orange-100/80 dark:hover:bg-orange-900/35 transition-colors cursor-pointer group'
   } else if (highlighted) {
     rowClass = 'bg-orange-50 dark:bg-orange-900/20 even:bg-orange-50 dark:even:bg-orange-900/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
   }
 
-  // Titelfarbe: bei lastVisited Akzentfarbe, sonst hover-Akzent
-  const titleClass = isLastVisited
+  const titleClass = isLastVisited && !isSelected
     ? 'text-orange-600 dark:text-orange-400 font-medium'
     : 'text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors'
 
   return (
     <tr
       onClick={handleClick}
-      onContextMenu={e => onContextMenu(e, activity.id)}
+      onContextMenu={e => onContextMenu(e, activity.id, activity.title)}
       className={rowClass}
     >
+      {/* Checkbox */}
+      <td className="py-3 pl-3 pr-2 w-8" onClick={e => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={e => onToggleSelect(activity.id, idx, e.nativeEvent.shiftKey)}
+          className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+          aria-label={`Aktivität ${activity.title ?? activity.id} auswählen`}
+        />
+      </td>
       <td className={`px-4 py-3 ${titleClass}`}>
         {activity.title ?? (
           <span className="text-neutral-400 font-normal italic">Kein Titel</span>
@@ -783,7 +1147,7 @@ function ActivityRow({ activity, highlighted, isLastVisited, onNavigate, onConte
       <td className="px-4 py-3 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
         {formatDuration(activity.elapsed_time_s ?? 0)}
       </td>
-      {/* Höhenmeter: zwei feste Spaltenbreiten für 4-stellige Werte */}
+      {/* Höhenmeter */}
       <td className="px-4 py-3">
         {(gain ?? loss) ? (
           <div className="flex items-center justify-end gap-1 tabular-nums text-sm">
@@ -800,6 +1164,18 @@ function ActivityRow({ activity, highlighted, isLastVisited, onNavigate, onConte
         ) : (
           <div className="text-right text-neutral-400 dark:text-neutral-600">—</div>
         )}
+      </td>
+      {/* 3-Punkt-Menü */}
+      <td className="py-3 pl-0 pr-2 w-8" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={e => onThreeDotClick(e, activity.id, activity.title)}
+          className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Aktivitätsmenü"
+        >
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+          </svg>
+        </button>
       </td>
     </tr>
   )
