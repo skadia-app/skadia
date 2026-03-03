@@ -164,6 +164,7 @@ func main() {
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
 			r.Get("/activities/sport-type-stats", h.GetSportTypeStats)
 			r.Get("/activities", h.ListActivities)
+			r.Post("/activities/export-zip", h.ExportActivitiesZip)
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)
 			r.Delete("/activities/{id}", h.DeleteActivity)
