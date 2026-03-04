@@ -32,6 +32,7 @@ type Config struct {
 	ShadowFSBasePath string
 	HotfolderPath    string
 	HotfolderEnabled bool
+	HotfolderUserID  string // User ID that hotfolder imports are attributed to
 
 	// LLM / LiteLLM
 	LiteLLMConfigPath  string // writable path to litellm config.yaml
@@ -63,6 +64,7 @@ func Load() (*Config, error) {
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
 		HotfolderEnabled: os.Getenv("HOTFOLDER_ENABLED") == "true",
+		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
 
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),

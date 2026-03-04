@@ -378,10 +378,13 @@ func main() {
 	var hotfolderWatcher *shadowfs.Watcher
 	if shadowFSCfg != nil && shadowFSCfg.HotfolderEnabled && shadowFSCfg.HotfolderPath != "" {
 		hotfolderWatcher = shadowfs.NewWatcher(shadowFSCfg.HotfolderPath, func(filePath string) error {
-			slog.Info("hotfolder import triggered", "path", filePath)
-			// The actual import logic would use the upload pipeline here.
-			// For now, log and return nil (placeholder for hotfolder import).
-			return nil
+			userID := cfg.HotfolderUserID
+			if userID == "" {
+				slog.Warn("hotfolder: HOTFOLDER_USER_ID not configured, skipping file", "path", filePath)
+				return nil
+			}
+			ctx := context.Background()
+			return h.UploadFromFile(ctx, userID, filePath)
 		})
 		if err := hotfolderWatcher.Start(); err != nil {
 			slog.Warn("hotfolder watcher failed to start", "error", err)
