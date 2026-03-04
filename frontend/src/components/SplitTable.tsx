@@ -4,6 +4,7 @@ interface Props {
   splits: Split[]
   summaries: SplitSummary[]
   sportType: string
+  subType?: string
 }
 
 function fmtDuration(s?: number): string {
@@ -29,9 +30,11 @@ function fmtSpeed(speedMs?: number): string {
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
-function splitTypeLabel(type: string): string {
+function splitTypeLabel(type: string, subType?: string): string {
+  if (type === 'climb_active') {
+    return subType === 'bouldering' ? 'Bouldern' : 'Klettern'
+  }
   const labels: Record<string, string> = {
-    climb_active: 'Klettern',
     climb_rest: 'Pause',
     ski_run: 'Abfahrt',
     ski_lift: 'Lift',
@@ -54,27 +57,30 @@ function splitTypeBadgeColor(type: string): string {
   }
 }
 
-export default function SplitTable({ splits, summaries, sportType }: Props) {
-  if (sportType === 'rock_climbing') return <ClimbingSplits splits={splits} summaries={summaries} />
+export default function SplitTable({ splits, summaries, sportType, subType }: Props) {
+  if (sportType === 'rock_climbing') return <ClimbingSplits splits={splits} summaries={summaries} subType={subType} />
   if (sportType === 'skiing') return <SkiSplits splits={splits} />
   return <GenericSplits splits={splits} />
 }
 
-function ClimbingSplits({ splits, summaries }: { splits: Split[]; summaries: SplitSummary[] }) {
+function ClimbingSplits({ splits, summaries, subType }: { splits: Split[]; summaries: SplitSummary[]; subType?: string }) {
+  const isBouldering = subType === 'bouldering'
   const activeSplits = splits.filter(s => s.split_type === 'climb_active')
   const totalActiveTime = activeSplits.reduce((sum, s) => sum + (s.timer_time_s ?? s.elapsed_time_s ?? 0), 0)
   const totalCalories = splits.reduce((sum, s) => sum + (s.total_calories ?? 0), 0)
 
   const summaryForClimb = summaries.find(s => s.split_type === 'climb_active')
+  const routenVerb = isBouldering ? 'geboulbert' : 'geklettert'
+  const sectionTitle = isBouldering ? 'Boulder-Routen' : 'Routen'
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Routen</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{sectionTitle}</h2>
 
       {/* Summary card */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span className="text-neutral-700 dark:text-neutral-300">
-          <span className="font-medium">{summaryForClimb?.num_splits ?? activeSplits.length}</span> Routen geklettert
+          <span className="font-medium">{summaryForClimb?.num_splits ?? activeSplits.length}</span> Routen {routenVerb}
         </span>
         <span className="text-neutral-700 dark:text-neutral-300">
           <span className="font-medium">{fmtDuration(totalActiveTime)}</span> aktiv
@@ -107,7 +113,7 @@ function ClimbingSplits({ splits, summaries }: { splits: Split[]; summaries: Spl
                 <td className={tdClass}>{s.split_index + 1}</td>
                 <td className={tdClass}>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${splitTypeBadgeColor(s.split_type)}`}>
-                    {splitTypeLabel(s.split_type)}
+                    {splitTypeLabel(s.split_type, subType)}
                   </span>
                 </td>
                 <td className={tdClass}>{fmtDuration(s.timer_time_s ?? s.elapsed_time_s)}</td>

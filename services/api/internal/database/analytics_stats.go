@@ -189,7 +189,7 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 type YearlyOverviewRow struct {
 	Year       int     `json:"year"`
 	Month      int     `json:"month"`
-	Activities int64   `json:"activities"`
+	Activities int64   `json:"count"`
 	DistanceM  float64 `json:"distance_m"`
 	ElevationM float64 `json:"elevation_m"`
 	DurationS  int64   `json:"duration_s"`

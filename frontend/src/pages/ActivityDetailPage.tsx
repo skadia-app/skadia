@@ -250,7 +250,7 @@ export default function ActivityDetailPage() {
 
       {/* Splits (Klettern zuerst) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (
-        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" />
+        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" subType={activity.sub_type ?? undefined} />
       )}
 
       {/* Bahnen */}
@@ -264,8 +264,8 @@ export default function ActivityDetailPage() {
       {/* ClimbPro */}
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
 
-      {/* Anstiege */}
-      <ClimbsSection activityId={activity.id} />
+      {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
+      {activity.has_gps && <ClimbsSection activityId={activity.id} />}
 
       {/* Stopps */}
       <StopsSection activityId={activity.id} />
@@ -276,12 +276,14 @@ export default function ActivityDetailPage() {
       {/* Erkannte Runden */}
       <DetectedLapsTable activityId={activity.id} />
 
-      {/* Segmente */}
-      <ActivitySegments
-        activityId={activity.id}
-        streams={streams}
-        activitySportType={activity.sport_type}
-      />
+      {/* Segmente (nur bei GPS-Aktivitäten) */}
+      {activity.has_gps && (
+        <ActivitySegments
+          activityId={activity.id}
+          streams={streams}
+          activitySportType={activity.sport_type}
+        />
+      )}
 
       {/* Zonen-Verteilung */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (

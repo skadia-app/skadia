@@ -438,15 +438,15 @@ func interpretCorrelation(r float64) string {
 func recoveryLevel(score int) (string, string) {
 	switch {
 	case score >= 80:
-		return "excellent", "You are well recovered. High-intensity training is appropriate today."
+		return "excellent", "Sehr gute Erholung. Intensive Trainingseinheiten sind heute problemlos möglich."
 	case score >= 60:
-		return "good", "Recovery is solid. Moderate to hard training is suitable."
+		return "good", "Gute Erholung. Moderate bis intensive Einheiten sind geeignet."
 	case score >= 40:
-		return "moderate", "Some fatigue detected. Consider an easy or tempo session."
+		return "moderate", "Leichte Ermüdung erkannt. Eine lockere Einheit oder Tempolauf empfehlenswert."
 	case score >= 20:
-		return "low", "Recovery is below average. Prioritize an easy day or rest."
+		return "low", "Erholung unter Durchschnitt. Einen ruhigen Tag oder Pause einplanen."
 	default:
-		return "very_low", "Significant fatigue or poor sleep. Rest or active recovery recommended."
+		return "very_low", "Erhebliche Ermüdung oder schlechter Schlaf. Ruhetag oder aktive Erholung empfohlen."
 	}
 }
 
