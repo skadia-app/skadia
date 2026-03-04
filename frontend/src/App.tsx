@@ -23,6 +23,7 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
+const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="settings/privacy" element={<PrivacySettingsPage />} />
               <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
               <Route path="workshop/rules" element={<AutomationRulesPage />} />
+              <Route path="workshop/document-review" element={<DocumentReviewPage />} />
               <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
               <Route path="settings/tags" element={<TagsPage />} />
             </Route>
