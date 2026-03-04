@@ -220,6 +220,34 @@ func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, climbs)
 }
 
+// GetActivityStops returns detected stops for an activity.
+func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
+	activityID := chi.URLParam(r, "id")
+	stops, err := h.DB.GetActivityStops(r.Context(), activityID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get stops", r.URL.Path)
+		return
+	}
+	if stops == nil {
+		stops = []model.ActivityStop{}
+	}
+	writeJSON(w, http.StatusOK, stops)
+}
+
+// GetActivitySurfaces returns detected surfaces for an activity.
+func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
+	activityID := chi.URLParam(r, "id")
+	surfaces, err := h.DB.GetActivitySurfaces(r.Context(), activityID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get surfaces", r.URL.Path)
+		return
+	}
+	if surfaces == nil {
+		surfaces = []model.ActivitySurface{}
+	}
+	writeJSON(w, http.StatusOK, surfaces)
+}
+
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

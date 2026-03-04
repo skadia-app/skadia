@@ -1463,11 +1463,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key, extracted_text, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -1495,7 +1495,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1515,7 +1515,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1589,4 +1589,53 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 		return nil, fmt.Errorf("get gear cost summary: %w", err)
 	}
 	return &s, nil
+}
+
+// UpdateGearDocumentText updates the extracted_text field of a gear document.
+func (db *DB) UpdateGearDocumentText(ctx context.Context, docID, text string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE gear_documents SET extracted_text = $1, processing_status = 'done' WHERE id = $2`,
+		text, docID,
+	)
+	return err
+}
+
+// UpdateGearReviewStatus updates the review_status of a gear item.
+func (db *DB) UpdateGearReviewStatus(ctx context.Context, gearID, userID, status string) (*model.Gear, error) {
+	var g model.Gear
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE gear SET review_status = $1 WHERE id = $2 AND user_id = $3
+		 RETURNING id, name, type, review_status, updated_at`,
+		status, gearID, userID,
+	).Scan(&g.ID, &g.Name, &g.Type, &g.ReviewStatus, &g.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("update gear review status: %w", err)
+	}
+	return &g, nil
+}
+
+// ListPendingReviewGear returns gear items pending user review.
+func (db *DB) ListPendingReviewGear(ctx context.Context, userID string) ([]model.Gear, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name, type, review_status, source_document_id, created_at
+		 FROM gear WHERE user_id = $1 AND review_status = 'pending_review'
+		 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list pending review gear: %w", err)
+	}
+	defer rows.Close()
+	var items []model.Gear
+	for rows.Next() {
+		var g model.Gear
+		if err := rows.Scan(&g.ID, &g.Name, &g.Type, &g.ReviewStatus, &g.SourceDocumentID, &g.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan pending review gear: %w", err)
+		}
+		items = append(items, g)
+	}
+	if items == nil {
+		items = []model.Gear{}
+	}
+	return items, rows.Err()
 }

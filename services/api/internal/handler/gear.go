@@ -22,7 +22,11 @@ import (
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 
+	pdfcpuapi "github.com/pdfcpu/pdfcpu/pkg/api"
+	pdfcpumodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -728,7 +732,97 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PDF text extraction via pdfcpu (best-effort)
+	var extractedText *string
+	var isTextPDF bool
+	if contentType == "application/pdf" {
+		if text := extractPDFText(data); text != "" {
+			extractedText = &text
+			isTextPDF = true
+			if err := h.DB.UpdateGearDocumentText(r.Context(), result.ID, text); err != nil {
+				slog.Warn("failed to update extracted text", "doc_id", result.ID, "error", err)
+			}
+		}
+	}
+
+	// NATS event (graceful - no error if NATS unavailable)
+	if h.Events != nil {
+		evt := event.DocumentUploadedEvent{
+			DocID:         result.ID,
+			GearID:        result.GearID,
+			ComponentID:   result.ComponentID,
+			UserID:        userID,
+			ContentType:   result.ContentType,
+			IsTextPDF:     isTextPDF,
+			ExtractedText: extractedText,
+			S3Bucket:      doc.S3Bucket,
+			S3Key:         doc.S3Key,
+		}
+		if err := h.Events.PublishDocumentUploaded(evt); err != nil {
+			slog.Warn("failed to publish document uploaded event", "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, result)
+}
+
+// extractPDFText uses pdfcpu to extract content streams from PDF data.
+// Returns concatenated text content, or empty string on failure.
+func extractPDFText(pdfData []byte) string {
+	tmpDir, err := os.MkdirTemp("", "pdfcpu-extract-*")
+	if err != nil {
+		slog.Warn("pdfcpu: failed to create temp dir", "error", err)
+		return ""
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write PDF to temp file
+	tmpFile, err := os.CreateTemp(tmpDir, "doc-*.pdf")
+	if err != nil {
+		slog.Warn("pdfcpu: failed to create temp file", "error", err)
+		return ""
+	}
+	if _, err := tmpFile.Write(pdfData); err != nil {
+		tmpFile.Close()
+		return ""
+	}
+	tmpFile.Close()
+
+	conf := pdfcpumodel.NewDefaultConfiguration()
+	outDir, err := os.MkdirTemp("", "pdfcpu-out-*")
+	if err != nil {
+		return ""
+	}
+	defer os.RemoveAll(outDir)
+
+	if err := pdfcpuapi.ExtractContentFile(tmpFile.Name(), outDir, nil, conf); err != nil {
+		slog.Debug("pdfcpu: content extraction failed", "error", err)
+		return ""
+	}
+
+	// Read all extracted content files
+	entries, err := os.ReadDir(outDir)
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(outDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		parts = append(parts, string(content))
+	}
+
+	text := strings.Join(parts, "\n")
+	if len(text) < 100 {
+		return "" // not enough text to be useful
+	}
+	return text
 }
 
 func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
@@ -920,6 +1014,46 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Write(data)
+}
+
+// PatchGearReview updates the review status of a gear item.
+func (h *Handler) PatchGearReview(w http.ResponseWriter, r *http.Request) {
+	gearID := chi.URLParam(r, "id")
+	userID := middleware.GetUserID(r.Context())
+	var req model.GearReviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		return
+	}
+	if req.ReviewStatus != "confirmed" && req.ReviewStatus != "rejected" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "review_status must be confirmed or rejected", r.URL.Path)
+		return
+	}
+	if req.ReviewStatus == "rejected" {
+		if err := h.DB.DeleteGear(r.Context(), userID, gearID); err != nil {
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	gear, err := h.DB.UpdateGearReviewStatus(r.Context(), gearID, userID, req.ReviewStatus)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update review status", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, gear)
+}
+
+// ListPendingReviewGear returns gear items awaiting user review.
+func (h *Handler) ListPendingReviewGear(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	items, err := h.DB.ListPendingReviewGear(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list pending review gear", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 // GetGearCosts returns the cost summary for a gear item.

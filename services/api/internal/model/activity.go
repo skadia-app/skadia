@@ -640,6 +640,9 @@ type Gear struct {
 	Status              string          `json:"status"`
 	DefaultForSports    []string        `json:"default_for_sports"`
 	Notes               *string         `json:"notes,omitempty"`
+	ReviewStatus        string          `json:"review_status,omitempty"`
+	WeightG             *int            `json:"weight_g,omitempty"`
+	SourceDocumentID    *string         `json:"source_document_id,omitempty"`
 	Components          []GearComponent `json:"components,omitempty"`
 	CreatedAt           time.Time       `json:"created_at"`
 }
@@ -881,7 +884,34 @@ type GearDocument struct {
 	FileHash         *string   `json:"file_hash,omitempty"`
 	S3Bucket         string    `json:"-"`
 	S3Key            string    `json:"-"`
+	ExtractedText    *string   `json:"extracted_text,omitempty"`
+	ProcessingStatus string    `json:"processing_status"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+// GearReviewRequest is the request body for PATCH /gear/{id}/review.
+type GearReviewRequest struct {
+	ReviewStatus string `json:"review_status"` // confirmed | rejected
+}
+
+// ActivityStop represents a detected stop within an activity.
+type ActivityStop struct {
+	ID        string    `json:"id"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
+	DurationS int       `json:"duration_s"`
+	Lat       *float64  `json:"lat,omitempty"`
+	Lng       *float64  `json:"lng,omitempty"`
+	Name      *string   `json:"name,omitempty"`
+}
+
+// ActivitySurface represents a detected surface type within an activity.
+type ActivitySurface struct {
+	ID          string  `json:"id"`
+	SurfaceType string  `json:"surface_type"`
+	PathType    string  `json:"path_type"`
+	LengthM     float64 `json:"length_m"`
+	Percentage  float64 `json:"percentage"`
 }
 
 // BikeSetupUpdate is the request body for updating a bike setup.

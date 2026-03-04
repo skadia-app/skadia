@@ -90,6 +90,33 @@ func (p *Publisher) PublishStage2Ready(event Stage2ReadyEvent) error {
 	return nil
 }
 
+// DocumentUploadedEvent is emitted when a gear document is uploaded,
+// signalling the ML service to process the document with VLM.
+type DocumentUploadedEvent struct {
+	DocID         string  `json:"doc_id"`
+	GearID        *string `json:"gear_id,omitempty"`
+	ComponentID   *string `json:"component_id,omitempty"`
+	UserID        string  `json:"user_id"`
+	ContentType   string  `json:"content_type"`
+	IsTextPDF     bool    `json:"is_text_pdf"`
+	ExtractedText *string `json:"extracted_text,omitempty"`
+	S3Bucket      string  `json:"s3_bucket"`
+	S3Key         string  `json:"s3_key"`
+}
+
+func (p *Publisher) PublishDocumentUploaded(event DocumentUploadedEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal document event: %w", err)
+	}
+	_, err = p.js.Publish("skadia.document.uploaded", data)
+	if err != nil {
+		return fmt.Errorf("publish document event: %w", err)
+	}
+	slog.Info("event published", "subject", "skadia.document.uploaded", "doc_id", event.DocID)
+	return nil
+}
+
 // JetStream returns the JetStream context for creating consumers.
 func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js

@@ -125,6 +125,11 @@ func main() {
 		Events:   pub,
 		Auth:     authCfg,
 		ShadowFS: shadowFSCfg,
+		Config: &handler.HandlerConfig{
+			LiteLLMConfigPath:  cfg.LiteLLMConfigPath,
+			LiteLLMInternalURL: cfg.LiteLLMInternalURL,
+			LLMEncryptionKey:   cfg.LLMEncryptionKey,
+		},
 	}
 
 	// Router
@@ -222,6 +227,8 @@ func main() {
 			r.Post("/gear", h.CreateGear)
 			r.Get("/gear/component-presets", h.ListComponentPresets)
 			r.Get("/gear/maintenance-alerts", h.GetMaintenanceAlerts)
+			r.Get("/gear/pending-review", h.ListPendingReviewGear)
+			r.Patch("/gear/{id}/review", h.PatchGearReview)
 			r.Get("/gear/{id}/costs", h.GetGearCosts)
 			r.Get("/gear/{id}", h.GetGear)
 			r.Put("/gear/{id}", h.UpdateGear)
@@ -286,6 +293,16 @@ func main() {
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
+			r.Get("/activities/{id}/stops", h.GetActivityStops)
+			r.Get("/activities/{id}/surfaces", h.GetActivitySurfaces)
+
+			// LLM Settings (Admin + User)
+			r.Get("/admin/llm-config", h.GetLLMConfig)
+			r.Put("/admin/llm-config/{role}", h.PutLLMConfigRole)
+			r.Get("/admin/llm-config/models", h.GetLLMModels)
+			r.Post("/admin/llm-config/test", h.TestLLMConnection)
+			r.Get("/user/llm-config", h.GetLLMUserConfig)
+			r.Patch("/user/llm-config", h.PatchLLMUserConfig)
 		})
 	})
 

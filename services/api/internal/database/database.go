@@ -2695,3 +2695,48 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 	}
 	return count, nil
 }
+
+// GetActivityStops returns detected stops for an activity.
+func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.ActivityStop, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, started_at, ended_at, duration_s,
+		        ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng,
+		        name
+		 FROM activity_stops WHERE activity_id = $1 ORDER BY started_at`,
+		activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get activity stops: %w", err)
+	}
+	defer rows.Close()
+	var stops []model.ActivityStop
+	for rows.Next() {
+		var s model.ActivityStop
+		if err := rows.Scan(&s.ID, &s.StartedAt, &s.EndedAt, &s.DurationS,
+			&s.Lat, &s.Lng, &s.Name); err != nil {
+			return nil, fmt.Errorf("scan activity stop: %w", err)
+		}
+		stops = append(stops, s)
+	}
+	return stops, rows.Err()
+}
+
+// GetActivitySurfaces returns detected surfaces for an activity.
+func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]model.ActivitySurface, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, surface_type, path_type, length_m, percentage
+		 FROM activity_surfaces WHERE activity_id = $1 ORDER BY percentage DESC`,
+		activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get activity surfaces: %w", err)
+	}
+	defer rows.Close()
+	var surfaces []model.ActivitySurface
+	for rows.Next() {
+		var s model.ActivitySurface
+		if err := rows.Scan(&s.ID, &s.SurfaceType, &s.PathType, &s.LengthM, &s.Percentage); err != nil {
+			return nil, fmt.Errorf("scan activity surface: %w", err)
+		}
+		surfaces = append(surfaces, s)
+	}
+	return surfaces, rows.Err()
+}
