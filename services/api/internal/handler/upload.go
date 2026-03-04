@@ -110,7 +110,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				"activity_id": match.ExistingActivityID,
 			})
 		default: // enrich_missing
-			n, enrichErr := importer.EnrichActivity(r.Context(), h.DB, match.ExistingActivityID, nil, data)
+			existing, getErr := h.DB.GetActivity(r.Context(), match.ExistingActivityID)
+			if getErr != nil {
+				slog.Warn("upload: cannot fetch existing activity for enrich", "id", match.ExistingActivityID, "error", getErr)
+			}
+			n, enrichErr := importer.EnrichActivity(r.Context(), h.DB, match.ExistingActivityID, existing, data)
 			if enrichErr != nil {
 				slog.Error("enrich activity failed", "error", enrichErr)
 			}

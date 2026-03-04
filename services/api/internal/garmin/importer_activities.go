@@ -158,7 +158,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			case importer.StrategySkip:
 				// nothing
 			default: // enrich_missing
-				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, nil, data)
+				existing, getErr := params.DB.GetActivity(ctx, match.ExistingActivityID)
+				if getErr != nil {
+					slog.Warn("garmin activities: cannot fetch existing activity for enrich", "id", match.ExistingActivityID, "error", getErr)
+				}
+				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, existing, data)
 			}
 			// Ensure garmin_activity_id is set on the existing activity
 			if garminActivityID > 0 {
