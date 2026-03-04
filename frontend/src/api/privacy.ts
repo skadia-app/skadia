@@ -9,6 +9,8 @@ export interface PrivacyZone {
   color: string
   is_active: boolean
   created_at: string
+  zone_type: 'circle' | 'polygon'
+  polygon?: string // GeoJSON Polygon string, set when zone_type='polygon'
 }
 
 export async function listPrivacyZones(): Promise<PrivacyZone[]> {
@@ -21,13 +23,15 @@ export async function createPrivacyZone(zone: {
   lng: number
   radius_m: number
   color: string
+  zone_type?: 'circle' | 'polygon'
+  polygon?: string
 }): Promise<PrivacyZone> {
   return apiClient<PrivacyZone>('/privacy-zones', { method: 'POST', body: zone })
 }
 
 export async function updatePrivacyZone(
   id: string,
-  update: Partial<Pick<PrivacyZone, 'name' | 'lat' | 'lng' | 'radius_m' | 'color' | 'is_active'>>,
+  update: Partial<Pick<PrivacyZone, 'name' | 'lat' | 'lng' | 'radius_m' | 'color' | 'is_active' | 'zone_type' | 'polygon'>>,
 ): Promise<PrivacyZone> {
   return apiClient<PrivacyZone>(`/privacy-zones/${id}`, { method: 'PUT', body: update })
 }

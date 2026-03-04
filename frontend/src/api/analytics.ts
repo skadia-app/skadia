@@ -79,8 +79,6 @@ export interface PersonalRecord {
 export interface HRVPoint {
   date: string
   rmssd: number | null
-  sdrr: number | null
-  time_of_day: string
 }
 
 export interface HRVAnalysis {
@@ -89,8 +87,6 @@ export interface HRVAnalysis {
   baseline_std: number
   seven_day_avg: number
   anomalies: string[]
-  morning_avg: number | null
-  night_avg: number | null
 }
 
 export interface HRVCorrelationPoint {

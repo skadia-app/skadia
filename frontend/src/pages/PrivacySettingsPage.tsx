@@ -87,15 +87,19 @@ function ZoneListItem({
       <div className="flex-1 min-w-0">
         <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{zone.name}</div>
         <div className="text-sm text-neutral-500 dark:text-neutral-400">
-          Radius: {zone.radius_m >= 1000 ? `${(zone.radius_m / 1000).toFixed(1).replace('.0', '')} km` : `${zone.radius_m} m`}
+          {zone.zone_type === 'polygon'
+            ? 'Polygon'
+            : `Radius: ${zone.radius_m >= 1000 ? `${(zone.radius_m / 1000).toFixed(1).replace('.0', '')} km` : `${zone.radius_m} m`}`}
           <span className="mx-2 text-neutral-300 dark:text-neutral-600">|</span>
           {zone.is_active ? 'Aktiv' : 'Inaktiv'}
         </div>
         <div className="text-xs text-neutral-400 dark:text-neutral-500 tabular-nums mt-0.5 flex items-center gap-2 flex-wrap">
-          <span>{zone.lat.toFixed(5)}, {zone.lng.toFixed(5)}</span>
+          {zone.zone_type !== 'polygon' && (
+            <span>{zone.lat.toFixed(5)}, {zone.lng.toFixed(5)}</span>
+          )}
           {address && (
             <>
-              <span className="text-neutral-300 dark:text-neutral-600">·</span>
+              {zone.zone_type !== 'polygon' && <span className="text-neutral-300 dark:text-neutral-600">·</span>}
               <span>{address}</span>
             </>
           )}
@@ -192,16 +196,33 @@ function OverviewMap({ zones, onZoneClick }: OverviewMapProps) {
       // Pro Zone: eigene Source + Layer mit Zonenfarbe
       zones.forEach((zone, i) => {
         const color = zone.color || '#F97316'
-        const sid = `zone-circle-${i}`
+        const sid = `zone-shape-${i}`
         zoneSourceIdsRef.current.push(sid)
 
-        map.addSource(sid, {
-          type: 'geojson',
-          data: {
+        // GeoJSON-Geometrie je nach Zonentyp
+        let shapeFeature: GeoJSON.Feature
+        if (zone.zone_type === 'polygon' && zone.polygon) {
+          try {
+            const parsed = JSON.parse(zone.polygon) as GeoJSON.Polygon
+            shapeFeature = {
+              type: 'Feature',
+              properties: { id: zone.id, is_active: zone.is_active },
+              geometry: parsed,
+            }
+          } catch {
+            shapeFeature = {
+              ...circlePolygon([zone.lng, zone.lat], zone.radius_m),
+              properties: { id: zone.id, is_active: zone.is_active },
+            }
+          }
+        } else {
+          shapeFeature = {
             ...circlePolygon([zone.lng, zone.lat], zone.radius_m),
             properties: { id: zone.id, is_active: zone.is_active },
-          },
-        })
+          }
+        }
+
+        map.addSource(sid, { type: 'geojson', data: shapeFeature })
         map.addLayer({
           id: `${sid}-fill`,
           type: 'fill',
@@ -238,10 +259,13 @@ function OverviewMap({ zones, onZoneClick }: OverviewMapProps) {
         `
         el.addEventListener('click', () => onZoneClick(zone))
 
+        const zoneInfo = zone.zone_type === 'polygon'
+          ? `Polygon · ${zone.is_active ? 'Aktiv' : 'Inaktiv'}`
+          : `${zone.radius_m} m · ${zone.is_active ? 'Aktiv' : 'Inaktiv'}`
         const marker = new maplibregl.Marker({ element: el })
           .setLngLat([zone.lng, zone.lat])
           .setPopup(new maplibregl.Popup({ offset: 18, closeButton: false })
-            .setHTML(`<span style="font-size:12px;font-weight:500">${zone.name}</span><br/><span style="font-size:11px;color:#9ca3af">${zone.radius_m} m · ${zone.is_active ? 'Aktiv' : 'Inaktiv'}</span>`))
+            .setHTML(`<span style="font-size:12px;font-weight:500">${zone.name}</span><br/><span style="font-size:11px;color:#9ca3af">${zoneInfo}</span>`))
           .addTo(map)
 
         markersRef.current.push(marker)
@@ -251,9 +275,20 @@ function OverviewMap({ zones, onZoneClick }: OverviewMapProps) {
       if (zones.length > 0) {
         const bounds = new maplibregl.LngLatBounds()
         zones.forEach(z => {
-          const r = z.radius_m / 111320
-          bounds.extend([z.lng - r, z.lat - r])
-          bounds.extend([z.lng + r, z.lat + r])
+          if (z.zone_type === 'polygon' && z.polygon) {
+            try {
+              const parsed = JSON.parse(z.polygon) as GeoJSON.Polygon
+              parsed.coordinates[0].forEach(pt => bounds.extend(pt as [number, number]))
+            } catch {
+              const r = z.radius_m / 111320
+              bounds.extend([z.lng - r, z.lat - r])
+              bounds.extend([z.lng + r, z.lat + r])
+            }
+          } else {
+            const r = z.radius_m / 111320
+            bounds.extend([z.lng - r, z.lat - r])
+            bounds.extend([z.lng + r, z.lat + r])
+          }
         })
         map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
       }

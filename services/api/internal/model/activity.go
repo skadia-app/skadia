@@ -570,6 +570,9 @@ type PrivacyZone struct {
 	Color     string    `json:"color"`
 	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
+	// Polygon fields (zone_type = 'polygon')
+	ZoneType string  `json:"zone_type"` // 'circle' or 'polygon'
+	Polygon  *string `json:"polygon,omitempty"` // GeoJSON Polygon string, set when zone_type='polygon'
 }
 
 // PrivacyZoneUpdate is the request body for updating a private zone.
@@ -580,6 +583,9 @@ type PrivacyZoneUpdate struct {
 	RadiusM  *int     `json:"radius_m,omitempty"`
 	Color    *string  `json:"color,omitempty"`
 	IsActive *bool    `json:"is_active,omitempty"`
+	// Polygon fields
+	ZoneType *string `json:"zone_type,omitempty"` // 'circle' or 'polygon'
+	Polygon  *string `json:"polygon,omitempty"`   // GeoJSON Polygon string
 }
 
 // GeoTag represents a geographic feature associated with an activity.

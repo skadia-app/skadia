@@ -1727,7 +1727,9 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at
+			radius_m, color, is_active, created_at,
+			zone_type,
+			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson
 		FROM user_privacy_zones
 		WHERE user_id = $1
 		ORDER BY created_at`,
@@ -1741,7 +1743,7 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 	var zones []model.PrivacyZone
 	for rows.Next() {
 		var z model.PrivacyZone
-		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt); err != nil {
+		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon); err != nil {
 			return nil, fmt.Errorf("scan privacy zone: %w", err)
 		}
 		zones = append(zones, z)
@@ -1753,16 +1755,33 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 }
 
 // CreatePrivacyZone creates a new private zone.
-func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, lng float64, radiusM int, color string) (*model.PrivacyZone, error) {
+// zoneType is 'circle' or 'polygon'. polygonGeoJSON is the GeoJSON string for polygon zones (nil for circles).
+func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, lng float64, radiusM int, color string, zoneType string, polygonGeoJSON *string) (*model.PrivacyZone, error) {
 	var z model.PrivacyZone
-	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color)
-		VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6)
-		RETURNING id, user_id, name,
-			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at`,
-		userID, name, lat, lng, radiusM, color,
-	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt)
+	var err error
+	if zoneType == "polygon" && polygonGeoJSON != nil {
+		err = db.Pool.QueryRow(ctx, `
+			INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color, zone_type, polygon)
+			VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6, 'polygon', ST_GeomFromGeoJSON($7))
+			RETURNING id, user_id, name,
+				ST_Y(center) AS lat, ST_X(center) AS lng,
+				radius_m, color, is_active, created_at,
+				zone_type,
+				ST_AsGeoJSON(polygon) AS polygon_geojson`,
+			userID, name, lat, lng, radiusM, color, *polygonGeoJSON,
+		).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
+	} else {
+		err = db.Pool.QueryRow(ctx, `
+			INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color, zone_type)
+			VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6, 'circle')
+			RETURNING id, user_id, name,
+				ST_Y(center) AS lat, ST_X(center) AS lng,
+				radius_m, color, is_active, created_at,
+				zone_type,
+				NULL AS polygon_geojson`,
+			userID, name, lat, lng, radiusM, color,
+		).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create privacy zone: %w", err)
 	}
@@ -1801,6 +1820,16 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 		args = append(args, *update.IsActive)
 		argIdx++
 	}
+	if update.ZoneType != nil {
+		sets = append(sets, fmt.Sprintf("zone_type = $%d", argIdx))
+		args = append(args, *update.ZoneType)
+		argIdx++
+	}
+	if update.Polygon != nil {
+		sets = append(sets, fmt.Sprintf("polygon = ST_GeomFromGeoJSON($%d)", argIdx))
+		args = append(args, *update.Polygon)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		return db.getPrivacyZone(ctx, zoneID, userID)
@@ -1811,13 +1840,15 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at`,
+			radius_m, color, is_active, created_at,
+			zone_type,
+			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson`,
 		strings.Join(sets, ", "),
 	)
 
 	var z model.PrivacyZone
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt,
+		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1833,11 +1864,13 @@ func (db *DB) getPrivacyZone(ctx context.Context, zoneID, userID string) (*model
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at
+			radius_m, color, is_active, created_at,
+			zone_type,
+			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson
 		FROM user_privacy_zones
 		WHERE id = $1 AND user_id = $2`,
 		zoneID, userID,
-	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt)
+	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

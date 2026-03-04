@@ -288,16 +288,6 @@ export default function HRVAnalysisChart() {
               {anomalyCount} {anomalyCount === 1 ? 'Anomalie' : 'Anomalien'}
             </span>
           )}
-          {data.morning_avg != null && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
-              Morgen-Avg: {data.morning_avg.toFixed(1)} ms
-            </span>
-          )}
-          {data.night_avg != null && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
-              Nacht-Avg: {data.night_avg.toFixed(1)} ms
-            </span>
-          )}
         </div>
       )}
 

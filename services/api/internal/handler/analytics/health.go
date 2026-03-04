@@ -45,18 +45,12 @@ func (h *Handler) GetHRV(w http.ResponseWriter, r *http.Request) {
 		anomalies = []string{}
 	}
 
-	// Morning vs. night average.
-	morningAvg := avgByTimeOfDay(points, "morning")
-	nightAvg := avgByTimeOfDay(points, "night")
-
 	type response struct {
 		Points       []database.HRVPoint `json:"points"`
 		BaselineMean float64             `json:"baseline_mean"`
 		BaselineStd  float64             `json:"baseline_std"`
 		SevenDayAvg  float64             `json:"seven_day_avg"`
 		Anomalies    []string            `json:"anomalies"`
-		MorningAvg   *float64            `json:"morning_avg"`
-		NightAvg     *float64            `json:"night_avg"`
 	}
 
 	writeJSON(w, http.StatusOK, response{
@@ -65,8 +59,6 @@ func (h *Handler) GetHRV(w http.ResponseWriter, r *http.Request) {
 		BaselineStd:  baselineStd,
 		SevenDayAvg:  sevenDayAvg,
 		Anomalies:    anomalies,
-		MorningAvg:   morningAvg,
-		NightAvg:     nightAvg,
 	})
 }
 
@@ -371,24 +363,6 @@ func tailMean(vals []float64, n int) float64 {
 		sum += v
 	}
 	return sum / float64(len(tail))
-}
-
-// avgByTimeOfDay returns the mean RMSSD for a specific time_of_day label,
-// or nil when no matching points are found.
-func avgByTimeOfDay(points []database.HRVPoint, tod string) *float64 {
-	var sum float64
-	var count int
-	for _, p := range points {
-		if p.TimeOfDay == tod && p.RMSSD != nil {
-			sum += *p.RMSSD
-			count++
-		}
-	}
-	if count == 0 {
-		return nil
-	}
-	avg := sum / float64(count)
-	return &avg
 }
 
 // pearsonCorrelation computes the Pearson r between RMSSD and DailyTSS.

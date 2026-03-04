@@ -9,26 +9,26 @@ import (
 )
 
 // HRVPoint is a single HRV data point for chart rendering.
+// RMSSD values come from the rolling 7-day HRV average stored in health_readiness_scores
+// (imported from Garmin TrainingReadiness). SDRR and TimeOfDay are no longer populated.
 type HRVPoint struct {
-	Date      string   `json:"date"`
-	RMSSD     *float64 `json:"rmssd"`
-	SDRR      *float64 `json:"sdrr"`
-	TimeOfDay string   `json:"time_of_day"`
+	Date  string   `json:"date"`
+	RMSSD *float64 `json:"rmssd"`
 }
 
-// GetHRVAnalysis loads HRV snapshots for chart display over a time range.
+// GetHRVAnalysis loads daily HRV data for chart display over a time range.
+// Source: health_readiness_scores.hrv_weekly_avg_ms (rolling 7-day average from Garmin).
 func (db *DB) GetHRVAnalysis(ctx context.Context, userID string, from, to time.Time) ([]HRVPoint, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
-			measured_at_utc::date::text AS date,
-			rmssd_ms::float,
-			sdrr_ms::float,
-			COALESCE(time_of_day, '')
-		FROM health_hrv_snapshots
+			calendar_date::text AS date,
+			hrv_weekly_avg_ms::float AS rmssd
+		FROM health_readiness_scores
 		WHERE user_id = $1
-		  AND measured_at_utc BETWEEN $2 AND $3
-		ORDER BY measured_at_utc
-	`, userID, from, to)
+		  AND hrv_weekly_avg_ms IS NOT NULL
+		  AND calendar_date BETWEEN $2::date AND $3::date
+		ORDER BY calendar_date ASC
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return nil, fmt.Errorf("get hrv analysis: %w", err)
 	}
@@ -37,7 +37,7 @@ func (db *DB) GetHRVAnalysis(ctx context.Context, userID string, from, to time.T
 	var result []HRVPoint
 	for rows.Next() {
 		var p HRVPoint
-		if err := rows.Scan(&p.Date, &p.RMSSD, &p.SDRR, &p.TimeOfDay); err != nil {
+		if err := rows.Scan(&p.Date, &p.RMSSD); err != nil {
 			return nil, fmt.Errorf("scan hrv point: %w", err)
 		}
 		result = append(result, p)
@@ -57,22 +57,23 @@ type HRVCorrelationPoint struct {
 
 // GetHRVCorrelation loads paired HRV/TSS data for Pearson-correlation analysis.
 // TSS is summed from activities on the day *before* the HRV measurement.
+// HRV source: health_readiness_scores.hrv_weekly_avg_ms (rolling 7-day average from Garmin).
 func (db *DB) GetHRVCorrelation(ctx context.Context, userID string, from, to time.Time) ([]HRVCorrelationPoint, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
-			h.measured_at_utc::date AS date,
-			h.rmssd_ms::float       AS rmssd,
-			COALESCE(SUM(a.tss), 0) AS daily_tss
-		FROM health_hrv_snapshots h
+			h.calendar_date        AS date,
+			h.hrv_weekly_avg_ms::float AS rmssd,
+			COALESCE(SUM(a.tss), 0)   AS daily_tss
+		FROM health_readiness_scores h
 		LEFT JOIN activities a
-			ON  a.user_id    = h.user_id
-			AND a.started_at::date = h.measured_at_utc::date - INTERVAL '1 day'
+			ON  a.user_id      = h.user_id
+			AND a.started_at::date = h.calendar_date - INTERVAL '1 day'
 		WHERE h.user_id = $1
-		  AND h.rmssd_ms IS NOT NULL
-		  AND h.measured_at_utc BETWEEN $2 AND $3
-		GROUP BY h.measured_at_utc::date, h.rmssd_ms
+		  AND h.hrv_weekly_avg_ms IS NOT NULL
+		  AND h.calendar_date BETWEEN $2::date AND $3::date
+		GROUP BY h.calendar_date, h.hrv_weekly_avg_ms
 		ORDER BY date
-	`, userID, from, to)
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return nil, fmt.Errorf("get hrv correlation: %w", err)
 	}
@@ -310,17 +311,17 @@ func (db *DB) healthMetricFromDailyRHR(ctx context.Context, userID string, from,
 	return buildMetricFromRows(rows, "rhr", "bpm")
 }
 
-// healthMetricFromHRV builds an HRV-mean HealthMetric from health_hrv_snapshots.
+// healthMetricFromHRV builds an HRV-mean HealthMetric from health_readiness_scores.
+// Uses hrv_weekly_avg_ms (rolling 7-day average from Garmin TrainingReadiness).
 func (db *DB) healthMetricFromHRV(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT measured_at_utc::date::text AS date, AVG(rmssd_ms)::float AS value
-		FROM health_hrv_snapshots
+		SELECT calendar_date::text AS date, hrv_weekly_avg_ms::float AS value
+		FROM health_readiness_scores
 		WHERE user_id = $1
-		  AND rmssd_ms IS NOT NULL
-		  AND measured_at_utc BETWEEN $2 AND $3
-		GROUP BY measured_at_utc::date
-		ORDER BY date
-	`, userID, from, to)
+		  AND hrv_weekly_avg_ms IS NOT NULL
+		  AND calendar_date BETWEEN $2::date AND $3::date
+		ORDER BY calendar_date
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}

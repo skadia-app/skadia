@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -9,6 +9,8 @@ interface Props {
   zone: PrivacyZone | null
   onClose: () => void
 }
+
+type ZoneMode = 'circle' | 'polygon'
 
 function circlePolygon(center: [number, number], radiusM: number, steps = 64): GeoJSON.Feature {
   const coords: [number, number][] = []
@@ -36,18 +38,52 @@ function formatRadius(m: number): string {
   return `${m} m`
 }
 
+/** Berechne Schwerpunkt eines Polygon-Punktearrays */
+function centroid(points: [number, number][]): [number, number] {
+  const sum = points.reduce(([ax, ay], [x, y]) => [ax + x, ay + y], [0, 0])
+  return [sum[0] / points.length, sum[1] / points.length]
+}
+
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const queryClient = useQueryClient()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
+  // Polygon-Vertex-Marker-Liste
+  const polyMarkersRef = useRef<maplibregl.Marker[]>([])
+
+  const initialMode: ZoneMode = zone?.zone_type === 'polygon' ? 'polygon' : 'circle'
 
   const [name, setName] = useState(zone?.name ?? '')
   const [lat, setLat] = useState(zone?.lat ?? 51.16)
   const [lng, setLng] = useState(zone?.lng ?? 10.45)
   const [radius, setRadius] = useState(zone?.radius_m ?? 200)
   const [color, setColor] = useState(zone?.color ?? '#F97316')
+  const [zoneMode, setZoneMode] = useState<ZoneMode>(initialMode)
   const hasInitialPosition = zone != null
+
+  // Polygon-Punkte: beim Bearbeiten einer Polygon-Zone initial aus GeoJSON laden
+  const parseInitialPolygon = (): [number, number][] => {
+    if (zone?.zone_type === 'polygon' && zone.polygon) {
+      try {
+        const parsed = JSON.parse(zone.polygon) as GeoJSON.Polygon
+        const ring = parsed.coordinates[0]
+        // Letzten Punkt weglassen (gleich erstem bei geschlossenem Polygon)
+        return ring.slice(0, -1) as [number, number][]
+      } catch {
+        return []
+      }
+    }
+    return []
+  }
+
+  const [polygonPoints, setPolygonPoints] = useState<[number, number][]>(parseInitialPolygon)
+  const [polygonClosed, setPolygonClosed] = useState(zone?.zone_type === 'polygon' && (zone.polygon ?? '').length > 0)
+
+  // Refs für Werte, die im MapLibre-Event-Handler benötigt werden
+  const zoneModeRef = useRef<ZoneMode>(initialMode)
+  const polygonClosedRef = useRef(polygonClosed)
+  const colorRef = useRef(color)
 
   const createMut = useMutation({
     mutationFn: createPrivacyZone,
@@ -66,17 +102,38 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     },
   })
 
+  function buildPolygonGeoJSON(points: [number, number][]): string {
+    // GeoJSON Polygon braucht geschlossenen Ring: erster == letzter Punkt
+    const ring = [...points, points[0]]
+    return JSON.stringify({ type: 'Polygon', coordinates: [ring] })
+  }
+
   function handleSave() {
     const trimmed = name.trim()
     if (!trimmed) return
 
-    if (zone) {
-      updateMut.mutate({
-        id: zone.id,
-        data: { name: trimmed, lat, lng, radius_m: radius, color },
-      })
+    if (zoneMode === 'circle') {
+      if (zone) {
+        updateMut.mutate({
+          id: zone.id,
+          data: { name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle', polygon: undefined },
+        })
+      } else {
+        createMut.mutate({ name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle' })
+      }
     } else {
-      createMut.mutate({ name: trimmed, lat, lng, radius_m: radius, color })
+      // Polygon-Modus
+      if (polygonPoints.length < 3 || !polygonClosed) return
+      const polygonGeoJSON = buildPolygonGeoJSON(polygonPoints)
+      const [cLng, cLat] = centroid(polygonPoints)
+      if (zone) {
+        updateMut.mutate({
+          id: zone.id,
+          data: { name: trimmed, lat: cLat, lng: cLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON },
+        })
+      } else {
+        createMut.mutate({ name: trimmed, lat: cLat, lng: cLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON })
+      }
     }
   }
 
@@ -93,6 +150,66 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       map.setPaintProperty('zone-circle-border', 'line-color', c)
     }
   }
+
+  // Polygon-Layer-Daten aktualisieren
+  const updatePolygonLayer = useCallback((map: maplibregl.Map, points: [number, number][], closed: boolean, c: string) => {
+    const source = map.getSource('zone-polygon') as maplibregl.GeoJSONSource | undefined
+    if (!source) return
+
+    if (points.length === 0) {
+      source.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const coords = closed ? [...points, points[0]] : points
+    const geomType = closed && points.length >= 3 ? 'Polygon' : 'LineString'
+    const geometry =
+      geomType === 'Polygon'
+        ? { type: 'Polygon' as const, coordinates: [coords] }
+        : { type: 'LineString' as const, coordinates: coords }
+
+    source.setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry }],
+    })
+
+    if (map.getLayer('zone-polygon-fill')) {
+      map.setPaintProperty('zone-polygon-fill', 'fill-color', c)
+    }
+    if (map.getLayer('zone-polygon-line')) {
+      map.setPaintProperty('zone-polygon-line', 'line-color', c)
+    }
+  }, [])
+
+  // Vertex-Marker aktualisieren
+  const updateVertexMarkers = useCallback((map: maplibregl.Map, points: [number, number][], c: string) => {
+    // Alte Marker entfernen
+    polyMarkersRef.current.forEach(m => m.remove())
+    polyMarkersRef.current = []
+
+    points.forEach((pt, idx) => {
+      const el = document.createElement('div')
+      el.style.cssText = `
+        width:10px;height:10px;border-radius:50%;
+        background:${c};border:2px solid white;
+        box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;
+      `
+      const marker = new maplibregl.Marker({ element: el, draggable: true })
+        .setLngLat(pt)
+        .addTo(map)
+
+      marker.on('drag', () => {
+        const pos = marker.getLngLat()
+        setPolygonPoints(prev => {
+          const updated = [...prev]
+          updated[idx] = [pos.lng, pos.lat]
+          return updated
+        })
+      })
+
+      polyMarkersRef.current.push(marker)
+    })
+  }, [])
 
   // Initialize map
   useEffect(() => {
@@ -122,7 +239,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Circle zone overlay
+      // ── Kreis-Layer ──────────────────────────────────────────────────────
       map.addSource('zone-circle', {
         type: 'geojson',
         data: circlePolygon([lng, lat], radius),
@@ -131,92 +248,294 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         id: 'zone-circle-fill',
         type: 'fill',
         source: 'zone-circle',
-        paint: {
-          'fill-color': color,
-          'fill-opacity': 0.15,
-        },
+        paint: { 'fill-color': colorRef.current, 'fill-opacity': 0.15 },
+        layout: { visibility: zoneModeRef.current === 'circle' ? 'visible' : 'none' },
       })
       map.addLayer({
         id: 'zone-circle-border',
         type: 'line',
         source: 'zone-circle',
-        paint: {
-          'line-color': color,
-          'line-width': 2,
-          'line-opacity': 0.6,
-        },
+        paint: { 'line-color': colorRef.current, 'line-width': 2, 'line-opacity': 0.6 },
+        layout: { visibility: zoneModeRef.current === 'circle' ? 'visible' : 'none' },
       })
 
-      // Place marker
-      if (hasInitialPosition) {
-        const marker = new maplibregl.Marker({ color, draggable: true })
+      // ── Polygon-Layer ─────────────────────────────────────────────────────
+      map.addSource('zone-polygon', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'zone-polygon-fill',
+        type: 'fill',
+        source: 'zone-polygon',
+        paint: { 'fill-color': colorRef.current, 'fill-opacity': 0.15 },
+        filter: ['==', '$type', 'Polygon'],
+        layout: { visibility: zoneModeRef.current === 'polygon' ? 'visible' : 'none' },
+      })
+      map.addLayer({
+        id: 'zone-polygon-line',
+        type: 'line',
+        source: 'zone-polygon',
+        paint: { 'line-color': colorRef.current, 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [3, 2] },
+        layout: { visibility: zoneModeRef.current === 'polygon' ? 'visible' : 'none' },
+      })
+
+      // Marker für Kreismodus
+      if (hasInitialPosition && zoneModeRef.current === 'circle') {
+        const marker = new maplibregl.Marker({ color: colorRef.current, draggable: true })
           .setLngLat([lng, lat])
           .addTo(map)
         marker.on('dragend', () => {
           const pos = marker.getLngLat()
           setLat(pos.lat)
           setLng(pos.lng)
-          updateCircle(map, [pos.lng, pos.lat], radius, color)
+          updateCircle(map, [pos.lng, pos.lat], radius, colorRef.current)
         })
         markerRef.current = marker
+      }
+
+      // Initial-Polygon rendern wenn Bearbeitung einer Polygon-Zone
+      if (zoneModeRef.current === 'polygon') {
+        const initPts = parseInitialPolygon()
+        if (initPts.length >= 3) {
+          updatePolygonLayer(map, initPts, true, colorRef.current)
+          updateVertexMarkers(map, initPts, colorRef.current)
+          // Bounds anpassen
+          const bounds = new maplibregl.LngLatBounds()
+          initPts.forEach(p => bounds.extend(p))
+          map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 })
+        }
       }
     })
 
-    // Click on map to set position
+    // Klick-Handler: unterschiedlich je nach Modus
     map.on('click', (e) => {
-      const newLat = e.lngLat.lat
-      const newLng = e.lngLat.lng
-      setLat(newLat)
-      setLng(newLng)
+      if (zoneModeRef.current === 'circle') {
+        const newLat = e.lngLat.lat
+        const newLng = e.lngLat.lng
+        setLat(newLat)
+        setLng(newLng)
 
-      if (markerRef.current) {
-        markerRef.current.setLngLat([newLng, newLat])
+        if (markerRef.current) {
+          markerRef.current.setLngLat([newLng, newLat])
+        } else {
+          const marker = new maplibregl.Marker({ color: colorRef.current, draggable: true })
+            .setLngLat([newLng, newLat])
+            .addTo(map)
+          marker.on('dragend', () => {
+            const pos = marker.getLngLat()
+            setLat(pos.lat)
+            setLng(pos.lng)
+            updateCircle(map, [pos.lng, pos.lat], radius, colorRef.current)
+          })
+          markerRef.current = marker
+        }
+        updateCircle(map, [newLng, newLat], radius, colorRef.current)
       } else {
-        const marker = new maplibregl.Marker({ color, draggable: true })
-          .setLngLat([newLng, newLat])
-          .addTo(map)
-        marker.on('dragend', () => {
-          const pos = marker.getLngLat()
-          setLat(pos.lat)
-          setLng(pos.lng)
-          updateCircle(map, [pos.lng, pos.lat], radius, color)
+        // Polygon-Modus: Punkt nur hinzufügen wenn noch nicht geschlossen
+        if (polygonClosedRef.current) return
+        const newPt: [number, number] = [e.lngLat.lng, e.lngLat.lat]
+        setPolygonPoints(prev => {
+          const updated = [...prev, newPt]
+          if (map.isStyleLoaded()) {
+            updatePolygonLayer(map, updated, false, colorRef.current)
+            updateVertexMarkers(map, updated, colorRef.current)
+          }
+          return updated
         })
-        markerRef.current = marker
       }
+    })
 
-      updateCircle(map, [newLng, newLat], radius, color)
+    // Doppelklick schließt Polygon
+    map.on('dblclick', (e) => {
+      if (zoneModeRef.current !== 'polygon' || polygonClosedRef.current) return
+      e.preventDefault() // Zoom verhindern
+      setPolygonPoints(prev => {
+        if (prev.length < 3) return prev
+        polygonClosedRef.current = true
+        setPolygonClosed(true)
+        if (map.isStyleLoaded()) {
+          updatePolygonLayer(map, prev, true, colorRef.current)
+        }
+        return prev
+      })
     })
 
     mapRef.current = map
     return () => {
       map.remove()
       mapRef.current = null
+      polyMarkersRef.current = []
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sync zoneMode-Ref und Sichtbarkeit der Layer
+  useEffect(() => {
+    zoneModeRef.current = zoneMode
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    const apply = () => {
+      const circleVis = zoneMode === 'circle' ? 'visible' : 'none'
+      const polyVis = zoneMode === 'polygon' ? 'visible' : 'none'
+      if (map.getLayer('zone-circle-fill')) map.setLayoutProperty('zone-circle-fill', 'visibility', circleVis)
+      if (map.getLayer('zone-circle-border')) map.setLayoutProperty('zone-circle-border', 'visibility', circleVis)
+      if (map.getLayer('zone-polygon-fill')) map.setLayoutProperty('zone-polygon-fill', 'visibility', polyVis)
+      if (map.getLayer('zone-polygon-line')) map.setLayoutProperty('zone-polygon-line', 'visibility', polyVis)
+
+      if (zoneMode === 'circle') {
+        // Polygon-Marker entfernen
+        polyMarkersRef.current.forEach(m => m.remove())
+        polyMarkersRef.current = []
+      } else {
+        // Kreis-Marker entfernen
+        if (markerRef.current) { markerRef.current.remove(); markerRef.current = null }
+        // Bestehende Polygon-Punkte anzeigen
+        updatePolygonLayer(map, polygonPoints, polygonClosed, color)
+        updateVertexMarkers(map, polygonPoints, color)
+      }
+    }
+
+    if (map.isStyleLoaded()) apply()
+    else map.once('style.load', apply)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoneMode])
 
   // Update circle when radius or color changes
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    const apply = () => updateCircle(map, [lng, lat], radius, color)
+    colorRef.current = color
+    const apply = () => {
+      if (zoneMode === 'circle') {
+        updateCircle(map, [lng, lat], radius, color)
+      } else {
+        updatePolygonLayer(map, polygonPoints, polygonClosed, color)
+        // Farbe der Vertex-Marker aktualisieren
+        updateVertexMarkers(map, polygonPoints, color)
+      }
+    }
     if (map.isStyleLoaded()) apply()
     else map.once('style.load', apply)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [radius, lat, lng, color])
+
+  // Polygon-Punkte aktualisieren → Layer + Marker neu zeichnen
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || zoneMode !== 'polygon') return
+
+    const apply = () => {
+      updatePolygonLayer(map, polygonPoints, polygonClosed, color)
+      updateVertexMarkers(map, polygonPoints, color)
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('style.load', apply)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polygonPoints, polygonClosed])
+
+  // polygonClosed-Ref synchron halten
+  useEffect(() => { polygonClosedRef.current = polygonClosed }, [polygonClosed])
+
+  function handleClosePolygon() {
+    if (polygonPoints.length < 3 || polygonClosed) return
+    setPolygonClosed(true)
+    polygonClosedRef.current = true
+    const map = mapRef.current
+    if (map && map.isStyleLoaded()) {
+      updatePolygonLayer(map, polygonPoints, true, color)
+    }
+  }
+
+  function handleResetPolygon() {
+    setPolygonPoints([])
+    setPolygonClosed(false)
+    polygonClosedRef.current = false
+    const map = mapRef.current
+    if (map && map.isStyleLoaded()) {
+      updatePolygonLayer(map, [], false, color)
+      polyMarkersRef.current.forEach(m => m.remove())
+      polyMarkersRef.current = []
+    }
+  }
 
   const isSaving = createMut.isPending || updateMut.isPending
   const error = createMut.error || updateMut.error
 
+  const canSave =
+    name.trim().length > 0 &&
+    (zoneMode === 'circle' || (polygonPoints.length >= 3 && polygonClosed))
+
   return (
     <div className="space-y-4">
+      {/* Modus-Toggle */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setZoneMode('circle')}
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+            zoneMode === 'circle'
+              ? 'bg-orange-500 border-orange-500 text-white'
+              : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+          }`}
+        >
+          Kreis
+        </button>
+        <button
+          onClick={() => setZoneMode('polygon')}
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+            zoneMode === 'polygon'
+              ? 'bg-orange-500 border-orange-500 text-white'
+              : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+          }`}
+        >
+          Polygon
+        </button>
+      </div>
+
       {/* Map */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         <div ref={mapContainerRef} className="h-[400px] w-full" />
       </div>
 
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        Klicke auf die Karte, um das Zentrum der Zone festzulegen. Den Marker kannst du auch verschieben.
-      </p>
+      {/* Hinweis je nach Modus */}
+      {zoneMode === 'circle' ? (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Klicke auf die Karte, um das Zentrum der Zone festzulegen. Den Marker kannst du auch verschieben.
+        </p>
+      ) : (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          {polygonClosed
+            ? 'Polygon fertig. Vertices lassen sich per Drag-and-Drop verschieben.'
+            : polygonPoints.length < 3
+            ? `Klicke auf die Karte, um Vertices hinzuzufügen (${polygonPoints.length} von mind. 3).`
+            : `${polygonPoints.length} Vertices gesetzt. Klicke auf "Schließen" oder doppelklicke um das Polygon zu schließen.`}
+        </p>
+      )}
+
+      {/* Polygon-Steuerung */}
+      {zoneMode === 'polygon' && (
+        <div className="flex gap-2">
+          <button
+            onClick={handleClosePolygon}
+            disabled={polygonPoints.length < 3 || polygonClosed}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+          >
+            Polygon schliessen
+          </button>
+          <button
+            onClick={handleResetPolygon}
+            disabled={polygonPoints.length === 0}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+          >
+            Zuruecksetzen
+          </button>
+          <span className="ml-auto self-center text-sm text-neutral-400 tabular-nums">
+            {polygonPoints.length} Vertices
+          </span>
+        </div>
+      )}
 
       {/* Name */}
       <div>
@@ -232,28 +551,30 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         />
       </div>
 
-      {/* Radius slider */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Radius
-          </label>
-          <span className="text-sm text-neutral-500 tabular-nums">{formatRadius(radius)}</span>
+      {/* Radius-Slider (nur im Kreis-Modus) */}
+      {zoneMode === 'circle' && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Radius
+            </label>
+            <span className="text-sm text-neutral-500 tabular-nums">{formatRadius(radius)}</span>
+          </div>
+          <input
+            type="range"
+            min={100}
+            max={1000}
+            step={50}
+            value={radius}
+            onChange={(e) => setRadius(Number(e.target.value))}
+            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-neutral-400 mt-1">
+            <span>100 m</span>
+            <span>1 km</span>
+          </div>
         </div>
-        <input
-          type="range"
-          min={100}
-          max={1000}
-          step={50}
-          value={radius}
-          onChange={(e) => setRadius(Number(e.target.value))}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
-        />
-        <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>100 m</span>
-          <span>1 km</span>
-        </div>
-      </div>
+      )}
 
       {/* Color picker */}
       <div>
@@ -263,10 +584,12 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         <ColorPicker value={color} onChange={setColor} />
       </div>
 
-      {/* Coordinates display */}
-      <div className="text-xs text-neutral-400 tabular-nums">
-        {lat.toFixed(5)}, {lng.toFixed(5)}
-      </div>
+      {/* Koordinaten (nur Kreis-Modus) */}
+      {zoneMode === 'circle' && (
+        <div className="text-xs text-neutral-400 tabular-nums">
+          {lat.toFixed(5)}, {lng.toFixed(5)}
+        </div>
+      )}
 
       {error && (
         <div className="text-sm text-red-500">
@@ -278,7 +601,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       <div className="flex items-center gap-3">
         <button
           onClick={handleSave}
-          disabled={!name.trim() || isSaving}
+          disabled={!canSave || isSaving}
           className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           {isSaving ? 'Speichern...' : 'Speichern'}

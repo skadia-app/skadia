@@ -29,11 +29,13 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
 	var req struct {
-		Name    string  `json:"name"`
-		Lat     float64 `json:"lat"`
-		Lng     float64 `json:"lng"`
-		RadiusM int     `json:"radius_m"`
-		Color   string  `json:"color"`
+		Name     string  `json:"name"`
+		Lat      float64 `json:"lat"`
+		Lng      float64 `json:"lng"`
+		RadiusM  int     `json:"radius_m"`
+		Color    string  `json:"color"`
+		ZoneType string  `json:"zone_type"` // 'circle' (default) or 'polygon'
+		Polygon  *string `json:"polygon"`   // GeoJSON Polygon string, required when zone_type='polygon'
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -43,15 +45,26 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
-	if req.RadiusM <= 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "radius_m must be positive", r.URL.Path)
+	if req.ZoneType == "" {
+		req.ZoneType = "circle"
+	}
+	if req.ZoneType == "circle" && req.RadiusM <= 0 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "radius_m must be positive for circle zones", r.URL.Path)
+		return
+	}
+	if req.ZoneType == "polygon" && req.Polygon == nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "polygon is required for polygon zones", r.URL.Path)
 		return
 	}
 	if req.Color == "" {
 		req.Color = "#F97316"
 	}
+	// Für Polygone einen sinnvollen radius_m-Defaultwert setzen (wird nicht für Masking genutzt, aber NOT NULL)
+	if req.RadiusM <= 0 {
+		req.RadiusM = 200
+	}
 
-	zone, err := h.DB.CreatePrivacyZone(r.Context(), userID, req.Name, req.Lat, req.Lng, req.RadiusM, req.Color)
+	zone, err := h.DB.CreatePrivacyZone(r.Context(), userID, req.Name, req.Lat, req.Lng, req.RadiusM, req.Color, req.ZoneType, req.Polygon)
 	if err != nil {
 		slog.Error("create privacy zone failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create privacy zone", r.URL.Path)
