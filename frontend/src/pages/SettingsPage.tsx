@@ -731,7 +731,7 @@ function ImportSettingsSection() {
           <span>95 % (weniger Kandidaten)</span>
         </div>
         <p className="text-xs text-neutral-400 mt-1">
-          Aktivitäten mit ähnlicher GPS-Spur werden als Fusion-Kandidaten vorgeschlagen.
+          Aktivitäten werden als Fusion-Kandidaten vorgeschlagen wenn sie maximal 30 Minuten auseinanderliegen und ihre GPS-Spur mindestens so ähnlich ist. Gleiche Strecken an anderen Tagen werden nicht erkannt.
         </p>
       </div>
     </section>
