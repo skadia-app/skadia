@@ -25,7 +25,11 @@ const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
 const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
 const ActivityEditorPage = lazy(() => import('@/pages/ActivityEditorPage'))
-const HealthDashboardPage = lazy(() => import('@/pages/HealthDashboardPage'))
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
+const TrainingTab = lazy(() => import('@/pages/analytics/TrainingTab'))
+const HealthTab = lazy(() => import('@/pages/analytics/HealthTab'))
+const StatsTab = lazy(() => import('@/pages/analytics/StatsTab'))
+const InsightsTab = lazy(() => import('@/pages/analytics/InsightsTab'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
@@ -59,7 +63,13 @@ export default function App() {
               <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
               <Route path="map" element={<MapPage />} />
               <Route path="calendar" element={<CalendarPage />} />
-              <Route path="health" element={<HealthDashboardPage />} />
+              <Route path="health" element={<Navigate to="/analytics/health" replace />} />
+              <Route path="analytics" element={<AnalyticsPage />}>
+                <Route path="training" element={<TrainingTab />} />
+                <Route path="health" element={<HealthTab />} />
+                <Route path="stats" element={<StatsTab />} />
+                <Route path="insights" element={<InsightsTab />} />
+              </Route>
               <Route path="segments" element={<SegmentsPage />} />
               <Route path="workshop" element={<WorkshopPage />} />
               <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />

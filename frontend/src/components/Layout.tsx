@@ -7,7 +7,7 @@ const navItems = [
   { to: '/activities', label: 'Aktivitäten' },
   { to: '/map', label: 'Karte' },
   { to: '/calendar', label: 'Kalender' },
-  { to: '/health', label: 'Gesundheit' },
+  { to: '/analytics', label: 'Analyse' },
   { to: '/segments', label: 'Segmente' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },

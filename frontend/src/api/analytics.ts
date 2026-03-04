@@ -1,0 +1,293 @@
+import { apiClient } from './client'
+
+// Shared filter query string builder
+export function buildFilterParams(filters: Record<string, any>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value) && value.length === 0) continue
+    if (Array.isArray(value)) {
+      params.set(key, value.join(','))
+    } else {
+      params.set(key, String(value))
+    }
+  }
+  return params.toString()
+}
+
+// === Training Tab Types ===
+
+export interface PMCExtended {
+  days: PMCDay[]
+  acwr: number
+  acwr_status: string
+  ramp_rate: number
+  monotony: number
+  strain: number
+  projection: PMCDay[]
+}
+
+export interface PMCDay {
+  date: string
+  tss: number
+  ctl: number
+  atl: number
+  tsb: number
+  acwr: number
+}
+
+export interface YearProgressionPoint {
+  year: number
+  month: number
+  value: number
+  cumulative: number
+}
+
+export interface YearProgressionResponse {
+  metric: string
+  years: number[]
+  data: YearProgressionPoint[]
+  best_year: { year: number; total: number }
+}
+
+export interface TrainingVolumePoint {
+  date: string
+  distance_m: number
+  duration_s: number
+  elevation_m: number
+  tss: number
+  count: number
+}
+
+export interface ZoneDistribution {
+  zone: number
+  zone_label: string
+  seconds: number
+  percentage: number
+}
+
+export interface PersonalRecord {
+  type: string
+  value: number
+  unit: string
+  activity_id: string
+  activity_name: string
+  date: string
+}
+
+// === Health Tab Types ===
+
+export interface HRVAnalysis {
+  points: HRVPoint[]
+  baseline_mean: number
+  baseline_std: number
+  seven_day_avg: number
+  anomalies: string[]
+  morning_avg: number | null
+  night_avg: number | null
+}
+
+export interface HRVPoint {
+  date: string
+  rmssd: number | null
+  sdrr: number | null
+  time_of_day: string
+}
+
+export interface SleepEntry {
+  date: string
+  duration_min: number
+  quality: string | null
+  deep_min: number | null
+  rem_min: number | null
+  light_min: number | null
+}
+
+export interface WeightEntry {
+  date: string
+  weight_kg: number
+  fat_pct: number | null
+}
+
+export interface HealthMetric {
+  date: string
+  resting_hr: number | null
+  spo2: number | null
+  stress: number | null
+  body_battery: number | null
+}
+
+// === Stats Tab Types ===
+
+export interface LifetimeStats {
+  total_activities: number
+  total_distance_m: number
+  total_elevation_m: number
+  total_moving_time_s: number
+  total_elapsed_time_s: number
+  total_calories: number
+  active_days: number
+  efficiency: number
+  avg_duration_s: number
+  countries: number
+  earth_laps: number
+  moon_trips: number
+  everest_count: number
+  max_day_streak: { count: number; from: string; to: string }
+  max_week_streak: { count: number; from: string; to: string }
+  current_day_streak: number
+  current_week_streak: number
+}
+
+export interface EddingtonResult {
+  metric: string
+  number: number
+  next_levels: { level: number; remaining: number }[]
+}
+
+export interface Distribution {
+  label: string
+  count: number
+  value: number
+  percentage: number
+  children?: Distribution[]
+}
+
+export interface YearlyOverviewRow {
+  year: number
+  distance_m: number
+  elevation_m: number
+  duration_s: number
+  count: number
+  avg_hr: number | null
+  avg_tss: number | null
+}
+
+// === Insights Tab Types ===
+
+export interface ReadinessInsight {
+  score: number
+  level: string
+  factors: { name: string; value: number; status: string }[]
+  explanation: string | null
+  computed_at: string
+}
+
+export interface Warning {
+  type: string
+  severity: 'info' | 'warning' | 'danger'
+  message: string
+  value: number
+  threshold: number
+  explanation: string | null
+}
+
+export interface Projection {
+  metric: string
+  target: number
+  current: number
+  predicted_date: string | null
+  on_track: boolean
+  weekly_needed: number
+  explanation: string | null
+}
+
+export interface ActivityCluster {
+  id: number
+  label: string
+  size: number
+  avg_distance_m: number
+  avg_hr: number | null
+  sport_types: string[]
+  description: string | null
+}
+
+export interface CorrelationInsight {
+  factor_a: string
+  factor_b: string
+  correlation: number
+  direction: 'positive' | 'negative' | 'neutral'
+  explanation: string | null
+}
+
+// === API Functions ===
+
+export async function fetchAnalyticsPMC(params: string): Promise<PMCExtended> {
+  return apiClient(`/analytics/pmc?${params}`)
+}
+
+export async function fetchYearProgression(params: string): Promise<YearProgressionResponse> {
+  return apiClient(`/analytics/year-progression?${params}`)
+}
+
+export async function fetchTrainingVolume(params: string): Promise<TrainingVolumePoint[]> {
+  return apiClient(`/analytics/training-volume?${params}`)
+}
+
+export async function fetchZoneDistribution(params: string): Promise<ZoneDistribution[]> {
+  return apiClient(`/analytics/zone-distribution?${params}`)
+}
+
+export async function fetchPersonalRecords(params: string): Promise<PersonalRecord[]> {
+  return apiClient(`/analytics/personal-records?${params}`)
+}
+
+export async function fetchHRVAnalysis(params: string): Promise<HRVAnalysis> {
+  return apiClient(`/analytics/hrv?${params}`)
+}
+
+export async function fetchSleep(params: string): Promise<SleepEntry[]> {
+  return apiClient(`/analytics/sleep?${params}`)
+}
+
+export async function fetchWeight(params: string): Promise<WeightEntry[]> {
+  return apiClient(`/analytics/weight?${params}`)
+}
+
+export async function fetchHealthMetrics(params: string): Promise<HealthMetric[]> {
+  return apiClient(`/analytics/health-metrics?${params}`)
+}
+
+export async function fetchLifetimeStats(params: string): Promise<LifetimeStats> {
+  return apiClient(`/analytics/lifetime-stats?${params}`)
+}
+
+export async function fetchEddington(params: string): Promise<EddingtonResult> {
+  return apiClient(`/analytics/eddington?${params}`)
+}
+
+export async function fetchDistributions(params: string): Promise<Distribution[]> {
+  return apiClient(`/analytics/distributions?${params}`)
+}
+
+export async function fetchYearlyOverview(params: string): Promise<YearlyOverviewRow[]> {
+  return apiClient(`/analytics/yearly-overview?${params}`)
+}
+
+export async function fetchStreaks(params: string): Promise<{ day: LifetimeStats['max_day_streak']; week: LifetimeStats['max_week_streak'] }> {
+  return apiClient(`/analytics/streaks?${params}`)
+}
+
+export async function fetchInsightsReadiness(params: string): Promise<ReadinessInsight> {
+  return apiClient(`/analytics/insights/readiness?${params}`)
+}
+
+export async function fetchInsightsWarnings(params: string): Promise<Warning[]> {
+  return apiClient(`/analytics/insights/warnings?${params}`)
+}
+
+export async function fetchInsightsProjection(params: string): Promise<Projection[]> {
+  return apiClient(`/analytics/insights/projection?${params}`)
+}
+
+export async function fetchInsightsClusters(params: string): Promise<ActivityCluster[]> {
+  return apiClient(`/analytics/insights/clusters?${params}`)
+}
+
+export async function fetchInsightsCorrelations(params: string): Promise<CorrelationInsight[]> {
+  return apiClient(`/analytics/insights/correlations?${params}`)
+}
+
+export async function refreshInsights(): Promise<{ status: string }> {
+  return apiClient(`/analytics/insights/refresh`, { method: 'POST' })
+}
