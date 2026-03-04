@@ -296,6 +296,13 @@ func main() {
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
 			r.Get("/activities/{id}/surfaces", h.GetActivitySurfaces)
 
+			// Track Editor
+			r.Get("/activities/{id}/edits", h.GetActivityEdits)
+			r.Put("/activities/{id}/edits", h.PutActivityEdits)
+			r.Delete("/activities/{id}/edits", h.DeleteActivityEdits)
+			r.Post("/activities/{id}/edits/detect-hr-spikes", h.DetectHRSpikesHandler)
+			r.Post("/activities/{id}/edits/apply", h.ApplyActivityEdits)
+
 			// LLM Settings (Admin + User)
 			r.Get("/admin/llm-config", h.GetLLMConfig)
 			r.Put("/admin/llm-config/{role}", h.PutLLMConfigRole)

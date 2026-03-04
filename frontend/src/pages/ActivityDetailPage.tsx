@@ -564,6 +564,14 @@ function ActivityHeader({ activity }: { activity: Activity }) {
         </div>
       </div>
 
+      {/* Edit Button */}
+      <Link
+        to={`/activities/${activity.id}/edit`}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+      >
+        &#9998; Bearbeiten
+      </Link>
+
       {/* Export Dropdown */}
       <div className="relative mt-1">
         <button

@@ -24,6 +24,7 @@ const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
 const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
+const ActivityEditorPage = lazy(() => import('@/pages/ActivityEditorPage'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="activities" element={<ActivitiesPage />} />
               <Route path="activities/:id" element={<ActivityDetailPage />} />
+              <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
               <Route path="map" element={<MapPage />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="segments" element={<SegmentsPage />} />
