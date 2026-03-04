@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { fetchActivitySegments } from '@/api/segments'
 import type { StreamPoint } from '@/api/types'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
+import DifficultyBadge from '@/components/DifficultyBadge'
 
 interface Props {
   activityId: string
@@ -129,12 +130,17 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                   className={`border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-colors ${i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''}`}
                 >
                   <td className="px-3 py-2">
-                    <button
-                      onClick={() => navigate('/segments')}
-                      className="text-neutral-900 dark:text-neutral-100 hover:text-orange-500 transition-colors text-left"
-                    >
-                      {effort.segment_name ?? 'Unbenannt'}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => navigate('/segments')}
+                        className="text-neutral-900 dark:text-neutral-100 hover:text-orange-500 transition-colors text-left"
+                      >
+                        {effort.segment_name ?? 'Unbenannt'}
+                      </button>
+                      {effort.segment_type_meta && (
+                        <DifficultyBadge meta={effort.segment_type_meta} />
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100">
                     {fmtDuration(effort.elapsed_time_s)}
@@ -157,12 +163,13 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                       <span className="text-xs font-bold text-amber-600 dark:text-amber-400">PB</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-center text-neutral-500 dark:text-neutral-400">
-                    {effort.is_reverse ? (
-                      <span title="Umgekehrte Richtung">&larr;</span>
-                    ) : (
-                      <span title="Normale Richtung">&rarr;</span>
-                    )}
+                  <td className="px-3 py-2 text-center">
+                    <span
+                      title={effort.is_reverse ? 'Umgekehrte Richtung' : 'Referenzrichtung'}
+                      className={`text-xs font-medium ${effort.is_reverse ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}
+                    >
+                      {effort.is_reverse ? '← Umgekehrt' : '→ Normal'}
+                    </span>
                   </td>
                 </tr>
               ))}

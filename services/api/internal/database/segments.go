@@ -241,6 +241,13 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 }
 
 func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model.SegmentUpdate) (*model.Segment, error) {
+	// If new_version requested: copy latest segment_version to create a new one
+	if update.NewVersion {
+		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
+			return nil, err
+		}
+	}
+
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -278,6 +285,23 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 	}
 
 	return db.GetSegment(ctx, segmentID)
+}
+
+// createNewSegmentVersion copies the latest segment_version into a new version row.
+func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by, segment_type_meta)
+		SELECT segment_id,
+		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
+		       track, start_point, end_point, CURRENT_DATE, created_by, segment_type_meta
+		FROM segment_versions
+		WHERE segment_id = $1
+		ORDER BY version_number DESC
+		LIMIT 1`, segmentID)
+	if err != nil {
+		return fmt.Errorf("create new segment version: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string) error {
@@ -370,7 +394,8 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       NULL::text AS display_name,
-		       g.name AS gear_name
+		       g.name AS gear_name,
+		       s.segment_type_meta
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		LEFT JOIN gear g ON g.id = se.gear_id
@@ -392,6 +417,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 			&e.RankOverall, &e.IsPersonalBest, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
+			&e.SegmentTypeMeta,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan effort: %w", err)

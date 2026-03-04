@@ -42,6 +42,7 @@ type SegmentUpdate struct {
 	Name            *string          `json:"name,omitempty"`
 	Description     *string          `json:"description,omitempty"`
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
+	NewVersion      bool             `json:"new_version,omitempty"`
 }
 
 type SegmentVersion struct {
@@ -76,9 +77,10 @@ type SegmentEffort struct {
 	InLeaderboard    bool      `json:"in_leaderboard"`
 	CreatedAt        time.Time `json:"created_at"`
 	// Joined fields
-	SegmentName *string `json:"segment_name,omitempty"`
-	DisplayName *string `json:"display_name,omitempty"`
-	GearName    *string `json:"gear_name,omitempty"`
+	SegmentName     *string          `json:"segment_name,omitempty"`
+	DisplayName     *string          `json:"display_name,omitempty"`
+	GearName        *string          `json:"gear_name,omitempty"`
+	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
 }
 
 // DetectedLap represents an automatically detected lap/round within an activity.
