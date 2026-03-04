@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment } from '@/api/segments'
-import SegmentCreationPanel from '@/components/SegmentCreationPanel'
+import SegmentEditorModal from '@/components/SegmentEditorModal'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren',
@@ -57,7 +57,7 @@ export default function SegmentsPage() {
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
-  const [showCreatePanel, setShowCreatePanel] = useState(false)
+  const [editorMode, setEditorMode] = useState<'draw' | null>(null)
 
   // Debounced search
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
@@ -102,22 +102,25 @@ export default function SegmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
-        <button
-          onClick={() => setShowCreatePanel(!showCreatePanel)}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
-        >
-          {showCreatePanel ? 'Abbrechen' : 'Neues Segment'}
+        <button onClick={() => setEditorMode('draw')}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Segment zeichnen
         </button>
       </div>
 
-      {/* Create Panel */}
-      {showCreatePanel && (
-        <div className="mb-6">
-          <SegmentCreationPanel onSuccess={() => {
-            setShowCreatePanel(false)
+      {/* Editor Modal */}
+      {editorMode && (
+        <SegmentEditorModal
+          mode={editorMode}
+          onSuccess={() => {
+            setEditorMode(null)
             queryClient.invalidateQueries({ queryKey: ['segments'] })
-          }} />
-        </div>
+          }}
+          onClose={() => setEditorMode(null)}
+        />
       )}
 
       {/* Filter Bar */}

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchActivitySegments } from '@/api/segments'
 import type { StreamPoint } from '@/api/types'
-import SegmentCreationPanel from '@/components/SegmentCreationPanel'
+import SegmentEditorModal from '@/components/SegmentEditorModal'
 
 interface Props {
   activityId: string
@@ -19,15 +19,6 @@ function fmtDuration(s: number): string {
   const sec = Math.floor(s % 60)
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
   return `${m}:${sec.toString().padStart(2, '0')}`
-}
-
-/** Convert an array of StreamPoints to a GeoJSON LineString JSON string. */
-function streamsToGeoJSON(streams: StreamPoint[]): string | null {
-  const coords = streams
-    .filter(p => p.lat != null && p.lng != null)
-    .map(p => [p.lng!, p.lat!] as [number, number])
-  if (coords.length < 2) return null
-  return JSON.stringify({ type: 'LineString', coordinates: coords })
 }
 
 /** Map a Garmin sport_type to the nearest segment sport_group. */
@@ -46,15 +37,14 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
-  const [showCreatePanel, setShowCreatePanel] = useState(false)
+  const [showEditor, setShowEditor] = useState(false)
 
   const { data: efforts = [], isLoading } = useQuery({
     queryKey: ['activity-segments', activityId],
     queryFn: () => fetchActivitySegments(activityId),
   })
 
-  const gpsGeoJSON = streams ? streamsToGeoJSON(streams) : null
-  const hasGps = gpsGeoJSON != null
+  const hasGps = (streams ?? []).filter(p => p.lat != null && p.lng != null).length >= 2
 
   if (isLoading) return null
 
@@ -81,7 +71,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
 
         {hasGps && (
           <button
-            onClick={() => setShowCreatePanel(v => !v)}
+            onClick={() => setShowEditor(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
                        border border-neutral-200 dark:border-neutral-700
                        text-neutral-700 dark:text-neutral-300
@@ -98,23 +88,25 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
         )}
       </div>
 
-      {/* Inline creation panel */}
-      {showCreatePanel && hasGps && gpsGeoJSON && (
-        <div className="mb-4">
-          <SegmentCreationPanel
-            trackGeoJSON={gpsGeoJSON}
-            sourceActivityId={activityId}
-            defaultSportGroup={sportTypeToGroup(activitySportType)}
-            onSuccess={() => {
-              setShowCreatePanel(false)
-              queryClient.invalidateQueries({ queryKey: ['activity-segments', activityId] })
-              queryClient.invalidateQueries({ queryKey: ['segments'] })
-            }}
-          />
-        </div>
+      {/* Full-screen editor modal */}
+      {showEditor && hasGps && (
+        <SegmentEditorModal
+          mode="track"
+          trackPoints={streams
+            ?.filter(p => p.lat != null && p.lng != null)
+            .map(p => ({ lat: p.lat!, lng: p.lng! }))}
+          sourceActivityId={activityId}
+          defaultSportGroup={sportTypeToGroup(activitySportType)}
+          onSuccess={() => {
+            setShowEditor(false)
+            queryClient.invalidateQueries({ queryKey: ['activity-segments', activityId] })
+            queryClient.invalidateQueries({ queryKey: ['segments'] })
+          }}
+          onClose={() => setShowEditor(false)}
+        />
       )}
 
-      {!collapsed && efforts.length === 0 && !showCreatePanel && (
+      {!collapsed && efforts.length === 0 && !showEditor && (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">Keine Segment-Treffer</p>
       )}
 
