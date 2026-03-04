@@ -174,11 +174,13 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 
 	var result []traversal
 
-	// Forward traversals: enter near start, exit near end
+	// Forward traversals: enter near start, exit near end.
+	// Use the cluster point nearest to the actual segment endpoint so the sub-track
+	// starts/ends as close as possible to the segment geometry, minimising Hausdorff error.
 	for _, sc := range startClusters {
-		entryIdx := sc[len(sc)-1] // last point in start cluster (leaving start area)
+		entryIdx := nearestInCluster(stream, sc, ep.StartLat, ep.StartLng)
 		for _, ec := range endClusters {
-			exitIdx := ec[0] // first point in end cluster (arriving at end area)
+			exitIdx := nearestInCluster(stream, ec, ep.EndLat, ep.EndLng)
 			if exitIdx > entryIdx && (exitIdx-entryIdx) >= 3 {
 				result = append(result, traversal{
 					startIdx:  entryIdx,
@@ -190,11 +192,11 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 		}
 	}
 
-	// Reverse traversals: enter near end, exit near start
+	// Reverse traversals: enter near end, exit near start.
 	for _, ec := range endClusters {
-		entryIdx := ec[len(ec)-1]
+		entryIdx := nearestInCluster(stream, ec, ep.EndLat, ep.EndLng)
 		for _, sc := range startClusters {
-			exitIdx := sc[0]
+			exitIdx := nearestInCluster(stream, sc, ep.StartLat, ep.StartLng)
 			if exitIdx > entryIdx && (exitIdx-entryIdx) >= 3 {
 				result = append(result, traversal{
 					startIdx:  entryIdx,
@@ -207,6 +209,20 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 	}
 
 	return result
+}
+
+// nearestInCluster returns the stream index within cluster that is closest to (lat, lng).
+func nearestInCluster(stream []database.GPSStreamPoint, cluster []int, lat, lng float64) int {
+	best := cluster[0]
+	bestDist := haversineM(stream[cluster[0]].Lat, stream[cluster[0]].Lng, lat, lng)
+	for _, idx := range cluster[1:] {
+		d := haversineM(stream[idx].Lat, stream[idx].Lng, lat, lng)
+		if d < bestDist {
+			best = idx
+			bestDist = d
+		}
+	}
+	return best
 }
 
 // findProximityIndices returns all stream indices where the point is within
