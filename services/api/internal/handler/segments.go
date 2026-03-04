@@ -186,6 +186,52 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, efforts)
 }
 
+// RecomputeSegment re-matches all of the user's GPS activities against a single segment.
+// Useful after editing a segment or when matching failed due to a bug.
+func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	id := chi.URLParam(r, "id")
+
+	seg, err := h.DB.GetSegment(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
+		return
+	}
+	if seg == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, id)
+		if err != nil {
+			slog.Error("segment recompute: list activities failed", "segment_id", id, "error", err)
+			return
+		}
+		// Delete existing efforts for this segment by this user before re-matching
+		if err := h.DB.DeleteSegmentEffortsBySegment(ctx, id, userID); err != nil {
+			slog.Error("segment recompute: delete existing efforts failed", "segment_id", id, "error", err)
+			return
+		}
+		slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
+		for _, actID := range ids {
+			act, err := h.DB.GetActivity(ctx, actID)
+			if err != nil || act == nil {
+				continue
+			}
+			subType := ""
+			if act.SubType != nil {
+				subType = *act.SubType
+			}
+			MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID)
+		}
+		slog.Info("segment recompute: done", "segment_id", id)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "recompute started"})
+}
+
 func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 

@@ -94,7 +94,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			avg_heart_rate, max_heart_rate,
 			avg_power_w, max_power_w, normalized_power_w,
 			avg_cadence, avg_temperature_c,
-			tss, trimp, is_indoor,
+			tss, trimp, is_indoor, has_gps,
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device
@@ -109,11 +109,11 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			$18, $19,
 			$20, $21, $22,
 			$23, $24,
-			$25, $26, $27,
-			CASE WHEN $28::float8 != 0 THEN ST_SetSRID(ST_MakePoint($29::float8, $28::float8), 4326) ELSE NULL END,
-			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
-			$32, $33,
-			$34, $35
+			$25, $26, $27, $28,
+			CASE WHEN $29::float8 != 0 THEN ST_SetSRID(ST_MakePoint($30::float8, $29::float8), 4326) ELSE NULL END,
+			CASE WHEN $31::float8 != 0 THEN ST_SetSRID(ST_MakePoint($32::float8, $31::float8), 4326) ELSE NULL END,
+			$33, $34,
+			$35, $36
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
@@ -125,7 +125,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate),
 		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW),
 		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC),
-		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor,
+		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.HasGPS,
 		data.StartLat, data.StartLng,
 		data.EndLat, data.EndLng,
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),

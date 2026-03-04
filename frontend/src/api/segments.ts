@@ -102,3 +102,7 @@ export async function fetchActivitySegments(activityId: string): Promise<Segment
 export async function fetchDetectedLaps(activityId: string): Promise<DetectedLap[]> {
   return apiClient<DetectedLap[]>(`/activities/${activityId}/detected-laps`)
 }
+
+export async function recomputeSegment(segmentId: string): Promise<void> {
+  return apiClient<void>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+}

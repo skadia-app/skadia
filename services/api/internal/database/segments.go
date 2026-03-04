@@ -675,6 +675,16 @@ func (db *DB) DeleteSegmentEffortsByActivity(ctx context.Context, activityID str
 	return nil
 }
 
+// DeleteSegmentEffortsBySegment removes all efforts for a segment by a specific user.
+func (db *DB) DeleteSegmentEffortsBySegment(ctx context.Context, segmentID, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts WHERE segment_id = $1 AND user_id = $2`, segmentID, userID)
+	if err != nil {
+		return fmt.Errorf("delete segment efforts by segment: %w", err)
+	}
+	return nil
+}
+
 // GetAffectedSegmentIDs returns all segment IDs that have efforts for a given activity.
 func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -792,7 +802,6 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 			LIMIT 1
 		) sv ON true
 		WHERE a.user_id = $1
-		  AND a.has_gps = true
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 50)`,

@@ -300,6 +300,7 @@ func main() {
 			r.Put("/segments/{id}", h.UpdateSegment)
 			r.Delete("/segments/{id}", h.DeleteSegment)
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
+			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
