@@ -8,6 +8,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
+import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { fetchSportTypeStats } from '@/api/stats'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
@@ -279,6 +280,25 @@ export default function SettingsPage() {
           Garmin-Import
         </Link>
       </section>
+
+      {/* Privatsphäre */}
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Privatsphäre</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Definiere Zonen, in denen GPS-Daten automatisch aus öffentlichen Ansichten ausgeblendet werden.
+          </p>
+        </div>
+        <Link
+          to="/settings/privacy"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+        >
+          Privacy-Zonen verwalten
+        </Link>
+      </section>
+
+      {/* Import-Einstellungen */}
+      <ImportSettingsSection />
 
       {/* Karte */}
       <HeatmapSettingsSection />
@@ -651,6 +671,69 @@ function HeatmapSettingsSection() {
           Fehler: {updateHeatmapMut.error instanceof Error ? updateHeatmapMut.error.message : 'Unbekannt'}
         </p>
       )}
+    </section>
+  )
+}
+
+function ImportSettingsSection() {
+  const queryClient = useQueryClient()
+  const { data: settings } = useQuery({
+    queryKey: ['import-settings'],
+    queryFn: getImportSettings,
+  })
+  const mut = useMutation({
+    mutationFn: updateImportSettings,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['import-settings'] }),
+  })
+
+  const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75 }
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
+      <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Import</h2>
+
+      {/* Konflikt-Strategie */}
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+          Standard-Verhalten bei Duplikaten
+        </label>
+        <select
+          value={s.conflict_strategy}
+          onChange={e => mut.mutate({ ...s, conflict_strategy: e.target.value as ConflictStrategy })}
+          className="block w-full max-w-xs border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+        >
+          <option value="enrich_missing">Fehlende Felder ergänzen (empfohlen)</option>
+          <option value="replace_all">Immer ersetzen</option>
+          <option value="skip">Immer überspringen</option>
+        </select>
+        <p className="text-xs text-neutral-400 mt-1">
+          Gilt für Einzelupload und Hotfolder. Beim Bulk-Import kann pro Import gewählt werden.
+        </p>
+      </div>
+
+      {/* GPS-Duplikat-Schwellwert */}
+      <div>
+        <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          <span>GPS-Duplikat-Schwellwert</span>
+          <span className="tabular-nums font-mono">{s.gps_duplicate_threshold} %</span>
+        </div>
+        <input
+          type="range"
+          min={60}
+          max={95}
+          step={5}
+          value={s.gps_duplicate_threshold}
+          onChange={e => mut.mutate({ ...s, gps_duplicate_threshold: Number(e.target.value) })}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>60 % (mehr Kandidaten)</span>
+          <span>95 % (weniger Kandidaten)</span>
+        </div>
+        <p className="text-xs text-neutral-400 mt-1">
+          Aktivitäten mit ähnlicher GPS-Spur werden als Fusion-Kandidaten vorgeschlagen.
+        </p>
+      </div>
     </section>
   )
 }
