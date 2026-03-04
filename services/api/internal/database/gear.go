@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -16,18 +17,29 @@ const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 	purchased_at, retired_at, is_retired, status, default_for_sports, notes, created_at`
 
 // scanGear scans a gear row into a model.Gear.
+// pgx v5 uses binary protocol for dates (OID 1082) which cannot be scanned
+// directly into *string — use pgtype.Date as intermediate and format manually.
 func scanGear(row pgx.Row) (*model.Gear, error) {
 	var g model.Gear
+	var purchasedAt, retiredAt pgtype.Date
 	err := row.Scan(
 		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-		&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if purchasedAt.Valid {
+		s := purchasedAt.Time.Format("2006-01-02")
+		g.PurchasedAt = &s
+	}
+	if retiredAt.Valid {
+		s := retiredAt.Time.Format("2006-01-02")
+		g.RetiredAt = &s
 	}
 	if g.DefaultForSports == nil {
 		g.DefaultForSports = []string{}
@@ -81,12 +93,21 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 	var items []model.Gear
 	for rows.Next() {
 		var g model.Gear
+		var purchasedAt, retiredAt pgtype.Date
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-			&g.PurchasedAt, &g.RetiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan gear: %w", err)
+		}
+		if purchasedAt.Valid {
+			s := purchasedAt.Time.Format("2006-01-02")
+			g.PurchasedAt = &s
+		}
+		if retiredAt.Valid {
+			s := retiredAt.Time.Format("2006-01-02")
+			g.RetiredAt = &s
 		}
 		if g.DefaultForSports == nil {
 			g.DefaultForSports = []string{}
@@ -1067,10 +1088,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		avgCadence, maxCadence                                    *float64
 		avgPowerW, maxPowerW, minPowerW, normPowerW, tss, trimp   *float64
 		avgTempC, minTempC, maxTempC                              *float64
-		weatherTempC, weatherTempMinC, weatherTempMaxC             *float64
+		weatherTempC, weatherTempMinC, weatherTempMaxC            *float64
 		weatherCondition                                          *string
-		weatherHumidity                                            *int
-		weatherWindMS, weatherWindMaxMS                            *float64
+		weatherHumidity                                           *int
+		weatherWindMS, weatherWindMaxMS                           *float64
 		startCity, startState, startCountry, startCountryCode     *string
 		endCity                                                   *string
 		gearID                                                    *string
@@ -1638,4 +1659,88 @@ func (db *DB) ListPendingReviewGear(ctx context.Context, userID string) ([]model
 		items = []model.Gear{}
 	}
 	return items, rows.Err()
+}
+
+// MergeGear merges secondaryID into primaryID.
+// Fields of the secondary fill gaps of the primary (via COALESCE), activities and components are
+// reassigned, and the secondary record is deleted — all within a single transaction.
+func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Fill empty fields of primary from secondary (COALESCE keeps primary value when non-NULL)
+	_, err = tx.Exec(ctx, `
+		UPDATE gear g1 SET
+			brand        = COALESCE(g1.brand,        g2.brand),
+			model        = COALESCE(g1.model,        g2.model),
+			sub_type     = COALESCE(g1.sub_type,     g2.sub_type),
+			notes        = COALESCE(g1.notes,        g2.notes),
+			purchased_at = COALESCE(g1.purchased_at, g2.purchased_at),
+			weight_g     = COALESCE(g1.weight_g,     g2.weight_g)
+		FROM gear g2
+		WHERE g1.id = $1 AND g2.id = $2`,
+		primaryID, secondaryID,
+	)
+	if err != nil {
+		return fmt.Errorf("merge gear fields: %w", err)
+	}
+
+	// 2. Reassign activities from secondary to primary
+	_, err = tx.Exec(ctx,
+		`UPDATE activities SET gear_id = $1 WHERE gear_id = $2 AND user_id = $3`,
+		primaryID, secondaryID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("reassign activities: %w", err)
+	}
+
+	// 3. Reassign components from secondary to primary
+	_, err = tx.Exec(ctx,
+		`UPDATE gear_components SET gear_id = $1 WHERE gear_id = $2`,
+		primaryID, secondaryID,
+	)
+	if err != nil {
+		return fmt.Errorf("reassign components: %w", err)
+	}
+
+	// 4. Delete secondary gear item
+	_, err = tx.Exec(ctx,
+		`DELETE FROM gear WHERE id = $1 AND user_id = $2`, secondaryID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete secondary gear: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// FindGearDuplicates returns pairs of gear items that are potential duplicates.
+// Criteria: same type and Levenshtein distance <= 3 between names (requires fuzzystrmatch extension).
+// Returns nil (no error) when fuzzystrmatch is not available.
+func (db *DB) FindGearDuplicates(ctx context.Context, userID string) ([][2]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT a.id, b.id
+		FROM gear a
+		JOIN gear b ON a.user_id = b.user_id
+			AND a.id < b.id
+			AND a.type = b.type
+			AND levenshtein(lower(a.name), lower(b.name)) <= 3
+		WHERE a.user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		// fuzzystrmatch extension not available — graceful fallback
+		return nil, nil
+	}
+	defer rows.Close()
+	var pairs [][2]string
+	for rows.Next() {
+		var a, b string
+		_ = rows.Scan(&a, &b)
+		pairs = append(pairs, [2]string{a, b})
+	}
+	return pairs, nil
 }
