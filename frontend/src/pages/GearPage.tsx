@@ -6,6 +6,7 @@ import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
+import GearMergePanel from '@/components/GearMergePanel'
 
 const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
   { value: undefined, label: 'Alle' },
@@ -18,6 +19,7 @@ export default function GearPage() {
   const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>('active')
   const [showForm, setShowForm] = useState(false)
+  const [showMerge, setShowMerge] = useState(false)
 
   const { data: gear, isLoading } = useQuery({
     queryKey: ['gear', statusFilter],
@@ -58,6 +60,12 @@ export default function GearPage() {
             ))}
           </div>
           <button
+            onClick={() => setShowMerge(s => !s)}
+            className="text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer"
+          >
+            Duplikate zusammenführen
+          </button>
+          <button
             onClick={() => setShowForm(true)}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors cursor-pointer"
           >
@@ -67,6 +75,16 @@ export default function GearPage() {
       </div>
 
       <MaintenanceAlerts />
+
+      {/* Gear merge panel */}
+      {showMerge && (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Gear-Duplikate</h2>
+          </div>
+          <GearMergePanel onClose={() => setShowMerge(false)} />
+        </div>
+      )}
 
       {/* Create form */}
       {showForm && (
