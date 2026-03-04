@@ -11,12 +11,14 @@ import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHe
 import { fetchSportTypeStats } from '@/api/stats'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
+import LLMSettingsPage from './LLMSettingsPage'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'general' | 'ai'>('general')
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['shadow-fs-settings'],
@@ -53,12 +55,35 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-8">
+      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
+
+      {/* Tab-Navigation */}
+      <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit">
+        {[
+          { id: 'general' as const, label: 'Allgemein' },
+          { id: 'ai' as const, label: 'KI & Modelle' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? 'bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-sm'
+                : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'ai' && <LLMSettingsPage />}
+
+      {activeTab === 'general' && <>
       <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
         Einstellung nicht gefunden? Einstellungen zur Medienverwaltung unter{' '}
         <Link to="/workshop" className="text-orange-500 hover:text-orange-600 font-medium">Werkstatt</Link>.
       </div>
-
-      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
 
       {/* Erscheinungsbild */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -243,6 +268,7 @@ export default function SettingsPage() {
       <HeatmapSettingsSection />
 
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
+      </>}
     </div>
   )
 }
