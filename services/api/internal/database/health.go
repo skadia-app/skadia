@@ -231,11 +231,46 @@ func (db *DB) UpsertHealthHRVSnapshot(ctx context.Context, s *model.HealthHRVSna
 	return err
 }
 
+// GetHealthHRV returns HRV snapshots for the given time range.
+//
+// Data source strategy:
+//  1. health_hrv_snapshots — real per-measurement snapshots (Garmin HRV Status / wellness
+//     activities). Sparse: only exists when the watch performed an HRV measurement.
+//  2. health_readiness_scores.hrv_weekly_avg_ms — daily rolling-7-day average imported
+//     from TrainingReadinessDTO. Dense (one row per day). Used as a synthetic daily
+//     snapshot when no real snapshot exists for that calendar day.
+//
+// The UNION ensures the frontend HRV chart always has data even when explicit HRV Status
+// measurements are absent (which is the common case for most Garmin devices).
 func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]model.HealthHRVSnapshot, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms, time_of_day, source_type, extra_data, created_at
 		FROM health_hrv_snapshots
 		WHERE user_id = $1 AND measured_at_utc BETWEEN $2::timestamptz AND $3::timestamptz
+
+		UNION ALL
+
+		-- Fill in days without a real snapshot from the daily readiness rolling average.
+		SELECT
+			r.user_id,
+			r.calendar_date::timestamptz  AS measured_at_utc,
+			r.hrv_weekly_avg_ms           AS rmssd_ms,
+			NULL::double precision         AS sdrr_ms,
+			'daily_avg'                    AS time_of_day,
+			r.source_type,
+			NULL::text                     AS extra_data,
+			r.created_at
+		FROM health_readiness_scores r
+		WHERE r.user_id = $1
+		  AND r.hrv_weekly_avg_ms IS NOT NULL
+		  AND r.calendar_date BETWEEN $2::date AND $3::date
+		  -- Exclude dates already covered by a real snapshot.
+		  AND NOT EXISTS (
+			SELECT 1 FROM health_hrv_snapshots h
+			WHERE h.user_id = r.user_id
+			  AND h.measured_at_utc::date = r.calendar_date
+		  )
+
 		ORDER BY measured_at_utc ASC
 	`, userID, from, to)
 	if err != nil {

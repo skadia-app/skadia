@@ -254,7 +254,7 @@ type HealthMetric struct {
 }
 
 // GetHealthMetrics returns aggregated health metric grid values for the given period.
-// Included metrics: RHR, HRV mean, sleep duration, sleep score, weight (if available).
+// Included metrics: RHR, HRV, sleep duration, sleep score, weight, steps, stress, body battery.
 func (db *DB) GetHealthMetrics(ctx context.Context, userID string, from, to time.Time) ([]HealthMetric, error) {
 	var metrics []HealthMetric
 
@@ -286,6 +286,24 @@ func (db *DB) GetHealthMetrics(ctx context.Context, userID string, from, to time
 	weightMetric, err := db.healthMetricFromWeight(ctx, userID, from, to)
 	if err == nil && weightMetric != nil {
 		metrics = append(metrics, *weightMetric)
+	}
+
+	// --- Steps ---
+	stepsMetric, err := db.healthMetricFromSteps(ctx, userID, from, to)
+	if err == nil && stepsMetric != nil {
+		metrics = append(metrics, *stepsMetric)
+	}
+
+	// --- Stress (daily average) ---
+	stressMetric, err := db.healthMetricFromStress(ctx, userID, from, to)
+	if err == nil && stressMetric != nil {
+		metrics = append(metrics, *stressMetric)
+	}
+
+	// --- Body Battery (daily max) ---
+	bbMetric, err := db.healthMetricFromBodyBattery(ctx, userID, from, to)
+	if err == nil && bbMetric != nil {
+		metrics = append(metrics, *bbMetric)
 	}
 
 	if metrics == nil {
@@ -436,4 +454,56 @@ func buildMetricFromRows(rows interface {
 		Trend:   trend,
 		Points:  points,
 	}, nil
+}
+
+// healthMetricFromSteps builds a daily-steps HealthMetric from health_daily_summary.
+func (db *DB) healthMetricFromSteps(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT calendar_date::text, total_steps::float
+		FROM health_daily_summary
+		WHERE user_id = $1
+		  AND total_steps IS NOT NULL
+		  AND calendar_date BETWEEN $2::date AND $3::date
+		ORDER BY calendar_date
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return buildMetricFromRows(rows, "steps", "steps")
+}
+
+// healthMetricFromStress builds a daily-average-stress HealthMetric from health_daily_summary.
+func (db *DB) healthMetricFromStress(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT calendar_date::text, stress_avg::float
+		FROM health_daily_summary
+		WHERE user_id = $1
+		  AND stress_avg IS NOT NULL
+		  AND calendar_date BETWEEN $2::date AND $3::date
+		ORDER BY calendar_date
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return buildMetricFromRows(rows, "stress", "pts")
+}
+
+// healthMetricFromBodyBattery builds a daily body-battery-max HealthMetric from health_daily_summary.
+// Uses body_battery_max (peak charged value during the day).
+func (db *DB) healthMetricFromBodyBattery(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT calendar_date::text, body_battery_max::float
+		FROM health_daily_summary
+		WHERE user_id = $1
+		  AND body_battery_max IS NOT NULL
+		  AND calendar_date BETWEEN $2::date AND $3::date
+		ORDER BY calendar_date
+	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return buildMetricFromRows(rows, "body_battery", "pts")
 }

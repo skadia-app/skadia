@@ -44,31 +44,35 @@ func parseGarminTime(s string) (time.Time, error) {
 }
 
 // parseBodyBattery extracts min/max values from Garmin's bodyBattery JSON field.
+//
+// Garmin exports use the bodyBatteryStatList format (since ~2023):
+//
+//	{bodyBatteryStatList: [{bodyBatteryStatType: "HIGHEST"|"LOWEST", statsValue: 68}, ...]}
+//
+// Older exports used bodyBatteryValuesArray — no longer present in modern exports.
 func parseBodyBattery(raw json.RawMessage) (min, max *int) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
-	var arr []struct {
-		BodyBatteryValuesArray [][]int `json:"bodyBatteryValuesArray"`
+	var obj struct {
+		BodyBatteryStatList []struct {
+			StatType   string `json:"bodyBatteryStatType"`
+			StatsValue int    `json:"statsValue"`
+		} `json:"bodyBatteryStatList"`
 	}
-	if err := json.Unmarshal(raw, &arr); err != nil {
+	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil, nil
 	}
 	var minVal, maxVal *int
-	for _, entry := range arr {
-		for _, pair := range entry.BodyBatteryValuesArray {
-			if len(pair) < 2 {
-				continue
-			}
-			v := pair[1]
-			if minVal == nil || v < *minVal {
-				cp := v
-				minVal = &cp
-			}
-			if maxVal == nil || v > *maxVal {
-				cp := v
-				maxVal = &cp
-			}
+	for _, entry := range obj.BodyBatteryStatList {
+		v := entry.StatsValue
+		switch entry.StatType {
+		case "HIGHEST":
+			cp := v
+			maxVal = &cp
+		case "LOWEST":
+			cp := v
+			minVal = &cp
 		}
 	}
 	return minVal, maxVal
@@ -159,11 +163,23 @@ type garminTrainingReadiness struct {
 
 // garminTrainingLoad matches MetricsAcuteTrainingLoad_*.json items.
 type garminTrainingLoad struct {
-	CalendarDate              int64    `json:"calendarDate"` // Unix milliseconds
-	AcwrPercent               *float64 `json:"acwrPercent"`
-	AcwrStatus                *string  `json:"acwrStatus"`
-	DailyTrainingLoadAcute    *float64 `json:"dailyTrainingLoadAcute"`
-	DailyTrainingLoadChronic  *float64 `json:"dailyTrainingLoadChronic"`
+	CalendarDate             int64    `json:"calendarDate"` // Unix milliseconds
+	AcwrPercent              *float64 `json:"acwrPercent"`
+	AcwrStatus               *string  `json:"acwrStatus"`
+	DailyTrainingLoadAcute   *float64 `json:"dailyTrainingLoadAcute"`
+	DailyTrainingLoadChronic *float64 `json:"dailyTrainingLoadChronic"`
+}
+
+// garminFitnessAge matches DI-Connect-Wellness/*_fitnessAgeData.json items.
+type garminFitnessAge struct {
+	AsOfDateGmt   string  `json:"asOfDateGmt"`   // "2026-03-01T00:00:00.0"
+	CurrentBioAge float64 `json:"currentBioAge"` // fitness age in years
+}
+
+// garminHydrationLog matches DI-Connect-Aggregator/HydrationLogFile_*.json items.
+type garminHydrationLog struct {
+	CalendarDate string  `json:"calendarDate"` // "YYYY-MM-DD"
+	ValueInML    float64 `json:"valueInML"`    // intake in ml (0 for sweat-loss entries)
 }
 
 func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
@@ -344,7 +360,7 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				continue
 			}
 
-			var rmssd, sdrr *float64
+			var rmssd, sdrr, stressLevel, spo2 *float64
 			for _, entry := range rec.SummaryTypeDataList {
 				v := entry.AvgValue
 				switch entry.SummaryType {
@@ -352,11 +368,11 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 					rmssd = &v
 				case "SDRR_HRV":
 					sdrr = &v
+				case "STRESS":
+					stressLevel = &v
+				case "SPO2":
+					spo2 = &v
 				}
-			}
-
-			if rmssd == nil {
-				continue // no RMSSD → skip
 			}
 
 			var timeOfDay *string
@@ -365,21 +381,51 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				timeOfDay = &tod
 			}
 
-			snap := &model.HealthHRVSnapshot{
-				UserID:        params.UserID,
-				MeasuredAtUTC: measuredAt,
-				RmssdMS:       rmssd,
-				SdrrMS:        sdrr,
-				TimeOfDay:     timeOfDay,
-				SourceType:    "garmin",
+			// Store HRV snapshot (only when RMSSD is present).
+			if rmssd != nil {
+				snap := &model.HealthHRVSnapshot{
+					UserID:        params.UserID,
+					MeasuredAtUTC: measuredAt,
+					RmssdMS:       rmssd,
+					SdrrMS:        sdrr,
+					TimeOfDay:     timeOfDay,
+					SourceType:    "garmin",
+				}
+				if err := params.DB.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
+					slog.Warn("garmin health: upsert HRV snapshot failed", "ts", rec.StartTimestampGMT, "error", err)
+					result.Errors = append(result.Errors, "upsert HRV "+rec.StartTimestampGMT+": "+err.Error())
+				} else {
+					totalHRV++
+				}
 			}
 
-			if err := params.DB.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
-				slog.Warn("garmin health: upsert HRV snapshot failed", "ts", rec.StartTimestampGMT, "error", err)
-				result.Errors = append(result.Errors, "upsert HRV "+rec.StartTimestampGMT+": "+err.Error())
-				continue
+			// Store stress snapshot from wellness monitoring.
+			if stressLevel != nil {
+				ss := &model.HealthStressSnapshot{
+					UserID:        params.UserID,
+					MeasuredAtUTC: measuredAt,
+					StressLevel:   stressLevel,
+					SourceType:    "garmin",
+				}
+				if err := params.DB.UpsertHealthStressSnapshot(ctx, ss); err != nil {
+					slog.Warn("garmin health: upsert stress snapshot failed", "ts", rec.StartTimestampGMT, "error", err)
+					result.Errors = append(result.Errors, "upsert stress "+rec.StartTimestampGMT+": "+err.Error())
+				}
 			}
-			totalHRV++
+
+			// Store SpO2 snapshot from wellness monitoring.
+			if spo2 != nil {
+				sp := &model.HealthSpO2Snapshot{
+					UserID:        params.UserID,
+					MeasuredAtUTC: measuredAt,
+					SpO2Pct:       spo2,
+					SourceType:    "garmin",
+				}
+				if err := params.DB.UpsertHealthSpO2Snapshot(ctx, sp); err != nil {
+					slog.Warn("garmin health: upsert SpO2 snapshot failed", "ts", rec.StartTimestampGMT, "error", err)
+					result.Errors = append(result.Errors, "upsert spo2 "+rec.StartTimestampGMT+": "+err.Error())
+				}
+			}
 		}
 	}
 	slog.Info("garmin health: imported HRV snapshots", "count", totalHRV)
@@ -562,6 +608,85 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 	}
 	slog.Info("garmin health: imported training load records", "count", totalLoad)
 	result.Imported += totalLoad
+
+	// -----------------------------------------------------------------------
+	// Abschnitt 8: Fitness Age (currentBioAge from fitnessAgeData)
+	// -----------------------------------------------------------------------
+	fitnessAgeFiles, _ := params.Source.FindFiles("DI_CONNECT/DI-Connect-Wellness/*_fitnessAgeData.json")
+	totalFitnessAge := 0
+	for _, f := range fitnessAgeFiles {
+		var records []garminFitnessAge
+		if err := params.Source.ReadJSON(f, &records); err != nil {
+			slog.Warn("garmin health: cannot read fitnessAge file", "file", f, "error", err)
+			result.Errors = append(result.Errors, "read "+f+": "+err.Error())
+			continue
+		}
+		for _, rec := range records {
+			if rec.AsOfDateGmt == "" || rec.CurrentBioAge <= 0 {
+				continue
+			}
+			// Parse "2026-03-01T00:00:00.0" → date only
+			calDate := rec.AsOfDateGmt
+			if len(calDate) > 10 {
+				calDate = calDate[:10]
+			}
+			age := rec.CurrentBioAge
+			fa := &model.HealthFitnessAge{
+				UserID:       params.UserID,
+				CalendarDate: calDate,
+				FitnessAge:   &age,
+				SourceType:   "garmin",
+			}
+			if err := params.DB.UpsertHealthFitnessAge(ctx, fa); err != nil {
+				slog.Warn("garmin health: upsert fitness age failed", "date", calDate, "error", err)
+				result.Errors = append(result.Errors, "upsert fitness age "+calDate+": "+err.Error())
+				continue
+			}
+			totalFitnessAge++
+		}
+	}
+	slog.Info("garmin health: imported fitness age records", "count", totalFitnessAge)
+	result.Imported += totalFitnessAge
+
+	// -----------------------------------------------------------------------
+	// Abschnitt 9: Hydration (daily totals from HydrationLogFile)
+	// Per-day valueInML entries are aggregated and saved to health_daily_summary.hydration_ml.
+	// Only entries with valueInML > 0 (actual intake, not sweat-loss) are counted.
+	// -----------------------------------------------------------------------
+	hydrationFiles, _ := params.Source.FindFiles("DI_CONNECT/DI-Connect-Aggregator/HydrationLogFile_*.json")
+	totalHydration := 0
+	hydrationByDate := map[string]float64{}
+	for _, f := range hydrationFiles {
+		var records []garminHydrationLog
+		if err := params.Source.ReadJSON(f, &records); err != nil {
+			slog.Warn("garmin health: cannot read hydration file", "file", f, "error", err)
+			result.Errors = append(result.Errors, "read "+f+": "+err.Error())
+			continue
+		}
+		for _, rec := range records {
+			if rec.CalendarDate == "" || rec.ValueInML <= 0 {
+				continue
+			}
+			hydrationByDate[rec.CalendarDate] += rec.ValueInML
+		}
+	}
+	for calDate, totalML := range hydrationByDate {
+		ml := totalML
+		summary := &model.HealthDailySummary{
+			UserID:       params.UserID,
+			CalendarDate: calDate,
+			HydrationML:  &ml,
+			SourceType:   "garmin",
+		}
+		if err := params.DB.UpsertHealthDailySummary(ctx, summary); err != nil {
+			slog.Warn("garmin health: upsert hydration failed", "date", calDate, "error", err)
+			result.Errors = append(result.Errors, "upsert hydration "+calDate+": "+err.Error())
+			continue
+		}
+		totalHydration++
+	}
+	slog.Info("garmin health: imported hydration records", "count", totalHydration)
+	result.Imported += totalHydration
 
 	return result, nil
 }
