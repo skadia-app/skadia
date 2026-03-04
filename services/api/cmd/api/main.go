@@ -310,6 +310,22 @@ func main() {
 			r.Post("/admin/llm-config/test", h.TestLLMConnection)
 			r.Get("/user/llm-config", h.GetLLMUserConfig)
 			r.Patch("/user/llm-config", h.PatchLLMUserConfig)
+
+			// Health data
+			r.Route("/health", func(r chi.Router) {
+				r.Get("/daily-summary", h.GetHealthDailySummaries)
+				r.Get("/sleep", h.GetHealthSleep)
+				r.Get("/hrv", h.GetHealthHRV)
+				r.Get("/weight", h.GetHealthWeight)
+				r.Post("/weight", h.CreateHealthWeightEntry)
+				r.Get("/readiness", h.GetHealthReadiness)
+				r.Get("/training-load", h.GetHealthTrainingLoad)
+				r.Get("/stress", h.GetHealthStress)
+				r.Get("/spo2", h.GetHealthSpO2)
+				r.Get("/blood-pressure", h.GetHealthBloodPressure)
+				r.Get("/fitness-age", h.GetHealthFitnessAge)
+				r.Get("/overview", h.GetHealthOverview)
+			})
 		})
 	})
 

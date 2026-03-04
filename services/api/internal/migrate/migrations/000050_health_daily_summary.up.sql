@@ -1,0 +1,26 @@
+CREATE TABLE health_daily_summary (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    calendar_date DATE NOT NULL,
+    total_steps INTEGER,
+    step_goal INTEGER,
+    total_distance_m DOUBLE PRECISION,
+    active_seconds INTEGER,
+    highly_active_seconds INTEGER,
+    resting_heart_rate INTEGER,
+    min_heart_rate INTEGER,
+    max_heart_rate INTEGER,
+    total_calories DOUBLE PRECISION,
+    active_calories DOUBLE PRECISION,
+    bmr_calories DOUBLE PRECISION,
+    stress_avg DOUBLE PRECISION,
+    body_battery_min INTEGER,
+    body_battery_max INTEGER,
+    hydration_ml DOUBLE PRECISION,
+    hydration_goal_ml DOUBLE PRECISION,
+    source_type TEXT NOT NULL DEFAULT 'manual',
+    extra_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, calendar_date)
+);
+SELECT create_hypertable('health_daily_summary', 'calendar_date', if_not_exists => TRUE);
