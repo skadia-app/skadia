@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -25,6 +26,7 @@ type ImportParams struct {
 	Storage    *storage.S3Client
 	JobID      string
 	OnProgress func(current, total int, msg string)
+	Options    importer.ImportOptions
 }
 
 // ImportResult summarises the outcome of a single module run.

@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -58,8 +59,9 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		SourcePath string   `json:"source_path"`
-		Modules    []string `json:"modules"`
+		SourcePath string                  `json:"source_path"`
+		Modules    []string                `json:"modules"`
+		Options    *importer.ImportOptions `json:"options,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -96,6 +98,9 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("garmin import: update progress failed", "error", err)
 				}
 			},
+		}
+		if req.Options != nil {
+			params.Options = *req.Options
 		}
 
 		if err := registry.RunModules(bgCtx, req.Modules, params); err != nil {

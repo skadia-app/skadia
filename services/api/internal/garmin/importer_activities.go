@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -117,35 +118,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Duplicate check by file hash
-		hash := sha256.Sum256(fileBytes)
-		hashStr := hex.EncodeToString(hash[:])
-		existing, err := params.DB.CheckDuplicate(ctx, params.UserID, hashStr)
-		if err != nil {
-			slog.Warn("garmin activities: duplicate check failed", "error", err)
-		}
-		if existing != nil {
-			// Already imported – ensure garmin_activity_id is set
-			if garminActivityID > 0 {
-				_ = params.DB.SetActivityGarminID(ctx, existing.ID, garminActivityID)
-			}
-			result.Skipped++
-			continue
-		}
-
-		// Check garmin_activity_id duplicate
-		if garminActivityID > 0 {
-			existingByGarminID, err := params.DB.ActivityExistsByGarminID(ctx, params.UserID, garminActivityID)
-			if err != nil {
-				slog.Warn("garmin activities: garmin ID check failed", "error", err)
-			}
-			if existingByGarminID {
-				result.Skipped++
-				continue
-			}
-		}
-
-		// Parse activity file
+		// Parse activity file first (needed for temporal duplicate check)
 		var data *model.ActivityData
 		switch format {
 		case "fit":
@@ -161,6 +134,43 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
+		// Date filter
+		if params.Options.DateFrom != nil && data.StartedAt.Before(*params.Options.DateFrom) {
+			result.Skipped++
+			continue
+		}
+		if params.Options.DateTo != nil && data.StartedAt.After(*params.Options.DateTo) {
+			result.Skipped++
+			continue
+		}
+
+		// Duplicate check (hash + garmin_activity_id + temporal)
+		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, garminActivityID, 0)
+		if dupErr != nil {
+			slog.Warn("garmin activities: duplicate check failed", "error", dupErr)
+			result.Errors = append(result.Errors, fmt.Sprintf("dedup %s: %s", ref.fileName, dupErr))
+			continue
+		}
+		if match != nil {
+			switch params.Options.ConflictStrategy {
+			case importer.StrategyReplaceAll:
+				_ = importer.ReplaceActivity(ctx, params.DB, match.ExistingActivityID, data)
+			case importer.StrategySkip:
+				// nothing
+			default: // enrich_missing
+				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, nil, data)
+			}
+			// Ensure garmin_activity_id is set on the existing activity
+			if garminActivityID > 0 {
+				_ = params.DB.SetActivityGarminID(ctx, match.ExistingActivityID, garminActivityID)
+			}
+			result.Skipped++
+			continue
+		}
+
+		// Compute file hash for storage key
+		hash := sha256.Sum256(fileBytes)
+		hashStr := hex.EncodeToString(hash[:])
 		data.FileHash = hashStr
 		if data.Source == "" {
 			data.Source = "Garmin"
