@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -61,19 +62,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(fileBytes)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Duplicate check
-	existing, err := h.DB.CheckDuplicate(r.Context(), userID, hashStr)
-	if err != nil {
-		slog.Error("duplicate check failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "duplicate check failed", r.URL.Path)
-		return
-	}
-	if existing != nil {
-		writeError(w, http.StatusConflict, "Duplicate",
-			fmt.Sprintf("file already imported as activity %s", existing.ID), r.URL.Path)
-		return
-	}
-
 	// Parse file
 	var data *model.ActivityData
 	filename := header.Filename
@@ -90,6 +78,48 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("parse failed", "format", format, "error", err)
 		writeError(w, http.StatusUnprocessableEntity, "Parse Error",
 			fmt.Sprintf("failed to parse %s file: %s", format, err), r.URL.Path)
+		return
+	}
+
+	// Duplicate check via central DuplicateDetector
+	match, err := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0)
+	if err != nil {
+		slog.Error("duplicate check failed", "error", err)
+		// Not fatal — continue with normal import on error
+	} else if match != nil {
+		// Conflict handling based on user settings
+		settings, _ := h.DB.GetImportSettings(r.Context(), userID)
+		var strategy importer.ConflictStrategy
+		if settings != nil {
+			strategy = importer.ConflictStrategy(settings.ConflictStrategy)
+		} else {
+			strategy = importer.StrategyEnrichMissing
+		}
+		switch strategy {
+		case importer.StrategyReplaceAll:
+			if replaceErr := importer.ReplaceActivity(r.Context(), h.DB, match.ExistingActivityID, data); replaceErr != nil {
+				slog.Error("replace activity failed", "error", replaceErr)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      "replaced",
+				"activity_id": match.ExistingActivityID,
+			})
+		case importer.StrategySkip:
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      "skipped",
+				"activity_id": match.ExistingActivityID,
+			})
+		default: // enrich_missing
+			n, enrichErr := importer.EnrichActivity(r.Context(), h.DB, match.ExistingActivityID, nil, data)
+			if enrichErr != nil {
+				slog.Error("enrich activity failed", "error", enrichErr)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":          "enriched",
+				"activity_id":     match.ExistingActivityID,
+				"fields_enriched": n,
+			})
+		}
 		return
 	}
 
