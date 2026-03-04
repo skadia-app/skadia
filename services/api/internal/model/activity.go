@@ -67,6 +67,7 @@ type ActivityData struct {
 	EndLng   float64
 
 	Streams     []StreamPoint
+	RRIntervals []uint16 // R-R intervals in ms (from FIT HRV messages)
 	Sensors     []SensorRecord
 	TrackPoints []TrackPoint
 
@@ -92,6 +93,11 @@ type StreamPoint struct {
 	TemperatureC    *int16
 	RespirationRate *int16
 	StressLevel     *int16
+	// Running dynamics (from FIT record messages)
+	GroundContactTimeMs   *int16   // stance_time, Scale: 10 → ms
+	VerticalOscillationMm *int16   // vertical_oscillation, Scale: 10 → mm
+	StanceTimePercent     *float32 // stance_time_percent, Scale: 100 → %
+	LeftRightBalance      *int16   // left_right_balance masked value (0–100)
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.
@@ -247,6 +253,11 @@ type StreamResponse struct {
 	TemperatureC    *int16    `json:"temperature_c,omitempty"`
 	RespirationRate *int16    `json:"respiration_rate,omitempty"`
 	StressLevel     *int16    `json:"stress_level,omitempty"`
+	// Running dynamics
+	GroundContactTimeMs   *int16   `json:"ground_contact_time_ms,omitempty"`
+	VerticalOscillationMm *int16   `json:"vertical_oscillation_mm,omitempty"`
+	StanceTimePercent     *float32 `json:"stance_time_percent,omitempty"`
+	LeftRightBalance      *int16   `json:"left_right_balance,omitempty"`
 }
 
 // SensorResponse is the API response for the sensors endpoint.

@@ -280,6 +280,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
 			return fmt.Errorf("insert streams: %w", err)
 		}
+		if len(data.RRIntervals) > 0 {
+			if err := h.DB.InsertRRIntervals(ctx, activityID, data.RRIntervals); err != nil {
+				slog.Error("reprocess: insert rr intervals failed", "id", activityID, "error", err)
+			}
+		}
 		if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
 			return fmt.Errorf("insert track: %w", err)
 		}

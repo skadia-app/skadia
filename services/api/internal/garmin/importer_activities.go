@@ -228,6 +228,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if err := params.DB.InsertStreams(ctx, activity.ID, data.Streams); err != nil {
 			slog.Warn("garmin activities: insert streams failed", "error", err)
 		}
+		if len(data.RRIntervals) > 0 {
+			if err := params.DB.InsertRRIntervals(ctx, activity.ID, data.RRIntervals); err != nil {
+				slog.Warn("garmin activities: insert rr intervals failed", "error", err)
+			}
+		}
 		if err := params.DB.InsertTrack(ctx, activity.ID, data.TrackPoints); err != nil {
 			slog.Warn("garmin activities: insert track failed", "error", err)
 		}

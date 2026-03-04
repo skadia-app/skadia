@@ -164,6 +164,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var splitSummaries []*mesgdef.SplitSummary
 	var lengths []*mesgdef.Length
 	var climbPros []*mesgdef.ClimbPro
+	var rrIntervals []uint16
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -191,6 +192,15 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			lengths = append(lengths, mesgdef.NewLength(&fit.Messages[i]))
 		case typedef.MesgNumClimbPro:
 			climbPros = append(climbPros, mesgdef.NewClimbPro(&fit.Messages[i]))
+		case typedef.MesgNumHrv:
+			hrv := mesgdef.NewHrv(&fit.Messages[i])
+			for _, rrMs := range hrv.Time {
+				// HRV Time: Scale 1000, Units s → raw uint16 value = ms
+				// Valid range: 1–4999 ms (20–1200 bpm). 0 and 0xFFFF are invalid.
+				if rrMs > 0 && rrMs != 0xFFFF && rrMs < 5000 {
+					rrIntervals = append(rrIntervals, rrMs)
+				}
+			}
 		}
 	}
 
@@ -448,6 +458,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 
 	// Extract streams, track, sensors
 	data.Streams = ExtractStreams(records)
+	data.RRIntervals = rrIntervals
 	data.TrackPoints = ExtractTrackPoints(records)
 	data.Sensors = ExtractSensors(deviceInfos)
 

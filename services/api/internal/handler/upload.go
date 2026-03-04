@@ -184,6 +184,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert streams failed", "error", err)
 	}
 
+	// Insert R-R intervals (FIT only; empty for GPX/TCX)
+	if len(data.RRIntervals) > 0 {
+		if err := h.DB.InsertRRIntervals(r.Context(), activity.ID, data.RRIntervals); err != nil {
+			slog.Error("insert rr intervals failed", "error", err)
+		}
+	}
+
 	// Insert track
 	if err := h.DB.InsertTrack(r.Context(), activity.ID, data.TrackPoints); err != nil {
 		slog.Error("insert track failed", "error", err)

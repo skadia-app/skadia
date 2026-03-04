@@ -83,6 +83,30 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 			sp.TemperatureC = &temp
 		}
 
+		// Running Dynamics — Ground Contact Time (StanceTime: uint16, Scale: 10, Units: ms)
+		if rec.StanceTime != 0xFFFF && rec.StanceTime != 0 {
+			gct := int16(rec.StanceTimeScaled()) // ms
+			sp.GroundContactTimeMs = &gct
+		}
+
+		// Running Dynamics — Vertical Oscillation (uint16, Scale: 10, Units: mm)
+		if rec.VerticalOscillation != 0xFFFF && rec.VerticalOscillation != 0 {
+			vo := int16(rec.VerticalOscillationScaled()) // mm
+			sp.VerticalOscillationMm = &vo
+		}
+
+		// Running Dynamics — Stance Time Percent (uint16, Scale: 100, Units: %)
+		if rec.StanceTimePercent != 0xFFFF && rec.StanceTimePercent != 0 {
+			stp := float32(rec.StanceTimePercentScaled()) // %
+			sp.StanceTimePercent = &stp
+		}
+
+		// Left/Right Balance — mask out the "left" bit (bit 7); value 0–100 = left%
+		if uint8(rec.LeftRightBalance) != 0xFF {
+			lrb := int16(uint8(rec.LeftRightBalance) & 0x7F)
+			sp.LeftRightBalance = &lrb
+		}
+
 		streams = append(streams, sp)
 	}
 

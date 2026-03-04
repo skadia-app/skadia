@@ -95,6 +95,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		enrichment.RunStage1(ctx, h.DB, userID, activity.ID, data, h.Events)
 	}
 	_ = h.DB.InsertStreams(ctx, activity.ID, data.Streams)
+	if len(data.RRIntervals) > 0 {
+		_ = h.DB.InsertRRIntervals(ctx, activity.ID, data.RRIntervals)
+	}
 	_ = h.DB.InsertTrack(ctx, activity.ID, data.TrackPoints)
 
 	if len(data.TrackPoints) >= 2 {
