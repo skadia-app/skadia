@@ -276,7 +276,7 @@ export default function WorkshopReprocessPage() {
                           {sportLabel(a.sport_type, a.sub_type)}
                         </td>
                         <td className="px-3 py-1.5 text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">
-                          {a.title ?? <span className="text-neutral-400 italic">Kein Titel</span>}
+                          {a.title ?? a.title_auto ?? <span className="text-neutral-400 italic">Kein Titel</span>}
                         </td>
                       </tr>
                     ))}

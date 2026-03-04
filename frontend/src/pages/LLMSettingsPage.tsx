@@ -93,7 +93,7 @@ function LLMRoleCard({ role, config, onSave }: {
   })
 
   const handleBackendChange = (newBackend: string) => {
-    setBackend(newBackend)
+    setBackend(newBackend as Parameters<typeof setBackend>[0])
     if (DEFAULT_URLS[newBackend] && !apiBase) {
       setApiBase(DEFAULT_URLS[newBackend])
     }

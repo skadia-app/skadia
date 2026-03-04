@@ -1,8 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import ReactECharts from 'echarts-for-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
+
+echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
 
@@ -213,6 +218,14 @@ export default function ActivityEditorPage() {
 
   const hasHR = streams.some(s => s.heart_rate != null)
 
+  const chartRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!chartRef.current || !hasHR) return
+    const option = buildHRChartOption(streams, displaySpikeTimestamps, showPreview, sidecar ?? null)
+    const chart = echarts.getInstanceByDom(chartRef.current) ?? echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
+    chart.setOption(option, true)
+  })
+
   const showStatus = useCallback((msg: string, duration = 3000) => {
     setStatusMsg(msg)
     setTimeout(() => setStatusMsg(null), duration)
@@ -316,10 +329,6 @@ export default function ActivityEditorPage() {
     )
   }
 
-  const chartOption = hasHR
-    ? buildHRChartOption(streams, displaySpikeTimestamps, showPreview, sidecar ?? null)
-    : null
-
   const hasEdits = (sidecar?.edits.length ?? 0) > 0 || detectedSpikes.length > 0
   const hasUnsavedSpikes = detectedSpikes.length > 0
 
@@ -358,7 +367,7 @@ export default function ActivityEditorPage() {
       )}
 
       {/* HR Chart */}
-      {hasHR && chartOption ? (
+      {hasHR ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -389,12 +398,7 @@ export default function ActivityEditorPage() {
               </button>
             </div>
           </div>
-          <ReactECharts
-            option={chartOption}
-            style={{ height: 260 }}
-            theme="dark"
-            notMerge={true}
-          />
+          <div ref={chartRef} style={{ height: 260 }} />
           <div className="mt-2 flex items-center gap-4 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-4 rounded bg-orange-500 opacity-80" />

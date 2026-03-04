@@ -1055,7 +1055,7 @@ export default function ActivitiesPage() {
           </button>
           <button
             onClick={() => {
-              const actMap = new Map(activities.map(a => [a.id, a.title ?? null]))
+              const actMap = new Map(activities.map(a => [a.id, a.title ?? a.title_auto ?? null]))
               setOpenTabsItems([...selectedIds].map(id => ({ id, title: actMap.get(id) ?? null })))
             }}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
@@ -1192,7 +1192,7 @@ function ActivityRow({
   return (
     <tr
       onClick={handleClick}
-      onContextMenu={e => onContextMenu(e, activity.id, activity.title)}
+      onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto)}
       className={rowClass}
     >
       {/* Checkbox */}
@@ -1202,11 +1202,11 @@ function ActivityRow({
           checked={isSelected}
           onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
           className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
-          aria-label={`Aktivität ${activity.title ?? activity.id} auswählen`}
+          aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
         />
       </td>
       <td className={`px-4 py-3 ${titleClass}`}>
-        {activity.title ?? (
+        {activity.title ?? activity.title_auto ?? (
           <span className="text-neutral-400 font-normal italic">Kein Titel</span>
         )}
       </td>
@@ -1248,7 +1248,7 @@ function ActivityRow({
       {/* 3-Punkt-Menü */}
       <td className="py-3 pl-0 pr-2 w-8" onClick={e => e.stopPropagation()}>
         <button
-          onClick={e => onThreeDotClick(e, activity.id, activity.title)}
+          onClick={e => onThreeDotClick(e, activity.id, activity.title ?? activity.title_auto)}
           className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Aktivitätsmenü"
         >
