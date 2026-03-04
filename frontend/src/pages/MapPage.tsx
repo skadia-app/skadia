@@ -1020,6 +1020,8 @@ export default function MapPage() {
     if (!map || !map.isStyleLoaded()) return
 
     // Cleanup old segment layers
+    if (map.getLayer('segment-direction-arrows')) map.removeLayer('segment-direction-arrows')
+    if (map.getSource('segments-tracks')) map.removeSource('segments-tracks')
     if (map.getLayer('segments-lines')) map.removeLayer('segments-lines')
     if (map.getSource('segments-geojson')) map.removeSource('segments-geojson')
     if (segmentPopupRef.current) {
@@ -1029,14 +1031,7 @@ export default function MapPage() {
 
     if (!showSegments || segmentData.length === 0) return
 
-    // Segments API returns segment metadata; we need track geometry which
-    // the API could provide via a geojson field. For now, since segments
-    // are just points/metadata, we show them as markers. If the API returns
-    // a track/geometry field in the future, we can render lines.
-    // For now, show as circle markers using centroid approximation from the
-    // segment bbox / start coordinates if available.
-
-    // Build GeoJSON from segments that have coordinate data
+    // Build GeoJSON point features from segments that have coordinate data
     const features: GeoJSON.Feature[] = segmentData
       .filter((s: Segment) => {
         const meta = s.segment_type_meta as Record<string, unknown> | undefined
@@ -1096,6 +1091,63 @@ export default function MapPage() {
         'circle-opacity': 0.9,
       },
     })
+
+    // Build LineString features for direction arrows (segments with track_geojson)
+    const trackFeatures: GeoJSON.Feature[] = segmentData
+      .filter((s: Segment) => !!s.track_geojson)
+      .reduce<GeoJSON.Feature[]>((acc, s: Segment) => {
+        let geometry: GeoJSON.Geometry
+        try {
+          geometry = JSON.parse(s.track_geojson!) as GeoJSON.Geometry
+        } catch {
+          return acc
+        }
+        acc.push({
+          type: 'Feature' as const,
+          geometry,
+          properties: {
+            id: s.id,
+            name: s.name,
+            sport_group: s.sport_group,
+          },
+        })
+        return acc
+      }, [])
+
+    if (trackFeatures.length > 0) {
+      map.addSource('segments-tracks', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: trackFeatures },
+      })
+
+      // Pfeil-Icon registrieren und Symbol-Layer für Richtungspfeile hinzufügen
+      const arrowSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M10 3 L16 17 L10 13 L4 17 Z" fill="white" opacity="0.9"/></svg>`
+      const arrowImg = new Image(20, 20)
+      arrowImg.src = 'data:image/svg+xml,' + encodeURIComponent(arrowSVG)
+      arrowImg.onload = () => {
+        if (!map.hasImage('segment-arrow')) {
+          map.addImage('segment-arrow', arrowImg)
+        }
+        if (!map.getLayer('segment-direction-arrows')) {
+          map.addLayer({
+            id: 'segment-direction-arrows',
+            type: 'symbol',
+            source: 'segments-tracks',
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 120,
+              'icon-image': 'segment-arrow',
+              'icon-size': 0.7,
+              'icon-allow-overlap': true,
+              'icon-rotation-alignment': 'map',
+            },
+            paint: {
+              'icon-opacity': 0.75,
+            },
+          })
+        }
+      }
+    }
 
     // Hover tooltip
     const popup = new maplibregl.Popup({

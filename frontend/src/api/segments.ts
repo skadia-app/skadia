@@ -14,6 +14,7 @@ export interface Segment {
   athlete_count: number
   visibility: string
   created_at: string
+  track_geojson?: string
 }
 
 export interface SegmentEffort {
@@ -27,6 +28,7 @@ export interface SegmentEffort {
   is_personal_best: boolean
   is_segment_record: boolean
   segment_name?: string
+  segment_type_meta?: Record<string, unknown>
 }
 
 export interface LeaderboardEntry {
@@ -65,8 +67,24 @@ export async function fetchSegments(params?: {
   return apiClient<Segment[]>(`/segments${q ? `?${q}` : ''}`)
 }
 
-export async function fetchSegmentLeaderboard(segmentId: string): Promise<LeaderboardEntry[]> {
-  return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard`)
+export interface UpdateSegmentPayload {
+  name?: string
+  description?: string
+  sport_group?: string
+  segment_type_meta?: Record<string, unknown>
+  new_version?: boolean
+}
+
+export async function fetchSegmentLeaderboard(
+  segmentId: string,
+  isReverse?: boolean,
+): Promise<LeaderboardEntry[]> {
+  const qs = isReverse !== undefined ? `?is_reverse=${isReverse}` : ''
+  return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${qs}`)
+}
+
+export async function updateSegment(id: string, payload: UpdateSegmentPayload): Promise<Segment> {
+  return apiClient<Segment>(`/segments/${id}`, { method: 'PUT', body: payload })
 }
 
 export async function createSegment(payload: CreateSegmentPayload): Promise<Segment> {
