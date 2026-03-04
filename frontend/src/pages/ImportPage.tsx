@@ -51,10 +51,10 @@ async function detectGarminModules(sourcePath: string): Promise<DetectedModule[]
   return res.modules ?? []
 }
 
-async function startGarminImportJob(sourcePath: string, modules: string[]): Promise<string> {
+async function startGarminImportJob(sourcePath: string, modules: string[], options: ImportOptions): Promise<string> {
   const res = await apiClient<{ job_id: string }>('/import/garmin/start', {
     method: 'POST',
-    body: { source_path: sourcePath, modules },
+    body: { source_path: sourcePath, modules, options },
   })
   return res.job_id
 }
@@ -75,10 +75,10 @@ async function detectStravaModules(sourcePath: string): Promise<DetectedModule[]
   return res.modules ?? []
 }
 
-async function startStravaImportJob(sourcePath: string, modules: string[]): Promise<string> {
+async function startStravaImportJob(sourcePath: string, modules: string[], options: ImportOptions): Promise<string> {
   const res = await apiClient<{ job_id: string }>('/import/strava/start', {
     method: 'POST',
-    body: { source_path: sourcePath, modules },
+    body: { source_path: sourcePath, modules, options },
   })
   return res.job_id
 }
@@ -97,8 +97,8 @@ function formatTimestamp(d: Date): string {
 
 function categoryLabel(cat: string): string {
   const labels: Record<string, string> = {
-    activities: 'Aktivitaten',
-    gear: 'Ausrustung',
+    activities: 'Aktivitäten',
+    gear: 'Ausrüstung',
     profile: 'Profil',
     privacy_zones: 'Privacy-Zonen',
     health: 'Gesundheit',
@@ -336,25 +336,25 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
       {/* Konflikt-Strategie */}
       <div>
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Bei bereits vorhandenen Aktivitaten:
+          Bei bereits vorhandenen Aktivitäten:
         </h3>
         <div className="space-y-2">
           {(
             [
               {
                 value: 'enrich_missing' as ConflictStrategy,
-                label: 'Fehlende Felder erganzen',
-                desc: 'Leere Werte (HR, Power, etc.) aus neuer Quelle auffullen',
+                label: 'Fehlende Felder ergänzen',
+                desc: 'Leere Werte (HR, Power, etc.) aus neuer Quelle auffüllen',
               },
               {
                 value: 'replace_all' as ConflictStrategy,
                 label: 'Alles ersetzen',
-                desc: 'Bestehende Aktivitat vollstandig uberschreiben',
+                desc: 'Bestehende Aktivität vollständig überschreiben',
               },
               {
                 value: 'skip' as ConflictStrategy,
-                label: 'Uberspringen',
-                desc: 'Bereits vorhandene Aktivitaten ignorieren',
+                label: 'Überspringen',
+                desc: 'Bereits vorhandene Aktivitäten ignorieren',
               },
             ] satisfies Array<{ value: ConflictStrategy; label: string; desc: string }>
           ).map(opt => (
@@ -508,7 +508,7 @@ function ImportPhase({
                 Import abgeschlossen — {job.completed_modules} Module verarbeitet.
               </p>
               <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                Die importierten Aktivitaten sind nun in der Aktivitatenliste sichtbar.
+                Die importierten Aktivitäten sind nun in der Aktivitätenliste sichtbar.
               </p>
             </div>
           )}
@@ -547,7 +547,7 @@ interface ImportPanelProps {
   dirHint: string
   dirPlaceholder: string
   detectFn: (path: string) => Promise<DetectedModule[]>
-  startFn: (path: string, modules: string[]) => Promise<string>
+  startFn: (path: string, modules: string[], options: ImportOptions) => Promise<string>
   pollFn: (jobId: string) => Promise<ImportJob>
 }
 
@@ -638,7 +638,7 @@ function ImportPanel({
               .filter(m => categoriesToImport.includes(m.name))
               .map(m => m.name)
 
-      const id = await startFn(sourcePath.trim(), modulesToRun)
+      const id = await startFn(sourcePath.trim(), modulesToRun, importOptions)
       setJobId(id)
       appendLog(`Job gestartet (${id.slice(0, 8)})`)
 
@@ -804,7 +804,7 @@ export default function ImportPage() {
           Datenimport
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Importiere Aktivitaten, Ausrustung und Profile aus einem lokalen Export.
+          Importiere Aktivitäten, Ausrüstung und Profile aus einem lokalen Export.
         </p>
       </div>
 
