@@ -117,6 +117,27 @@ func (p *Publisher) PublishDocumentUploaded(event DocumentUploadedEvent) error {
 	return nil
 }
 
+// AnalyticsInvalidateEvent signals the ML service to recompute analytics for a user.
+type AnalyticsInvalidateEvent struct {
+	UserID string `json:"user_id"`
+}
+
+// PublishAnalyticsInvalidate publishes a skadia.analytics.invalidate event.
+// The ML service listens on this subject and recomputes all analytics cache entries for the user.
+func (p *Publisher) PublishAnalyticsInvalidate(userID string) {
+	data, err := json.Marshal(AnalyticsInvalidateEvent{UserID: userID})
+	if err != nil {
+		slog.Warn("analytics invalidate: marshal failed", "error", err)
+		return
+	}
+	_, err = p.js.Publish("skadia.analytics.invalidate", data)
+	if err != nil {
+		slog.Warn("analytics invalidate: publish failed", "error", err)
+		return
+	}
+	slog.Info("event published", "subject", "skadia.analytics.invalidate", "user_id", userID)
+}
+
 // JetStream returns the JetStream context for creating consumers.
 func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js

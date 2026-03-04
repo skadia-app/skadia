@@ -274,6 +274,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if err := h.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("event publish failed", "error", err)
 		}
+		// Trigger analytics recompute for the user (graceful — never blocks upload)
+		h.Events.PublishAnalyticsInvalidate(userID)
 	}
 
 	// Write to Shadow FS (best-effort, don't fail upload)

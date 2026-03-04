@@ -436,6 +436,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
 		}
+		// Trigger analytics recompute for the user (graceful — never blocks recompute)
+		h.Events.PublishAnalyticsInvalidate(userID)
 	}
 
 	return nil

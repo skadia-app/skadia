@@ -132,7 +132,7 @@ func main() {
 			LLMEncryptionKey:   cfg.LLMEncryptionKey,
 		},
 	}
-	analyticsHandler := analyticshandler.NewHandler(db)
+	analyticsHandler := analyticshandler.NewHandler(db, pub)
 
 	// Router
 	r := chi.NewRouter()

@@ -3,14 +3,16 @@ package analytics
 import (
 	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/event"
 )
 
 type Handler struct {
-	DB *database.DB
+	DB        *database.DB
+	Publisher *event.Publisher // optional — nil when NATS is unavailable
 }
 
-func NewHandler(db *database.DB) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *database.DB, pub *event.Publisher) *Handler {
+	return &Handler{DB: db, Publisher: pub}
 }
 
 func (h *Handler) Routes() chi.Router {
