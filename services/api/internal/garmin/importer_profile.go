@@ -32,11 +32,11 @@ type garminUserProfile struct {
 
 // garminBioMetricProfile matches DI_CONNECT/DI-Connect-Wellness/*_userBioMetricProfileData.json
 type garminBioMetricProfile struct {
-	Height                   *float64 `json:"height"`    // cm
-	Weight                   *float64 `json:"weight"`    // kg
-	FunctionalThresholdPower *int     `json:"functionalThresholdPower"` // watts
-	LactateThresholdHeartRate *int    `json:"lactateThresholdHeartRate"`
-	VO2Max                   *float64 `json:"vo2Max"`
+	Height                    *float64 `json:"height"`                    // cm
+	Weight                    *float64 `json:"weight"`                    // grams (Garmin stores in grams)
+	FunctionalThresholdPower  *float64 `json:"functionalThresholdPower"`  // watts (may arrive as float)
+	LactateThresholdHeartRate *float64 `json:"lactateThresholdHeartRate"` // bpm (arrives as float e.g. 167.0)
+	VO2Max                    *float64 `json:"vo2Max"`
 }
 
 func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
@@ -79,13 +79,13 @@ func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*Imp
 			imp.HeightCm = int(*bio.Height)
 		}
 		if bio.Weight != nil && *bio.Weight > 0 {
-			imp.WeightKg = float32(*bio.Weight)
+			imp.WeightKg = float32(*bio.Weight / 1000.0) // Garmin stores weight in grams
 		}
 		if bio.FunctionalThresholdPower != nil && *bio.FunctionalThresholdPower > 0 {
-			imp.FTP = *bio.FunctionalThresholdPower
+			imp.FTP = int(*bio.FunctionalThresholdPower)
 		}
 		if bio.LactateThresholdHeartRate != nil && *bio.LactateThresholdHeartRate > 0 {
-			imp.LTHR = *bio.LactateThresholdHeartRate
+			imp.LTHR = int(*bio.LactateThresholdHeartRate)
 		}
 	}
 

@@ -511,11 +511,11 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 
 // SegmentEndpoints holds start/end coordinates and length of a segment version.
 type SegmentEndpoints struct {
-	StartLat  float64
-	StartLng  float64
-	EndLat    float64
-	EndLng    float64
-	LengthM   float64
+	StartLat float64
+	StartLng float64
+	EndLat   float64
+	EndLng   float64
+	LengthM  float64
 }
 
 // GetSegmentEndpoints returns start/end point coordinates and geographic length of a segment version.

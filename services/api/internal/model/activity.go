@@ -70,24 +70,24 @@ type ActivityData struct {
 	Sensors     []SensorRecord
 	TrackPoints []TrackPoint
 
-	Laps            []LapRecord
-	Splits          []SplitRecord
-	SplitSummaries  []SplitSummaryRecord
-	Lengths         []LengthRecord
-	ClimbProEvents  []ClimbProEventRecord
+	Laps           []LapRecord
+	Splits         []SplitRecord
+	SplitSummaries []SplitSummaryRecord
+	Lengths        []LengthRecord
+	ClimbProEvents []ClimbProEventRecord
 }
 
 // StreamPoint is a single time-series data point.
 // Pointer fields indicate optional/missing values.
 type StreamPoint struct {
-	Time         time.Time
-	Lat          *float64
-	Lng          *float64
-	AltitudeM    *float64
-	SpeedMS      *float64
-	DistanceM    *float64
-	HeartRate    *int16
-	PowerW       *int16
+	Time            time.Time
+	Lat             *float64
+	Lng             *float64
+	AltitudeM       *float64
+	SpeedMS         *float64
+	DistanceM       *float64
+	HeartRate       *int16
+	PowerW          *int16
 	Cadence         *int16
 	TemperatureC    *int16
 	RespirationRate *int16
@@ -121,78 +121,78 @@ type SensorRecord struct {
 
 // Activity is the DB/API representation of an activity.
 type Activity struct {
-	ID               string     `json:"id"`
-	UserID           string     `json:"user_id"`
-	FileHash         *string    `json:"file_hash,omitempty"`
-	Title            *string    `json:"title"`
-	TitleAuto        *string    `json:"title_auto,omitempty"`
-	Description      *string    `json:"description,omitempty"`
-	SportType        string     `json:"sport_type"`
-	SubType          *string    `json:"sub_type,omitempty"`
-	FitSportID       *int16     `json:"fit_sport_id,omitempty"`
-	FitSubSportID    *int16     `json:"fit_sub_sport_id,omitempty"`
-	IsEbike          bool       `json:"is_ebike"`
-	StartedAt        time.Time  `json:"started_at"`
-	EndedAt          *time.Time `json:"ended_at,omitempty"`
-	ElapsedTimeS     *int       `json:"elapsed_time_s,omitempty"`
-	MovingTimeS      *int       `json:"moving_time_s,omitempty"`
-	DistanceM        *float64   `json:"distance_m,omitempty"`
-	ElevationGainM   *float64   `json:"elevation_gain_m,omitempty"`
-	ElevationLossM   *float64   `json:"elevation_loss_m,omitempty"`
-	MaxElevationM    *float64   `json:"max_elevation_m,omitempty"`
-	MinElevationM    *float64   `json:"min_elevation_m,omitempty"`
-	AvgSpeedMS       *float64   `json:"avg_speed_ms,omitempty"`
-	MaxSpeedMS       *float64   `json:"max_speed_ms,omitempty"`
-	AvgHeartRate     *float64   `json:"avg_heart_rate,omitempty"`
-	MaxHeartRate     *int       `json:"max_heart_rate,omitempty"`
-	AvgPowerW        *float64   `json:"avg_power_w,omitempty"`
-	MaxPowerW        *int       `json:"max_power_w,omitempty"`
-	NormalizedPowerW *float64   `json:"normalized_power_w,omitempty"`
-	AvgCadence       *float64   `json:"avg_cadence,omitempty"`
-	AvgTemperatureC  *float64   `json:"avg_temperature_c,omitempty"`
-	TSS              *float64   `json:"tss,omitempty"`
-	TRIMP            *float64   `json:"trimp,omitempty"`
-	MinHeartRate            *int     `json:"min_heart_rate,omitempty"`
-	TotalCalories           *int     `json:"total_calories,omitempty"`
-	AerobicTrainingEffect   *float64 `json:"aerobic_training_effect,omitempty"`
-	AnaerobicTrainingEffect *float64 `json:"anaerobic_training_effect,omitempty"`
-	TrainingLoadPeak        *float64 `json:"training_load_peak,omitempty"`
-	AvgSpo2Pct              *int     `json:"avg_spo2_pct,omitempty"`
-	AvgRespirationRate      *float64 `json:"avg_respiration_rate,omitempty"`
-	AvgStressLevel          *int     `json:"avg_stress_level,omitempty"`
-	WorkoutRpe              *int     `json:"workout_rpe,omitempty"`
-	WorkoutFeel             *int     `json:"workout_feel,omitempty"`
-	ThresholdPowerW         *int     `json:"threshold_power_w,omitempty"`
-	VariabilityIndex        *float64 `json:"variability_index,omitempty"`
-	EfficiencyFactor        *float64 `json:"efficiency_factor,omitempty"`
-	AerobicDecoupling       *float64 `json:"aerobic_decoupling,omitempty"`
-	GearID           *string    `json:"gear_id,omitempty"`
-	IsIndoor         bool       `json:"is_indoor"`
-	Tags             []string   `json:"tags"`
-	Visibility       string     `json:"visibility"`
-	Source           *string    `json:"source,omitempty"`
-	SourceDevice     *string    `json:"source_device,omitempty"`
-	EnrichmentStatus string     `json:"enrichment_status"`
-	NeedsClassification bool    `json:"needs_classification"`
-	HasGPS             bool       `json:"has_gps"`
-	StartCity          *string    `json:"start_city,omitempty"`
-	EndCity            *string    `json:"end_city,omitempty"`
-	StartState         *string    `json:"start_state,omitempty"`
-	StartCountry       *string    `json:"start_country,omitempty"`
-	StartCountryCode   *string    `json:"start_country_code,omitempty"`
-	WeatherTempC       *float64   `json:"weather_temp_c,omitempty"`
-	WeatherCondition   *string    `json:"weather_condition,omitempty"`
-	WeatherHumidity    *int       `json:"weather_humidity,omitempty"`
-	WeatherWindSpeedMS *float64   `json:"weather_wind_speed_ms,omitempty"`
-	WeatherTags        []string   `json:"weather_tags,omitempty"`
-	IsRoundTrip        bool       `json:"is_round_trip"`
-	Intensity          *string    `json:"intensity,omitempty"`
-	TimeOfDay          []string   `json:"time_of_day,omitempty"`
-	SunriseAt          *time.Time `json:"sunrise_at,omitempty"`
-	SunsetAt           *time.Time `json:"sunset_at,omitempty"`
-	OriginalFilename   *string    `json:"original_filename,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	ID                      string     `json:"id"`
+	UserID                  string     `json:"user_id"`
+	FileHash                *string    `json:"file_hash,omitempty"`
+	Title                   *string    `json:"title"`
+	TitleAuto               *string    `json:"title_auto,omitempty"`
+	Description             *string    `json:"description,omitempty"`
+	SportType               string     `json:"sport_type"`
+	SubType                 *string    `json:"sub_type,omitempty"`
+	FitSportID              *int16     `json:"fit_sport_id,omitempty"`
+	FitSubSportID           *int16     `json:"fit_sub_sport_id,omitempty"`
+	IsEbike                 bool       `json:"is_ebike"`
+	StartedAt               time.Time  `json:"started_at"`
+	EndedAt                 *time.Time `json:"ended_at,omitempty"`
+	ElapsedTimeS            *int       `json:"elapsed_time_s,omitempty"`
+	MovingTimeS             *int       `json:"moving_time_s,omitempty"`
+	DistanceM               *float64   `json:"distance_m,omitempty"`
+	ElevationGainM          *float64   `json:"elevation_gain_m,omitempty"`
+	ElevationLossM          *float64   `json:"elevation_loss_m,omitempty"`
+	MaxElevationM           *float64   `json:"max_elevation_m,omitempty"`
+	MinElevationM           *float64   `json:"min_elevation_m,omitempty"`
+	AvgSpeedMS              *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS              *float64   `json:"max_speed_ms,omitempty"`
+	AvgHeartRate            *float64   `json:"avg_heart_rate,omitempty"`
+	MaxHeartRate            *int       `json:"max_heart_rate,omitempty"`
+	AvgPowerW               *float64   `json:"avg_power_w,omitempty"`
+	MaxPowerW               *int       `json:"max_power_w,omitempty"`
+	NormalizedPowerW        *float64   `json:"normalized_power_w,omitempty"`
+	AvgCadence              *float64   `json:"avg_cadence,omitempty"`
+	AvgTemperatureC         *float64   `json:"avg_temperature_c,omitempty"`
+	TSS                     *float64   `json:"tss,omitempty"`
+	TRIMP                   *float64   `json:"trimp,omitempty"`
+	MinHeartRate            *int       `json:"min_heart_rate,omitempty"`
+	TotalCalories           *int       `json:"total_calories,omitempty"`
+	AerobicTrainingEffect   *float64   `json:"aerobic_training_effect,omitempty"`
+	AnaerobicTrainingEffect *float64   `json:"anaerobic_training_effect,omitempty"`
+	TrainingLoadPeak        *float64   `json:"training_load_peak,omitempty"`
+	AvgSpo2Pct              *int       `json:"avg_spo2_pct,omitempty"`
+	AvgRespirationRate      *float64   `json:"avg_respiration_rate,omitempty"`
+	AvgStressLevel          *int       `json:"avg_stress_level,omitempty"`
+	WorkoutRpe              *int       `json:"workout_rpe,omitempty"`
+	WorkoutFeel             *int       `json:"workout_feel,omitempty"`
+	ThresholdPowerW         *int       `json:"threshold_power_w,omitempty"`
+	VariabilityIndex        *float64   `json:"variability_index,omitempty"`
+	EfficiencyFactor        *float64   `json:"efficiency_factor,omitempty"`
+	AerobicDecoupling       *float64   `json:"aerobic_decoupling,omitempty"`
+	GearID                  *string    `json:"gear_id,omitempty"`
+	IsIndoor                bool       `json:"is_indoor"`
+	Tags                    []string   `json:"tags"`
+	Visibility              string     `json:"visibility"`
+	Source                  *string    `json:"source,omitempty"`
+	SourceDevice            *string    `json:"source_device,omitempty"`
+	EnrichmentStatus        string     `json:"enrichment_status"`
+	NeedsClassification     bool       `json:"needs_classification"`
+	HasGPS                  bool       `json:"has_gps"`
+	StartCity               *string    `json:"start_city,omitempty"`
+	EndCity                 *string    `json:"end_city,omitempty"`
+	StartState              *string    `json:"start_state,omitempty"`
+	StartCountry            *string    `json:"start_country,omitempty"`
+	StartCountryCode        *string    `json:"start_country_code,omitempty"`
+	WeatherTempC            *float64   `json:"weather_temp_c,omitempty"`
+	WeatherCondition        *string    `json:"weather_condition,omitempty"`
+	WeatherHumidity         *int       `json:"weather_humidity,omitempty"`
+	WeatherWindSpeedMS      *float64   `json:"weather_wind_speed_ms,omitempty"`
+	WeatherTags             []string   `json:"weather_tags,omitempty"`
+	IsRoundTrip             bool       `json:"is_round_trip"`
+	Intensity               *string    `json:"intensity,omitempty"`
+	TimeOfDay               []string   `json:"time_of_day,omitempty"`
+	SunriseAt               *time.Time `json:"sunrise_at,omitempty"`
+	SunsetAt                *time.Time `json:"sunset_at,omitempty"`
+	OriginalFilename        *string    `json:"original_filename,omitempty"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
 	LocationLat *float64 `json:"location_lat,omitempty"`
 	LocationLng *float64 `json:"location_lng,omitempty"`
@@ -235,14 +235,14 @@ type ActivityFilters struct {
 
 // StreamResponse is the API response for the streams endpoint.
 type StreamResponse struct {
-	Time         time.Time `json:"time"`
-	Lat          *float64  `json:"lat,omitempty"`
-	Lng          *float64  `json:"lng,omitempty"`
-	AltitudeM    *float64  `json:"altitude_m,omitempty"`
-	SpeedMS      *float64  `json:"speed_ms,omitempty"`
-	DistanceM    *float64  `json:"distance_m,omitempty"`
-	HeartRate    *int16    `json:"heart_rate,omitempty"`
-	PowerW       *int16    `json:"power_w,omitempty"`
+	Time            time.Time `json:"time"`
+	Lat             *float64  `json:"lat,omitempty"`
+	Lng             *float64  `json:"lng,omitempty"`
+	AltitudeM       *float64  `json:"altitude_m,omitempty"`
+	SpeedMS         *float64  `json:"speed_ms,omitempty"`
+	DistanceM       *float64  `json:"distance_m,omitempty"`
+	HeartRate       *int16    `json:"heart_rate,omitempty"`
+	PowerW          *int16    `json:"power_w,omitempty"`
 	Cadence         *int16    `json:"cadence,omitempty"`
 	TemperatureC    *int16    `json:"temperature_c,omitempty"`
 	RespirationRate *int16    `json:"respiration_rate,omitempty"`
@@ -251,146 +251,146 @@ type StreamResponse struct {
 
 // SensorResponse is the API response for the sensors endpoint.
 type SensorResponse struct {
-	ID               string  `json:"id"`
-	DeviceIndex      int16   `json:"device_index"`
-	SourceType       string  `json:"source_type"`
-	PrimaryType      string  `json:"primary_type"`
-	PrimaryTypeLabel string  `json:"primary_type_label"`
+	ID               string   `json:"id"`
+	DeviceIndex      int16    `json:"device_index"`
+	SourceType       string   `json:"source_type"`
+	PrimaryType      string   `json:"primary_type"`
+	PrimaryTypeLabel string   `json:"primary_type_label"`
 	AllTypes         []string `json:"all_types"`
-	Manufacturer     string  `json:"manufacturer,omitempty"`
-	ProductName      string  `json:"product_name,omitempty"`
-	SerialNumber     *int64  `json:"serial_number,omitempty"`
-	AntDeviceNumber  *int32  `json:"ant_device_number,omitempty"`
-	SoftwareVersion  string  `json:"software_version,omitempty"`
-	BatteryStatus    string  `json:"battery_status,omitempty"`
+	Manufacturer     string   `json:"manufacturer,omitempty"`
+	ProductName      string   `json:"product_name,omitempty"`
+	SerialNumber     *int64   `json:"serial_number,omitempty"`
+	AntDeviceNumber  *int32   `json:"ant_device_number,omitempty"`
+	SoftwareVersion  string   `json:"software_version,omitempty"`
+	BatteryStatus    string   `json:"battery_status,omitempty"`
 }
 
 // LapRecord holds extracted lap data from FIT lap messages.
 type LapRecord struct {
-	MessageIndex     int
-	StartTime        time.Time
-	EndTime          time.Time
-	LapTrigger       string
-	Sport            string
-	SubSport         string
+	MessageIndex      int
+	StartTime         time.Time
+	EndTime           time.Time
+	LapTrigger        string
+	Sport             string
+	SubSport          string
 	TotalElapsedTimeS float64
-	TotalTimerTimeS  float64
-	TotalMovingTimeS float64
-	TotalDistanceM   float64
-	TotalAscentM     int
-	TotalDescentM    int
-	TotalCalories    int
-	AvgSpeedMS       float64
-	MaxSpeedMS       float64
-	AvgHeartRate     int
-	MaxHeartRate     int
-	MinHeartRate     int
-	AvgCadence       int
-	MaxCadence       int
-	AvgPowerW        int
-	MaxPowerW        int
-	NormalizedPowerW int
-	AvgTemperatureC  int
-	StartLat         float64
-	StartLng         float64
-	EndLat           float64
-	EndLng           float64
-	TotalWorkJ       int
-	Intensity        string
-	SwimStroke       string
-	NumLengths       int
-	NumActiveLengths int
-	AvgAltitudeM     float64
-	MaxAltitudeM     float64
-	MinAltitudeM     float64
+	TotalTimerTimeS   float64
+	TotalMovingTimeS  float64
+	TotalDistanceM    float64
+	TotalAscentM      int
+	TotalDescentM     int
+	TotalCalories     int
+	AvgSpeedMS        float64
+	MaxSpeedMS        float64
+	AvgHeartRate      int
+	MaxHeartRate      int
+	MinHeartRate      int
+	AvgCadence        int
+	MaxCadence        int
+	AvgPowerW         int
+	MaxPowerW         int
+	NormalizedPowerW  int
+	AvgTemperatureC   int
+	StartLat          float64
+	StartLng          float64
+	EndLat            float64
+	EndLng            float64
+	TotalWorkJ        int
+	Intensity         string
+	SwimStroke        string
+	NumLengths        int
+	NumActiveLengths  int
+	AvgAltitudeM      float64
+	MaxAltitudeM      float64
+	MinAltitudeM      float64
 }
 
 // LapResponse is the API response for a single lap.
 type LapResponse struct {
-	ID               string     `json:"id"`
-	MessageIndex     int        `json:"lap_index"`
-	StartTime        *time.Time `json:"start_time,omitempty"`
-	EndTime          *time.Time `json:"end_time,omitempty"`
-	LapTrigger       string     `json:"lap_trigger,omitempty"`
-	Sport            string     `json:"sport,omitempty"`
-	SubSport         string     `json:"sub_sport,omitempty"`
-	TotalElapsedTimeS *float64  `json:"elapsed_time_s,omitempty"`
-	TotalTimerTimeS  *float64   `json:"timer_time_s,omitempty"`
-	TotalMovingTimeS *float64   `json:"moving_time_s,omitempty"`
-	TotalDistanceM   *float64   `json:"distance_m,omitempty"`
-	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
-	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
-	TotalCalories    *int       `json:"total_calories,omitempty"`
-	AvgSpeedMS       *float64   `json:"avg_speed_ms,omitempty"`
-	MaxSpeedMS       *float64   `json:"max_speed_ms,omitempty"`
-	AvgHeartRate     *int       `json:"avg_heart_rate,omitempty"`
-	MaxHeartRate     *int       `json:"max_heart_rate,omitempty"`
-	MinHeartRate     *int       `json:"min_heart_rate,omitempty"`
-	AvgCadence       *int       `json:"avg_cadence,omitempty"`
-	MaxCadence       *int       `json:"max_cadence,omitempty"`
-	AvgPowerW        *int       `json:"avg_power_w,omitempty"`
-	MaxPowerW        *int       `json:"max_power_w,omitempty"`
-	NormalizedPowerW *int       `json:"normalized_power_w,omitempty"`
-	AvgTemperatureC  *int       `json:"avg_temperature_c,omitempty"`
-	StartLat         *float64   `json:"start_lat,omitempty"`
-	StartLng         *float64   `json:"start_lng,omitempty"`
-	EndLat           *float64   `json:"end_lat,omitempty"`
-	EndLng           *float64   `json:"end_lng,omitempty"`
-	TotalWorkJ       *int       `json:"total_work_j,omitempty"`
-	Intensity        string     `json:"intensity,omitempty"`
-	SwimStroke       string     `json:"swim_stroke,omitempty"`
-	NumLengths       *int       `json:"num_lengths,omitempty"`
-	NumActiveLengths *int       `json:"num_active_lengths,omitempty"`
-	AvgAltitudeM     *float64   `json:"avg_altitude_m,omitempty"`
-	MaxAltitudeM     *float64   `json:"max_altitude_m,omitempty"`
-	MinAltitudeM     *float64   `json:"min_altitude_m,omitempty"`
+	ID                string     `json:"id"`
+	MessageIndex      int        `json:"lap_index"`
+	StartTime         *time.Time `json:"start_time,omitempty"`
+	EndTime           *time.Time `json:"end_time,omitempty"`
+	LapTrigger        string     `json:"lap_trigger,omitempty"`
+	Sport             string     `json:"sport,omitempty"`
+	SubSport          string     `json:"sub_sport,omitempty"`
+	TotalElapsedTimeS *float64   `json:"elapsed_time_s,omitempty"`
+	TotalTimerTimeS   *float64   `json:"timer_time_s,omitempty"`
+	TotalMovingTimeS  *float64   `json:"moving_time_s,omitempty"`
+	TotalDistanceM    *float64   `json:"distance_m,omitempty"`
+	TotalAscentM      *int       `json:"total_ascent_m,omitempty"`
+	TotalDescentM     *int       `json:"total_descent_m,omitempty"`
+	TotalCalories     *int       `json:"total_calories,omitempty"`
+	AvgSpeedMS        *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS        *float64   `json:"max_speed_ms,omitempty"`
+	AvgHeartRate      *int       `json:"avg_heart_rate,omitempty"`
+	MaxHeartRate      *int       `json:"max_heart_rate,omitempty"`
+	MinHeartRate      *int       `json:"min_heart_rate,omitempty"`
+	AvgCadence        *int       `json:"avg_cadence,omitempty"`
+	MaxCadence        *int       `json:"max_cadence,omitempty"`
+	AvgPowerW         *int       `json:"avg_power_w,omitempty"`
+	MaxPowerW         *int       `json:"max_power_w,omitempty"`
+	NormalizedPowerW  *int       `json:"normalized_power_w,omitempty"`
+	AvgTemperatureC   *int       `json:"avg_temperature_c,omitempty"`
+	StartLat          *float64   `json:"start_lat,omitempty"`
+	StartLng          *float64   `json:"start_lng,omitempty"`
+	EndLat            *float64   `json:"end_lat,omitempty"`
+	EndLng            *float64   `json:"end_lng,omitempty"`
+	TotalWorkJ        *int       `json:"total_work_j,omitempty"`
+	Intensity         string     `json:"intensity,omitempty"`
+	SwimStroke        string     `json:"swim_stroke,omitempty"`
+	NumLengths        *int       `json:"num_lengths,omitempty"`
+	NumActiveLengths  *int       `json:"num_active_lengths,omitempty"`
+	AvgAltitudeM      *float64   `json:"avg_altitude_m,omitempty"`
+	MaxAltitudeM      *float64   `json:"max_altitude_m,omitempty"`
+	MinAltitudeM      *float64   `json:"min_altitude_m,omitempty"`
 }
 
 // SplitRecord holds extracted split data from FIT split messages.
 type SplitRecord struct {
-	MessageIndex     int
-	SplitType        string
-	StartTime        time.Time
-	EndTime          time.Time
+	MessageIndex      int
+	SplitType         string
+	StartTime         time.Time
+	EndTime           time.Time
 	TotalElapsedTimeS float64
-	TotalTimerTimeS  float64
-	TotalMovingTimeS float64
-	TotalDistanceM   float64
-	TotalAscentM     int
-	TotalDescentM    int
-	TotalCalories    int
-	AvgSpeedMS       float64
-	MaxSpeedMS       float64
-	AvgVertSpeedMS   float64
-	StartLat         float64
-	StartLng         float64
-	EndLat           float64
-	EndLng           float64
-	StartElevationM  float64
+	TotalTimerTimeS   float64
+	TotalMovingTimeS  float64
+	TotalDistanceM    float64
+	TotalAscentM      int
+	TotalDescentM     int
+	TotalCalories     int
+	AvgSpeedMS        float64
+	MaxSpeedMS        float64
+	AvgVertSpeedMS    float64
+	StartLat          float64
+	StartLng          float64
+	EndLat            float64
+	EndLng            float64
+	StartElevationM   float64
 }
 
 // SplitResponse is the API response for a single split.
 type SplitResponse struct {
-	ID               string     `json:"id"`
-	MessageIndex     int        `json:"split_index"`
-	SplitType        string     `json:"split_type,omitempty"`
-	StartTime        *time.Time `json:"start_time,omitempty"`
-	EndTime          *time.Time `json:"end_time,omitempty"`
-	TotalElapsedTimeS *float64  `json:"elapsed_time_s,omitempty"`
-	TotalTimerTimeS  *float64   `json:"timer_time_s,omitempty"`
-	TotalMovingTimeS *float64   `json:"moving_time_s,omitempty"`
-	TotalDistanceM   *float64   `json:"distance_m,omitempty"`
-	TotalAscentM     *int       `json:"total_ascent_m,omitempty"`
-	TotalDescentM    *int       `json:"total_descent_m,omitempty"`
-	TotalCalories    *int       `json:"total_calories,omitempty"`
-	AvgSpeedMS       *float64   `json:"avg_speed_ms,omitempty"`
-	MaxSpeedMS       *float64   `json:"max_speed_ms,omitempty"`
-	AvgVertSpeedMS   *float64   `json:"avg_vert_speed_ms,omitempty"`
-	StartLat         *float64   `json:"start_lat,omitempty"`
-	StartLng         *float64   `json:"start_lng,omitempty"`
-	EndLat           *float64   `json:"end_lat,omitempty"`
-	EndLng           *float64   `json:"end_lng,omitempty"`
-	StartElevationM  *float64   `json:"start_elevation_m,omitempty"`
+	ID                string     `json:"id"`
+	MessageIndex      int        `json:"split_index"`
+	SplitType         string     `json:"split_type,omitempty"`
+	StartTime         *time.Time `json:"start_time,omitempty"`
+	EndTime           *time.Time `json:"end_time,omitempty"`
+	TotalElapsedTimeS *float64   `json:"elapsed_time_s,omitempty"`
+	TotalTimerTimeS   *float64   `json:"timer_time_s,omitempty"`
+	TotalMovingTimeS  *float64   `json:"moving_time_s,omitempty"`
+	TotalDistanceM    *float64   `json:"distance_m,omitempty"`
+	TotalAscentM      *int       `json:"total_ascent_m,omitempty"`
+	TotalDescentM     *int       `json:"total_descent_m,omitempty"`
+	TotalCalories     *int       `json:"total_calories,omitempty"`
+	AvgSpeedMS        *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS        *float64   `json:"max_speed_ms,omitempty"`
+	AvgVertSpeedMS    *float64   `json:"avg_vert_speed_ms,omitempty"`
+	StartLat          *float64   `json:"start_lat,omitempty"`
+	StartLng          *float64   `json:"start_lng,omitempty"`
+	EndLat            *float64   `json:"end_lat,omitempty"`
+	EndLng            *float64   `json:"end_lng,omitempty"`
+	StartElevationM   *float64   `json:"start_elevation_m,omitempty"`
 }
 
 // SplitSummaryRecord holds extracted split summary data from FIT split_summary messages.
@@ -837,21 +837,21 @@ type AutomationRuleUpdate struct {
 
 // BikeSetup represents a saved bike configuration/setup.
 type BikeSetup struct {
-	ID              string           `json:"id"`
-	GearID          string           `json:"gear_id"`
-	Name            string           `json:"name"`
-	RiderWeightKg   *float64         `json:"rider_weight_kg,omitempty"`
-	IntendedUse     *string          `json:"intended_use,omitempty"`
-	Notes           *string          `json:"notes,omitempty"`
-	SuspensionFront json.RawMessage  `json:"suspension_front,omitempty"`
-	SuspensionRear  json.RawMessage  `json:"suspension_rear,omitempty"`
-	Tires           json.RawMessage  `json:"tires,omitempty"`
-	ContactPoints   json.RawMessage  `json:"contact_points,omitempty"`
-	Brakes          json.RawMessage  `json:"brakes,omitempty"`
-	Drivetrain      json.RawMessage  `json:"drivetrain,omitempty"`
-	IsActive        bool             `json:"is_active"`
-	CreatedAt       string           `json:"created_at"`
-	UpdatedAt       string           `json:"updated_at"`
+	ID              string          `json:"id"`
+	GearID          string          `json:"gear_id"`
+	Name            string          `json:"name"`
+	RiderWeightKg   *float64        `json:"rider_weight_kg,omitempty"`
+	IntendedUse     *string         `json:"intended_use,omitempty"`
+	Notes           *string         `json:"notes,omitempty"`
+	SuspensionFront json.RawMessage `json:"suspension_front,omitempty"`
+	SuspensionRear  json.RawMessage `json:"suspension_rear,omitempty"`
+	Tires           json.RawMessage `json:"tires,omitempty"`
+	ContactPoints   json.RawMessage `json:"contact_points,omitempty"`
+	Brakes          json.RawMessage `json:"brakes,omitempty"`
+	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
+	IsActive        bool            `json:"is_active"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 // BikeSetupCreate is the request body for creating a bike setup.
@@ -941,7 +941,7 @@ type TagActivity struct {
 
 // TimeInZoneData represents time spent in a specific training zone.
 type TimeInZoneData struct {
-	ZoneType  string  // "hr", "power", "speed", "cadence"
+	ZoneType  string // "hr", "power", "speed", "cadence"
 	ZoneIndex int
 	ZoneHigh  float64 // zone upper boundary (bpm / watts / m/s / rpm)
 	Seconds   int
@@ -962,12 +962,12 @@ type UserProfileImport struct {
 
 // GearCostSummary represents the cost overview for a gear item.
 type GearCostSummary struct {
-	GearID    string   `json:"gear_id"`
-	UserID    string   `json:"user_id"`
-	Name      string   `json:"name"`
-	TotalCost float64  `json:"total_cost"`
-	Currency  string   `json:"currency"`
-	CostPerKm  *float64 `json:"cost_per_km,omitempty"`
+	GearID      string   `json:"gear_id"`
+	UserID      string   `json:"user_id"`
+	Name        string   `json:"name"`
+	TotalCost   float64  `json:"total_cost"`
+	Currency    string   `json:"currency"`
+	CostPerKm   *float64 `json:"cost_per_km,omitempty"`
 	CostPerHour *float64 `json:"cost_per_hour,omitempty"`
 }
 

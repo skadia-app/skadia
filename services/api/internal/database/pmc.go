@@ -118,18 +118,18 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 // GetEarliestActivityDate returns the started_at of the user's oldest activity.
 // Returns zero time if the user has no activities.
 func (db *DB) GetEarliestActivityDate(ctx context.Context, userID string) (time.Time, error) {
-	var t time.Time
+	var t *time.Time
 	err := db.Pool.QueryRow(ctx,
 		`SELECT MIN(started_at) FROM activities WHERE user_id = $1`,
 		userID,
 	).Scan(&t)
-	if err == pgx.ErrNoRows {
+	if err == pgx.ErrNoRows || t == nil {
 		return time.Time{}, nil
 	}
 	if err != nil {
 		return time.Time{}, fmt.Errorf("get earliest activity date: %w", err)
 	}
-	return t, nil
+	return *t, nil
 }
 
 // GetPMCDayBefore returns the PMC values for the day before `date` for seeding calculations.

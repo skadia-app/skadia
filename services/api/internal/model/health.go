@@ -29,38 +29,38 @@ type HealthDailySummary struct {
 
 // HealthSleep holds sleep stage breakdown and score for a night.
 type HealthSleep struct {
-	UserID           string    `json:"user_id"`
-	CalendarDate     string    `json:"calendar_date"` // YYYY-MM-DD
-	SleepStartUTC    time.Time `json:"sleep_start_utc"`
-	SleepEndUTC      time.Time `json:"sleep_end_utc"`
-	DeepSeconds      *int      `json:"deep_seconds"`
-	LightSeconds     *int      `json:"light_seconds"`
-	RemSeconds       *int      `json:"rem_seconds"`
-	AwakeSeconds     *int      `json:"awake_seconds"`
-	ScoreOverall     *int      `json:"score_overall"`
-	ScoreQuality     *int      `json:"score_quality"`
-	ScoreDuration    *int      `json:"score_duration"`
-	ScoreDeep        *int      `json:"score_deep"`
-	ScoreRem         *int      `json:"score_rem"`
-	RespirationAvg   *float64  `json:"respiration_avg"`
-	AwakeCount       *int      `json:"awake_count"`
-	RestlessMoments  *int      `json:"restless_moments"`
-	AvgSleepStress   *float64  `json:"avg_sleep_stress"`
-	SourceType       string    `json:"source_type"`
-	ExtraData        *string   `json:"extra_data,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	UserID          string    `json:"user_id"`
+	CalendarDate    string    `json:"calendar_date"` // YYYY-MM-DD
+	SleepStartUTC   time.Time `json:"sleep_start_utc"`
+	SleepEndUTC     time.Time `json:"sleep_end_utc"`
+	DeepSeconds     *int      `json:"deep_seconds"`
+	LightSeconds    *int      `json:"light_seconds"`
+	RemSeconds      *int      `json:"rem_seconds"`
+	AwakeSeconds    *int      `json:"awake_seconds"`
+	ScoreOverall    *int      `json:"score_overall"`
+	ScoreQuality    *int      `json:"score_quality"`
+	ScoreDuration   *int      `json:"score_duration"`
+	ScoreDeep       *int      `json:"score_deep"`
+	ScoreRem        *int      `json:"score_rem"`
+	RespirationAvg  *float64  `json:"respiration_avg"`
+	AwakeCount      *int      `json:"awake_count"`
+	RestlessMoments *int      `json:"restless_moments"`
+	AvgSleepStress  *float64  `json:"avg_sleep_stress"`
+	SourceType      string    `json:"source_type"`
+	ExtraData       *string   `json:"extra_data,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // HealthHRVSnapshot is a single HRV measurement.
 type HealthHRVSnapshot struct {
-	UserID          string    `json:"user_id"`
-	MeasuredAtUTC   time.Time `json:"measured_at_utc"`
-	RmssdMS         *float64  `json:"rmssd_ms"`
-	SdrrMS          *float64  `json:"sdrr_ms"`
-	TimeOfDay       *string   `json:"time_of_day"`
-	SourceType      string    `json:"source_type"`
-	ExtraData       *string   `json:"extra_data,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	UserID        string    `json:"user_id"`
+	MeasuredAtUTC time.Time `json:"measured_at_utc"`
+	RmssdMS       *float64  `json:"rmssd_ms"`
+	SdrrMS        *float64  `json:"sdrr_ms"`
+	TimeOfDay     *string   `json:"time_of_day"`
+	SourceType    string    `json:"source_type"`
+	ExtraData     *string   `json:"extra_data,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // HealthWeightEntry is a single body composition measurement.
@@ -90,21 +90,21 @@ type HealthWeightCreate struct {
 
 // HealthReadinessScore holds daily readiness and recovery factors.
 type HealthReadinessScore struct {
-	UserID                   string    `json:"user_id"`
-	CalendarDate             string    `json:"calendar_date"` // YYYY-MM-DD
-	Score                    *int      `json:"score"`
-	Level                    *string   `json:"level"`
-	SleepScore               *int      `json:"sleep_score"`
-	HRVWeeklyAvgMS           *float64  `json:"hrv_weekly_avg_ms"`
-	RecoveryTimeMin          *int      `json:"recovery_time_min"`
-	AcwrPct                  *float64  `json:"acwr_pct"`
-	HRVFactorPct             *float64  `json:"hrv_factor_pct"`
-	SleepHistoryFactorPct    *float64  `json:"sleep_history_factor_pct"`
-	StressHistoryFactorPct   *float64  `json:"stress_history_factor_pct"`
-	RecoveryTimeFactorPct    *float64  `json:"recovery_time_factor_pct"`
-	SourceType               string    `json:"source_type"`
-	ExtraData                *string   `json:"extra_data,omitempty"`
-	CreatedAt                time.Time `json:"created_at"`
+	UserID                 string    `json:"user_id"`
+	CalendarDate           string    `json:"calendar_date"` // YYYY-MM-DD
+	Score                  *int      `json:"score"`
+	Level                  *string   `json:"level"`
+	SleepScore             *int      `json:"sleep_score"`
+	HRVWeeklyAvgMS         *float64  `json:"hrv_weekly_avg_ms"`
+	RecoveryTimeMin        *int      `json:"recovery_time_min"`
+	AcwrPct                *float64  `json:"acwr_pct"`
+	HRVFactorPct           *float64  `json:"hrv_factor_pct"`
+	SleepHistoryFactorPct  *float64  `json:"sleep_history_factor_pct"`
+	StressHistoryFactorPct *float64  `json:"stress_history_factor_pct"`
+	RecoveryTimeFactorPct  *float64  `json:"recovery_time_factor_pct"`
+	SourceType             string    `json:"source_type"`
+	ExtraData              *string   `json:"extra_data,omitempty"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // HealthTrainingLoad holds daily training load (ATL/CTL/ACWR).
@@ -164,14 +164,14 @@ type HealthFitnessAge struct {
 
 // HealthOverview aggregates the most recent value of every health metric.
 type HealthOverview struct {
-	LatestDailySummary   *HealthDailySummary   `json:"latest_daily_summary"`
-	LatestSleep          *HealthSleep          `json:"latest_sleep"`
-	LatestHRV            *HealthHRVSnapshot    `json:"latest_hrv"`
-	LatestWeight         *HealthWeightEntry    `json:"latest_weight"`
-	LatestReadiness      *HealthReadinessScore `json:"latest_readiness"`
-	LatestTrainingLoad   *HealthTrainingLoad   `json:"latest_training_load"`
-	LatestStress         *HealthStressSnapshot `json:"latest_stress"`
-	LatestSpO2           *HealthSpO2Snapshot   `json:"latest_spo2"`
-	LatestBloodPressure  *HealthBloodPressure  `json:"latest_blood_pressure"`
-	LatestFitnessAge     *HealthFitnessAge     `json:"latest_fitness_age"`
+	LatestDailySummary  *HealthDailySummary   `json:"latest_daily_summary"`
+	LatestSleep         *HealthSleep          `json:"latest_sleep"`
+	LatestHRV           *HealthHRVSnapshot    `json:"latest_hrv"`
+	LatestWeight        *HealthWeightEntry    `json:"latest_weight"`
+	LatestReadiness     *HealthReadinessScore `json:"latest_readiness"`
+	LatestTrainingLoad  *HealthTrainingLoad   `json:"latest_training_load"`
+	LatestStress        *HealthStressSnapshot `json:"latest_stress"`
+	LatestSpO2          *HealthSpO2Snapshot   `json:"latest_spo2"`
+	LatestBloodPressure *HealthBloodPressure  `json:"latest_blood_pressure"`
+	LatestFitnessAge    *HealthFitnessAge     `json:"latest_fitness_age"`
 }

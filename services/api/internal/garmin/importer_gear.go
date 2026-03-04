@@ -37,11 +37,11 @@ type garminGearDTO struct {
 	GearPk          int64   `json:"gearPk"`
 	UUID            string  `json:"uuid"`
 	CustomMakeModel string  `json:"customMakeModel"` // "Brand Model" or just model name
-	GearTypeName    string  `json:"gearTypeName"`    // e.g. "SHOES", "BIKE"
-	GearStatusName  string  `json:"gearStatusName"`  // "ACTIVE", "RETIRED"
+	GearTypeName    string  `json:"gearTypeName"`    // e.g. "Bike", "Shoes" (mixed case in real exports)
+	GearStatusName  string  `json:"gearStatusName"`  // "active", "retired" (mixed case in real exports)
 	DateBegin       string  `json:"dateBegin"`       // ISO date
 	MaximumMeters   float64 `json:"maximumMeters"`
-	GearVersion     string  `json:"gearVersion"` // model/name field
+	// GearVersion is an integer in real Garmin exports (e.g. 0), not a string — omit to avoid unmarshal failure
 }
 
 func (g *GearImporter) Detect(src ExportSource) (bool, int, error) {
@@ -88,9 +88,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		// Map Garmin gear type to Skadia gear type
 		gearType := mapGearType(dto.GearTypeName)
 		gearName := dto.CustomMakeModel
-		if gearName == "" {
-			gearName = dto.GearVersion
-		}
 		if gearName == "" {
 			gearName = dto.GearTypeName
 		}
