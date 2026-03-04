@@ -51,6 +51,13 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 
 	matchCount := 0
 	for _, cand := range candidates {
+		// Lap segments: use crossing detection instead of sub-track matching
+		if cand.SegmentType == "lap" {
+			count := matchLapSegment(matchCtx, db, activityID, userID, sportType, subType, gearID, &cand, gpsStream)
+			matchCount += count
+			continue
+		}
+
 		// 3. Get segment endpoints
 		endpoints, err := db.GetSegmentEndpoints(matchCtx, cand.VersionID)
 		if err != nil || endpoints == nil {
@@ -271,4 +278,122 @@ func haversineM(lat1, lng1, lat2, lng2 float64) float64 {
 			math.Sin(dLng/2)*math.Sin(dLng/2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return earthRadiusM * c
+}
+
+const lapFinishProximityM = 30.0
+const lapMinGapM = 100.0 // minimum GPS distance between two crossings
+
+// matchLapSegment detects each individual lap traversal for a closed-loop segment.
+// It finds all GPS points within lapFinishProximityM of the finish_point stored in
+// segment_type_meta, groups them into crossing events separated by lapMinGapM,
+// and creates one segment_effort per crossing pair.
+func matchLapSegment(
+	ctx context.Context,
+	db *database.DB,
+	activityID, userID, sportType, subType string,
+	gearID *string,
+	cand *database.CandidateSegment,
+	gpsStream []database.GPSStreamPoint,
+) int {
+	// Extract finish_point from segment_type_meta
+	finishLat, finishLng, ok := extractFinishPoint(cand.TypeMeta)
+	if !ok {
+		slog.Warn("lap segment missing finish_point in type_meta", "segment_id", cand.SegmentID)
+		return 0
+	}
+
+	// Find all indices near finish point
+	nearFinish := findProximityIndices(gpsStream, finishLat, finishLng, lapFinishProximityM)
+	if len(nearFinish) < 2 {
+		return 0
+	}
+
+	// Group into crossing events (separated by at least lapMinGapM of GPS distance)
+	crossings := groupLapCrossings(gpsStream, nearFinish, lapMinGapM)
+	if len(crossings) < 2 {
+		return 0
+	}
+
+	count := 0
+	for i := 1; i < len(crossings); i++ {
+		startIdx := crossings[i-1]
+		endIdx := crossings[i]
+		subTrack := gpsStream[startIdx : endIdx+1]
+
+		startTime := subTrack[0].Time
+		endTime := subTrack[len(subTrack)-1].Time
+		elapsedS := int(endTime.Sub(startTime).Seconds())
+		if elapsedS < minSegmentEffortTimeS {
+			continue
+		}
+
+		var avgSpeed, avgHR, avgPower *float64
+		if metrics, err := db.GetSegmentEffortMetrics(ctx, activityID, startTime, endTime); err == nil && metrics != nil {
+			avgSpeed = metrics.AvgSpeedMs
+			avgHR = metrics.AvgHeartRate
+			avgPower = metrics.AvgPowerW
+		}
+
+		effort := &model.SegmentEffort{
+			SegmentID:        cand.SegmentID,
+			SegmentVersionID: cand.VersionID,
+			ActivityID:       activityID,
+			UserID:           userID,
+			StartedAt:        startTime,
+			ElapsedTimeS:     elapsedS,
+			IsReverse:        false, // laps have no direction concept
+			SportType:        sportType,
+			SubType:          subType,
+			GearID:           gearID,
+			AvgSpeedMs:       avgSpeed,
+			AvgHeartRate:     avgHR,
+			AvgPowerW:        avgPower,
+		}
+		if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+			slog.Error("lap matching: insert effort failed", "error", err)
+			continue
+		}
+		count++
+	}
+
+	if count > 0 {
+		_ = db.UpdateSegmentEffortRanks(ctx, cand.SegmentID)
+		slog.Info("lap segment matched", "activity_id", activityID,
+			"segment_id", cand.SegmentID, "laps", count)
+	}
+	return count
+}
+
+// extractFinishPoint reads finish_lat and finish_lng from segment_type_meta.
+func extractFinishPoint(meta map[string]interface{}) (lat, lng float64, ok bool) {
+	if meta == nil {
+		return 0, 0, false
+	}
+	latV, hasLat := meta["finish_lat"]
+	lngV, hasLng := meta["finish_lng"]
+	if !hasLat || !hasLng {
+		return 0, 0, false
+	}
+	lat, ok1 := latV.(float64)
+	lng, ok2 := lngV.(float64)
+	return lat, lng, ok1 && ok2
+}
+
+// groupLapCrossings takes all indices near the finish point and returns
+// one representative index per crossing event, separated by minGapM of travel.
+func groupLapCrossings(stream []database.GPSStreamPoint, indices []int, minGapM float64) []int {
+	if len(indices) == 0 {
+		return nil
+	}
+	var crossings []int
+	crossings = append(crossings, indices[0])
+
+	for _, idx := range indices[1:] {
+		last := crossings[len(crossings)-1]
+		dist := estimateSubTrackLength(stream[last : idx+1])
+		if dist >= minGapM {
+			crossings = append(crossings, idx)
+		}
+	}
+	return crossings
 }

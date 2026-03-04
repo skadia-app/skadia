@@ -466,10 +466,12 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 
 // CandidateSegment holds info for spatial pre-filtered segment matching.
 type CandidateSegment struct {
-	SegmentID  string
-	VersionID  string
-	SportGroup string
-	DistanceM  float64
+	SegmentID   string
+	VersionID   string
+	SportGroup  string
+	DistanceM   float64
+	SegmentType string
+	TypeMeta    map[string]interface{}
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
@@ -478,10 +480,11 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	sportGroup := sportGroupFromSportType(sportType)
 
 	rows, err := db.Pool.Query(ctx, `
-		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0)
+		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
+		       s.segment_type, COALESCE(sv.segment_type_meta, '{}')
 		FROM segments s
 		JOIN LATERAL (
-			SELECT id, track FROM segment_versions
+			SELECT id, track, segment_type_meta FROM segment_versions
 			WHERE segment_id = s.id
 			ORDER BY version_number DESC
 			LIMIT 1
@@ -501,8 +504,13 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	var result []CandidateSegment
 	for rows.Next() {
 		var c CandidateSegment
-		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM); err != nil {
+		var rawMeta json.RawMessage
+		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
+			&c.SegmentType, &rawMeta); err != nil {
 			return nil, fmt.Errorf("scan candidate segment: %w", err)
+		}
+		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
+			_ = json.Unmarshal(rawMeta, &c.TypeMeta)
 		}
 		result = append(result, c)
 	}
