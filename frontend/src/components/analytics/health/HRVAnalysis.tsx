@@ -274,8 +274,8 @@ export default function HRVAnalysisChart() {
         </div>
       </div>
 
-      {/* Info panel */}
-      {data && (
+      {/* Info panel — only when data has points */}
+      {data && data.points.length > 0 && (
         <div className="flex items-center gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
             7-Tage-Avg: {data.seven_day_avg.toFixed(1)} ms
@@ -312,12 +312,20 @@ export default function HRVAnalysisChart() {
             Fehler beim Laden der HRV-Daten
           </div>
         ) : !data || !data.points?.length ? (
-          <div className="flex flex-col items-center justify-center h-[280px] gap-2 text-neutral-400">
+          <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
             <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
             </svg>
             <span className="text-sm">Keine HRV-Daten für diesen Zeitraum</span>
+            {preset !== 'all' && (
+              <button
+                onClick={() => setPreset('all')}
+                className="text-xs px-3 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Alle verfügbaren Daten anzeigen
+              </button>
+            )}
           </div>
         ) : (
           <div ref={containerRef} className="h-[280px] w-full" />
