@@ -21,6 +21,7 @@ from enrichment import (
     enrich_ascents,
     compute_route_embedding,
 )
+from enrichment.document_vlm import process_document
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,59 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
             _metrics["active_tasks"] -= 1
 
 
+async def _process_document_message(msg, nc: nats.NATS) -> None:
+    """Process a document-uploaded NATS message."""
+    try:
+        data = json.loads(msg.data.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.error("Invalid document message payload: %s", msg.data)
+        await msg.ack()
+        return
+
+    doc_id = data.get("doc_id", "")
+    user_id = data.get("user_id", "")
+    if not doc_id or not user_id:
+        logger.error("Missing doc_id or user_id in document message")
+        await msg.ack()
+        return
+
+    sem = _user_semaphores[user_id]
+    async with sem:
+        _metrics["active_tasks"] += 1
+        try:
+            pool = await get_pool()
+            success = await process_document(
+                pool=pool,
+                doc_id=doc_id,
+                gear_id=data.get("gear_id"),
+                component_id=data.get("component_id"),
+                user_id=user_id,
+                is_text_pdf=data.get("is_text_pdf", False),
+                extracted_text=data.get("extracted_text"),
+                s3_bucket=data.get("s3_bucket", ""),
+                s3_key=data.get("s3_key", ""),
+            )
+            await msg.ack()
+            _metrics["processed_total"] += 1
+            logger.info("document processed: %s (success=%s)", doc_id, success)
+        except Exception as e:
+            logger.error("document processing failed for %s: %s", doc_id, e)
+            _metrics["errors_total"] += 1
+
+            retry_count = msg.metadata.num_delivered if hasattr(msg, "metadata") else 0
+            if retry_count >= MAX_RETRIES:
+                logger.error(
+                    "Max retries (%d) reached for document %s, giving up",
+                    MAX_RETRIES,
+                    doc_id,
+                )
+                await msg.ack()
+            else:
+                await msg.nak(delay=30)
+        finally:
+            _metrics["active_tasks"] -= 1
+
+
 async def start_consumers(nc: nats.NATS) -> list:
     """Start JetStream consumers for all three priority queues."""
     js = nc.jetstream()
@@ -207,6 +261,35 @@ async def start_consumers(nc: nats.NATS) -> list:
     asyncio.create_task(_consume(sub_high, HIGH_PRIORITY_STEPS, "high"))
     asyncio.create_task(_consume(sub_normal, NORMAL_PRIORITY_STEPS, "normal"))
     asyncio.create_task(_consume(sub_low, LOW_PRIORITY_STEPS, "low"))
+
+    # Document processing stream + consumer
+    try:
+        await js.find_stream_name_by_subject("skadia.document.>")
+    except nats.js.errors.NotFoundError:
+        await js.add_stream(
+            name="document",
+            subjects=["skadia.document.>"],
+            retention="workqueue",
+        )
+
+    sub_doc = await js.subscribe(
+        "skadia.document.uploaded",
+        durable="ml-document-processor",
+        config=ConsumerConfig(
+            deliver_policy=DeliverPolicy.ALL,
+            ack_policy=AckPolicy.EXPLICIT,
+            max_deliver=MAX_RETRIES + 1,
+            ack_wait=120,
+        ),
+    )
+    subscriptions.append(sub_doc)
+
+    async def _consume_documents(sub):
+        logger.info("Consumer document-processor started")
+        async for msg in sub.messages:
+            asyncio.create_task(_process_document_message(msg, nc))
+
+    asyncio.create_task(_consume_documents(sub_doc))
 
     logger.info("All NATS consumers started")
     return subscriptions
