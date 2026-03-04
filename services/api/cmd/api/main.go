@@ -222,6 +222,8 @@ func main() {
 			r.Put("/settings/heatmap", h.UpdateHeatmapSettings)
 			r.Get("/settings/enrichment", h.GetEnrichmentSettings)
 			r.Put("/settings/enrichment", h.UpdateEnrichmentSettings)
+			r.Get("/settings/import", h.GetImportSettings)
+			r.Put("/settings/import", h.UpdateImportSettings)
 
 			r.Get("/gear", h.ListGear)
 			r.Post("/gear", h.CreateGear)
@@ -331,6 +333,11 @@ func main() {
 			r.Post("/import/garmin/detect", h.DetectGarminModules)
 			r.Post("/import/garmin/start", h.StartGarminImport)
 			r.Get("/import/garmin/jobs/{id}", h.GetGarminImportJob)
+
+			// Strava Import
+			r.Post("/import/strava/detect", h.DetectStravaModules)
+			r.Post("/import/strava/start", h.StartStravaImport)
+			r.Get("/import/strava/jobs/{id}", h.GetStravaImportJob)
 		})
 	})
 
