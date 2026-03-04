@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import {
   scanGarminExport,
   scanStravaExport,
+  getFusionQueue,
   type ScanResult,
   type ImportOptions,
   type ConflictStrategy,
+  type FusionQueueEntry,
 } from '@/api/importWizard'
+import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,7 +41,7 @@ interface LogEntry {
   message: string
 }
 
-type WizardPhase = 'scan' | 'config' | 'import'
+type WizardPhase = 'scan' | 'config' | 'review' | 'import'
 
 // ---------------------------------------------------------------------------
 // API helpers — Garmin
@@ -127,7 +131,8 @@ interface StepIndicatorProps {
 const STEPS: { id: WizardPhase; label: string; num: number }[] = [
   { id: 'scan', label: 'Analysieren', num: 1 },
   { id: 'config', label: 'Konfigurieren', num: 2 },
-  { id: 'import', label: 'Importieren', num: 3 },
+  { id: 'review', label: 'Prüfen', num: 3 },
+  { id: 'import', label: 'Importieren', num: 4 },
 ]
 
 function StepIndicator({ phase }: StepIndicatorProps) {
@@ -612,6 +617,10 @@ function ImportPanel({
     })
   }
 
+  function handleGoToReview() {
+    setPhase('review')
+  }
+
   async function handleStartImport() {
     // Determine which modules to import based on selected categories
     // Map categories back to modules via detectFn, or use categories directly as module names
@@ -679,6 +688,12 @@ function ImportPanel({
       ? Math.round((job.completed_modules / job.total_modules) * 100)
       : 0
 
+  const { data: fusionQueue = [] } = useQuery<FusionQueueEntry[]>({
+    queryKey: ['fusion-queue'],
+    queryFn: () => getFusionQueue(20),
+    enabled: phase === 'review',
+  })
+
   return (
     <div className="space-y-6">
       {/* Source path input — always visible */}
@@ -734,8 +749,25 @@ function ImportPanel({
             scanResult={scanResult}
             options={importOptions}
             onChange={setImportOptions}
-            onStart={handleStartImport}
+            onStart={handleGoToReview}
           />
+        )}
+
+        {phase === 'review' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                Fusionskandidaten prüfen
+              </h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+                Aktivitäten die möglicherweise mit zwei Geräten aufgezeichnet wurden.
+              </p>
+            </div>
+            <DuplicateReviewPanel
+              entries={fusionQueue}
+              onDone={handleStartImport}
+            />
+          </div>
         )}
 
         {phase === 'import' && (
@@ -750,13 +782,21 @@ function ImportPanel({
           />
         )}
 
-        {/* Back navigation — only in config phase */}
+        {/* Back navigation */}
         {phase === 'config' && (
           <button
             onClick={() => setPhase('scan')}
             className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             ← Zurück zur Analyse
+          </button>
+        )}
+        {phase === 'review' && (
+          <button
+            onClick={() => setPhase('config')}
+            className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+          >
+            ← Zurück zur Konfiguration
           </button>
         )}
 

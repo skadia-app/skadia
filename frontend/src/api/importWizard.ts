@@ -98,6 +98,28 @@ export async function setActivityFusion(activityId: string, sources: FusionSourc
   })
 }
 
+// Fusion Queue (Tier-2 GPS-Similarity)
+export interface FusionQueueEntry {
+  activity_id_a: string
+  activity_id_b: string
+  title_a: string
+  title_b: string
+  started_at_a: string
+  started_at_b: string
+  sport_type_a: string   // können verschieden sein! (z.B. "cycling" vs "hiking")
+  sport_type_b: string
+  distance_m_a: number
+  distance_m_b: number
+  overlap_percent: number
+  field_richness_a: number
+  field_richness_b: number
+  time_diff_sec: number
+}
+
+export async function getFusionQueue(limit = 20): Promise<FusionQueueEntry[]> {
+  return apiClient<FusionQueueEntry[]>(`/fusion-queue?limit=${limit}`)
+}
+
 // Gear Merge API (ergänzend zu gear.ts)
 export async function getGearDuplicateCandidates(): Promise<[string, string][]> {
   return apiClient<[string, string][]>('/gear/duplicate-candidates')
