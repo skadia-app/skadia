@@ -143,6 +143,16 @@ func (db *DB) ActivityExistsByGarminID(ctx context.Context, userID string, garmi
 	return exists, nil
 }
 
+// GetActivityIDByGarminID gibt die interne ID einer Aktivität anhand der Garmin-ID zurück.
+func (db *DB) GetActivityIDByGarminID(ctx context.Context, userID string, garminID int64) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM activities WHERE user_id = $1 AND garmin_activity_id = $2 LIMIT 1`,
+		userID, garminID,
+	).Scan(&id)
+	return id, err
+}
+
 // SetGearGarminID sets the garmin_gear_id on an existing gear item.
 func (db *DB) SetGearGarminID(ctx context.Context, gearID, garminGearID string) error {
 	_, err := db.Pool.Exec(ctx,

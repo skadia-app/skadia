@@ -909,15 +909,15 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 }
 
 var sensorLabels = map[string]string{
-	"heart_rate":             "Herzfrequenzsensor",
-	"bike_speed":             "Geschwindigkeitssensor",
-	"bike_cadence":           "Trittfrequenzsensor",
-	"bike_speed_cadence":     "Geschwindigkeits-/Trittfrequenzsensor",
-	"bike_power":             "Leistungsmesser",
-	"stride_speed_distance":  "Laufpod / Running Dynamics",
-	"radar":                  "Rückwärtsradar",
-	"shift":                  "Schaltung (Di2 / eTap)",
-	"environment_sensor_legacy": "Temperatursensor",
+	"heart_rate":                 "Herzfrequenzsensor",
+	"bike_speed":                 "Geschwindigkeitssensor",
+	"bike_cadence":               "Trittfrequenzsensor",
+	"bike_speed_cadence":         "Geschwindigkeits-/Trittfrequenzsensor",
+	"bike_power":                 "Leistungsmesser",
+	"stride_speed_distance":      "Laufpod / Running Dynamics",
+	"radar":                      "Rückwärtsradar",
+	"shift":                      "Schaltung (Di2 / eTap)",
+	"environment_sensor_legacy":  "Temperatursensor",
 	"multi_sport_speed_distance": "Multi-Sport Sensor",
 }
 
@@ -930,10 +930,10 @@ func sensorTypeLabel(deviceType string) string {
 
 // ReprocessInfo holds the data needed to reprocess an activity from its original file.
 type ReprocessInfo struct {
-	FileKey            string
-	FileFormat         string
-	SportTypeIsManual  bool
-	OriginalFilename   string
+	FileKey           string
+	FileFormat        string
+	SportTypeIsManual bool
+	OriginalFilename  string
 }
 
 // GetActivityReprocessInfo loads the fields needed to re-parse an activity from S3.
@@ -2765,4 +2765,35 @@ func (db *DB) UpdateImportSettings(ctx context.Context, userID string, s *model.
 		userID, s.ConflictStrategy, s.GPSDuplicateThreshold,
 	)
 	return err
+}
+
+// FindActivitiesByTimeRange findet Aktivitäten in einem Zeitfenster mit passendem Sport.
+// Wird für Tier-1 Temporal-Matching im DuplicateDetector verwendet.
+func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from, to time.Time, sportType string) ([]model.Activity, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, sport_type, started_at, distance_m,
+		        avg_heart_rate, max_heart_rate, avg_power_w, max_power_w,
+		        avg_cadence, avg_temperature_c, elevation_gain_m
+		 FROM activities
+		 WHERE user_id = $1 AND started_at BETWEEN $2 AND $3 AND sport_type = $4
+		 LIMIT 5`,
+		userID, from, to, sportType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Activity
+	for rows.Next() {
+		var a model.Activity
+		if err := rows.Scan(
+			&a.ID, &a.SportType, &a.StartedAt, &a.DistanceM,
+			&a.AvgHeartRate, &a.MaxHeartRate, &a.AvgPowerW, &a.MaxPowerW,
+			&a.AvgCadence, &a.AvgTemperatureC, &a.ElevationGainM,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, a)
+	}
+	return result, nil
 }
