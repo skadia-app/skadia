@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS analytics_cache (
     PRIMARY KEY (user_id, cache_key)
 );
 
-CREATE INDEX idx_analytics_cache_expires ON analytics_cache(expires_at)
+CREATE INDEX IF NOT EXISTS idx_analytics_cache_expires ON analytics_cache(expires_at)
     WHERE expires_at IS NOT NULL;
 
 -- Commute- und Wettkampf-Flags für Activities-Filter
