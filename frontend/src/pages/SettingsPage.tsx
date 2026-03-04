@@ -270,15 +270,23 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Datenimport</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-Export.
+            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin- oder Strava-Export.
           </p>
         </div>
-        <Link
-          to="/settings/import"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
-        >
-          Garmin-Import
-        </Link>
+        <div className="flex gap-3 flex-wrap">
+          <Link
+            to="/settings/import?tab=garmin"
+            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+          >
+            Garmin-Import
+          </Link>
+          <Link
+            to="/settings/import?tab=strava"
+            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+          >
+            Strava-Import
+          </Link>
+        </div>
       </section>
 
       {/* Privatsphäre */}

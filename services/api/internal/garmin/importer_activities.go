@@ -118,6 +118,14 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
+		// For FIT files: skip non-activity types (monitoring, HRV, steps etc.) silently.
+		// These are processed by importMonitoringFITs; trying to parse them as activities
+		// would always fail with "no session message".
+		if format == "fit" && readFITFileType(fileBytes) != fitFileTypeActivity {
+			result.Skipped++
+			continue
+		}
+
 		// Parse activity file first (needed for temporal duplicate check)
 		var data *model.ActivityData
 		switch format {

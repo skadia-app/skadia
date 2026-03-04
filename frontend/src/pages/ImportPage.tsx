@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { apiClient } from '@/api/client'
+import { apiClient, apiUpload } from '@/api/client'
 import {
   scanGarminExport,
   scanStravaExport,
@@ -67,6 +67,13 @@ async function getGarminImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/garmin/jobs/${jobId}`)
 }
 
+async function uploadGarminZIP(file: File): Promise<string> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await apiUpload<{ job_id: string }>('/import/garmin/upload-zip', fd)
+  return res.job_id
+}
+
 // ---------------------------------------------------------------------------
 // API helpers — Strava
 // ---------------------------------------------------------------------------
@@ -89,6 +96,13 @@ async function startStravaImportJob(sourcePath: string, modules: string[], optio
 
 async function getStravaImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/strava/jobs/${jobId}`)
+}
+
+async function uploadStravaZIP(file: File): Promise<string> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await apiUpload<{ job_id: string }>('/import/strava/upload-zip', fd)
+  return res.job_id
 }
 
 // ---------------------------------------------------------------------------
@@ -189,73 +203,46 @@ function StepIndicator({ phase }: StepIndicatorProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1: Scan
+// Phase 1: Scan — results display (scan is triggered from card 1)
 // ---------------------------------------------------------------------------
 
-interface ScanPhaseProps {
-  platform: 'garmin' | 'strava'
-  path: string
-  onDone: (result: ScanResult) => void
+interface ScanResultsProps {
+  result: ScanResult
+  onContinue: (result: ScanResult) => void
 }
 
-function ScanPhase({ platform, path, onDone }: ScanPhaseProps) {
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<ScanResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleScan() {
-    setLoading(true)
-    setError(null)
-    try {
-      const fn = platform === 'garmin' ? scanGarminExport : scanStravaExport
-      const r = await fn(path)
-      setResult(r)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+function ScanResultsView({ result, onContinue }: ScanResultsProps) {
+  const hasAny = Object.values(result).some(v => v !== undefined)
+  if (!hasAny) {
+    return (
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+        Keine importierbaren Daten gefunden.
+      </p>
+    )
   }
-
-  const hasResults = result && Object.values(result).some(v => v !== undefined)
-
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        {Object.entries(result).map(([cat, stats]) =>
+          stats ? (
+            <div
+              key={cat}
+              className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3"
+            >
+              <div className="font-medium text-sm">{categoryLabel(cat)}</div>
+              <div className="text-xs text-neutral-500 mt-0.5">
+                {stats.new} neu · {stats.existing} vorhanden · {stats.found} gesamt
+              </div>
+            </div>
+          ) : null
+        )}
+      </div>
       <button
-        onClick={handleScan}
-        disabled={loading || !path}
-        className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        onClick={() => onContinue(result)}
+        className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
       >
-        {loading ? 'Analysiere...' : 'Export analysieren'}
+        Weiter zur Konfiguration →
       </button>
-
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-      {hasResults && result && (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            {Object.entries(result).map(([cat, stats]) =>
-              stats ? (
-                <div
-                  key={cat}
-                  className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3"
-                >
-                  <div className="font-medium text-sm">{categoryLabel(cat)}</div>
-                  <div className="text-xs text-neutral-500 mt-0.5">
-                    {stats.new} neu · {stats.existing} vorhanden · {stats.found} gesamt
-                  </div>
-                </div>
-              ) : null
-            )}
-          </div>
-          <button
-            onClick={() => onDone(result)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-          >
-            Weiter zur Konfiguration →
-          </button>
-        </>
-      )}
     </div>
   )
 }
@@ -554,6 +541,7 @@ interface ImportPanelProps {
   detectFn: (path: string) => Promise<DetectedModule[]>
   startFn: (path: string, modules: string[], options: ImportOptions) => Promise<string>
   pollFn: (jobId: string) => Promise<ImportJob>
+  uploadZipFn: (file: File) => Promise<string>
 }
 
 function ImportPanel({
@@ -565,8 +553,13 @@ function ImportPanel({
   detectFn,
   startFn,
   pollFn,
+  uploadZipFn,
 }: ImportPanelProps) {
   const [sourcePath, setSourcePath] = useState(defaultPath)
+  const [isUploading, setIsUploading] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Wizard state
   const [phase, setPhase] = useState<WizardPhase>('scan')
@@ -619,6 +612,72 @@ function ImportPanel({
 
   function handleGoToReview() {
     setPhase('review')
+  }
+
+  async function handleAnalyse() {
+    const path = sourcePath.trim()
+    if (!path) return
+    setScanning(true)
+    setScanError(null)
+    setScanResult(null)
+    try {
+      const fn = platform === 'garmin' ? scanGarminExport : scanStravaExport
+      const result = await fn(path)
+      setScanResult(result)
+      // Phase stays 'scan' — user reviews results then clicks "Weiter zur Konfiguration"
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function handleZIPUpload(file: File) {
+    setPhase('import')
+    setIsUploading(true)
+    setImporting(true)
+    setImportError(null)
+    setJob(null)
+    setJobId(null)
+    setLog([])
+    lastModuleRef.current = null
+    appendLog(`ZIP wird hochgeladen (${(file.size / 1024 / 1024).toFixed(1)} MB)…`)
+
+    try {
+      const id = await uploadZipFn(file)
+      setIsUploading(false)
+      setJobId(id)
+      appendLog(`Job gestartet (${id.slice(0, 8)})`)
+
+      pollingRef.current = setInterval(async () => {
+        try {
+          const j = await pollFn(id)
+          setJob(j)
+          if (j.current_module && j.current_module !== lastModuleRef.current) {
+            lastModuleRef.current = j.current_module
+            appendLog(j.current_module)
+          }
+          if (j.status === 'completed' && lastModuleRef.current !== '__completed__') {
+            lastModuleRef.current = '__completed__'
+            appendLog(`Abgeschlossen — ${j.completed_modules} Module verarbeitet`)
+          }
+          if (j.status === 'failed' && lastModuleRef.current !== '__failed__') {
+            lastModuleRef.current = '__failed__'
+            appendLog('Import fehlgeschlagen')
+            if (j.errors && j.errors.length > 0) {
+              j.errors.forEach(err => appendLog(`Fehler: ${err}`))
+            }
+          }
+        } catch {
+          // ignore transient polling errors
+        }
+      }, 2000)
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e))
+      setIsUploading(false)
+      setImporting(false)
+      setPhase('scan')
+    }
   }
 
   async function handleStartImport() {
@@ -696,6 +755,20 @@ function ImportPanel({
 
   return (
     <div className="space-y-6">
+      {/* Hidden file input for ZIP upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".zip"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file) handleZIPUpload(file)
+          // Reset so same file can be re-selected
+          e.target.value = ''
+        }}
+      />
+
       {/* Source path input — always visible */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <div>
@@ -704,36 +777,79 @@ function ImportPanel({
           </h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{dirHint}</p>
         </div>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={sourcePath}
-            onChange={e => {
-              setSourcePath(e.target.value)
-              // Reset wizard if path changes
-              if (phase !== 'scan') {
-                setPhase('scan')
-                setScanResult(null)
-              }
-            }}
-            placeholder={dirPlaceholder}
-            disabled={phase === 'import' && importing}
-            className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
-          />
-        </div>
+        <input
+          type="text"
+          value={sourcePath}
+          onChange={e => {
+            setSourcePath(e.target.value)
+            // Reset wizard if path changes
+            if (phase !== 'scan') {
+              setPhase('scan')
+              setScanResult(null)
+              setScanError(null)
+            }
+          }}
+          placeholder={dirPlaceholder}
+          disabled={(phase === 'import' && importing) || isUploading}
+          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+        />
+        {/* Action buttons — only in scan phase before results are shown */}
+        {phase === 'scan' && !isUploading && !scanResult && (
+          <div className="flex flex-col items-stretch gap-3">
+            <button
+              onClick={handleAnalyse}
+              disabled={scanning || !sourcePath.trim()}
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {scanning ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Analysiere…
+                </>
+              ) : (
+                'Analysieren'
+              )}
+            </button>
+            {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+              <span className="text-xs text-neutral-400">oder ZIP hochladen</span>
+              <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l-3 3m3-3l3 3" />
+              </svg>
+              ZIP hochladen
+            </button>
+          </div>
+        )}
+        {/* Upload in progress indicator */}
+        {isUploading && (
+          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            ZIP wird hochgeladen…
+          </div>
+        )}
       </section>
 
       {/* Wizard panel */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
         <StepIndicator phase={phase} />
 
-        {phase === 'scan' && (
-          <ScanPhase
-            platform={platform}
-            path={sourcePath.trim()}
-            onDone={result => {
-              setScanResult(result)
-              // Pre-select all available categories
+        {phase === 'scan' && !scanning && scanResult && (
+          <ScanResultsView
+            result={scanResult}
+            onContinue={result => {
               const cats = Object.entries(result)
                 .filter(([, stats]) => stats !== undefined)
                 .map(([cat]) => cat)
@@ -741,6 +857,10 @@ function ImportPanel({
               setPhase('config')
             }}
           />
+        )}
+
+        {phase === 'scan' && scanning && (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Analysiere…</p>
         )}
 
         {phase === 'config' && scanResult && (
@@ -785,7 +905,7 @@ function ImportPanel({
         {/* Back navigation */}
         {phase === 'config' && (
           <button
-            onClick={() => setPhase('scan')}
+            onClick={() => { setPhase('scan'); setScanResult(null); setScanError(null); setScanning(false) }}
             className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             ← Zurück zur Analyse
@@ -808,6 +928,7 @@ function ImportPanel({
               onClick={() => {
                 setPhase('scan')
                 setScanResult(null)
+                setScanError(null)
                 setJob(null)
                 setJobId(null)
                 setLog([])
@@ -830,7 +951,11 @@ function ImportPanel({
 type TabId = 'garmin' | 'strava'
 
 export default function ImportPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('garmin')
+  const initialTab = (() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return tab === 'strava' ? 'strava' : 'garmin'
+  })()
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab as TabId)
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'garmin', label: 'Garmin' },
@@ -871,11 +996,12 @@ export default function ImportPage() {
           platform="garmin"
           defaultPath={DEFAULT_GARMIN_PATH}
           dirLabel="Garmin-Export-Verzeichnis"
-          dirHint="Gib den absoluten Pfad zum entpackten Garmin-Export an (z.B. DI_CONNECT-Verzeichnis)."
-          dirPlaceholder="/pfad/zum/garmin/export/DI_CONNECT"
+          dirHint="Gib den absoluten Pfad zum entpackten Garmin-Export an, oder lade die Export-ZIP direkt hoch."
+          dirPlaceholder="/pfad/zum/garmin/export"
           detectFn={detectGarminModules}
           startFn={startGarminImportJob}
           pollFn={getGarminImportJob}
+          uploadZipFn={uploadGarminZIP}
         />
       )}
 
@@ -884,11 +1010,12 @@ export default function ImportPage() {
           platform="strava"
           defaultPath={DEFAULT_STRAVA_PATH}
           dirLabel="Strava-Export-Verzeichnis"
-          dirHint="Gib den absoluten Pfad zum entpackten Strava-Export an (Verzeichnis mit activities.csv, profile.csv, bikes.csv etc.)."
+          dirHint="Gib den absoluten Pfad zum entpackten Strava-Export an, oder lade die Export-ZIP direkt hoch."
           dirPlaceholder="/pfad/zum/strava/export"
           detectFn={detectStravaModules}
           startFn={startStravaImportJob}
           pollFn={getStravaImportJob}
+          uploadZipFn={uploadStravaZIP}
         />
       )}
     </div>

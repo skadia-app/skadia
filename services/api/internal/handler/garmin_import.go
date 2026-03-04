@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -116,6 +117,73 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
 		}
 		slog.Info("garmin import completed", "job_id", jobID)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// UploadGarminZIP accepts a multipart ZIP upload of a Garmin GDPR export, extracts it to
+// a temporary directory and immediately starts an async import job for all modules.
+//
+// POST /api/v1/import/garmin/upload-zip
+// Body: multipart/form-data { file: <export.zip> }
+func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	tmpDir, ok := parseUploadedZIP(w, r, r.URL.Path)
+	if !ok {
+		return
+	}
+
+	jobID, err := h.DB.CreateGarminImportJob(r.Context(), userID, tmpDir)
+	if err != nil {
+		slog.Error("create garmin import job (zip) failed", "error", err)
+		os.RemoveAll(tmpDir)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
+		return
+	}
+
+	go func() {
+		defer os.RemoveAll(tmpDir)
+
+		bgCtx := context.Background()
+		src := garmin.NewDirSource(tmpDir)
+		registry := h.buildGarminRegistry()
+		allModules := registry.Detect(src)
+		moduleNames := make([]string, 0, len(allModules))
+		for _, m := range allModules {
+			if m.Available {
+				moduleNames = append(moduleNames, m.Name)
+			}
+		}
+
+		moduleIndex := 0
+		params := garmin.ImportParams{
+			Source:  src,
+			UserID:  userID,
+			DB:      h.DB,
+			Storage: h.Storage,
+			JobID:   jobID,
+			OnProgress: func(current, total int, msg string) {
+				if err := h.DB.UpdateGarminImportJob(bgCtx, jobID, moduleIndex*100+current, total, msg); err != nil {
+					slog.Warn("garmin import (zip): update progress failed", "error", err)
+				}
+			},
+		}
+
+		if err := registry.RunModules(bgCtx, moduleNames, params); err != nil {
+			slog.Error("garmin import (zip) failed", "job_id", jobID, "error", err)
+			_ = h.DB.FailGarminImportJob(bgCtx, jobID, err.Error())
+			return
+		}
+		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID); err != nil {
+			slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
+		}
+		slog.Info("garmin import (zip) completed", "job_id", jobID)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

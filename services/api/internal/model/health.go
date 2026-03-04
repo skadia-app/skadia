@@ -162,6 +162,15 @@ type HealthFitnessAge struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// HealthHRVNightValue is a 5-minute RMSSD measurement during sleep.
+// Sourced from Garmin monitoring FIT files (message hrv_value / 281).
+type HealthHRVNightValue struct {
+	UserID     string    `json:"user_id"`
+	TS         time.Time `json:"ts"`
+	RmssdMS    float64   `json:"rmssd_ms"`
+	SourceType string    `json:"source_type"`
+}
+
 // HealthOverview aggregates the most recent value of every health metric.
 type HealthOverview struct {
 	LatestDailySummary  *HealthDailySummary   `json:"latest_daily_summary"`

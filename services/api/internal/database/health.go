@@ -813,3 +813,20 @@ func (db *DB) GetHealthOverview(ctx context.Context, userID string) (*model.Heal
 
 	return overview, nil
 }
+
+// UpsertHealthHRVNightValuesBatch inserts or ignores a batch of 5-minute RMSSD night values.
+// Uses ON CONFLICT DO NOTHING to avoid overwriting existing data.
+func (db *DB) UpsertHealthHRVNightValuesBatch(ctx context.Context, userID string, values []model.HealthHRVNightValue) error {
+	if len(values) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for _, v := range values {
+		batch.Queue(`
+			INSERT INTO health_hrv_night_values (user_id, ts, rmssd_ms, source_type)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (user_id, ts) DO NOTHING
+		`, userID, v.TS, v.RmssdMS, v.SourceType)
+	}
+	return db.Pool.SendBatch(ctx, batch).Close()
+}

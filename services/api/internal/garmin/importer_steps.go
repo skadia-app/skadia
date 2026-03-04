@@ -688,5 +688,11 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 	slog.Info("garmin health: imported hydration records", "count", totalHydration)
 	result.Imported += totalHydration
 
+	// Abschnitt 10: Monitoring FIT files (HRV-Status, 5-min HRV night values, Resting HR)
+	// These come from the same UploadedFiles ZIPs as activities, but are non-activity FIT types.
+	fitImported, fitErrs := importMonitoringFITs(ctx, params)
+	result.Imported += fitImported
+	result.Errors = append(result.Errors, fitErrs...)
+
 	return result, nil
 }
