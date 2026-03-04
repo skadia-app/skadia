@@ -134,10 +134,18 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	result := model.LLMTestResult{}
 
+	// Translate localhost/127.0.0.1 to host.containers.internal for container-to-host access.
+	// The test runs server-side inside the API container, so localhost would refer to the
+	// container itself rather than the host machine where llama-server is running.
+	testAPIBase := strings.NewReplacer(
+		"localhost", "host.containers.internal",
+		"127.0.0.1", "host.containers.internal",
+	).Replace(req.APIBase)
+
 	switch req.BackendType {
 	case "ollama":
 		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(req.APIBase + "/api/tags")
+		resp, err := client.Get(testAPIBase + "/api/tags")
 		if err != nil {
 			result.Message = "Verbindung fehlgeschlagen: " + err.Error()
 		} else {
@@ -148,7 +156,7 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	case "llama_server", "openai", "anthropic":
 		// OpenAI-compatible test: GET /v1/models
 		client := &http.Client{Timeout: 10 * time.Second}
-		testReq, _ := http.NewRequest("GET", req.APIBase+"/models", nil)
+		testReq, _ := http.NewRequest("GET", testAPIBase+"/models", nil)
 		if req.APIKey != nil {
 			testReq.Header.Set("Authorization", "Bearer "+*req.APIKey)
 		}
