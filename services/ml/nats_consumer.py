@@ -22,15 +22,28 @@ from enrichment import (
     compute_route_embedding,
 )
 from enrichment.document_vlm import process_document
+from analytics import (
+    compute_readiness,
+    detect_anomalies,
+    cluster_activities,
+    compute_projection,
+    compute_correlations,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 MAX_CONCURRENT_PER_USER = 2
+MAX_CONCURRENT_ANALYTICS_PER_USER = 1
 
 # Per-user semaphores for rate limiting
 _user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
     lambda: asyncio.Semaphore(MAX_CONCURRENT_PER_USER)
+)
+
+# Per-user analytics semaphores (max 1 concurrent analytics job per user)
+_analytics_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
+    lambda: asyncio.Semaphore(MAX_CONCURRENT_ANALYTICS_PER_USER)
 )
 
 # Metrics counters
@@ -200,6 +213,94 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
             _metrics["active_tasks"] -= 1
 
 
+async def _process_analytics_message(msg, nc: nats.NATS) -> None:
+    """Verarbeitet ein skadia.analytics.invalidate Event.
+
+    Ruft alle Analytics-Module für den Nutzer auf und speichert die
+    Ergebnisse in analytics_cache. Fehler einzelner Module stoppen
+    nicht die anderen (graceful degradation).
+    """
+    try:
+        data = json.loads(msg.data.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.error("analytics: invalid message payload: %s", msg.data)
+        await msg.ack()
+        return
+
+    user_id = data.get("user_id", "")
+    if not user_id:
+        logger.error("analytics: missing user_id in message")
+        await msg.ack()
+        return
+
+    # Per-user Semaphore: max 1 gleichzeitiger Analytics-Job pro Nutzer
+    sem = _analytics_semaphores[user_id]
+    async with sem:
+        _metrics["active_tasks"] += 1
+        try:
+            pool = await get_pool()
+
+            # Definiere alle zu berechnenden Module: (cache_key, coroutine)
+            modules = [
+                ("readiness", compute_readiness(pool, user_id)),
+                ("anomalies", detect_anomalies(pool, user_id)),
+                ("clusters", cluster_activities(pool, user_id)),
+                ("projection", compute_projection(pool, user_id)),
+                ("correlations", compute_correlations(pool, user_id)),
+            ]
+
+            for cache_key, coro in modules:
+                try:
+                    result = await coro
+                    await _upsert_analytics_cache(pool, user_id, cache_key, result)
+                    logger.debug(
+                        "analytics: computed %s for user %s", cache_key, user_id
+                    )
+                except Exception as e:
+                    # Fehler dieses Moduls loggen, andere weiterlaufen lassen
+                    logger.error(
+                        "analytics: module %r failed for user %s: %s",
+                        cache_key,
+                        user_id,
+                        e,
+                    )
+
+            await msg.ack()
+            _metrics["processed_total"] += 1
+            logger.info("analytics: recomputed all modules for user %s", user_id)
+        except Exception as e:
+            logger.error("analytics: fatal error for user %s: %s", user_id, e)
+            _metrics["errors_total"] += 1
+
+            retry_count = msg.metadata.num_delivered if hasattr(msg, "metadata") else 0
+            if retry_count >= MAX_RETRIES:
+                logger.error(
+                    "analytics: max retries (%d) reached for user %s, giving up",
+                    MAX_RETRIES,
+                    user_id,
+                )
+                await msg.ack()
+            else:
+                await msg.nak(delay=60)
+        finally:
+            _metrics["active_tasks"] -= 1
+
+
+async def _upsert_analytics_cache(pool, user_id: str, cache_key: str, result) -> None:
+    """Schreibt ein Analytics-Ergebnis in die analytics_cache Tabelle (UPSERT)."""
+    await pool.execute(
+        """
+        INSERT INTO analytics_cache (user_id, cache_key, computed_at, data)
+        VALUES ($1, $2, NOW(), $3::jsonb)
+        ON CONFLICT (user_id, cache_key) DO UPDATE
+        SET data = EXCLUDED.data, computed_at = EXCLUDED.computed_at
+        """,
+        user_id,
+        cache_key,
+        json.dumps(result),
+    )
+
+
 async def start_consumers(nc: nats.NATS) -> list:
     """Start JetStream consumers for all three priority queues."""
     js = nc.jetstream()
@@ -290,6 +391,35 @@ async def start_consumers(nc: nats.NATS) -> list:
             asyncio.create_task(_process_document_message(msg, nc))
 
     asyncio.create_task(_consume_documents(sub_doc))
+
+    # Analytics invalidation stream + consumer
+    try:
+        await js.find_stream_name_by_subject("skadia.analytics.>")
+    except nats.js.errors.NotFoundError:
+        await js.add_stream(
+            name="analytics",
+            subjects=["skadia.analytics.>"],
+            retention="workqueue",
+        )
+
+    sub_analytics = await js.subscribe(
+        "skadia.analytics.invalidate",
+        durable="ml-analytics-invalidate",
+        config=ConsumerConfig(
+            deliver_policy=DeliverPolicy.ALL,
+            ack_policy=AckPolicy.EXPLICIT,
+            max_deliver=MAX_RETRIES + 1,
+            ack_wait=300,  # Analytics kann länger dauern (5 min)
+        ),
+    )
+    subscriptions.append(sub_analytics)
+
+    async def _consume_analytics(sub):
+        logger.info("Consumer analytics-invalidate started")
+        async for msg in sub.messages:
+            asyncio.create_task(_process_analytics_message(msg, nc))
+
+    asyncio.create_task(_consume_analytics(sub_analytics))
 
     logger.info("All NATS consumers started")
     return subscriptions
