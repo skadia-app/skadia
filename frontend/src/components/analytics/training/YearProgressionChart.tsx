@@ -8,6 +8,7 @@ import {
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchYearProgression } from '@/api/analytics'
@@ -20,6 +21,7 @@ echarts.use([
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 
@@ -137,6 +139,27 @@ export default function YearProgressionChart() {
     const sharedConfig = {
       backgroundColor: 'transparent',
       grid: { left: 52, right: 20, top: 36, bottom: 40 },
+      toolbox: {
+        right: 8,
+        top: 2,
+        feature: {
+          dataZoom: {
+            yAxisIndex: 'none',
+            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+            brushStyle: {
+              borderWidth: 1,
+              color: 'rgba(59,130,246,0.1)',
+              borderColor: 'rgba(59,130,246,0.6)',
+            },
+          },
+          restore: { title: 'Zurücksetzen' },
+        },
+        iconStyle: { borderColor: '#6b7280' },
+        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+      ],
       tooltip: {
         trigger: 'axis',
         backgroundColor: 'rgba(17,24,39,0.92)',

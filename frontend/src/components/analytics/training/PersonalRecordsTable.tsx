@@ -5,10 +5,15 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useMemo } from 'react'
 
 const RECORD_TYPE_LABELS: Record<string, string> = {
+  // Backend-Keys (analytics.go GetPersonalRecords)
+  max_distance: 'Längste Distanz',
+  max_elevation: 'Meiste Höhenmeter',
+  fastest_pace: 'Schnellste Pace',
+  max_avg_power: 'Max. Durchschnittsleistung',
+  // Legacy / Frontend-seitige Keys (Vorwärtskompatibilität)
   longest_distance: 'Längste Distanz',
   highest_elevation: 'Meiste Höhenmeter',
   longest_duration: 'Längste Dauer',
-  fastest_pace: 'Schnellste Pace',
   highest_speed: 'Höchste Geschwindigkeit',
   max_power: 'Max. Leistung',
   max_hr: 'Max. Herzfrequenz',

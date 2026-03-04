@@ -2,12 +2,13 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
-import { BarChart } from 'echarts/charts'
+import { BarChart, LineChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchTrainingVolumeSeries } from '@/api/analytics'
@@ -15,15 +16,18 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 
 echarts.use([
   BarChart,
+  LineChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 
 type Granularity = 'week' | 'month'
 type VolumeMetric = 'distance' | 'duration' | 'tss'
+type ChartType = 'bar' | 'line'
 
 const SPORT_COLORS: Record<string, string> = {
   running: '#3b82f6',
@@ -53,6 +57,7 @@ export default function TrainingVolumeChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [granularity, setGranularity] = useState<Granularity>('month')
   const [volumeMetric, setVolumeMetric] = useState<VolumeMetric>('distance')
+  const [chartType, setChartType] = useState<ChartType>('bar')
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
@@ -102,14 +107,27 @@ export default function TrainingVolumeChart() {
     const series = sports.map(sport => {
       const values = periods.map(period => {
         const match = data.find(d => d.period === period && d.sport_type === sport)
-        return match ? match.value : 0
+        return match ? (match.value > 0 ? match.value : null) : null
       })
+      const color = sportColor(sport)
+      if (chartType === 'line') {
+        return {
+          name: sport,
+          type: 'line' as const,
+          data: values,
+          showSymbol: false,
+          lineStyle: { width: 2, color },
+          itemStyle: { color },
+          emphasis: { focus: 'series' as const },
+          connectNulls: false,
+        }
+      }
       return {
         name: sport,
         type: 'bar' as const,
         stack: 'volume',
         data: values,
-        itemStyle: { color: sportColor(sport) },
+        itemStyle: { color },
         emphasis: { focus: 'series' as const },
       }
     })
@@ -121,6 +139,24 @@ export default function TrainingVolumeChart() {
     const option: EChartsCoreOption = {
       backgroundColor: 'transparent',
       grid: { left: 52, right: 20, top: 36, bottom: 50 },
+      toolbox: {
+        right: 8,
+        top: 2,
+        feature: {
+          dataZoom: {
+            yAxisIndex: 'none',
+            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+            brushStyle: {
+              borderWidth: 1,
+              color: 'rgba(59,130,246,0.1)',
+              borderColor: 'rgba(59,130,246,0.6)',
+            },
+          },
+          restore: { title: 'Zurücksetzen' },
+        },
+        iconStyle: { borderColor: '#6b7280' },
+        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+      },
       legend: {
         data: sports,
         top: 4,
@@ -185,7 +221,7 @@ export default function TrainingVolumeChart() {
     }
 
     chartRef.current.setOption(option, { notMerge: true })
-  }, [data, volumeMetric])
+  }, [data, volumeMetric, chartType])
 
   const hasData = data && data.length > 0
 
@@ -195,7 +231,7 @@ export default function TrainingVolumeChart() {
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           Trainingsvolumen
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Granularity toggle */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
@@ -240,6 +276,27 @@ export default function TrainingVolumeChart() {
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
             >
               TSS
+            </button>
+          </div>
+          {/* Chart type toggle */}
+          <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+            <button
+              onClick={() => setChartType('bar')}
+              title="Balkendiagramm"
+              className={chartType === 'bar'
+                ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
+            >
+              Balken
+            </button>
+            <button
+              onClick={() => setChartType('line')}
+              title="Liniendiagramm"
+              className={chartType === 'line'
+                ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
+            >
+              Linie
             </button>
           </div>
         </div>

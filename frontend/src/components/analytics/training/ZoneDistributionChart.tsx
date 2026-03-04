@@ -7,12 +7,14 @@ import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  DataZoomComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchZoneDistributionSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 
-echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, CanvasRenderer])
 
 type ZoneType = 'hr' | 'power' | 'cadence'
 type Granularity = 'week' | 'month'
@@ -158,6 +160,27 @@ export default function ZoneDistributionChart() {
       option = {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 36, bottom: 40 },
+        toolbox: {
+          right: 8,
+          top: 2,
+          feature: {
+            dataZoom: {
+              yAxisIndex: 'none',
+              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+              brushStyle: {
+                borderWidth: 1,
+                color: 'rgba(59,130,246,0.1)',
+                borderColor: 'rgba(59,130,246,0.6)',
+              },
+            },
+            restore: { title: 'Zurücksetzen' },
+          },
+          iconStyle: { borderColor: '#6b7280' },
+          emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+        },
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+        ],
         legend: {
           data: zoneIndices.map(i => ZONE_LABELS[i - 1] ?? `Zone ${i}`),
           top: 4,
