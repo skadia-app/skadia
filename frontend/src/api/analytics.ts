@@ -77,6 +77,13 @@ export interface PersonalRecord {
 
 // === Health Tab Types ===
 
+export interface HRVPoint {
+  date: string
+  rmssd: number | null
+  sdrr: number | null
+  time_of_day: string
+}
+
 export interface HRVAnalysis {
   points: HRVPoint[]
   baseline_mean: number
@@ -87,11 +94,40 @@ export interface HRVAnalysis {
   night_avg: number | null
 }
 
-export interface HRVPoint {
+export interface HRVCorrelationPoint {
   date: string
-  rmssd: number | null
-  sdrr: number | null
-  time_of_day: string
+  rmssd: number
+  daily_tss: number
+}
+
+export interface HRVCorrelation {
+  points: HRVCorrelationPoint[]
+  correlation: number
+  interpretation: string
+}
+
+export interface HRVRecovery {
+  score: number
+  level: string
+  hrv_factor: number
+  sleep_factor: number
+  fatigue_factor: number
+  recommendation: string
+}
+
+export interface SleepPoint {
+  date: string
+  duration_min: number | null
+  score_overall: number | null
+  deep_sleep_pct: number | null
+  rem_sleep_pct: number | null
+}
+
+export interface SleepAnalysis {
+  points: SleepPoint[]
+  avg_duration_min: number
+  avg_score: number
+  trend: string
 }
 
 export interface SleepEntry {
@@ -103,6 +139,18 @@ export interface SleepEntry {
   light_min: number | null
 }
 
+export interface WeightPoint {
+  date: string
+  weight_kg: number
+  body_fat_pct: number | null
+}
+
+export interface WeightAnalysis {
+  points: WeightPoint[]
+  current_kg: number
+  change_30d: number
+}
+
 export interface WeightEntry {
   date: string
   weight_kg: number
@@ -110,11 +158,35 @@ export interface WeightEntry {
 }
 
 export interface HealthMetric {
-  date: string
-  resting_hr: number | null
-  spo2: number | null
-  stress: number | null
-  body_battery: number | null
+  name: string
+  current: number
+  unit: string
+  trend: number
+  points: { date: string; value: number }[]
+}
+
+// === Training Volume Time-Series (for TrainingVolumeChart) ===
+
+export interface TrainingVolumeSeriesPoint {
+  period: string
+  sport_type: string
+  value: number
+}
+
+export async function fetchTrainingVolumeSeries(params: string): Promise<TrainingVolumeSeriesPoint[]> {
+  return apiClient(`/analytics/training-volume?${params}`)
+}
+
+// === Zone Distribution Time-Series (for ZoneDistributionChart) ===
+
+export interface ZoneDistributionSeriesPoint {
+  period: string
+  zone_index: number
+  total_seconds: number
+}
+
+export async function fetchZoneDistributionSeries(params: string): Promise<ZoneDistributionSeriesPoint[]> {
+  return apiClient(`/analytics/zone-distribution?${params}`)
 }
 
 // === Stats Tab Types ===
@@ -143,6 +215,7 @@ export interface EddingtonResult {
   metric: string
   number: number
   next_levels: { level: number; remaining: number }[]
+  top_values?: number[]
 }
 
 export interface Distribution {
@@ -155,12 +228,13 @@ export interface Distribution {
 
 export interface YearlyOverviewRow {
   year: number
+  month?: number
   distance_m: number
   elevation_m: number
   duration_s: number
   count: number
-  avg_hr: number | null
-  avg_tss: number | null
+  avg_hr?: number | null
+  avg_tss?: number | null
 }
 
 // === Insights Tab Types ===
@@ -290,4 +364,20 @@ export async function fetchInsightsCorrelations(params: string): Promise<Correla
 
 export async function refreshInsights(): Promise<{ status: string }> {
   return apiClient(`/analytics/insights/refresh`, { method: 'POST' })
+}
+
+export async function fetchHRVCorrelation(params: string): Promise<HRVCorrelation> {
+  return apiClient(`/analytics/hrv/correlation?${params}`)
+}
+
+export async function fetchHRVRecovery(): Promise<HRVRecovery> {
+  return apiClient('/analytics/hrv/recovery')
+}
+
+export async function fetchSleepAnalysis(params: string): Promise<SleepAnalysis> {
+  return apiClient(`/analytics/sleep/analysis?${params}`)
+}
+
+export async function fetchWeightAnalysis(params: string): Promise<WeightAnalysis> {
+  return apiClient(`/analytics/weight/analysis?${params}`)
 }
