@@ -264,6 +264,22 @@ export default function SettingsPage() {
         </Link>
       </section>
 
+      {/* Datenimport */}
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Datenimport</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-Export.
+          </p>
+        </div>
+        <Link
+          to="/settings/import"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+        >
+          Garmin-Import
+        </Link>
+      </section>
+
       {/* Karte */}
       <HeatmapSettingsSection />
 

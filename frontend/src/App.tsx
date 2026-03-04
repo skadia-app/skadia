@@ -28,6 +28,7 @@ const ActivityEditorPage = lazy(() => import('@/pages/ActivityEditorPage'))
 const HealthDashboardPage = lazy(() => import('@/pages/HealthDashboardPage'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
+const ImportPage = lazy(() => import('@/pages/ImportPage'))
 
 function LoadingSpinner() {
   return (
@@ -73,6 +74,7 @@ export default function App() {
               <Route path="workshop/document-review" element={<DocumentReviewPage />} />
               <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
               <Route path="settings/tags" element={<TagsPage />} />
+              <Route path="settings/import" element={<ImportPage />} />
             </Route>
           </Route>
         </Routes>
