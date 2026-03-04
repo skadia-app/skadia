@@ -293,7 +293,7 @@ export default function SettingsPage() {
           to="/settings/privacy"
           className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
         >
-          Privacy-Zonen verwalten
+          Private Zonen verwalten
         </Link>
       </section>
 

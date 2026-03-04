@@ -6,6 +6,7 @@ export interface PrivacyZone {
   lat: number
   lng: number
   radius_m: number
+  color: string
   is_active: boolean
   created_at: string
 }
@@ -19,13 +20,14 @@ export async function createPrivacyZone(zone: {
   lat: number
   lng: number
   radius_m: number
+  color: string
 }): Promise<PrivacyZone> {
   return apiClient<PrivacyZone>('/privacy-zones', { method: 'POST', body: zone })
 }
 
 export async function updatePrivacyZone(
   id: string,
-  update: Partial<Pick<PrivacyZone, 'name' | 'lat' | 'lng' | 'radius_m' | 'is_active'>>,
+  update: Partial<Pick<PrivacyZone, 'name' | 'lat' | 'lng' | 'radius_m' | 'color' | 'is_active'>>,
 ): Promise<PrivacyZone> {
   return apiClient<PrivacyZone>(`/privacy-zones/${id}`, { method: 'PUT', body: update })
 }

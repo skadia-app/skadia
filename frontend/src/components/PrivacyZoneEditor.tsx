@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
+import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
   zone: PrivacyZone | null
@@ -30,6 +31,11 @@ function circlePolygon(center: [number, number], radiusM: number, steps = 64): G
   }
 }
 
+function formatRadius(m: number): string {
+  if (m >= 1000) return `${(m / 1000).toFixed(1).replace('.0', '')} km`
+  return `${m} m`
+}
+
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const queryClient = useQueryClient()
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -40,6 +46,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const [lat, setLat] = useState(zone?.lat ?? 51.16)
   const [lng, setLng] = useState(zone?.lng ?? 10.45)
   const [radius, setRadius] = useState(zone?.radius_m ?? 200)
+  const [color, setColor] = useState(zone?.color ?? '#F97316')
   const hasInitialPosition = zone != null
 
   const createMut = useMutation({
@@ -66,18 +73,24 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     if (zone) {
       updateMut.mutate({
         id: zone.id,
-        data: { name: trimmed, lat, lng, radius_m: radius },
+        data: { name: trimmed, lat, lng, radius_m: radius, color },
       })
     } else {
-      createMut.mutate({ name: trimmed, lat, lng, radius_m: radius })
+      createMut.mutate({ name: trimmed, lat, lng, radius_m: radius, color })
     }
   }
 
-  // Update circle overlay
-  function updateCircle(map: maplibregl.Map, center: [number, number], r: number) {
+  // Update circle overlay color and size
+  function updateCircle(map: maplibregl.Map, center: [number, number], r: number, c: string) {
     const source = map.getSource('zone-circle') as maplibregl.GeoJSONSource | undefined
     if (source) {
       source.setData(circlePolygon(center, r))
+    }
+    if (map.getLayer('zone-circle-fill')) {
+      map.setPaintProperty('zone-circle-fill', 'fill-color', c)
+    }
+    if (map.getLayer('zone-circle-border')) {
+      map.setPaintProperty('zone-circle-border', 'line-color', c)
     }
   }
 
@@ -119,7 +132,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         type: 'fill',
         source: 'zone-circle',
         paint: {
-          'fill-color': '#F97316',
+          'fill-color': color,
           'fill-opacity': 0.15,
         },
       })
@@ -128,7 +141,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         type: 'line',
         source: 'zone-circle',
         paint: {
-          'line-color': '#F97316',
+          'line-color': color,
           'line-width': 2,
           'line-opacity': 0.6,
         },
@@ -136,14 +149,14 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
       // Place marker
       if (hasInitialPosition) {
-        const marker = new maplibregl.Marker({ color: '#F97316', draggable: true })
+        const marker = new maplibregl.Marker({ color, draggable: true })
           .setLngLat([lng, lat])
           .addTo(map)
         marker.on('dragend', () => {
           const pos = marker.getLngLat()
           setLat(pos.lat)
           setLng(pos.lng)
-          updateCircle(map, [pos.lng, pos.lat], radius)
+          updateCircle(map, [pos.lng, pos.lat], radius, color)
         })
         markerRef.current = marker
       }
@@ -159,19 +172,19 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       if (markerRef.current) {
         markerRef.current.setLngLat([newLng, newLat])
       } else {
-        const marker = new maplibregl.Marker({ color: '#F97316', draggable: true })
+        const marker = new maplibregl.Marker({ color, draggable: true })
           .setLngLat([newLng, newLat])
           .addTo(map)
         marker.on('dragend', () => {
           const pos = marker.getLngLat()
           setLat(pos.lat)
           setLng(pos.lng)
-          updateCircle(map, [pos.lng, pos.lat], radius)
+          updateCircle(map, [pos.lng, pos.lat], radius, color)
         })
         markerRef.current = marker
       }
 
-      updateCircle(map, [newLng, newLat], radius)
+      updateCircle(map, [newLng, newLat], radius, color)
     })
 
     mapRef.current = map
@@ -181,15 +194,15 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update circle when radius changes
+  // Update circle when radius or color changes
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    const apply = () => updateCircle(map, [lng, lat], radius)
+    const apply = () => updateCircle(map, [lng, lat], radius, color)
     if (map.isStyleLoaded()) apply()
     else map.once('style.load', apply)
-  }, [radius, lat, lng])
+  }, [radius, lat, lng, color])
 
   const isSaving = createMut.isPending || updateMut.isPending
   const error = createMut.error || updateMut.error
@@ -225,21 +238,29 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Radius
           </label>
-          <span className="text-sm text-neutral-500 tabular-nums">{radius} m</span>
+          <span className="text-sm text-neutral-500 tabular-nums">{formatRadius(radius)}</span>
         </div>
         <input
           type="range"
-          min={50}
-          max={500}
-          step={10}
+          min={100}
+          max={1000}
+          step={50}
           value={radius}
           onChange={(e) => setRadius(Number(e.target.value))}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>50 m</span>
-          <span>500 m</span>
+          <span>100 m</span>
+          <span>1 km</span>
         </div>
+      </div>
+
+      {/* Color picker */}
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          Zonenfarbe
+        </label>
+        <ColorPicker value={color} onChange={setColor} />
       </div>
 
       {/* Coordinates display */}
