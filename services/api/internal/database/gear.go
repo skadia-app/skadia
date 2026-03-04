@@ -1671,7 +1671,8 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Fill empty fields of primary from secondary (COALESCE keeps primary value when non-NULL)
+	// 1. Fill empty fields of primary from secondary (COALESCE keeps primary value when non-NULL).
+	// g1.user_id = $3 enforces ownership: a user cannot merge another user's gear as primary.
 	_, err = tx.Exec(ctx, `
 		UPDATE gear g1 SET
 			brand        = COALESCE(g1.brand,        g2.brand),
@@ -1681,8 +1682,8 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 			purchased_at = COALESCE(g1.purchased_at, g2.purchased_at),
 			weight_g     = COALESCE(g1.weight_g,     g2.weight_g)
 		FROM gear g2
-		WHERE g1.id = $1 AND g2.id = $2`,
-		primaryID, secondaryID,
+		WHERE g1.id = $1 AND g2.id = $2 AND g1.user_id = $3`,
+		primaryID, secondaryID, userID,
 	)
 	if err != nil {
 		return fmt.Errorf("merge gear fields: %w", err)
