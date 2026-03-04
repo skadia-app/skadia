@@ -1,0 +1,110 @@
+import { apiClient } from './client'
+
+export type ConflictStrategy = 'enrich_missing' | 'replace_all' | 'skip'
+
+export interface ImportOptions {
+  categories?: string[]
+  date_from?: string   // ISO date string "YYYY-MM-DD"
+  date_to?: string
+  conflict_strategy: ConflictStrategy
+}
+
+export interface CategoryStats {
+  found: number
+  existing: number
+  new: number
+}
+
+export interface ScanResult {
+  activities?: CategoryStats
+  gear?: CategoryStats
+  profile?: CategoryStats
+  privacy_zones?: CategoryStats
+  health?: CategoryStats
+  [key: string]: CategoryStats | undefined  // für weitere Kategorien
+}
+
+export interface ImportSettings {
+  conflict_strategy: ConflictStrategy
+  gps_duplicate_threshold: number
+}
+
+export async function scanGarminExport(sourcePath: string): Promise<ScanResult> {
+  return apiClient<ScanResult>('/import/garmin/scan', {
+    method: 'POST',
+    body: { source_path: sourcePath },
+  })
+}
+
+export async function scanStravaExport(sourcePath: string): Promise<ScanResult> {
+  return apiClient<ScanResult>('/import/strava/scan', {
+    method: 'POST',
+    body: { source_path: sourcePath },
+  })
+}
+
+export async function startGarminImport(sourcePath: string, options: ImportOptions): Promise<void> {
+  return apiClient<void>('/import/garmin/start', {
+    method: 'POST',
+    body: { source_path: sourcePath, options },
+  })
+}
+
+export async function startStravaImport(sourcePath: string, options: ImportOptions): Promise<void> {
+  return apiClient<void>('/import/strava/start', {
+    method: 'POST',
+    body: { source_path: sourcePath, options },
+  })
+}
+
+export async function getImportSettings(): Promise<ImportSettings> {
+  return apiClient<ImportSettings>('/settings/import')
+}
+
+export async function updateImportSettings(s: ImportSettings): Promise<ImportSettings> {
+  return apiClient<ImportSettings>('/settings/import', {
+    method: 'PUT',
+    body: s,
+  })
+}
+
+// Fusion API
+export interface FusionSources {
+  gps?: string
+  hr?: string
+  power?: string
+  cadence?: string
+  temperature?: string
+  metadata?: string
+}
+
+export interface FusionCandidate {
+  id: string
+  title: string
+  started_at: string
+  distance_m: number
+  sport_type: string
+}
+
+export async function getFusionCandidates(activityId: string): Promise<FusionCandidate[]> {
+  return apiClient<FusionCandidate[]>(`/activities/${activityId}/fusion-candidates`)
+}
+
+export async function setActivityFusion(activityId: string, sources: FusionSources): Promise<void> {
+  return apiClient<void>(`/activities/${activityId}/fusion`, {
+    method: 'POST',
+    body: sources,
+  })
+}
+
+// Gear Merge API (ergänzend zu gear.ts)
+export async function getGearDuplicateCandidates(): Promise<[string, string][]> {
+  return apiClient<[string, string][]>('/gear/duplicate-candidates')
+}
+
+export async function mergeGear(primaryId: string, mergeFromId: string): Promise<void> {
+  return apiClient<void>(`/gear/${primaryId}/merge`, {
+    method: 'POST',
+    body: { merge_from_id: mergeFromId },
+  })
+}
