@@ -559,7 +559,7 @@ type HotfolderImport struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// PrivacyZone represents a user-defined privacy zone (e.g. home, work).
+// PrivacyZone represents a user-defined private zone (e.g. home, work).
 type PrivacyZone struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
@@ -567,16 +567,18 @@ type PrivacyZone struct {
 	Lat       float64   `json:"lat"`
 	Lng       float64   `json:"lng"`
 	RadiusM   int       `json:"radius_m"`
+	Color     string    `json:"color"`
 	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// PrivacyZoneUpdate is the request body for updating a privacy zone.
+// PrivacyZoneUpdate is the request body for updating a private zone.
 type PrivacyZoneUpdate struct {
 	Name     *string  `json:"name,omitempty"`
 	Lat      *float64 `json:"lat,omitempty"`
 	Lng      *float64 `json:"lng,omitempty"`
 	RadiusM  *int     `json:"radius_m,omitempty"`
+	Color    *string  `json:"color,omitempty"`
 	IsActive *bool    `json:"is_active,omitempty"`
 }
 

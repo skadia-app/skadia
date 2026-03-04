@@ -1722,12 +1722,12 @@ func (db *DB) UpdateUserHeatmapInterval(ctx context.Context, userID string, inte
 
 // ── Privacy Zones ───────────────────────────────────────────────────────────
 
-// ListPrivacyZones returns all privacy zones for a user.
+// ListPrivacyZones returns all private zones for a user.
 func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.PrivacyZone, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, is_active, created_at
+			radius_m, color, is_active, created_at
 		FROM user_privacy_zones
 		WHERE user_id = $1
 		ORDER BY created_at`,
@@ -1741,7 +1741,7 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 	var zones []model.PrivacyZone
 	for rows.Next() {
 		var z model.PrivacyZone
-		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt); err != nil {
+		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan privacy zone: %w", err)
 		}
 		zones = append(zones, z)
@@ -1752,17 +1752,17 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 	return zones, nil
 }
 
-// CreatePrivacyZone creates a new privacy zone.
-func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, lng float64, radiusM int) (*model.PrivacyZone, error) {
+// CreatePrivacyZone creates a new private zone.
+func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, lng float64, radiusM int, color string) (*model.PrivacyZone, error) {
 	var z model.PrivacyZone
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO user_privacy_zones (user_id, name, center, radius_m)
-		VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5)
+		INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color)
+		VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6)
 		RETURNING id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, is_active, created_at`,
-		userID, name, lat, lng, radiusM,
-	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt)
+			radius_m, color, is_active, created_at`,
+		userID, name, lat, lng, radiusM, color,
+	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create privacy zone: %w", err)
 	}
@@ -1791,6 +1791,11 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 		args = append(args, *update.RadiusM)
 		argIdx++
 	}
+	if update.Color != nil {
+		sets = append(sets, fmt.Sprintf("color = $%d", argIdx))
+		args = append(args, *update.Color)
+		argIdx++
+	}
 	if update.IsActive != nil {
 		sets = append(sets, fmt.Sprintf("is_active = $%d", argIdx))
 		args = append(args, *update.IsActive)
@@ -1806,13 +1811,13 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, is_active, created_at`,
+			radius_m, color, is_active, created_at`,
 		strings.Join(sets, ", "),
 	)
 
 	var z model.PrivacyZone
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt,
+		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1828,11 +1833,11 @@ func (db *DB) getPrivacyZone(ctx context.Context, zoneID, userID string) (*model
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, name,
 			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, is_active, created_at
+			radius_m, color, is_active, created_at
 		FROM user_privacy_zones
 		WHERE id = $1 AND user_id = $2`,
 		zoneID, userID,
-	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.IsActive, &z.CreatedAt)
+	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

@@ -98,7 +98,7 @@ func (p *PrivacyZonesImporter) Import(ctx context.Context, params ImportParams) 
 			continue
 		}
 
-		_, err = params.DB.CreatePrivacyZone(ctx, params.UserID, zoneName, lat, lng, radiusM)
+		_, err = params.DB.CreatePrivacyZone(ctx, params.UserID, zoneName, lat, lng, radiusM, "#F97316")
 		if err != nil {
 			slog.Warn("strava privacy_zones: create failed", "name", zoneName, "error", err)
 			result.Errors = append(result.Errors, "create zone "+zoneName+": "+err.Error())

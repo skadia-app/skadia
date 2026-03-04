@@ -33,6 +33,7 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		Lat     float64 `json:"lat"`
 		Lng     float64 `json:"lng"`
 		RadiusM int     `json:"radius_m"`
+		Color   string  `json:"color"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -46,8 +47,11 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "radius_m must be positive", r.URL.Path)
 		return
 	}
+	if req.Color == "" {
+		req.Color = "#F97316"
+	}
 
-	zone, err := h.DB.CreatePrivacyZone(r.Context(), userID, req.Name, req.Lat, req.Lng, req.RadiusM)
+	zone, err := h.DB.CreatePrivacyZone(r.Context(), userID, req.Name, req.Lat, req.Lng, req.RadiusM, req.Color)
 	if err != nil {
 		slog.Error("create privacy zone failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create privacy zone", r.URL.Path)
