@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, type Segment } from '@/api/segments'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
+import SegmentEditModal from '@/components/SegmentEditModal'
+import DifficultyBadge from '@/components/DifficultyBadge'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren',
@@ -58,6 +60,7 @@ export default function SegmentsPage() {
   const [searchInput, setSearchInput] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
+  const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
 
   // Debounced search
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
@@ -187,23 +190,37 @@ export default function SegmentsPage() {
                          hover:shadow-sm transition-all cursor-pointer group"
             >
               <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <svg className={`w-5 h-5 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor">
                     <path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} />
                   </svg>
-                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors truncate">
                     {segment.name}
                   </h3>
+                  {segment.segment_type === 'trail' && (
+                    <DifficultyBadge meta={segment.segment_type_meta ?? {}} />
+                  )}
                 </div>
-                <button
-                  onClick={(e) => handleDelete(e, segment.id)}
-                  className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Segment loeschen"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }}
+                    className="p-1 rounded text-neutral-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                    title="Segment bearbeiten"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(e, segment.id)}
+                    className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    title="Segment loeschen"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400">
@@ -239,14 +256,22 @@ export default function SegmentsPage() {
           onClose={() => setSelectedSegmentId(null)}
         />
       )}
+
+      {/* Edit Modal */}
+      {editingSegment && (
+        <SegmentEditModal segment={editingSegment} onClose={() => setEditingSegment(null)} />
+      )}
     </div>
   )
 }
 
 function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: string; segmentName: string; onClose: () => void }) {
+  const [direction, setDirection] = useState<'all' | 'forward' | 'reverse'>('all')
+  const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
+
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['segment-leaderboard', segmentId],
-    queryFn: () => fetchSegmentLeaderboard(segmentId),
+    queryKey: ['segment-leaderboard', segmentId, direction],
+    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse),
   })
 
   return (
@@ -260,14 +285,26 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bestenliste</h2>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">{segmentName}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1">
+              {(['all', 'forward', 'reverse'] as const).map(dir => (
+                <button key={dir}
+                  onClick={() => setDirection(dir)}
+                  className={`px-2 py-1 text-xs rounded ${direction === dir ? 'bg-orange-500 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                >
+                  {dir === 'all' ? 'Alle' : dir === 'forward' ? '→' : '←'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 p-4">
