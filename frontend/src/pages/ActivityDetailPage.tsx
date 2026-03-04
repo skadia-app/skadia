@@ -30,6 +30,8 @@ import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
 import ClimbProChart from '@/components/ClimbProChart'
 import ClimbsSection from '@/components/ClimbsSection'
+import StopsSection from '@/components/StopsSection'
+import SurfacesSection from '@/components/SurfacesSection'
 import ActivitySegments from '@/components/ActivitySegments'
 import DetectedLapsTable from '@/components/DetectedLapsTable'
 
@@ -264,6 +266,12 @@ export default function ActivityDetailPage() {
 
       {/* Anstiege */}
       <ClimbsSection activityId={activity.id} />
+
+      {/* Stopps */}
+      <StopsSection activityId={activity.id} />
+
+      {/* Untergrund */}
+      <SurfacesSection activityId={activity.id} />
 
       {/* Erkannte Runden */}
       <DetectedLapsTable activityId={activity.id} />

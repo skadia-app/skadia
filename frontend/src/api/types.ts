@@ -173,6 +173,24 @@ export interface Climb {
   category: string
 }
 
+export interface ActivityStop {
+  id: string
+  started_at: string
+  ended_at: string
+  duration_s: number
+  lat?: number
+  lng?: number
+  name?: string
+}
+
+export interface ActivitySurface {
+  id: string
+  surface_type: string
+  path_type: string
+  length_m: number
+  percentage: number
+}
+
 export interface DetectedLap {
   id: string
   activity_id: string
