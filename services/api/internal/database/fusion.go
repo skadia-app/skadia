@@ -46,22 +46,26 @@ func (db *DB) MarkAsFusionSource(ctx context.Context, activityID string) error {
 	return err
 }
 
-// FindFusionCandidates sucht Aktivitäten die zeitlich nahe beieinander liegen
-// (max. 30 Minuten). Sport-Typ wird bewusst NICHT gefiltert, da dieselbe Aktivität
+// FindFusionCandidates sucht Aktivitäten die zeitlich nahe beieinander liegen.
+// timeWindowMin gibt das maximale Zeitfenster in Minuten an (Default 30).
+// Sport-Typ wird bewusst NICHT gefiltert, da dieselbe Aktivität
 // auf verschiedenen Geräten mit unterschiedlichem Sport-Typ geloggt werden kann
 // (z.B. Wanderung als "cycling" auf Radcomputer + "hiking" auf GPS-Gerät).
 // Gibt IDs von Kandidaten zurück (max. 10).
-func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityID string) ([]string, error) {
+func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityID string, timeWindowMin int) ([]string, error) {
+	if timeWindowMin <= 0 {
+		timeWindowMin = 30
+	}
 	var candidateIDs []string
 	rows, err := db.Pool.Query(ctx, `
         SELECT b.id FROM activities a
         JOIN activities b ON b.user_id = a.user_id
             AND b.id != a.id
-            AND ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= 1800
+            AND ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= $3
             AND b.is_fusion_source = FALSE
         WHERE a.id = $1 AND a.user_id = $2
         LIMIT 10`,
-		activityID, userID,
+		activityID, userID, timeWindowMin*60,
 	)
 	if err != nil {
 		return nil, err

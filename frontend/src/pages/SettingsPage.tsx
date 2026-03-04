@@ -686,7 +686,7 @@ function ImportSettingsSection() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['import-settings'] }),
   })
 
-  const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75 }
+  const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
@@ -731,7 +731,31 @@ function ImportSettingsSection() {
           <span>95 % (weniger Kandidaten)</span>
         </div>
         <p className="text-xs text-neutral-400 mt-1">
-          Aktivitäten werden als Fusion-Kandidaten vorgeschlagen wenn sie maximal 30 Minuten auseinanderliegen und ihre GPS-Spur mindestens so ähnlich ist. Gleiche Strecken an anderen Tagen werden nicht erkannt.
+          Aktivitäten werden als Fusion-Kandidaten vorgeschlagen wenn sie innerhalb des eingestellten Zeitfensters liegen und ihre GPS-Spur mindestens so ähnlich ist. Gleiche Strecken an anderen Tagen werden nicht erkannt.
+        </p>
+      </div>
+
+      {/* Zeitfenster Fusionserkennung */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          <span>Zeitfenster Fusionserkennung</span>
+          <span className="tabular-nums font-mono">{s.fusion_time_window_min} min</span>
+        </div>
+        <input
+          type="range"
+          min={5}
+          max={120}
+          step={5}
+          value={s.fusion_time_window_min}
+          onChange={e => mut.mutate({ ...s, fusion_time_window_min: Number(e.target.value) })}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+        />
+        <div className="flex justify-between text-xs text-neutral-400">
+          <span>5 min (strenger)</span>
+          <span>120 min (großzügiger)</span>
+        </div>
+        <p className="text-xs text-neutral-400 mt-1">
+          Maximaler Zeitabstand zwischen zwei Aktivitäten damit sie als Fusionskandidaten erkannt werden. 30 Minuten empfohlen — z.B. für eine Wanderung mit Radcomputer + GPS-Gerät gestartet mit kurzem Versatz.
         </p>
       </div>
     </section>

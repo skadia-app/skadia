@@ -58,7 +58,13 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	activityID := chi.URLParam(r, "id")
 
-	ids, err := h.DB.FindFusionCandidates(r.Context(), userID, activityID)
+	settings, err := h.DB.GetImportSettings(r.Context(), userID)
+	timeWindowMin := 30
+	if err == nil && settings != nil && settings.FusionTimeWindowMin > 0 {
+		timeWindowMin = settings.FusionTimeWindowMin
+	}
+
+	ids, err := h.DB.FindFusionCandidates(r.Context(), userID, activityID, timeWindowMin)
 	if err != nil {
 		slog.Error("find fusion candidates", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to find fusion candidates", r.URL.Path)

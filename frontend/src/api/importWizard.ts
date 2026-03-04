@@ -27,6 +27,7 @@ export interface ScanResult {
 export interface ImportSettings {
   conflict_strategy: ConflictStrategy
   gps_duplicate_threshold: number
+  fusion_time_window_min: number
 }
 
 export async function scanGarminExport(sourcePath: string): Promise<ScanResult> {

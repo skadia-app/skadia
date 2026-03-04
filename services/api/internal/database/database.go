@@ -2749,11 +2749,12 @@ func (db *DB) GetImportSettings(ctx context.Context, userID string) (*model.Impo
 	var s model.ImportSettings
 	err := db.Pool.QueryRow(ctx,
 		`SELECT COALESCE(import_conflict_strategy, 'enrich_missing'),
-		        COALESCE(gps_duplicate_threshold, 75)
+		        COALESCE(gps_duplicate_threshold, 75),
+		        COALESCE(fusion_time_window_min, 30)
 		 FROM users WHERE id = $1`, userID,
-	).Scan(&s.ConflictStrategy, &s.GPSDuplicateThreshold)
+	).Scan(&s.ConflictStrategy, &s.GPSDuplicateThreshold, &s.FusionTimeWindowMin)
 	if err != nil {
-		return &model.ImportSettings{ConflictStrategy: "enrich_missing", GPSDuplicateThreshold: 75}, nil
+		return &model.ImportSettings{ConflictStrategy: "enrich_missing", GPSDuplicateThreshold: 75, FusionTimeWindowMin: 30}, nil
 	}
 	return &s, nil
 }
@@ -2761,8 +2762,8 @@ func (db *DB) GetImportSettings(ctx context.Context, userID string) (*model.Impo
 // UpdateImportSettings speichert die Import-Einstellungen eines Nutzers.
 func (db *DB) UpdateImportSettings(ctx context.Context, userID string, s *model.ImportSettings) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE users SET import_conflict_strategy = $2, gps_duplicate_threshold = $3 WHERE id = $1`,
-		userID, s.ConflictStrategy, s.GPSDuplicateThreshold,
+		`UPDATE users SET import_conflict_strategy = $2, gps_duplicate_threshold = $3, fusion_time_window_min = $4 WHERE id = $1`,
+		userID, s.ConflictStrategy, s.GPSDuplicateThreshold, s.FusionTimeWindowMin,
 	)
 	return err
 }
