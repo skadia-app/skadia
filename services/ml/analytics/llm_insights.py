@@ -74,7 +74,10 @@ async def generate_explanation(insight_type: str, data: dict) -> str | None:
                 f"{LLM_BASE_URL}/chat/completions",
                 json={
                     "model": LLM_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [
+                        {"role": "system", "content": "/no_think"},
+                        {"role": "user", "content": prompt},
+                    ],
                     "max_tokens": 200,
                     "temperature": 0.5,
                 },
