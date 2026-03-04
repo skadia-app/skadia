@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"time"
 
@@ -79,6 +80,114 @@ func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes [
 	}
 
 	return nil, nil
+}
+
+// CheckTier2 prüft ob zwei bereits importierte Aktivitäten fusioniert werden sollten.
+// activityID ist die Referenz-Aktivität; threshold ist der GPS-Schwellwert (0–100, Default 75).
+// timeWindowMin ist das Zeitfenster für Kandidaten-Suche (Default 30).
+// Gibt FusionCandidates zurück (GPS-Ähnlichkeit >= threshold).
+func CheckTier2(ctx context.Context, db *database.DB, userID string, activityID string, threshold float64, timeWindowMin int) ([]FusionCandidate, error) {
+	if threshold <= 0 {
+		threshold = 75
+	}
+	if timeWindowMin <= 0 {
+		timeWindowMin = 30
+	}
+
+	// Zeitfenster-Kandidaten (existierende DB-Abfrage)
+	candidateIDs, err := db.FindFusionCandidates(ctx, userID, activityID, timeWindowMin)
+	if err != nil || len(candidateIDs) == 0 {
+		return nil, err
+	}
+
+	// GPS-Streams der Referenz-Aktivität laden
+	streamsA, err := db.GetStreams(ctx, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("load streams A: %w", err)
+	}
+	trackA := extractLatLng(streamsA)
+	if len(trackA) < 10 {
+		return nil, nil // kein GPS → kein Tier-2
+	}
+
+	var results []FusionCandidate
+	for _, candidateID := range candidateIDs {
+		streamsB, err := db.GetStreams(ctx, candidateID)
+		if err != nil || len(streamsB) < 10 {
+			continue
+		}
+		trackB := extractLatLng(streamsB)
+		if len(trackB) < 10 {
+			continue
+		}
+
+		pct := GPSSimilarityPercent(trackA, trackB)
+		if pct < threshold {
+			continue
+		}
+
+		// Zeitdifferenz
+		var timeDiff float64
+		actA, _ := db.GetActivity(ctx, activityID)
+		actB, _ := db.GetActivity(ctx, candidateID)
+		if actA != nil && actB != nil {
+			timeDiff = math.Abs(actB.StartedAt.Sub(actA.StartedAt).Seconds())
+		}
+
+		results = append(results, FusionCandidate{
+			ActivityIDA:    activityID,
+			ActivityIDB:    candidateID,
+			OverlapPercent: pct,
+			FieldRichnessA: countFields(actA),
+			FieldRichnessB: countFields(actB),
+			TimeDiffSec:    timeDiff,
+		})
+	}
+	return results, nil
+}
+
+// extractLatLng extrahiert lat/lng aus Streams (filtert nil).
+func extractLatLng(streams []model.StreamResponse) []LatLng {
+	var out []LatLng
+	for _, s := range streams {
+		if s.Lat != nil && s.Lng != nil {
+			out = append(out, LatLng{Lat: *s.Lat, Lng: *s.Lng})
+		}
+	}
+	return out
+}
+
+// countFields zählt wie viele Metrik-Felder einer Aktivität gesetzt sind.
+func countFields(a *model.Activity) int {
+	if a == nil {
+		return 0
+	}
+	n := 0
+	if a.AvgHeartRate != nil && *a.AvgHeartRate > 0 {
+		n++
+	}
+	if a.MaxHeartRate != nil && *a.MaxHeartRate > 0 {
+		n++
+	}
+	if a.AvgPowerW != nil && *a.AvgPowerW > 0 {
+		n++
+	}
+	if a.MaxPowerW != nil && *a.MaxPowerW > 0 {
+		n++
+	}
+	if a.AvgCadence != nil && *a.AvgCadence > 0 {
+		n++
+	}
+	if a.AvgTemperatureC != nil && *a.AvgTemperatureC != 0 {
+		n++
+	}
+	if a.ElevationGainM != nil && *a.ElevationGainM > 0 {
+		n++
+	}
+	if a.DistanceM != nil && *a.DistanceM > 0 {
+		n++
+	}
+	return n
 }
 
 // missingFields gibt die Namen aller fehlenden Metriken (nil oder 0) zurück.

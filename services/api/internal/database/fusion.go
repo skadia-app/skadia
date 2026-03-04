@@ -6,6 +6,37 @@ import (
 	"fmt"
 )
 
+// GetFusionQueueActivities gibt die letzten N Aktivitäten eines Users zurück
+// die GPS-Daten haben und noch nicht is_fusion_source sind.
+// Wird für den Tier-2-Queue verwendet.
+func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit int) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT a.id
+		FROM activities a
+		WHERE a.user_id = $1
+		  AND a.is_fusion_source = FALSE
+		  AND a.fusion_sources IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM activity_streams s
+		      WHERE s.activity_id = a.id AND s.lat IS NOT NULL
+		  )
+		ORDER BY a.started_at DESC
+		LIMIT $2`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // FusionSources mappt Stream-Typen auf Quell-Aktivitäts-IDs.
 // z.B. {"gps": "uuid-A", "hr": "uuid-B", "power": "uuid-B"}
 type FusionSources map[string]string

@@ -344,6 +344,9 @@ func main() {
 			r.Post("/import/strava/scan", h.ScanStravaExport)
 			r.Post("/import/strava/start", h.StartStravaImport)
 			r.Get("/import/strava/jobs/{id}", h.GetStravaImportJob)
+
+			// Fusion Queue (Tier-2 GPS-Similarity)
+			r.Get("/fusion-queue", h.GetFusionQueue)
 		})
 	})
 
