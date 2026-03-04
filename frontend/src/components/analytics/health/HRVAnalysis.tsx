@@ -76,6 +76,7 @@ export default function HRVAnalysisChart() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
 
@@ -87,7 +88,7 @@ export default function HRVAnalysisChart() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     if (!chartRef.current || !data) return
@@ -310,7 +311,7 @@ export default function HRVAnalysisChart() {
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
             Fehler beim Laden der HRV-Daten
           </div>
-        ) : !data || data.points.length === 0 ? (
+        ) : !data || !data.points?.length ? (
           <div className="flex flex-col items-center justify-center h-[280px] gap-2 text-neutral-400">
             <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

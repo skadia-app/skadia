@@ -32,6 +32,8 @@ function levelLabel(level: string): string {
     high: 'Hoch', good: 'Gut', optimal: 'Optimal',
     moderate: 'Moderat', medium: 'Mittel',
     low: 'Niedrig', poor: 'Schlecht', critical: 'Kritisch',
+    // German labels from ML service
+    hoch: 'Hoch', moderat: 'Moderat', niedrig: 'Niedrig',
   }
   return labels[level.toLowerCase()] ?? level
 }
@@ -58,6 +60,7 @@ export default function ReadinessGauge() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     const observer = new ResizeObserver(() => chart.resize())
@@ -67,7 +70,7 @@ export default function ReadinessGauge() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     if (!chartRef.current || !data) return

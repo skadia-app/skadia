@@ -112,7 +112,7 @@ export default function CorrelationsPanel() {
     )
   }
 
-  const correlations = data ?? []
+  const correlations = Array.isArray(data) ? data : []
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">

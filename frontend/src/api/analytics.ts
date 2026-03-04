@@ -36,18 +36,17 @@ export interface PMCDay {
   acwr: number
 }
 
-export interface YearProgressionPoint {
+export interface YearProgressionYearData {
   year: number
-  month: number
-  value: number
-  cumulative: number
+  monthly: number[]    // 12 values, index 0 = Jan
+  cumulative: number[] // 12 cumulative values
+  total: number
 }
 
 export interface YearProgressionResponse {
   metric: string
-  years: number[]
-  data: YearProgressionPoint[]
-  best_year: { year: number; total: number }
+  years: YearProgressionYearData[]
+  best_year: number  // year number of the best year
 }
 
 export interface TrainingVolumePoint {
@@ -174,7 +173,15 @@ export interface TrainingVolumeSeriesPoint {
 }
 
 export async function fetchTrainingVolumeSeries(params: string): Promise<TrainingVolumeSeriesPoint[]> {
-  return apiClient(`/analytics/training-volume?${params}`)
+  const result = await apiClient<{ periods?: Array<{ period: string; by_sport: Record<string, number> }> } | TrainingVolumeSeriesPoint[]>(`/analytics/training-volume?${params}`)
+  if (Array.isArray(result)) return result
+  const flat: TrainingVolumeSeriesPoint[] = []
+  for (const period of ((result as { periods?: Array<{ period: string; by_sport: Record<string, number> }> })?.periods ?? [])) {
+    for (const [sport_type, value] of Object.entries(period.by_sport ?? {})) {
+      flat.push({ period: period.period, sport_type, value: value as number })
+    }
+  }
+  return flat
 }
 
 // === Zone Distribution Time-Series (for ZoneDistributionChart) ===
@@ -186,7 +193,18 @@ export interface ZoneDistributionSeriesPoint {
 }
 
 export async function fetchZoneDistributionSeries(params: string): Promise<ZoneDistributionSeriesPoint[]> {
-  return apiClient(`/analytics/zone-distribution?${params}`)
+  const result = await apiClient<{ periods?: Array<{ period: string; zones: Record<string, number> }> } | ZoneDistributionSeriesPoint[]>(`/analytics/zone-distribution?${params}`)
+  if (Array.isArray(result)) return result
+  const flat: ZoneDistributionSeriesPoint[] = []
+  for (const period of ((result as { periods?: Array<{ period: string; zones: Record<string, number> }> })?.periods ?? [])) {
+    for (const [zoneKey, seconds] of Object.entries(period.zones ?? {})) {
+      const zone_index = parseInt(zoneKey.replace('zone_', ''), 10)
+      if (!isNaN(zone_index)) {
+        flat.push({ period: period.period, zone_index, total_seconds: seconds as number })
+      }
+    }
+  }
+  return flat
 }
 
 // === Stats Tab Types ===
@@ -199,16 +217,12 @@ export interface LifetimeStats {
   total_elapsed_time_s: number
   total_calories: number
   active_days: number
-  efficiency: number
-  avg_duration_s: number
   countries: number
   earth_laps: number
   moon_trips: number
   everest_count: number
-  max_day_streak: { count: number; from: string; to: string }
-  max_week_streak: { count: number; from: string; to: string }
   current_day_streak: number
-  current_week_streak: number
+  max_day_streak: number
 }
 
 export interface EddingtonResult {
@@ -303,7 +317,8 @@ export async function fetchZoneDistribution(params: string): Promise<ZoneDistrib
 }
 
 export async function fetchPersonalRecords(params: string): Promise<PersonalRecord[]> {
-  return apiClient(`/analytics/personal-records?${params}`)
+  const result = await apiClient<{ records: PersonalRecord[] } | PersonalRecord[]>(`/analytics/personal-records?${params}`)
+  return Array.isArray(result) ? result : ((result as { records: PersonalRecord[] })?.records ?? [])
 }
 
 export async function fetchHRVAnalysis(params: string): Promise<HRVAnalysis> {
@@ -319,7 +334,8 @@ export async function fetchWeight(params: string): Promise<WeightEntry[]> {
 }
 
 export async function fetchHealthMetrics(params: string): Promise<HealthMetric[]> {
-  return apiClient(`/analytics/health-metrics?${params}`)
+  const result = await apiClient<{ metrics: HealthMetric[] } | HealthMetric[]>(`/analytics/health-metrics?${params}`)
+  return Array.isArray(result) ? result : ((result as { metrics: HealthMetric[] })?.metrics ?? [])
 }
 
 export async function fetchLifetimeStats(params: string): Promise<LifetimeStats> {
@@ -331,14 +347,32 @@ export async function fetchEddington(params: string): Promise<EddingtonResult> {
 }
 
 export async function fetchDistributions(params: string): Promise<Distribution[]> {
-  return apiClient(`/analytics/distributions?${params}`)
+  const result = await apiClient<{ rows?: Distribution[] } | Distribution[]>(`/analytics/distributions?${params}`)
+  if (Array.isArray(result)) return result
+  return (result as { rows?: Distribution[] })?.rows ?? []
 }
 
 export async function fetchYearlyOverview(params: string): Promise<YearlyOverviewRow[]> {
-  return apiClient(`/analytics/yearly-overview?${params}`)
+  const result = await apiClient<{ rows?: YearlyOverviewRow[] } | YearlyOverviewRow[]>(`/analytics/yearly-overview?${params}`)
+  if (Array.isArray(result)) return result
+  return (result as { rows?: YearlyOverviewRow[] })?.rows ?? []
 }
 
-export async function fetchStreaks(params: string): Promise<{ day: LifetimeStats['max_day_streak']; week: LifetimeStats['max_week_streak'] }> {
+export interface StreakPeriod {
+  from: string
+  to: string
+  count: number
+}
+
+export interface StreaksResponse {
+  current_streak: number
+  max_streak: number
+  current_week_streak: number
+  max_week_streak: number
+  streak_history: StreakPeriod[]
+}
+
+export async function fetchStreaks(params: string): Promise<StreaksResponse> {
   return apiClient(`/analytics/streaks?${params}`)
 }
 
@@ -375,9 +409,9 @@ export async function fetchHRVRecovery(): Promise<HRVRecovery> {
 }
 
 export async function fetchSleepAnalysis(params: string): Promise<SleepAnalysis> {
-  return apiClient(`/analytics/sleep/analysis?${params}`)
+  return apiClient(`/analytics/sleep?${params}`)
 }
 
 export async function fetchWeightAnalysis(params: string): Promise<WeightAnalysis> {
-  return apiClient(`/analytics/weight/analysis?${params}`)
+  return apiClient(`/analytics/weight?${params}`)
 }

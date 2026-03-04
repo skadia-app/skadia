@@ -5,6 +5,7 @@ import { AccentColorProvider } from '@/lib/accentColor'
 import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
+import ErrorBoundary from '@/components/ErrorBoundary'
 
 // Lazy-loaded pages (route-based code splitting)
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
@@ -47,6 +48,7 @@ export default function App() {
     <ThemeProvider>
       <AccentColorProvider>
       <GlobalSportSettingsProvider>
+      <ErrorBoundary>
       <Suspense fallback={<LoadingSpinner />}>
         <Routes>
           {/* Public routes */}
@@ -65,6 +67,7 @@ export default function App() {
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="health" element={<Navigate to="/analytics/health" replace />} />
               <Route path="analytics" element={<AnalyticsPage />}>
+                <Route index element={<Navigate to="/analytics/training" replace />} />
                 <Route path="training" element={<TrainingTab />} />
                 <Route path="health" element={<HealthTab />} />
                 <Route path="stats" element={<StatsTab />} />
@@ -89,6 +92,7 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      </ErrorBoundary>
       </GlobalSportSettingsProvider>
       </AccentColorProvider>
     </ThemeProvider>

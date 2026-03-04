@@ -73,6 +73,7 @@ export default function TrainingVolumeChart() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     const obs = new ResizeObserver(() => chart.resize())
@@ -82,7 +83,7 @@ export default function TrainingVolumeChart() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     if (!chartRef.current || !data || data.length === 0) return

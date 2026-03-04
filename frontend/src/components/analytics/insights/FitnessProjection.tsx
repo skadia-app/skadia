@@ -102,6 +102,7 @@ export default function FitnessProjection() {
   // Build a simple bar chart showing current vs target for each projection
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     const observer = new ResizeObserver(() => chart.resize())
@@ -111,10 +112,10 @@ export default function FitnessProjection() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
+    if (!chartRef.current || !data || !Array.isArray(data) || data.length === 0) return
 
     const labels = data.map(p => metricLabel(p.metric))
     const current = data.map(p => p.current)
@@ -178,7 +179,7 @@ export default function FitnessProjection() {
     )
   }
 
-  if (isError || !data || data.length === 0) {
+  if (isError || !data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">Ziel-Projektionen</h3>
@@ -193,6 +194,8 @@ export default function FitnessProjection() {
     )
   }
 
+  const projections = Array.isArray(data) ? data : []
+
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
       <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Ziel-Projektionen</h3>
@@ -204,7 +207,7 @@ export default function FitnessProjection() {
 
       {/* Detail cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {data.map((projection, i) => (
+        {projections.map((projection, i) => (
           <ProjectionCard key={i} projection={projection} />
         ))}
       </div>

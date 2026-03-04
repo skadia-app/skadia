@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
-import { BarChart } from 'echarts/charts'
+import { BarChart, PieChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
@@ -12,10 +12,11 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchZoneDistributionSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 
-echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 type ZoneType = 'hr' | 'power' | 'cadence'
 type Granularity = 'week' | 'month'
+type ChartView = 'bar' | 'pie'
 
 // Zone colors: 1=green, 2=light-green, 3=yellow, 4=orange, 5=red
 const ZONE_COLORS = [
@@ -39,6 +40,7 @@ export default function ZoneDistributionChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [zoneType, setZoneType] = useState<ZoneType>('hr')
   const [granularity, setGranularity] = useState<Granularity>('month')
+  const [chartView, setChartView] = useState<ChartView>('bar')
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
@@ -59,6 +61,7 @@ export default function ZoneDistributionChart() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     const obs = new ResizeObserver(() => chart.resize())
@@ -68,12 +71,12 @@ export default function ZoneDistributionChart() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     if (!chartRef.current || !data || data.length === 0) return
 
-    // Group by period
+    // Group by period and zone
     const periodsSet = new Set<string>()
     const zoneIndicesSet = new Set<number>()
     for (const point of data) {
@@ -83,86 +86,139 @@ export default function ZoneDistributionChart() {
     const periods = Array.from(periodsSet).sort()
     const zoneIndices = Array.from(zoneIndicesSet).sort((a, b) => a - b)
 
-    const series = zoneIndices.map(zoneIdx => {
-      const values = periods.map(period => {
-        const match = data.find(d => d.period === period && d.zone_index === zoneIdx)
-        return match ? match.total_seconds : 0
-      })
-      const color = ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af'
-      const label = ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`
-      return {
-        name: label,
-        type: 'bar' as const,
-        stack: 'zones',
-        data: values,
-        itemStyle: { color },
-        emphasis: { focus: 'series' as const },
-      }
-    })
+    // Aggregate totals per zone (for pie view)
+    const zoneTotals = new Map<number, number>()
+    for (const point of data) {
+      zoneTotals.set(point.zone_index, (zoneTotals.get(point.zone_index) ?? 0) + point.total_seconds)
+    }
 
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 36, bottom: 40 },
-      legend: {
-        data: zoneIndices.map(i => ZONE_LABELS[i - 1] ?? `Zone ${i}`),
-        top: 4,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemWidth: 12,
-        itemHeight: 8,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          let total = 0
-          for (const p of items) {
-            if (p.value <= 0) continue
-            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-              <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${formatSeconds(p.value)}</strong>
+    let option: EChartsCoreOption
+
+    if (chartView === 'pie') {
+      const pieData = zoneIndices.map(zoneIdx => ({
+        name: ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`,
+        value: zoneTotals.get(zoneIdx) ?? 0,
+        itemStyle: { color: ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af' },
+      })).filter(d => d.value > 0)
+
+      option = {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const p = params as { name: string; value: number; percent: number }
+            return `<div style="font-size:12px">
+              <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
+              <div>${formatSeconds(p.value)} (${p.percent?.toFixed(1)}%)</div>
             </div>`
-            total += p.value
-          }
-          html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
-            Gesamt: <strong style="color:#f9fafb">${formatSeconds(total)}</strong>
-          </div>`
-          return html
-        },
-      },
-      xAxis: {
-        type: 'category',
-        data: periods,
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          rotate: periods.length > 12 ? 30 : 0,
-        },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => {
-            const h = v / 3600
-            return h >= 1 ? `${h.toFixed(0)}h` : `${(v / 60).toFixed(0)}m`
           },
         },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      series,
+        legend: {
+          orient: 'vertical',
+          right: 8,
+          top: 'center',
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemWidth: 10,
+          itemHeight: 10,
+        },
+        series: [
+          {
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['40%', '50%'],
+            data: pieData,
+            label: { show: false },
+            emphasis: {
+              itemStyle: { shadowBlur: 8, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+            },
+          },
+        ],
+      }
+    } else {
+      const series = zoneIndices.map(zoneIdx => {
+        const values = periods.map(period => {
+          const match = data.find(d => d.period === period && d.zone_index === zoneIdx)
+          return match ? match.total_seconds : 0
+        })
+        const color = ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af'
+        const label = ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`
+        return {
+          name: label,
+          type: 'bar' as const,
+          stack: 'zones',
+          data: values,
+          itemStyle: { color },
+          emphasis: { focus: 'series' as const },
+        }
+      })
+
+      option = {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 36, bottom: 40 },
+        legend: {
+          data: zoneIndices.map(i => ZONE_LABELS[i - 1] ?? `Zone ${i}`),
+          top: 4,
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemWidth: 12,
+          itemHeight: 8,
+        },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            let total = 0
+            for (const p of items) {
+              if (p.value <= 0) continue
+              html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${formatSeconds(p.value)}</strong>
+              </div>`
+              total += p.value
+            }
+            html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
+              Gesamt: <strong style="color:#f9fafb">${formatSeconds(total)}</strong>
+            </div>`
+            return html
+          },
+        },
+        xAxis: {
+          type: 'category',
+          data: periods,
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            rotate: periods.length > 12 ? 30 : 0,
+          },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            formatter: (v: number) => {
+              const h = v / 3600
+              return h >= 1 ? `${h.toFixed(0)}h` : `${(v / 60).toFixed(0)}m`
+            },
+          },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        series,
+      }
     }
 
     chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+  }, [data, chartView])
 
   const hasData = data && data.length > 0
 
@@ -174,7 +230,7 @@ export default function ZoneDistributionChart() {
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           Zonenverteilung
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Zone type toggle */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             {(['hr', 'power', 'cadence'] as ZoneType[]).map(zt => (
@@ -189,23 +245,46 @@ export default function ZoneDistributionChart() {
               </button>
             ))}
           </div>
-          {/* Granularity toggle */}
+          {/* Granularity toggle — only relevant in bar mode */}
+          {chartView === 'bar' && (
+            <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+              <button
+                onClick={() => setGranularity('week')}
+                className={granularity === 'week'
+                  ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
+              >
+                Woche
+              </button>
+              <button
+                onClick={() => setGranularity('month')}
+                className={granularity === 'month'
+                  ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
+              >
+                Monat
+              </button>
+            </div>
+          )}
+          {/* Chart view toggle: bar ↔ pie */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
-              onClick={() => setGranularity('week')}
-              className={granularity === 'week'
+              onClick={() => setChartView('bar')}
+              title="Zeitverlauf (Balken)"
+              className={chartView === 'bar'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
             >
-              Woche
+              Balken
             </button>
             <button
-              onClick={() => setGranularity('month')}
-              className={granularity === 'month'
+              onClick={() => setChartView('pie')}
+              title="Gesamtverteilung (Kreis)"
+              className={chartView === 'pie'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'}
             >
-              Monat
+              Kreis
             </button>
           </div>
         </div>

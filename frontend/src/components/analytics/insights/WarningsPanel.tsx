@@ -82,7 +82,7 @@ export default function WarningsPanel() {
 
   // Sort: danger → warning → info
   const severityOrder: Record<Warning['severity'], number> = { danger: 0, warning: 1, info: 2 }
-  const warnings = (data ?? []).slice().sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
+  const warnings = (Array.isArray(data) ? data : []).slice().sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">

@@ -29,7 +29,7 @@ const BACKEND_OPTIONS = [
 
 const DEFAULT_URLS: Record<string, string> = {
   ollama: 'http://ollama:11434',
-  llama_server: 'http://host.containers.internal:8080/v1',
+  llama_server: 'http://host.containers.internal:8181/v1',
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com',
 }

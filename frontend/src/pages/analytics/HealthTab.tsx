@@ -177,11 +177,11 @@ export default function HealthTab() {
       {/* Recovery Score — full width */}
       <RecoveryScoreCard />
 
-      {/* 2-column grid: Sleep | Weight */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SleepAnalysisChart />
-        <WeightChart />
-      </div>
+      {/* Sleep — full width */}
+      <SleepAnalysisChart />
+
+      {/* Weight — full width */}
+      <WeightChart />
 
       {/* Health Metrics Grid — full width */}
       <HealthMetricsGrid />

@@ -9,6 +9,7 @@ import {
   LegendComponent,
   DataZoomComponent,
   MarkAreaComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchAnalyticsPMC } from '@/api/analytics'
@@ -22,6 +23,7 @@ echarts.use([
   LegendComponent,
   DataZoomComponent,
   MarkAreaComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 
@@ -125,6 +127,7 @@ export default function PMCChartExtended() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
 
@@ -136,7 +139,7 @@ export default function PMCChartExtended() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     if (!chartRef.current || !data) return
@@ -167,9 +170,28 @@ export default function PMCChartExtended() {
     const option: EChartsCoreOption = {
       backgroundColor: 'transparent',
       grid: { left: 52, right: 20, top: 40, bottom: 80 },
+      toolbox: {
+        right: 8,
+        top: 2,
+        feature: {
+          dataZoom: {
+            yAxisIndex: 'none',
+            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+            brushStyle: {
+              borderWidth: 1,
+              color: 'rgba(59,130,246,0.1)',
+              borderColor: 'rgba(59,130,246,0.6)',
+            },
+          },
+          restore: { title: 'Zurücksetzen' },
+        },
+        iconStyle: { borderColor: '#6b7280' },
+        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+      },
       legend: {
         data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose'],
         top: 6,
+        right: 80,
         textStyle: { fontSize: 11, color: '#9ca3af' },
       },
       tooltip: {
@@ -400,7 +422,7 @@ export default function PMCChartExtended() {
           <div className="flex items-center justify-center h-[340px] text-sm text-neutral-400">
             Fehler beim Laden der PMC-Daten
           </div>
-        ) : !data || data.days.length === 0 ? (
+        ) : !data || (data.days?.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center h-[340px] gap-2 text-neutral-400">
             <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

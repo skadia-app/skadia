@@ -171,7 +171,7 @@ export default function LifetimeStats() {
       )}
 
       {/* Streak badges */}
-      {(data.current_day_streak > 0 || data.max_day_streak?.count > 0) && (
+      {(data.current_day_streak > 0 || data.max_day_streak > 0) && (
         <div>
           <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
             Serien
@@ -180,22 +180,8 @@ export default function LifetimeStats() {
             {data.current_day_streak > 0 && (
               <StreakBadge label="Aktuelle Serie" count={data.current_day_streak} />
             )}
-            {data.max_day_streak?.count > 0 && (
-              <StreakBadge label="Rekord-Serie" count={data.max_day_streak.count} isRecord />
-            )}
-            {data.current_week_streak > 0 && (
-              <div className="flex items-center gap-2 px-4 py-2.5 rounded-full border font-medium text-sm bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-300">
-                <span>Wochen-Serie</span>
-                <span className="font-bold tabular-nums">{data.current_week_streak}</span>
-                <span className="text-xs opacity-70">{data.current_week_streak === 1 ? 'Woche' : 'Wochen'}</span>
-              </div>
-            )}
-            {data.max_week_streak?.count > 0 && (
-              <div className="flex items-center gap-2 px-4 py-2.5 rounded-full border font-medium text-sm bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300">
-                <span>Wochen-Rekord</span>
-                <span className="font-bold tabular-nums">{data.max_week_streak.count}</span>
-                <span className="text-xs opacity-70">{data.max_week_streak.count === 1 ? 'Woche' : 'Wochen'}</span>
-              </div>
+            {data.max_day_streak > 0 && (
+              <StreakBadge label="Rekord-Serie" count={data.max_day_streak} isRecord />
             )}
           </div>
         </div>

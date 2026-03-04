@@ -74,17 +74,19 @@ export default function YearProgressionChart() {
     retry: 1,
   })
 
-  // Initialize selected years when data arrives
+  // Initialize selected years when data arrives — default: last 3 years
   useEffect(() => {
-    if (!data) return
-    // Default: last 3 years selected
-    const years = data.years.slice(-3)
-    setSelectedYears(new Set(years))
-  }, [data?.years.join(',')])
+    if (!data?.years?.length) return
+    const yearNumbers = data.years.map(y => y.year)
+    const last3 = yearNumbers.slice(-3)
+    setSelectedYears(new Set(last3))
+  }, [data?.years?.map(y => y.year).join(',')])
 
-  // Initialize charts
+  // Initialize charts when container divs become available (data-driven)
   useEffect(() => {
     if (!monthlyRef.current || !cumulRef.current) return
+    if (monthlyChart.current) monthlyChart.current.dispose()
+    if (cumulChart.current) cumulChart.current.dispose()
 
     const mc = echarts.init(monthlyRef.current, undefined, { renderer: 'canvas' })
     const cc = echarts.init(cumulRef.current, undefined, { renderer: 'canvas' })
@@ -106,15 +108,15 @@ export default function YearProgressionChart() {
       monthlyChart.current = null
       cumulChart.current = null
     }
-  }, [])
+  }, [data])
 
   const metricMeta = METRIC_OPTIONS.find(m => m.value === metric)!
 
   // Update charts when data or selection changes
   useEffect(() => {
-    if (!monthlyChart.current || !cumulChart.current || !data) return
+    if (!monthlyChart.current || !cumulChart.current || !data?.years?.length) return
 
-    const years = data.years.filter(y => selectedYears.has(y))
+    const selectedYearData = data.years.filter(y => selectedYears.has(y.year))
 
     const tooltipFormatter = (params: unknown) => {
       const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
@@ -162,35 +164,31 @@ export default function YearProgressionChart() {
         splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
       },
       legend: {
-        data: years.map(String),
+        data: selectedYearData.map(y => String(y.year)),
         top: 4,
         textStyle: { fontSize: 11, color: '#9ca3af' },
       },
     }
 
     // Monthly chart
-    const monthlySeries = years.map((year, idx) => {
-      const yearData = Array(12).fill(null)
-      for (const point of data.data) {
-        if (point.year === year) {
-          yearData[point.month - 1] = point.value
-        }
-      }
+    const monthlySeries = selectedYearData.map((yearData, idx) => {
+      // monthly is a 12-element array; replace 0 with null for missing months
+      const monthValues = yearData.monthly.map(v => (v > 0 ? v : null))
       const color = YEAR_COLORS[idx % YEAR_COLORS.length]
       return chartType === 'line'
         ? {
-            name: String(year),
+            name: String(yearData.year),
             type: 'line' as const,
-            data: yearData,
+            data: monthValues,
             showSymbol: false,
             lineStyle: { width: 2, color },
             itemStyle: { color },
             connectNulls: false,
           }
         : {
-            name: String(year),
+            name: String(yearData.year),
             type: 'bar' as const,
-            data: yearData,
+            data: monthValues,
             itemStyle: { color },
           }
     })
@@ -201,18 +199,13 @@ export default function YearProgressionChart() {
     }
 
     // Cumulative chart
-    const cumulSeries = years.map((year, idx) => {
-      const yearData = Array(12).fill(null)
-      for (const point of data.data) {
-        if (point.year === year) {
-          yearData[point.month - 1] = point.cumulative
-        }
-      }
+    const cumulSeries = selectedYearData.map((yearData, idx) => {
+      const cumValues = yearData.cumulative.map(v => (v > 0 ? v : null))
       const color = YEAR_COLORS[idx % YEAR_COLORS.length]
       return {
-        name: String(year),
+        name: String(yearData.year),
         type: 'line' as const,
-        data: yearData,
+        data: cumValues,
         showSymbol: false,
         lineStyle: { width: 2, color },
         itemStyle: { color },
@@ -241,12 +234,14 @@ export default function YearProgressionChart() {
     })
   }
 
+  const yearNumbers = data?.years?.map(y => y.year) ?? []
   const bestYear = data?.best_year
-  const bestConverted = bestYear
-    ? (bestYear.total * metricMeta.factor).toFixed(metricMeta.decimals)
+  const bestYearData = data?.years?.find(y => y.year === bestYear)
+  const bestConverted = bestYearData
+    ? (bestYearData.total * metricMeta.factor).toFixed(metricMeta.decimals)
     : null
 
-  const hasData = data && data.data.length > 0
+  const hasData = (data?.years?.length ?? 0) > 0
 
   return (
     <div className="space-y-3">
@@ -258,7 +253,7 @@ export default function YearProgressionChart() {
           </h3>
           {bestYear && bestConverted && (
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              — Bestes Jahr: <strong className="text-neutral-700 dark:text-neutral-200">{bestYear.year}</strong> mit {bestConverted} {metricMeta.unit}
+              — Bestes Jahr: <strong className="text-neutral-700 dark:text-neutral-200">{bestYear}</strong> mit {bestConverted} {metricMeta.unit}
             </span>
           )}
         </div>
@@ -296,9 +291,9 @@ export default function YearProgressionChart() {
       </div>
 
       {/* Year toggles */}
-      {data && data.years.length > 0 && (
+      {hasData && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          {data.years.map((year, idx) => {
+          {yearNumbers.map((year, idx) => {
             const color = YEAR_COLORS[idx % YEAR_COLORS.length]
             const active = selectedYears.has(year)
             return (

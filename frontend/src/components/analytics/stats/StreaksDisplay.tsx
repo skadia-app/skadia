@@ -6,12 +6,10 @@ import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchStreaks } from '@/api/analytics'
-import type { LifetimeStats } from '@/api/analytics'
+import type { StreaksResponse } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
-
-type StreaksData = { day: LifetimeStats['max_day_streak']; week: LifetimeStats['max_week_streak'] }
 
 function fmtDate(dateStr: string | undefined): string {
   if (!dateStr) return '—'
@@ -148,7 +146,7 @@ export default function StreaksDisplay() {
   const { toQueryString } = useAnalyticsFilters()
   const params = toQueryString()
 
-  const { data, isLoading, isError } = useQuery<StreaksData>({
+  const { data, isLoading, isError } = useQuery<StreaksResponse>({
     queryKey: ['streaks', params],
     queryFn: () => fetchStreaks(params),
     retry: 1,
@@ -174,10 +172,8 @@ export default function StreaksDisplay() {
     )
   }
 
-  const dayRecord = data.day
-  const weekRecord = data.week
-
-  const hasAnyStreak = (dayRecord?.count ?? 0) > 0 || (weekRecord?.count ?? 0) > 0
+  const hasAnyStreak = (data.current_streak > 0) || (data.max_streak > 0) ||
+    (data.current_week_streak > 0) || (data.max_week_streak > 0)
 
   if (!hasAnyStreak) {
     return (
@@ -189,11 +185,7 @@ export default function StreaksDisplay() {
     )
   }
 
-  // Build streak history from day record data
-  const streakHistory: Array<{ count: number; from: string; to: string }> = []
-  if (dayRecord?.count && dayRecord.from && dayRecord.to) {
-    streakHistory.push({ count: dayRecord.count, from: dayRecord.from, to: dayRecord.to })
-  }
+  const streakHistory = data.streak_history ?? []
 
   return (
     <div className="space-y-4">
@@ -202,19 +194,15 @@ export default function StreaksDisplay() {
       <div className="grid grid-cols-2 gap-3">
         <StreakCard
           label="Tages-Serie"
-          current={0}
-          record={dayRecord?.count ?? 0}
+          current={data.current_streak}
+          record={data.max_streak}
           unit="Tag/Tage"
-          recordFrom={dayRecord?.from}
-          recordTo={dayRecord?.to}
         />
         <StreakCard
           label="Wochen-Serie"
-          current={0}
-          record={weekRecord?.count ?? 0}
+          current={data.current_week_streak}
+          record={data.max_week_streak}
           unit="Woche/Wochen"
-          recordFrom={weekRecord?.from}
-          recordTo={weekRecord?.to}
         />
       </div>
 

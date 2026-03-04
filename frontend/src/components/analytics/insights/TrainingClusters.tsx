@@ -60,6 +60,7 @@ export default function TrainingClusters() {
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     const observer = new ResizeObserver(() => chart.resize())
@@ -69,10 +70,10 @@ export default function TrainingClusters() {
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
+    if (!chartRef.current || !data || !Array.isArray(data) || data.length === 0) return
 
     const option: EChartsCoreOption = {
       backgroundColor: 'transparent',
@@ -94,8 +95,8 @@ export default function TrainingClusters() {
           radius: ['40%', '72%'],
           center: ['50%', '50%'],
           data: data.map((c, i) => ({
-            name: c.label,
-            value: c.size,
+            name: c.label ?? `Cluster ${i + 1}`,
+            value: c.size ?? (c as unknown as Record<string, number>).count ?? 0,
             itemStyle: { color: CLUSTER_COLORS[i % CLUSTER_COLORS.length] },
           })),
           label: {
@@ -123,7 +124,7 @@ export default function TrainingClusters() {
     )
   }
 
-  if (isError || !data || data.length === 0) {
+  if (isError || !data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">Trainings-Cluster</h3>
@@ -141,7 +142,16 @@ export default function TrainingClusters() {
     )
   }
 
-  const total = data.reduce((sum, c) => sum + c.size, 0)
+  // ML service may return `count` instead of `size` — normalize defensively
+  const clusters = Array.isArray(data) ? data.map(c => ({
+    ...c,
+    size: c.size ?? (c as unknown as Record<string, number>).count ?? 0,
+    avg_distance_m: c.avg_distance_m ?? 0,
+    avg_hr: c.avg_hr ?? null,
+    sport_types: c.sport_types ?? [],
+    description: c.description ?? null,
+  })) : []
+  const total = clusters.reduce((sum, c) => sum + c.size, 0)
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
@@ -154,7 +164,7 @@ export default function TrainingClusters() {
 
       {/* Legend with details */}
       <div className="space-y-2">
-        {data.map((cluster, i) => {
+        {clusters.map((cluster, i) => {
           const pct = total > 0 ? ((cluster.size / total) * 100).toFixed(1) : '0'
           return (
             <div key={cluster.id} className="flex items-start gap-2 text-xs">
@@ -181,7 +191,7 @@ export default function TrainingClusters() {
         })}
       </div>
 
-      <ClusterInterpretation clusters={data} />
+      <ClusterInterpretation clusters={clusters} />
     </div>
   )
 }
