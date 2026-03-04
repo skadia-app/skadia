@@ -208,7 +208,7 @@ func (db *DB) GetSplits(ctx context.Context, activityID string) ([]model.SplitRe
 			total_distance_m, total_ascent_m, total_descent_m, total_calories,
 			avg_speed_ms, max_speed_ms, avg_vert_speed_ms,
 			start_lat, start_lng, end_lat, end_lng,
-			start_elevation_m
+			start_elevation_m, climbing_grade
 		FROM activity_splits
 		WHERE activity_id = $1
 		ORDER BY message_index`,
@@ -230,7 +230,7 @@ func (db *DB) GetSplits(ctx context.Context, activityID string) ([]model.SplitRe
 			&r.TotalDistanceM, &r.TotalAscentM, &r.TotalDescentM, &r.TotalCalories,
 			&r.AvgSpeedMS, &r.MaxSpeedMS, &r.AvgVertSpeedMS,
 			&r.StartLat, &r.StartLng, &r.EndLat, &r.EndLng,
-			&r.StartElevationM,
+			&r.StartElevationM, &r.ClimbingGrade,
 		); err != nil {
 			return nil, fmt.Errorf("scan split: %w", err)
 		}
@@ -243,6 +243,21 @@ func (db *DB) GetSplits(ctx context.Context, activityID string) ([]model.SplitRe
 		result = []model.SplitResponse{}
 	}
 	return result, nil
+}
+
+// UpdateSplitClimbingGrade sets the climbing_grade for a specific split of an activity.
+// Returns false if no matching split was found.
+func (db *DB) UpdateSplitClimbingGrade(ctx context.Context, activityID, splitID string, grade *string) (bool, error) {
+	tag, err := db.Pool.Exec(ctx, `
+		UPDATE activity_splits
+		SET climbing_grade = $1
+		WHERE id = $2 AND activity_id = $3`,
+		grade, splitID, activityID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update split climbing grade: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (db *DB) DeleteSplits(ctx context.Context, activityID string) error {

@@ -378,6 +378,9 @@ type SplitRecord struct {
 	EndLat            float64
 	EndLng            float64
 	StartElevationM   float64
+	// ClimbingGrade is the manually entered difficulty rating (e.g. "6b", "V4", "7A+").
+	// Not parseable from standard FIT data; must be entered by the user after import.
+	ClimbingGrade string
 }
 
 // SplitResponse is the API response for a single split.
@@ -402,6 +405,13 @@ type SplitResponse struct {
 	EndLat            *float64   `json:"end_lat,omitempty"`
 	EndLng            *float64   `json:"end_lng,omitempty"`
 	StartElevationM   *float64   `json:"start_elevation_m,omitempty"`
+	// ClimbingGrade is the manually set difficulty grade for a climbing/bouldering route.
+	ClimbingGrade *string `json:"climbing_grade,omitempty"`
+}
+
+// SplitUpdate is the PATCH request body for updating a split.
+type SplitUpdate struct {
+	ClimbingGrade *string `json:"climbing_grade"`
 }
 
 // SplitSummaryRecord holds extracted split summary data from FIT split_summary messages.

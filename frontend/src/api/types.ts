@@ -498,6 +498,8 @@ export interface Split {
   end_lng?: number
   avg_hr?: number
   max_hr?: number
+  /** Manuell eingetragener Schwierigkeitsgrad (z.B. "6b", "V4", "7A+") */
+  climbing_grade?: string
 }
 
 export interface SplitSummary {

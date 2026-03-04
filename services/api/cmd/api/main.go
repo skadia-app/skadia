@@ -181,6 +181,7 @@ func main() {
 			r.Get("/activities/{id}/sensors", h.GetSensors)
 			r.Get("/activities/{id}/laps", h.GetLaps)
 			r.Get("/activities/{id}/splits", h.GetSplits)
+			r.Patch("/activities/{id}/splits/{splitId}", h.PatchSplit)
 			r.Get("/activities/{id}/lengths", h.GetLengths)
 			r.Get("/activities/{id}/climbs", h.GetActivityClimbs)
 			r.Get("/activities/{id}/climb-pro", h.GetClimbProEvents)

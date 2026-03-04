@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
@@ -67,4 +70,30 @@ func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, events)
+}
+
+// PatchSplit updates mutable split fields (currently only climbing_grade).
+// PATCH /api/v1/activities/{id}/splits/{splitId}
+func (h *Handler) PatchSplit(w http.ResponseWriter, r *http.Request) {
+	activityID := chi.URLParam(r, "id")
+	splitID := chi.URLParam(r, "splitId")
+
+	var update model.SplitUpdate
+	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		return
+	}
+
+	found, err := h.DB.UpdateSplitClimbingGrade(r.Context(), activityID, splitID, update.ClimbingGrade)
+	if err != nil {
+		slog.Error("update split climbing grade failed", "error", err, "split_id", splitID)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update split", r.URL.Path)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "Not Found", "split not found", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

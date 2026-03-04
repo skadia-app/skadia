@@ -250,7 +250,7 @@ export default function ActivityDetailPage() {
 
       {/* Splits (Klettern zuerst) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (
-        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" subType={activity.sub_type ?? undefined} />
+        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" subType={activity.sub_type ?? undefined} activityId={activity.id} />
       )}
 
       {/* Bahnen */}
@@ -258,7 +258,7 @@ export default function ActivityDetailPage() {
 
       {/* Splits (alle anderen) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type !== 'rock_climbing' && (
-        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType={activity.sport_type} />
+        <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType={activity.sport_type} activityId={activity.id} />
       )}
 
       {/* ClimbPro */}
