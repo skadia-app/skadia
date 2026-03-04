@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
+	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
@@ -131,6 +132,7 @@ func main() {
 			LLMEncryptionKey:   cfg.LLMEncryptionKey,
 		},
 	}
+	analyticsHandler := analyticshandler.NewHandler(db)
 
 	// Router
 	r := chi.NewRouter()
@@ -347,6 +349,9 @@ func main() {
 
 			// Fusion Queue (Tier-2 GPS-Similarity)
 			r.Get("/fusion-queue", h.GetFusionQueue)
+
+			// Analytics
+			r.Mount("/analytics", analyticsHandler.Routes())
 		})
 	})
 

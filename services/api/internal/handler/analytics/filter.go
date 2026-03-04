@@ -1,0 +1,293 @@
+package analytics
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AnalyticsFilter struct {
+	From             time.Time
+	To               time.Time
+	SportTypes       []string
+	Tags             []string
+	WeatherCondition *string
+	TempMin          *float64
+	TempMax          *float64
+	TimeOfDay        []string
+	Intensity        []string
+	DistMin          *float64
+	DistMax          *float64
+	ElevMin          *float64
+	ElevMax          *float64
+	GearID           *uuid.UUID
+	IsCommute        *bool
+	IsRace           *bool
+	PaceMinSecKm     *float64 // Pace in sec/km (Minimum = schnellste)
+	PaceMaxSecKm     *float64 // Pace in sec/km (Maximum = langsamste)
+	Countries        []string
+	Seasons          []string
+	Weekdays         []int
+	HRMin            *int
+	HRMax            *int
+	PowerMin         *int
+	PowerMax         *int
+}
+
+func ParseFilters(r *http.Request) AnalyticsFilter {
+	q := r.URL.Query()
+	f := AnalyticsFilter{}
+
+	if v := q.Get("from"); v != "" {
+		f.From, _ = time.Parse("2006-01-02", v)
+	}
+	if v := q.Get("to"); v != "" {
+		f.To, _ = time.Parse("2006-01-02", v)
+	}
+	if f.To.IsZero() {
+		f.To = time.Now()
+	}
+	if v := q.Get("sport_type"); v != "" {
+		f.SportTypes = strings.Split(v, ",")
+	}
+	if v := q.Get("tags"); v != "" {
+		f.Tags = strings.Split(v, ",")
+	}
+	if v := q.Get("weather"); v != "" {
+		f.WeatherCondition = &v
+	}
+	f.TempMin = parseOptFloat(q.Get("temp_min"))
+	f.TempMax = parseOptFloat(q.Get("temp_max"))
+	if v := q.Get("time_of_day"); v != "" {
+		f.TimeOfDay = strings.Split(v, ",")
+	}
+	if v := q.Get("intensity"); v != "" {
+		f.Intensity = strings.Split(v, ",")
+	}
+	f.DistMin = parseOptFloat(q.Get("dist_min"))
+	f.DistMax = parseOptFloat(q.Get("dist_max"))
+	f.ElevMin = parseOptFloat(q.Get("elev_min"))
+	f.ElevMax = parseOptFloat(q.Get("elev_max"))
+	if v := q.Get("gear_id"); v != "" {
+		if uid, err := uuid.Parse(v); err == nil {
+			f.GearID = &uid
+		}
+	}
+	f.IsCommute = parseOptBool(q.Get("is_commute"))
+	f.IsRace = parseOptBool(q.Get("is_race"))
+	f.PaceMinSecKm = parseOptFloat(q.Get("pace_min")) // sec/km
+	f.PaceMaxSecKm = parseOptFloat(q.Get("pace_max")) // sec/km
+	if v := q.Get("country"); v != "" {
+		f.Countries = strings.Split(v, ",")
+	}
+	if v := q.Get("season"); v != "" {
+		f.Seasons = strings.Split(v, ",")
+	}
+	if v := q.Get("weekday"); v != "" {
+		for _, d := range strings.Split(v, ",") {
+			if n, err := strconv.Atoi(d); err == nil {
+				f.Weekdays = append(f.Weekdays, n)
+			}
+		}
+	}
+	f.HRMin = parseOptInt(q.Get("hr_min"))
+	f.HRMax = parseOptInt(q.Get("hr_max"))
+	f.PowerMin = parseOptInt(q.Get("power_min"))
+	f.PowerMax = parseOptInt(q.Get("power_max"))
+
+	return f
+}
+
+// BuildWhereClause erzeugt SQL WHERE-Bedingungen und zugehörige Parameter.
+// startIdx gibt den Startindex für $N Placeholder an (1-basiert).
+// Gibt clause string und args []any zurück.
+func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
+	var conditions []string
+	var args []any
+	idx := startIdx
+
+	if !f.From.IsZero() {
+		conditions = append(conditions, "a.started_at >= $"+strconv.Itoa(idx))
+		args = append(args, f.From)
+		idx++
+	}
+	if !f.To.IsZero() {
+		conditions = append(conditions, "a.started_at <= $"+strconv.Itoa(idx))
+		args = append(args, f.To)
+		idx++
+	}
+	if len(f.SportTypes) > 0 {
+		conditions = append(conditions, "a.sport_type = ANY($"+strconv.Itoa(idx)+")")
+		args = append(args, f.SportTypes)
+		idx++
+	}
+	if len(f.Tags) > 0 {
+		conditions = append(conditions, "a.tags && $"+strconv.Itoa(idx))
+		args = append(args, f.Tags)
+		idx++
+	}
+	if f.IsCommute != nil {
+		conditions = append(conditions, "a.is_commute = $"+strconv.Itoa(idx))
+		args = append(args, *f.IsCommute)
+		idx++
+	}
+	if f.IsRace != nil {
+		conditions = append(conditions, "a.is_race = $"+strconv.Itoa(idx))
+		args = append(args, *f.IsRace)
+		idx++
+	}
+	if f.PaceMinSecKm != nil {
+		// Pace sec/km → avg_speed_ms: pace(sec/km) = 1000/speed(m/s)
+		// pace_min (schnellste) → höchste Geschwindigkeit
+		maxSpeed := 1000.0 / *f.PaceMinSecKm
+		conditions = append(conditions, "a.avg_speed_ms <= $"+strconv.Itoa(idx))
+		args = append(args, maxSpeed)
+		idx++
+	}
+	if f.PaceMaxSecKm != nil {
+		// pace_max (langsamste) → niedrigste Geschwindigkeit
+		minSpeed := 1000.0 / *f.PaceMaxSecKm
+		conditions = append(conditions, "a.avg_speed_ms >= $"+strconv.Itoa(idx))
+		args = append(args, minSpeed)
+		idx++
+	}
+	if f.GearID != nil {
+		conditions = append(conditions, "a.gear_id = $"+strconv.Itoa(idx))
+		args = append(args, *f.GearID)
+		idx++
+	}
+	if len(f.Countries) > 0 {
+		conditions = append(conditions, "a.start_country = ANY($"+strconv.Itoa(idx)+")")
+		args = append(args, f.Countries)
+		idx++
+	}
+	if len(f.Intensity) > 0 {
+		conditions = append(conditions, "a.intensity = ANY($"+strconv.Itoa(idx)+")")
+		args = append(args, f.Intensity)
+		idx++
+	}
+	if f.DistMin != nil {
+		conditions = append(conditions, "a.distance_m >= $"+strconv.Itoa(idx))
+		args = append(args, *f.DistMin*1000)
+		idx++
+	}
+	if f.DistMax != nil {
+		conditions = append(conditions, "a.distance_m <= $"+strconv.Itoa(idx))
+		args = append(args, *f.DistMax*1000)
+		idx++
+	}
+	if f.ElevMin != nil {
+		conditions = append(conditions, "a.elevation_gain_m >= $"+strconv.Itoa(idx))
+		args = append(args, *f.ElevMin)
+		idx++
+	}
+	if f.ElevMax != nil {
+		conditions = append(conditions, "a.elevation_gain_m <= $"+strconv.Itoa(idx))
+		args = append(args, *f.ElevMax)
+		idx++
+	}
+	if f.HRMin != nil {
+		conditions = append(conditions, "a.avg_heart_rate >= $"+strconv.Itoa(idx))
+		args = append(args, *f.HRMin)
+		idx++
+	}
+	if f.HRMax != nil {
+		conditions = append(conditions, "a.avg_heart_rate <= $"+strconv.Itoa(idx))
+		args = append(args, *f.HRMax)
+		idx++
+	}
+	if f.PowerMin != nil {
+		conditions = append(conditions, "a.avg_power_w >= $"+strconv.Itoa(idx))
+		args = append(args, *f.PowerMin)
+		idx++
+	}
+	if f.PowerMax != nil {
+		conditions = append(conditions, "a.avg_power_w <= $"+strconv.Itoa(idx))
+		args = append(args, *f.PowerMax)
+		idx++
+	}
+	if len(f.Weekdays) > 0 {
+		conditions = append(conditions, "EXTRACT(DOW FROM a.started_at) = ANY($"+strconv.Itoa(idx)+")")
+		args = append(args, f.Weekdays)
+		idx++
+	}
+	if len(f.Seasons) > 0 {
+		// Frühling=3,4,5 Sommer=6,7,8 Herbst=9,10,11 Winter=12,1,2
+		var months []int
+		for _, s := range f.Seasons {
+			switch s {
+			case "fruehling":
+				months = append(months, 3, 4, 5)
+			case "sommer":
+				months = append(months, 6, 7, 8)
+			case "herbst":
+				months = append(months, 9, 10, 11)
+			case "winter":
+				months = append(months, 12, 1, 2)
+			}
+		}
+		if len(months) > 0 {
+			conditions = append(conditions, "EXTRACT(MONTH FROM a.started_at) = ANY($"+strconv.Itoa(idx)+")")
+			args = append(args, months)
+			idx++
+		}
+	}
+	if f.TempMin != nil {
+		conditions = append(conditions, "a.weather_temp_c >= $"+strconv.Itoa(idx))
+		args = append(args, *f.TempMin)
+		idx++
+	}
+	if f.TempMax != nil {
+		conditions = append(conditions, "a.weather_temp_c <= $"+strconv.Itoa(idx))
+		args = append(args, *f.TempMax)
+		idx++
+	}
+	if len(f.TimeOfDay) > 0 {
+		conditions = append(conditions, "a.time_of_day && $"+strconv.Itoa(idx))
+		args = append(args, f.TimeOfDay)
+		idx++
+	}
+	if f.WeatherCondition != nil {
+		conditions = append(conditions, "a.weather_condition ILIKE $"+strconv.Itoa(idx))
+		args = append(args, "%"+*f.WeatherCondition+"%")
+		idx++
+	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	return " AND " + strings.Join(conditions, " AND "), args
+}
+
+func parseOptFloat(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+func parseOptInt(s string) *int {
+	if s == "" {
+		return nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+func parseOptBool(s string) *bool {
+	if s == "" {
+		return nil
+	}
+	v := s == "true" || s == "1"
+	return &v
+}
