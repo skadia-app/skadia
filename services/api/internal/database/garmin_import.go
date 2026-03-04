@@ -153,6 +153,24 @@ func (db *DB) GetActivityIDByGarminID(ctx context.Context, userID string, garmin
 	return id, err
 }
 
+// CountExistingGarminActivityIDs returns how many of the given Garmin activity IDs
+// are already stored for the user. It uses a single bulk query (ANY) for efficiency.
+func (db *DB) CountExistingGarminActivityIDs(ctx context.Context, userID string, garminIDs []int64) (int, error) {
+	if len(garminIDs) == 0 {
+		return 0, nil
+	}
+	var count int
+	err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activities
+		 WHERE user_id = $1 AND garmin_activity_id = ANY($2)`,
+		userID, garminIDs,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count existing garmin activity ids: %w", err)
+	}
+	return count, nil
+}
+
 // SetGearGarminID sets the garmin_gear_id on an existing gear item.
 func (db *DB) SetGearGarminID(ctx context.Context, gearID, garminGearID string) error {
 	_, err := db.Pool.Exec(ctx,

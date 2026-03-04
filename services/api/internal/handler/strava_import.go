@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -132,4 +133,111 @@ func (h *Handler) GetStravaImportJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, job)
+}
+
+// ScanStravaExport analyses a Strava export directory without writing to the DB.
+// For each import module it returns how many items were found, how many already
+// exist in the database, and how many would be new imports.
+//
+// POST /api/v1/import/strava/scan
+// Body: {"source_path": "/path/to/strava/export"}
+func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	var req struct {
+		SourcePath string `json:"source_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourcePath == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "source_path required", r.URL.Path)
+		return
+	}
+
+	src := strava.NewDirSource(req.SourcePath)
+	registry := h.buildStravaRegistry()
+
+	type categoryStats struct {
+		Found    int `json:"found"`
+		Existing int `json:"existing"`
+		New      int `json:"new"`
+	}
+	result := map[string]categoryStats{}
+
+	// Detect all modules to get item counts
+	modules := registry.Detect(src)
+	for _, m := range modules {
+		if !m.Available {
+			continue
+		}
+		stats := categoryStats{Found: m.ItemCount}
+		// For activities: check how many Strava activity IDs already exist in the DB.
+		if m.Name == "activities" {
+			existing, err := scanExistingStravaActivities(r.Context(), h, userID, src)
+			if err != nil {
+				slog.Warn("strava scan: activity existence check failed", "error", err)
+			} else {
+				stats.Existing = existing
+			}
+		}
+		stats.New = stats.Found - stats.Existing
+		if stats.New < 0 {
+			stats.New = 0
+		}
+		result[m.Name] = stats
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// scanExistingStravaActivities reads activities.csv, collects all Strava activity IDs,
+// and returns a count of how many already exist in the DB. Read-only — no writes.
+func scanExistingStravaActivities(ctx context.Context, h *Handler, userID string, src *strava.DirSource) (int, error) {
+	rows, err := src.ReadCSV("activities.csv")
+	if err != nil || len(rows) < 2 {
+		return 0, nil
+	}
+
+	hdr := stravaCSVHeader(rows[0])
+	idColIdx, ok := hdr["Aktivitäts-ID"]
+	if !ok {
+		// Fallback: column 0 is always the activity ID
+		idColIdx = 0
+	}
+
+	var stravaIDs []int64
+	seen := make(map[int64]struct{})
+
+	for _, row := range rows[1:] {
+		if idColIdx >= len(row) {
+			continue
+		}
+		idStr := row[idColIdx]
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		stravaIDs = append(stravaIDs, id)
+	}
+
+	if len(stravaIDs) == 0 {
+		return 0, nil
+	}
+
+	return h.DB.CountExistingStravaActivityIDs(ctx, userID, stravaIDs)
+}
+
+// stravaCSVHeader builds a column-name → column-index map from a Strava CSV header row.
+func stravaCSVHeader(row []string) map[string]int {
+	h := make(map[string]int, len(row))
+	for i, col := range row {
+		h[col] = i
+	}
+	return h
 }

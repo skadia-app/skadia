@@ -286,9 +286,15 @@ func isActivityFile(name string) bool {
 		strings.HasSuffix(lower, ".tcx")
 }
 
-// extractActivityID parses the Garmin activity ID from the filename.
+// ExtractActivityID parses the Garmin activity ID from the filename.
 // Format: <email>_<activityId>_<rest>.<ext>
 // The email may contain underscore-like segments (it uses @ and .) so we split smartly.
+// Exported so that scan handlers in the handler package can reuse the same logic.
+func ExtractActivityID(filename string) int64 {
+	return extractActivityID(filename)
+}
+
+// extractActivityID is the internal implementation.
 func extractActivityID(filename string) int64 {
 	// Strip directory component
 	base := filepath.Base(filename)

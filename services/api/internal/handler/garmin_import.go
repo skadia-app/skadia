@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -132,4 +135,111 @@ func (h *Handler) GetGarminImportJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, job)
+}
+
+// ScanGarminExport analyses a Garmin export directory without writing to the DB.
+// For each import module it returns how many items were found, how many already
+// exist in the database, and how many would be new imports.
+//
+// POST /api/v1/import/garmin/scan
+// Body: {"source_path": "/path/to/garmin/export"}
+func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	var req struct {
+		SourcePath string `json:"source_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourcePath == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "source_path required", r.URL.Path)
+		return
+	}
+
+	src := garmin.NewDirSource(req.SourcePath)
+	registry := h.buildGarminRegistry()
+
+	type categoryStats struct {
+		Found    int `json:"found"`
+		Existing int `json:"existing"`
+		New      int `json:"new"`
+	}
+	result := map[string]categoryStats{}
+
+	// Detect all modules to get item counts
+	modules := registry.Detect(src)
+	for _, m := range modules {
+		if !m.Available {
+			continue
+		}
+		stats := categoryStats{Found: m.ItemCount}
+		// For activities: check how many Garmin activity IDs already exist in the DB.
+		if m.Name == "activities" {
+			existing, err := scanExistingGarminActivities(r.Context(), h, userID, src)
+			if err != nil {
+				slog.Warn("garmin scan: activity existence check failed", "error", err)
+			} else {
+				stats.Existing = existing
+			}
+		}
+		stats.New = stats.Found - stats.Existing
+		if stats.New < 0 {
+			stats.New = 0
+		}
+		result[m.Name] = stats
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// scanExistingGarminActivities iterates all activity files inside the Garmin UploadedFiles ZIPs,
+// collects their Garmin activity IDs, and returns a count of how many already exist in the DB.
+// This is read-only: no data is written.
+func scanExistingGarminActivities(ctx context.Context, h *Handler, userID string, src *garmin.DirSource) (int, error) {
+	zips, err := src.FindFiles("DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_*.zip")
+	if err != nil || len(zips) == 0 {
+		return 0, nil
+	}
+
+	var garminIDs []int64
+	seen := make(map[int64]struct{})
+
+	for _, z := range zips {
+		zr, err := zip.OpenReader(filepath.Join(src.BaseDir(), z))
+		if err != nil {
+			slog.Warn("garmin scan: cannot open zip", "zip", z, "error", err)
+			continue
+		}
+		for _, f := range zr.File {
+			if !isGarminActivityFile(f.Name) {
+				continue
+			}
+			id := garmin.ExtractActivityID(f.Name)
+			if id <= 0 {
+				continue
+			}
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			garminIDs = append(garminIDs, id)
+		}
+		zr.Close()
+	}
+
+	if len(garminIDs) == 0 {
+		return 0, nil
+	}
+
+	return h.DB.CountExistingGarminActivityIDs(ctx, userID, garminIDs)
+}
+
+// isGarminActivityFile returns true for FIT, GPX, and TCX files.
+func isGarminActivityFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".fit") ||
+		strings.HasSuffix(lower, ".gpx") ||
+		strings.HasSuffix(lower, ".tcx")
 }

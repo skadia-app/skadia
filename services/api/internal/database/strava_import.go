@@ -173,6 +173,24 @@ func (db *DB) ActivityExistsByStravaID(ctx context.Context, userID string, strav
 	return exists, nil
 }
 
+// CountExistingStravaActivityIDs returns how many of the given Strava activity IDs
+// are already stored for the user. It uses a single bulk query (ANY) for efficiency.
+func (db *DB) CountExistingStravaActivityIDs(ctx context.Context, userID string, stravaIDs []int64) (int, error) {
+	if len(stravaIDs) == 0 {
+		return 0, nil
+	}
+	var count int
+	err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activities
+		 WHERE user_id = $1 AND strava_activity_id = ANY($2)`,
+		userID, stravaIDs,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count existing strava activity ids: %w", err)
+	}
+	return count, nil
+}
+
 // GetActivityIDByStravaID gibt die interne ID einer Aktivität anhand der Strava-ID zurück.
 func (db *DB) GetActivityIDByStravaID(ctx context.Context, userID string, stravaID int64) (string, error) {
 	var id string

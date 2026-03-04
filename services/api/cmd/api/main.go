@@ -331,11 +331,13 @@ func main() {
 
 			// Garmin Import
 			r.Post("/import/garmin/detect", h.DetectGarminModules)
+			r.Post("/import/garmin/scan", h.ScanGarminExport)
 			r.Post("/import/garmin/start", h.StartGarminImport)
 			r.Get("/import/garmin/jobs/{id}", h.GetGarminImportJob)
 
 			// Strava Import
 			r.Post("/import/strava/detect", h.DetectStravaModules)
+			r.Post("/import/strava/scan", h.ScanStravaExport)
 			r.Post("/import/strava/start", h.StartStravaImport)
 			r.Get("/import/strava/jobs/{id}", h.GetStravaImportJob)
 		})
