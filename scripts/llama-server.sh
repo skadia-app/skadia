@@ -23,8 +23,8 @@
 set -euo pipefail
 
 LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
-LLAMA_MODEL="${LLAMA_MODEL:-data/models/qwen3-8b-q4_k_m.gguf}"
-LLAMA_PORT="${LLAMA_PORT:-8080}"
+LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3-8B-Instruct-Q4_K_M.gguf}"
+LLAMA_PORT="${LLAMA_PORT:-8181}"
 LLAMA_CTX="${LLAMA_CTX:-4096}"
 
 # Vulkan Device 0 = AMD Vega 56

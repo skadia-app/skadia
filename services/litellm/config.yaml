@@ -1,6 +1,23 @@
 model_list:
-  # Ollama-Backend (Container)
+  # llama-server Backend (Host-native, Vulkan/AMD Vega 56, Port 8181)
+  # Starten mit: ./scripts/llama-server.sh
   - model_name: skadia-default
+    litellm_params:
+      model: openai/qwen3-8b
+      api_base: http://host.containers.internal:8181/v1
+      api_key: "none"
+  - model_name: skadia-llama-default
+    litellm_params:
+      model: openai/qwen3-8b
+      api_base: http://host.containers.internal:8181/v1
+      api_key: "none"
+  - model_name: skadia-llama-vlm
+    litellm_params:
+      model: openai/qwen3-vl
+      api_base: http://host.containers.internal:8181/v1
+      api_key: "none"
+  # Ollama-Backend (Fallback)
+  - model_name: skadia-ollama-default
     litellm_params:
       model: ollama/qwen3:8b
       api_base: http://ollama:11434
@@ -12,23 +29,6 @@ model_list:
     litellm_params:
       model: ollama/qwen3-vl:4b
       api_base: http://ollama:11434
-  # llama-server Backend (Host-native, Vulkan/AMD Vega 56)
-  # Starten mit: ./scripts/llama-server.sh
-  - model_name: skadia-llama-default
-    litellm_params:
-      model: openai/qwen3-8b
-      api_base: http://host.containers.internal:8080/v1
-      api_key: "none"
-  - model_name: skadia-llama-vlm
-    litellm_params:
-      model: openai/qwen3-vl-30b
-      api_base: http://host.containers.internal:8080/v1
-      api_key: "none"
-  # Optional: Qwen3.5-35B-A3B (MoE, nur Produktion mit 24 GB+ VRAM)
-  # - model_name: skadia-analysis
-  #   litellm_params:
-  #     model: ollama/qwen3.5:35b-a3b
-  #     api_base: http://ollama:11434
 
 litellm_settings:
   drop_params: true
