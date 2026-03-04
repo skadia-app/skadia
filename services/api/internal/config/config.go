@@ -32,6 +32,11 @@ type Config struct {
 	ShadowFSBasePath string
 	HotfolderPath    string
 	HotfolderEnabled bool
+
+	// LLM / LiteLLM
+	LiteLLMConfigPath  string // writable path to litellm config.yaml
+	LiteLLMInternalURL string // e.g. http://litellm:4000
+	LLMEncryptionKey   string // 32-byte hex for AES-256-GCM API key encryption
 }
 
 func Load() (*Config, error) {
@@ -58,6 +63,10 @@ func Load() (*Config, error) {
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
 		HotfolderEnabled: os.Getenv("HOTFOLDER_ENABLED") == "true",
+
+		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
+		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
+		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
 	}
 
 	if cfg.DatabaseURL == "" {

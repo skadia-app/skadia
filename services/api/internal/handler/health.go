@@ -17,8 +17,15 @@ type Handler struct {
 	Events   *event.Publisher
 	Auth     *AuthConfig              // nil when auth is not configured
 	ShadowFS *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
+	Config   *HandlerConfig           // LLM/LiteLLM configuration
 
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
+}
+
+type HandlerConfig struct {
+	LiteLLMConfigPath  string
+	LiteLLMInternalURL string
+	LLMEncryptionKey   string
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
