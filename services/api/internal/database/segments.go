@@ -790,7 +790,7 @@ func sportGroupFromSportType(sportType string) string {
 // Idempotent: skips lifts that already have a matching segment.
 func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT l.id, l.osm_id, l.name, ST_AsGeoJSON(l.geom) AS geojson
+		SELECT l.osm_id, l.name, ST_AsGeoJSON(l.geom) AS geojson
 		FROM osm_lifts l
 		WHERE NOT EXISTS (
 			SELECT 1 FROM segments s WHERE s.osm_lift_id = l.osm_id
@@ -803,11 +803,10 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 
 	count := 0
 	for rows.Next() {
-		var id int64
 		var osmID int64
 		var name *string
 		var geojson string
-		if err := rows.Scan(&id, &osmID, &name, &geojson); err != nil {
+		if err := rows.Scan(&osmID, &name, &geojson); err != nil {
 			return count, err
 		}
 		segName := "Lift"
