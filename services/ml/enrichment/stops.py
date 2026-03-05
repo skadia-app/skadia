@@ -25,13 +25,12 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
     """Detect stops in the activity and match them to nearby POIs.
 
     A stop is defined as consecutive points where speed < 0.5 m/s for > 60 seconds.
-    Each detected stop is matched against osm_amenities within 50m.
+    All stop points are matched against osm_amenities in a single batch query via LATERAL.
     Writes results to activity_stops table.
 
     Returns the number of stops found.
     """
     async with pool.acquire() as conn:
-        # Fetch stream points with speed, time, and location
         stream_rows = await conn.fetch(
             """
             SELECT time, lat, lng, speed_ms
@@ -63,7 +62,6 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                         stop_points[-1]["time"] - stop_start["time"]
                     ).total_seconds()
                     if duration >= MIN_DURATION_S:
-                        # Use the median point as the stop location
                         mid = len(stop_points) // 2
                         stops.append(
                             {
@@ -107,37 +105,48 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             activity_id,
         )
 
-        for stop in stops:
-            # Try to match a POI
-            poi = await conn.fetchrow(
-                """
-                WITH stop_pt AS (
-                    SELECT ST_SetSRID(ST_MakePoint($2, $1), 4326) AS geom
-                )
-                SELECT a.osm_id, a.name, a.type AS tag_key, a.subtype AS tag_value,
-                       ROUND(ST_Distance(stop_pt.geom::geography, a.geom::geography))::int AS dist_m
-                FROM osm_amenities a, stop_pt
-                WHERE ST_DWithin(stop_pt.geom::geography, a.geom::geography, $3)
-                ORDER BY dist_m LIMIT 1
-                """,
-                stop["lat"],
-                stop["lng"],
-                POI_RADIUS_M,
+        # Batch POI lookup: one query for all stop points via LATERAL
+        lats = [s["lat"] for s in stops]
+        lngs = [s["lng"] for s in stops]
+
+        poi_rows = await conn.fetch(
+            """
+            WITH stops AS (
+                SELECT ordinality AS idx,
+                       ST_SetSRID(ST_MakePoint(lng, lat), 4326) AS geom
+                FROM unnest($1::float8[], $2::float8[])
+                WITH ORDINALITY AS t(lat, lng)
             )
+            SELECT s.idx, a.osm_id, a.name, a.tag_key, a.tag_value
+            FROM stops s
+            LEFT JOIN LATERAL (
+                SELECT a.osm_id, a.name, a.type AS tag_key, a.subtype AS tag_value
+                FROM osm_amenities a
+                WHERE ST_DWithin(s.geom::geography, a.geom::geography, $3)
+                ORDER BY ST_Distance(s.geom::geography, a.geom::geography)
+                LIMIT 1
+            ) a ON true
+            ORDER BY s.idx
+            """,
+            lats,
+            lngs,
+            float(POI_RADIUS_M),
+        )
 
-            poi_type = poi["tag_value"] if poi else None  # subtype is the specific value
-            poi_name = poi["name"] if poi else None
-            poi_osm_id = poi["osm_id"] if poi else None
+        # Map results back to stops by index (ordinality is 1-based)
+        poi_by_idx = {row["idx"]: row for row in poi_rows}
 
-            await conn.execute(
-                """
-                INSERT INTO activity_stops
-                    (activity_id, started_at, ended_at, duration_s,
-                     location, poi_type, poi_name, poi_osm_id)
-                VALUES ($1, $2, $3, $4,
-                        ST_SetSRID(ST_MakePoint($6, $5), 4326),
-                        $7, $8, $9)
-                """,
+        # Insert stops and gastronomy geo tags
+        stop_records = []
+        geo_tag_records = []
+
+        for i, stop in enumerate(stops):
+            poi = poi_by_idx.get(i + 1)
+            poi_type = poi["tag_value"] if poi and poi["tag_value"] else None
+            poi_name = poi["name"] if poi and poi["name"] else None
+            poi_osm_id = poi["osm_id"] if poi and poi["osm_id"] else None
+
+            stop_records.append((
                 activity_id,
                 stop["started_at"],
                 stop["ended_at"],
@@ -147,22 +156,14 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 poi_type,
                 poi_name,
                 poi_osm_id,
-            )
+            ))
 
-            # Write gastronomy geo tag for stops >= 10 min at a known gastronomy POI
             if (
                 stop["duration_s"] >= GASTRONOMY_MIN_DURATION_S
                 and poi_type in GASTRONOMY_TYPES
                 and poi_name
             ):
-                await conn.execute(
-                    """
-                    INSERT INTO activity_geo_tags
-                        (activity_id, category, name, osm_id, map_type,
-                         map_point_lat, map_point_lon, duration_min, meta)
-                    VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7)
-                    ON CONFLICT (activity_id, osm_id) DO NOTHING
-                    """,
+                geo_tag_records.append((
                     activity_id,
                     poi_name,
                     poi_osm_id,
@@ -170,9 +171,34 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                     stop["lng"],
                     stop["duration_s"] // 60,
                     {"poi_type": poi_type},
-                )
+                ))
+
+        await conn.executemany(
+            """
+            INSERT INTO activity_stops
+                (activity_id, started_at, ended_at, duration_s,
+                 location, poi_type, poi_name, poi_osm_id)
+            VALUES ($1, $2, $3, $4,
+                    ST_SetSRID(ST_MakePoint($6, $5), 4326),
+                    $7, $8, $9)
+            """,
+            stop_records,
+        )
+
+        if geo_tag_records:
+            await conn.executemany(
+                """
+                INSERT INTO activity_geo_tags
+                    (activity_id, category, name, osm_id, map_type,
+                     map_point_lat, map_point_lon, duration_min, meta)
+                VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7)
+                ON CONFLICT (activity_id, osm_id) DO NOTHING
+                """,
+                geo_tag_records,
+            )
 
         logger.info(
-            "Enriched %d stops for activity %s", len(stops), activity_id
+            "Enriched %d stops (%d gastronomy) for activity %s",
+            len(stops), len(geo_tag_records), activity_id,
         )
         return len(stops)
