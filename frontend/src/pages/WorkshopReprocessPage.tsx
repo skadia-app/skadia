@@ -7,6 +7,7 @@ import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/utils'
+import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
 
 type ReprocessMode = 'all' | 'selection'
 
@@ -48,8 +49,22 @@ export default function WorkshopReprocessPage() {
     })
   }
 
+  // Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
+  function toBackendScope(sel: Set<string>): string[] | undefined {
+    const result = new Set<string>()
+    for (const s of sel) {
+      if ((GEO_SCOPE_KEYS as readonly string[]).includes(s)) {
+        result.add('geo')
+      } else {
+        result.add(s)
+      }
+    }
+    return result.size > 0 ? [...result] : undefined
+  }
+
   function buildFilter(): ReprocessFilter | undefined {
-    const scopeArr = scope.size > 0 && scope.size < 6 ? Array.from(scope) : undefined
+    const allScopes = 2 + GEO_SCOPE_KEYS.length // streams,sensors,metrics,details,segments,sport_type,tags + geo items
+    const scopeArr = scope.size > 0 && scope.size < allScopes ? toBackendScope(scope) : undefined
 
     if (mode === 'selection') {
       if (selectedIds.size === 0) return undefined
@@ -301,6 +316,7 @@ export default function WorkshopReprocessPage() {
               ['sensors', 'Sensoren'],
               ['metrics', 'Metriken'],
               ['details', 'Runden/Splits'],
+              ['segments', 'Segmente & Runden'],
               ['sport_type', 'Sportart'],
               ['tags', 'Tags'],
             ] as const).map(([key, label]) => (
@@ -312,6 +328,18 @@ export default function WorkshopReprocessPage() {
                   className="rounded"
                 />
                 {label}
+              </label>
+            ))}
+            <span className="text-xs text-neutral-400 dark:text-neutral-500 w-full pt-1">Geo-Anreicherung (ML, asynchron)</span>
+            {GEO_SCOPE_KEYS.map(key => (
+              <label key={key} className="flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={scope.has(key)}
+                  onChange={() => toggleScope(key)}
+                  className="rounded"
+                />
+                {GEO_SCOPE_LABELS[key]}
               </label>
             ))}
           </div>
@@ -357,8 +385,10 @@ export default function WorkshopReprocessPage() {
                   scope.has('sensors') && 'Sensoren',
                   scope.has('metrics') && 'Metriken',
                   scope.has('details') && 'Runden/Splits',
+                  scope.has('segments') && 'Segmente & Runden',
                   scope.has('sport_type') && 'Sportart',
                   scope.has('tags') && 'Tags',
+                  ...GEO_SCOPE_KEYS.filter(k => scope.has(k)).map(k => GEO_SCOPE_LABELS[k]),
                 ].filter(Boolean).join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">

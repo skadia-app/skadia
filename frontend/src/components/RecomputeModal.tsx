@@ -2,6 +2,20 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reprocessAllActivities } from '@/api/activities'
 
+// GEO_SCOPE_KEYS: alle Geo-Features triggern dasselbe "geo" Backend-Scope (Stage 2 läuft zusammen).
+export const GEO_SCOPE_KEYS = ['peaks', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
+type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
+
+export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = {
+  peaks:    'Gipfel & Pässe',
+  forests:  'Wälder',
+  water:    'Gewässer',
+  stops:    'Gastronomie / Einkehr',
+  lifts:    'Lifte',
+  surfaces: 'Oberflächen',
+  borders:  'Grenzen & Siedlungen',
+}
+
 export const REPROCESS_SCOPES = [
   ['streams',    'Streams & Track'],
   ['sensors',    'Sensoren'],
@@ -12,7 +26,7 @@ export const REPROCESS_SCOPES = [
   ['tags',       'Tags'],
 ] as const
 
-type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0]
+type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0] | GeoScopeKey
 
 const DEFAULT_SCOPES: RecomputeScope[] = ['streams', 'sensors', 'metrics', 'details', 'segments']
 
@@ -32,11 +46,24 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const queryClient = useQueryClient()
 
+  // Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
+  function toBackendScope(sel: Set<RecomputeScope>): string[] {
+    const result = new Set<string>()
+    for (const s of sel) {
+      if (GEO_SCOPE_KEYS.includes(s as GeoScopeKey)) {
+        result.add('geo')
+      } else {
+        result.add(s)
+      }
+    }
+    return [...result]
+  }
+
   const mutation = useMutation({
     mutationFn: () =>
       reprocessAllActivities({
         ids: activityIds,
-        scope: mode === 'all' ? undefined : [...selected],
+        scope: mode === 'all' ? undefined : toBackendScope(selected),
       }),
     onMutate: () => setState('loading'),
     onSuccess: () => {
@@ -115,6 +142,20 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
                 />
                 <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                   {scopeLabel}
+                </span>
+              </label>
+            ))}
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1">Geo-Anreicherung (ML, asynchron)</p>
+            {GEO_SCOPE_KEYS.map(key => (
+              <label key={key} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={selected.has(key)}
+                  onChange={() => toggleScope(key)}
+                  className="accent-orange-500"
+                />
+                <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                  {GEO_SCOPE_LABELS[key]}
                 </span>
               </label>
             ))}

@@ -228,6 +228,8 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "metrics": all computed metrics (times, distances, HR, power, etc.)
 //   - "sport_type": sport_type + sub_type (only if not manually set)
 //   - "tags": re-evaluate autotag rules and update tags
+//   - "segments": segment efforts + lap detection
+//   - "geo": Stage 2 geo enrichment (peaks, forests, water, stops, lifts, surfaces, borders)
 func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool) error {
 	allScope := len(scope) == 0 // nil/empty = reprocess everything
 	doStreams := allScope || scope["streams"]
@@ -237,6 +239,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doTags := allScope || scope["tags"]
 	doDetails := allScope || scope["details"]
 	doSegments := allScope || scope["segments"]
+	doGeo := allScope || scope["geo"]
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -372,7 +375,25 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 8. Stage 1 Enrichment (synchronous, ~50ms).
+	// 7d. Geo Stage-2 data cleanup (peaks, forests, water, stops, lifts, surfaces, borders).
+	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
+	// slate when "geo" scope is selected without a full recompute.
+	if doGeo {
+		if err := h.DB.DeleteActivityGeoTags(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete geo tags failed", "id", activityID, "error", err)
+		}
+		if err := h.DB.DeleteActivityStops(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete activity stops failed", "id", activityID, "error", err)
+		}
+		if err := h.DB.DeleteActivityLiftCandidates(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete lift candidates failed", "id", activityID, "error", err)
+		}
+		if err := h.DB.DeleteActivitySurfaces(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete activity surfaces failed", "id", activityID, "error", err)
+		}
+	}
+
+	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events)
 	}

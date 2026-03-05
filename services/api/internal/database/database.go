@@ -2804,6 +2804,30 @@ func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]mod
 	return surfaces, rows.Err()
 }
 
+// DeleteActivityGeoTags removes all geo tags for an activity (Stage 2 data).
+func (db *DB) DeleteActivityGeoTags(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_geo_tags WHERE activity_id = $1`, activityID)
+	return err
+}
+
+// DeleteActivityStops removes all stops for an activity (Stage 2 data).
+func (db *DB) DeleteActivityStops(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_stops WHERE activity_id = $1`, activityID)
+	return err
+}
+
+// DeleteActivityLiftCandidates removes all lift candidates for an activity (Stage 2 data).
+func (db *DB) DeleteActivityLiftCandidates(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_lift_candidates WHERE activity_id = $1`, activityID)
+	return err
+}
+
+// DeleteActivitySurfaces removes all surface data for an activity (Stage 2 data).
+func (db *DB) DeleteActivitySurfaces(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_surfaces WHERE activity_id = $1`, activityID)
+	return err
+}
+
 // ── Import Settings ──────────────────────────────────────────────────────────
 
 // GetImportSettings lädt die Import-Einstellungen eines Nutzers.
