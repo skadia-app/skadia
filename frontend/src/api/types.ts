@@ -90,6 +90,12 @@ export interface Activity {
   location_lng?: number | null
   has_edits?: boolean
   edits_applied_at?: string | null
+  lift_count?: number | null
+  lift_distance_m?: number | null
+  lift_ascent_m?: number | null
+  lift_descent_m?: number | null
+  lift_duration_s?: number | null
+  exclude_lift_subtraction?: boolean | null
 }
 
 export interface ActivitiesResponse {

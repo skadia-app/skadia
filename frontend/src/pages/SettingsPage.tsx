@@ -10,9 +10,57 @@ import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { fetchSportTypeStats } from '@/api/stats'
+import { apiFetch } from '@/lib/auth'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
+
+function OSMStatusSection() {
+  const { data: osmStatus } = useQuery({
+    queryKey: ['osm-status'],
+    queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
+      peaks: number; lifts: number; settlements: number; has_data: boolean
+    }>,
+  })
+
+  const importLifts = useMutation({
+    mutationFn: () => apiFetch('/api/v1/segments/import-lifts', { method: 'POST' }).then(r => r.json()),
+  })
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div>
+          <div className="text-lg font-bold">{osmStatus?.peaks?.toLocaleString('de') ?? '–'}</div>
+          <div className="text-xs text-muted-foreground">Gipfel</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold">{osmStatus?.lifts?.toLocaleString('de') ?? '–'}</div>
+          <div className="text-xs text-muted-foreground">Lifte</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold">{osmStatus?.settlements?.toLocaleString('de') ?? '–'}</div>
+          <div className="text-xs text-muted-foreground">Ortschaften</div>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Import via <code className="text-xs">scripts/import-osm.sh --region dach</code>
+      </p>
+      <button
+        onClick={() => importLifts.mutate()}
+        disabled={importLifts.isPending || !osmStatus?.has_data}
+        className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+      >
+        {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+      </button>
+      {importLifts.data && (
+        <p className="text-xs text-green-600 dark:text-green-400">
+          {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
+        </p>
+      )}
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -83,7 +131,7 @@ export default function SettingsPage() {
       {activeTab === 'general' && <>
       <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
         Einstellung nicht gefunden? Einstellungen zur Medienverwaltung unter{' '}
-        <Link to="/workshop" className="text-orange-500 hover:text-orange-600 font-medium">Werkstatt</Link>.
+        <Link to="/workshop" className="text-accent-DEFAULT hover:text-accent-600 font-medium">Werkstatt</Link>.
       </div>
 
       {/* Erscheinungsbild */}
@@ -141,7 +189,7 @@ export default function SettingsPage() {
           <button
             onClick={() => setRenameOpen(true)}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white
-                       bg-orange-500 hover:bg-orange-600 transition-colors"
+                       bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
           >
             Vorschau anzeigen
           </button>
@@ -243,7 +291,7 @@ export default function SettingsPage() {
         </div>
         <Link
           to="/settings/enrichment"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
           Enrichment-Einstellungen
         </Link>
@@ -259,7 +307,7 @@ export default function SettingsPage() {
         </div>
         <Link
           to="/settings/rules"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
           Automatisierungsregeln
         </Link>
@@ -276,13 +324,13 @@ export default function SettingsPage() {
         <div className="flex gap-3 flex-wrap">
           <Link
             to="/settings/import?tab=garmin"
-            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
           >
             Garmin-Import
           </Link>
           <Link
             to="/settings/import?tab=strava"
-            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
           >
             Strava-Import
           </Link>
@@ -299,7 +347,7 @@ export default function SettingsPage() {
         </div>
         <Link
           to="/settings/privacy"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
           Private Zonen verwalten
         </Link>
@@ -310,6 +358,14 @@ export default function SettingsPage() {
 
       {/* Karte */}
       <HeatmapSettingsSection />
+
+      {/* OSM-Geodaten */}
+      <section>
+        <h2 className="text-base font-semibold mb-3">OSM-Geodaten</h2>
+        <div className="rounded-xl border border-border p-4">
+          <OSMStatusSection />
+        </div>
+      </section>
 
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
       </>}
@@ -668,7 +724,7 @@ function HeatmapSettingsSection() {
             teleport_filter_activity: currentFilterActivity,
           })}
           disabled={updateHeatmapMut.isPending}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
         >
           {updateHeatmapMut.isPending ? 'Speichert...' : 'Speichern'}
         </button>

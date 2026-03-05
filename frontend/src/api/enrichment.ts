@@ -1,5 +1,7 @@
 import { apiClient } from './client'
+import { apiFetch } from '@/lib/auth'
 import type { GeoTag, Climb, EnrichmentSettings, ActivityStop, ActivitySurface } from './types'
+import type * as GeoJSON from 'geojson'
 
 export async function fetchGeoTags(activityId: string): Promise<GeoTag[]> {
   return apiClient<GeoTag[]>(`/activities/${activityId}/geo-tags`)
@@ -31,4 +33,10 @@ export async function fetchStops(activityId: string): Promise<ActivityStop[]> {
 
 export async function fetchSurfaces(activityId: string): Promise<ActivitySurface[]> {
   return apiClient<ActivitySurface[]>(`/activities/${activityId}/surfaces`)
+}
+
+export async function fetchVisitedPOIs(): Promise<GeoJSON.FeatureCollection> {
+  const res = await apiFetch('/api/v1/geo/visited-pois')
+  if (!res.ok) throw new Error(`fetchVisitedPOIs: ${res.status}`)
+  return res.json()
 }

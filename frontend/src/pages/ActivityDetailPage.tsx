@@ -34,9 +34,14 @@ import StopsSection from '@/components/StopsSection'
 import SurfacesSection from '@/components/SurfacesSection'
 import ActivitySegments from '@/components/ActivitySegments'
 import DetectedLapsTable from '@/components/DetectedLapsTable'
+import LiftSection from '@/components/LiftSection'
+import { fetchGeoTags, fetchStops } from '@/api/enrichment'
+import { apiFetch } from '@/lib/auth'
+import type { GeoTag, ActivityStop } from '@/api/types'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const queryClient = useQueryClient()
 
   const { data: activity, isLoading } = useQuery({
     queryKey: ['activity', id],
@@ -86,6 +91,18 @@ export default function ActivityDetailPage() {
     enabled: !!id,
   })
 
+  const { data: geoTags } = useQuery<GeoTag[]>({
+    queryKey: ['activity-geo-tags', id],
+    queryFn: () => fetchGeoTags(id!),
+    enabled: !!id && (activity?.has_gps ?? false),
+  })
+
+  const { data: stops } = useQuery<ActivityStop[]>({
+    queryKey: ['activity-stops', id],
+    queryFn: () => fetchStops(id!),
+    enabled: !!id,
+  })
+
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
@@ -106,7 +123,7 @@ export default function ActivityDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <span className="text-neutral-400">Aktivität nicht gefunden</span>
-        <Link to="/activities" className="text-sm text-orange-500 hover:text-orange-600">Zurück zur Liste</Link>
+        <Link to="/activities" className="text-sm text-accent-DEFAULT hover:text-accent-600">Zurück zur Liste</Link>
       </div>
     )
   }
@@ -220,6 +237,8 @@ export default function ActivityDetailPage() {
         hasGps={activity.has_gps}
         zoomRange={zoomRange}
         onMaximize={() => setMapFullscreen(true)}
+        geoTags={geoTags}
+        stops={stops}
       />
 
       {/* Map fullscreen overlay */}
@@ -266,6 +285,29 @@ export default function ActivityDetailPage() {
 
       {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
       {activity.has_gps && <ClimbsSection activityId={activity.id} />}
+
+      {/* Liftfahrten */}
+      {(activity.lift_count ?? 0) > 0 ? (
+        <LiftSection
+          activityId={activity.id}
+          liftCount={activity.lift_count ?? 0}
+          liftDistanceM={activity.lift_distance_m}
+          liftAscentM={activity.lift_ascent_m}
+          liftDescentM={activity.lift_descent_m}
+          liftDurationS={activity.lift_duration_s}
+          distanceM={activity.distance_m ?? 0}
+          totalAscentM={activity.elevation_gain_m ?? 0}
+          excludeLiftSubtraction={activity.exclude_lift_subtraction ?? false}
+          onToggleExclude={async (v) => {
+            await apiFetch(`/api/v1/activities/${activity.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ exclude_lift_subtraction: v }),
+            })
+            queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+          }}
+        />
+      ) : null}
 
       {/* Stopps */}
       <StopsSection activityId={activity.id} />
@@ -358,7 +400,7 @@ function ReprocessScopeModal({
                 type="checkbox"
                 checked={scope.has(key)}
                 onChange={() => toggleScope(key)}
-                className="rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500"
+                className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
               />
               {label}
             </label>
@@ -378,8 +420,8 @@ function ReprocessScopeModal({
           <button
             onClick={() => onConfirm(Array.from(scope))}
             disabled={isPending || scope.size === 0}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white
-                       hover:bg-orange-600 transition-colors cursor-pointer
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
+                       hover:bg-accent-600 transition-colors cursor-pointer
                        disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isPending ? 'Verarbeite...' : 'Starten'}
@@ -534,14 +576,14 @@ function ActivityHeader({ activity }: { activity: Activity }) {
               if (e.key === 'Enter') commitTitle()
               if (e.key === 'Escape') { setTitleDraft(activity.title ?? ''); setEditing(false) }
             }}
-            className="w-full text-2xl font-semibold bg-transparent border-b-2 border-orange-400 outline-none
+            className="w-full text-2xl font-semibold bg-transparent border-b-2 border-accent-400 outline-none
                        text-neutral-900 dark:text-neutral-100 pb-1"
           />
         ) : (
           <h1
             onClick={() => { setTitleDraft(activity.title ?? ''); setEditing(true) }}
             className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 cursor-pointer
-                       hover:text-orange-500 transition-colors truncate"
+                       hover:text-accent-DEFAULT transition-colors truncate"
             title="Klicken zum Bearbeiten"
           >
             {activity.title ?? <span className="text-neutral-400 italic font-normal">Kein Titel</span>}
@@ -715,7 +757,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
   const searchRef = useRef<HTMLInputElement>(null)
 
   const colors = [
-    'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    'bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
     'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
     'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
     'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
@@ -809,7 +851,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Tag suchen..."
-                className="w-full px-2 py-1.5 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+                className="w-full px-2 py-1.5 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               />
             </div>
             <div className="max-h-48 overflow-y-auto">
@@ -826,7 +868,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
               {showCreate && (
                 <button
                   onClick={() => createAndAddMut.mutate(searchTrimmed)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                  className="w-full text-left px-3 py-1.5 text-sm text-accent-600 dark:text-orange-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                 >
                   &ldquo;{searchTrimmed}&rdquo; erstellen
                 </button>
@@ -878,7 +920,7 @@ function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?
       )}
       {sunsetAt && (
         <span className="flex items-center gap-1.5">
-          <span className="text-orange-600">&#9790;</span>
+          <span className="text-accent-600">&#9790;</span>
           <span>{fmt(sunsetAt)}</span>
         </span>
       )}
@@ -914,13 +956,15 @@ function splitAtGaps(coords: [number, number][], thresholdM: number): [number, n
   return segments.length > 0 ? segments : [coords]
 }
 
-function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize }: {
+function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops }: {
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
   hasGps: boolean
   zoomRange: import('@/components/ActivityCharts').ZoomRange | null
   onMaximize: () => void
+  geoTags?: GeoTag[]
+  stops?: ActivityStop[]
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -1009,6 +1053,82 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
         layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
         paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
       })
+
+      // Gipfel-Pins aus GeoTags (category: summit/pass)
+      const peakTags = (geoTags ?? []).filter(
+        (t) => (t.category === 'summit' || t.category === 'pass') && t.lat != null
+      )
+      if (peakTags.length > 0) {
+        const peakGeoJSON = {
+          type: 'FeatureCollection' as const,
+          features: peakTags.map((t) => ({
+            type: 'Feature' as const,
+            geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
+            properties: { name: t.name ?? '', ele: t.ele ?? 0 },
+          })),
+        }
+        map.addSource('activity-peaks', { type: 'geojson', data: peakGeoJSON })
+        map.addLayer({
+          id: 'activity-peaks-layer',
+          type: 'circle',
+          source: 'activity-peaks',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#f97316',
+            'circle-stroke-color': 'white',
+            'circle-stroke-width': 2,
+          },
+        })
+        map.addLayer({
+          id: 'activity-peaks-labels',
+          type: 'symbol',
+          source: 'activity-peaks',
+          layout: {
+            'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
+            'text-font': ['Open Sans Regular'],
+            'text-size': 11,
+            'text-offset': [0, 1.4],
+            'text-anchor': 'top',
+            'text-optional': true,
+          },
+          paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
+        })
+      }
+
+      // Restaurant-Pins aus Stops (duration >= 900s)
+      const poiStops = (stops ?? []).filter(
+        (s) => s.name && (s.duration_s ?? 0) >= 900 && s.lat != null
+      )
+      if (poiStops.length > 0) {
+        const poiGeoJSON = {
+          type: 'FeatureCollection' as const,
+          features: poiStops.map((s) => ({
+            type: 'Feature' as const,
+            geometry: { type: 'Point' as const, coordinates: [s.lng!, s.lat!] },
+            properties: { name: s.name!, duration_min: Math.round((s.duration_s ?? 0) / 60) },
+          })),
+        }
+        map.addSource('activity-pois', { type: 'geojson', data: poiGeoJSON })
+        map.addLayer({
+          id: 'activity-pois-layer',
+          type: 'circle',
+          source: 'activity-pois',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#3b82f6',
+            'circle-stroke-color': 'white',
+            'circle-stroke-width': 2,
+          },
+        })
+        map.on('click', 'activity-pois-layer', (e) => {
+          const props = e.features?.[0]?.properties
+          if (!props) return
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`<strong>${props.name}</strong><br>${props.duration_min} min`)
+            .addTo(map)
+        })
+      }
 
       const bounds = new maplibregl.LngLatBounds()
       for (const c of coordinates) bounds.extend(c)
@@ -1204,7 +1324,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
           <select
             value={activity.visibility}
             onChange={(e) => visibilityMut.mutate(e.target.value as Activity['visibility'])}
-            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
           >
             {visibilityOptions.map(({ value, label }) => (
               <option key={value} value={value}>{label}</option>
@@ -1219,7 +1339,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
               type="checkbox"
               checked={hideMap}
               onChange={() => setHideMap(!hideMap)}
-              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
               Karte ausblenden
@@ -1243,7 +1363,7 @@ function VisibilitySettings({ activity }: { activity: Activity }) {
                 type="checkbox"
                 checked={dataVis[key]}
                 onChange={() => toggleDataVis(key)}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
               />
               <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
             </label>
@@ -1348,11 +1468,11 @@ function ZoneDistributionChart({ distribution }: { distribution: ZoneDistributio
           <div className="flex gap-2 text-xs">
             <button
               onClick={() => setActiveType('hr')}
-              className={`px-2 py-0.5 rounded ${activeType === 'hr' ? 'bg-orange-500 text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`px-2 py-0.5 rounded ${activeType === 'hr' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
             >HR</button>
             <button
               onClick={() => setActiveType('power')}
-              className={`px-2 py-0.5 rounded ${activeType === 'power' ? 'bg-orange-500 text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`px-2 py-0.5 rounded ${activeType === 'power' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
             >Power</button>
           </div>
         )}

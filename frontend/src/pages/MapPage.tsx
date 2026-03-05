@@ -105,6 +105,33 @@ export interface MapFilterState {
   heatmapColor: string
 }
 
+interface MapOverlayState {
+  showPeaks: boolean
+  peaksOnlyVisited: boolean
+  showWaters: boolean
+  showForests: boolean
+  showVisitedPois: boolean
+}
+
+const defaultOverlayState: MapOverlayState = {
+  showPeaks: false,
+  peaksOnlyVisited: false,
+  showWaters: false,
+  showForests: false,
+  showVisitedPois: false,
+}
+
+const PEAK_ICON_VISITED = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
+  '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
+  '</svg>'
+)}`
+const PEAK_ICON_UNVISITED = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
+  '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#9ca3af" stroke="white" stroke-width="1.5"/>' +
+  '</svg>'
+)}`
+
 const defaultFilters: MapFilterState = {
   sportTypes: new Set(ALL_SPORT_KEYS),
   dateFrom: '',
@@ -335,7 +362,7 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setIsOpen(true) }}
           placeholder="Ort suchen..."
-          className="w-full px-3 py-2 pr-8 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full px-3 py-2 pr-8 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         {isLoading && (
           <div className="absolute right-8 top-1/2 -translate-y-1/2">
@@ -362,7 +389,7 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
                 onClick={() => handleSelect(r)}
                 className={`w-full text-left px-3 py-2 text-sm cursor-pointer transition-colors ${
                   i === activeIndex
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-accent-DEFAULT text-white'
                     : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
@@ -483,6 +510,29 @@ export default function MapPage() {
     queryKey: ['map-segments', segmentBbox],
     queryFn: () => fetchSegments(segmentBbox ? { bbox: segmentBbox } : undefined),
     enabled: showSegments,
+  })
+
+  const [overlayState, setOverlayState] = useState<MapOverlayState>(() => {
+    try {
+      const saved = localStorage.getItem('skadia-map-overlays')
+      return saved ? { ...defaultOverlayState, ...JSON.parse(saved) } : defaultOverlayState
+    } catch {
+      return defaultOverlayState
+    }
+  })
+
+  const updateOverlay = (key: keyof MapOverlayState, value: boolean) => {
+    setOverlayState(prev => {
+      const next = { ...prev, [key]: value }
+      localStorage.setItem('skadia-map-overlays', JSON.stringify(next))
+      return next
+    })
+  }
+
+  const { data: visitedPoisGeoJSON } = useQuery({
+    queryKey: ['visited-pois'],
+    queryFn: () => fetch('/api/v1/geo/visited-pois', { credentials: 'include' }).then(r => r.json()) as Promise<GeoJSON.FeatureCollection>,
+    enabled: overlayState.showVisitedPois,
   })
 
   // Create marker mutation
@@ -1208,6 +1258,176 @@ export default function MapPage() {
       .finally(() => setTagActivitiesLoading(false))
   }, [selectedLocationTag])
 
+  // ── Gipfel-Layer ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+
+    const addPeaksLayer = () => {
+      if (!map.getSource('peaks-source')) {
+        map.addSource('peaks-source', {
+          type: 'vector',
+          tiles: [`${martinBase}/peaks/{z}/{x}/{y}`],
+          minzoom: 0,
+          maxzoom: 14,
+        })
+      }
+      if (!map.getLayer('peaks-layer')) {
+        map.addLayer({
+          id: 'peaks-layer',
+          type: 'symbol',
+          source: 'peaks-source',
+          'source-layer': 'peaks',
+          minzoom: 10,
+          layout: {
+            'icon-image': ['case', ['get', 'visited'], 'peak-visited', 'peak-unvisited'] as maplibregl.ExpressionSpecification,
+            'icon-size': 0.8,
+            'icon-allow-overlap': false,
+            'text-field': ['get', 'name'] as maplibregl.ExpressionSpecification,
+            'text-font': ['Open Sans Regular'],
+            'text-size': 11,
+            'text-offset': [0, 1.2],
+            'text-anchor': 'top',
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#374151',
+            'text-halo-color': 'white',
+            'text-halo-width': 1,
+          },
+          filter: overlayState.peaksOnlyVisited
+            ? ['==', ['get', 'visited'], true]
+            : ['literal', true],
+        })
+      } else {
+        map.setFilter('peaks-layer', overlayState.peaksOnlyVisited
+          ? ['==', ['get', 'visited'], true]
+          : ['literal', true])
+      }
+    }
+
+    if (overlayState.showPeaks) {
+      if (!map.hasImage('peak-visited')) {
+        let loaded = 0
+        const onLoad = () => { if (++loaded === 2) addPeaksLayer() }
+        const img1 = new Image(24, 24)
+        const img2 = new Image(24, 24)
+        img1.onload = () => { if (!map.hasImage('peak-visited')) map.addImage('peak-visited', img1); onLoad() }
+        img2.onload = () => { if (!map.hasImage('peak-unvisited')) map.addImage('peak-unvisited', img2); onLoad() }
+        img1.onerror = onLoad
+        img2.onerror = onLoad
+        img1.src = PEAK_ICON_VISITED
+        img2.src = PEAK_ICON_UNVISITED
+      } else {
+        addPeaksLayer()
+      }
+    } else {
+      if (map.getLayer('peaks-layer')) map.removeLayer('peaks-layer')
+      if (map.getSource('peaks-source')) map.removeSource('peaks-source')
+    }
+  }, [overlayState.showPeaks, overlayState.peaksOnlyVisited, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Gewässer-Layer ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+
+    if (overlayState.showWaters) {
+      if (!map.getSource('waters-source')) {
+        map.addSource('waters-source', {
+          type: 'vector',
+          tiles: [`${martinBase}/waters/{z}/{x}/{y}`],
+          minzoom: 0,
+          maxzoom: 14,
+        })
+      }
+      if (!map.getLayer('waters-layer')) {
+        map.addLayer({
+          id: 'waters-layer',
+          type: 'line',
+          source: 'waters-source',
+          'source-layer': 'waters',
+          minzoom: 8,
+          paint: {
+            'line-color': '#3b82f6',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 14, 2] as maplibregl.ExpressionSpecification,
+            'line-opacity': 0.6,
+          },
+        })
+      }
+    } else {
+      if (map.getLayer('waters-layer')) map.removeLayer('waters-layer')
+      if (map.getSource('waters-source')) map.removeSource('waters-source')
+    }
+  }, [overlayState.showWaters, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Wald-Layer ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+
+    if (overlayState.showForests) {
+      if (!map.getSource('forests-source')) {
+        map.addSource('forests-source', {
+          type: 'vector',
+          tiles: [`${martinBase}/forests/{z}/{x}/{y}`],
+          minzoom: 0,
+          maxzoom: 14,
+        })
+      }
+      if (!map.getLayer('forests-layer')) {
+        map.addLayer({
+          id: 'forests-layer',
+          type: 'line',
+          source: 'forests-source',
+          'source-layer': 'forests',
+          minzoom: 9,
+          paint: {
+            'line-color': ['case', ['get', 'visited'], '#22c55e', '#9ca3af'] as maplibregl.ExpressionSpecification,
+            'line-width': 1.5,
+            'line-opacity': 0.8,
+          },
+        })
+      }
+    } else {
+      if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
+      if (map.getSource('forests-source')) map.removeSource('forests-source')
+    }
+  }, [overlayState.showForests, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Besuchte Einkehr-Layer ────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    if (overlayState.showVisitedPois && visitedPoisGeoJSON) {
+      if (map.getSource('visited-pois-source')) {
+        (map.getSource('visited-pois-source') as maplibregl.GeoJSONSource).setData(visitedPoisGeoJSON)
+      } else {
+        map.addSource('visited-pois-source', { type: 'geojson', data: visitedPoisGeoJSON })
+      }
+      if (!map.getLayer('visited-pois-layer')) {
+        map.addLayer({
+          id: 'visited-pois-layer',
+          type: 'circle',
+          source: 'visited-pois-source',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#f97316',
+            'circle-stroke-color': 'white',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
+    } else {
+      if (map.getLayer('visited-pois-layer')) map.removeLayer('visited-pois-layer')
+      if (map.getSource('visited-pois-source')) map.removeSource('visited-pois-source')
+    }
+  }, [overlayState.showVisitedPois, visitedPoisGeoJSON, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="relative flex-1 min-h-0">
@@ -1228,7 +1448,7 @@ export default function MapPage() {
               onClick={() => setBaseStyle(key)}
               className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                 baseStyle === key
-                  ? 'bg-orange-500 text-white'
+                  ? 'bg-accent-DEFAULT text-white'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
               }`}
             >
@@ -1250,7 +1470,7 @@ export default function MapPage() {
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'tracks'
-                ? 'bg-orange-500 text-white'
+                ? 'bg-accent-DEFAULT text-white'
                 : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1268,7 +1488,7 @@ export default function MapPage() {
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'heatmap'
-                ? 'bg-orange-500 text-white'
+                ? 'bg-accent-DEFAULT text-white'
                 : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1282,7 +1502,7 @@ export default function MapPage() {
             onClick={() => setShowIndoorAssign(!showIndoorAssign)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
               showIndoorAssign
-                ? 'bg-orange-500 text-white border-orange-500'
+                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1292,7 +1512,7 @@ export default function MapPage() {
             onClick={() => setShowSegments(!showSegments)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
               showSegments
-                ? 'bg-orange-500 text-white border-orange-500'
+                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1302,7 +1522,7 @@ export default function MapPage() {
             onClick={() => setShowPhotos(!showPhotos)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
               showPhotos
-                ? 'bg-orange-500 text-white border-orange-500'
+                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1312,7 +1532,7 @@ export default function MapPage() {
             onClick={() => setShowCustomMaps(!showCustomMaps)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
               showCustomMaps
-                ? 'bg-orange-500 text-white border-orange-500'
+                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
@@ -1368,7 +1588,7 @@ export default function MapPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') handleDropConfirm() }}
               placeholder="Name des Standorts"
               autoFocus
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             />
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -1387,12 +1607,70 @@ export default function MapPage() {
             <button
               onClick={handleDropConfirm}
               disabled={!dropNameInput.trim()}
-              className="w-full py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              className="w-full py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               Standort erstellen + zuweisen
             </button>
           </div>
         )}
+
+        {/* Kartenebenen */}
+        <div className="border-t border-neutral-200 dark:border-neutral-700 pt-3 mt-3 px-3">
+          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
+            Kartenebenen
+          </h3>
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={overlayState.showPeaks}
+                  onChange={e => updateOverlay('showPeaks', e.target.checked)}
+                  className="rounded"
+                />
+                <span>Gipfel</span>
+              </label>
+              {overlayState.showPeaks && (
+                <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
+                  <input
+                    type="checkbox"
+                    checked={overlayState.peaksOnlyVisited}
+                    onChange={e => updateOverlay('peaksOnlyVisited', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span>Nur besuchte</span>
+                </label>
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overlayState.showWaters}
+                onChange={e => updateOverlay('showWaters', e.target.checked)}
+                className="rounded"
+              />
+              <span>Gewässer</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overlayState.showForests}
+                onChange={e => updateOverlay('showForests', e.target.checked)}
+                className="rounded"
+              />
+              <span>Wälder</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overlayState.showVisitedPois}
+                onChange={e => updateOverlay('showVisitedPois', e.target.checked)}
+                className="rounded"
+              />
+              <span>Besuchte Einkehr</span>
+            </label>
+          </div>
+        </div>
 
         {/* Filters panel */}
         <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
@@ -1446,7 +1724,7 @@ export default function MapPage() {
                   })
                 }}
                 disabled={mergeTagMutation.isPending}
-                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 {mergeTagMutation.isPending ? 'Fusioniere…' : 'Fusionieren'}
               </button>
@@ -1560,7 +1838,7 @@ export default function MapPage() {
                 {selectedPhoto.activity_id && selectedPhoto.activity_title && (
                   <a
                     href={`/activities/${selectedPhoto.activity_id}`}
-                    className="text-sm font-medium text-orange-500 hover:underline"
+                    className="text-sm font-medium text-accent-DEFAULT hover:underline"
                   >
                     {selectedPhoto.activity_title}
                   </a>

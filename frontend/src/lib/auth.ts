@@ -3,6 +3,7 @@
 
 let accessToken: string | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
+let refreshInFlight: Promise<boolean> | null = null
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const DEV_AUTH = import.meta.env.VITE_DEV_AUTH === 'true'
@@ -75,22 +76,31 @@ function scheduleRefresh(token: string): void {
 export async function refreshToken(): Promise<boolean> {
   if (DEV_AUTH) return true
 
-  try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    })
-    if (!res.ok) {
+  // Deduplicate concurrent refresh calls — only one in-flight at a time
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        clearToken()
+        return false
+      }
+      const data = (await res.json()) as { token: string }
+      setToken(data.token)
+      return true
+    } catch {
       clearToken()
       return false
+    } finally {
+      refreshInFlight = null
     }
-    const data = (await res.json()) as { token: string }
-    setToken(data.token)
-    return true
-  } catch {
-    clearToken()
-    return false
-  }
+  })()
+
+  return refreshInFlight
 }
 
 /** Try to restore session on app start (silent refresh) */
@@ -101,4 +111,14 @@ export async function tryRestoreSession(): Promise<boolean> {
   }
 
   return refreshToken()
+}
+
+/** Authenticated fetch wrapper — adds Authorization header automatically */
+export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const token = getToken()
+  const headers = new Headers(init?.headers)
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
 }
