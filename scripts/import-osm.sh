@@ -42,7 +42,20 @@ osm2pgsql \
   --database "${DATABASE_URL:-skadia}" \
   --output=flex \
   --style "$(dirname "$0")/../services/osm/skadia-osm.lua" \
-  --slim \
+  --slim --drop \
   "$PBF"
 
-echo "→ Done. Imported $REGION OSM data."
+echo "→ Erstelle Geography-Indexes auf osm_* Tabellen..."
+psql "${DATABASE_URL:-skadia}" <<'SQL'
+CREATE INDEX IF NOT EXISTS osm_waterways_geog_idx ON osm_waterways USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_waters_geog_idx     ON osm_waters     USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_peaks_geog_idx      ON osm_peaks      USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_amenities_geog_idx  ON osm_amenities  USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_lifts_geog_idx      ON osm_lifts      USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_settlements_geog_idx ON osm_settlements USING gist ((geom::geography));
+CREATE INDEX IF NOT EXISTS osm_boundaries_geog_idx ON osm_boundaries USING gist ((geom::geography));
+ANALYZE osm_waterways; ANALYZE osm_waters; ANALYZE osm_peaks;
+ANALYZE osm_amenities; ANALYZE osm_lifts; ANALYZE osm_settlements; ANALYZE osm_boundaries;
+SQL
+
+echo "→ Done. Imported $REGION OSM data. planet_osm_* wurden automatisch geloescht (--slim --drop)."
