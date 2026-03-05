@@ -56,6 +56,12 @@ tables.amenities = osm2pgsql.define_node_table('osm_amenities', {
     { column = 'geom', type = 'point', projection = 4326 },
 })
 
+tables.lifts = osm2pgsql.define_way_table('osm_lifts', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name',   type = 'text' },
+    { column = 'geom',   type = 'linestring', projection = 4326 },
+})
+
 -- Helper: parse elevation string to number
 local function parse_ele(ele_str)
     if ele_str == nil then return nil end
@@ -129,6 +135,34 @@ function osm2pgsql.process_way(object)
                 geom = object:as_linestring(),
             })
         end
+    end
+
+    -- Lifte (Aerialways, Standseilbahnen, Zahnradbahnen)
+    local passenger_aerialways = {
+        cable_car=true, gondola=true, chair_lift=true, mixed_lift=true,
+        drag_lift=true, ['t-bar']=true, ['j-bar']=true, platter=true,
+        rope_tow=true, magic_carpet=true
+    }
+    if passenger_aerialways[tags.aerialway] then
+        tables.lifts:insert({
+            osm_id = object.id,
+            name   = tags.name,
+            geom   = object:as_linestring(),
+        })
+    end
+    if tags.railway == 'funicular' then
+        tables.lifts:insert({
+            osm_id = object.id,
+            name   = tags.name,
+            geom   = object:as_linestring(),
+        })
+    end
+    if tags.railway == 'rail' and tags.rack == 'yes' then
+        tables.lifts:insert({
+            osm_id = object.id,
+            name   = tags.name,
+            geom   = object:as_linestring(),
+        })
     end
 
     -- Forests (closed ways)
