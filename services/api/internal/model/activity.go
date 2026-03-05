@@ -202,6 +202,13 @@ type Activity struct {
 	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
 	LocationLat *float64 `json:"location_lat,omitempty"`
 	LocationLng *float64 `json:"location_lng,omitempty"`
+	// Lift statistics (aggregated from confirmed lift candidates).
+	LiftCount              *int     `json:"lift_count,omitempty"`
+	LiftDistanceM          *float64 `json:"lift_distance_m,omitempty"`
+	LiftAscentM            *float64 `json:"lift_ascent_m,omitempty"`
+	LiftDescentM           *float64 `json:"lift_descent_m,omitempty"`
+	LiftDurationS          *int     `json:"lift_duration_s,omitempty"`
+	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.
@@ -216,8 +223,9 @@ type ActivityUpdate struct {
 	DataVisibility map[string]interface{} `json:"data_visibility,omitempty"`
 	GearID         json.RawMessage        `json:"gear_id,omitempty"`
 	// Manually assigned location (independent of GPS start_lat/start_lng).
-	LocationLat *float64 `json:"location_lat,omitempty"`
-	LocationLng *float64 `json:"location_lng,omitempty"`
+	LocationLat            *float64 `json:"location_lat,omitempty"`
+	LocationLng            *float64 `json:"location_lng,omitempty"`
+	ExcludeLiftSubtraction *bool    `json:"exclude_lift_subtraction,omitempty"`
 }
 
 // ActivityList is the paginated list response.

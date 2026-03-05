@@ -295,7 +295,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at, a.gear_id,
 			a.created_at, a.updated_at,
 			COALESCE(t.point_count, 0) > 0,
-			a.location_lat, a.location_lng
+			a.location_lat, a.location_lng,
+			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
+			a.exclude_lift_subtraction
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.id = $1`, id,
@@ -318,6 +320,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.CreatedAt, &a.UpdatedAt,
 		&hasTrack,
 		&a.LocationLat, &a.LocationLng,
+		&a.LiftCount, &a.LiftDistanceM, &a.LiftAscentM, &a.LiftDescentM, &a.LiftDurationS,
+		&a.ExcludeLiftSubtraction,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -704,6 +708,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 	if update.LocationLng != nil {
 		sets = append(sets, fmt.Sprintf("location_lng = $%d", argIdx))
 		args = append(args, *update.LocationLng)
+		argIdx++
+	}
+	if update.ExcludeLiftSubtraction != nil {
+		sets = append(sets, fmt.Sprintf("exclude_lift_subtraction = $%d", argIdx))
+		args = append(args, *update.ExcludeLiftSubtraction)
 		argIdx++
 	}
 
@@ -2920,8 +2929,38 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftC
 }
 
 func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1`,
-		candidateID)
+	var activityID string
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1 RETURNING activity_id`,
+		candidateID,
+	).Scan(&activityID)
+	if err != nil {
+		return err
+	}
+	return db.recomputeLiftStats(ctx, activityID)
+}
+
+// RejectLiftCandidate deletes a lift candidate and recomputes activity lift stats.
+func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID string) error {
+	var activityID string
+	err := db.Pool.QueryRow(ctx,
+		`DELETE FROM activity_lift_candidates WHERE id = $1 RETURNING activity_id`,
+		candidateID,
+	).Scan(&activityID)
+	if err != nil {
+		return err
+	}
+	return db.recomputeLiftStats(ctx, activityID)
+}
+
+// recomputeLiftStats aggregates confirmed lift candidates into activities.lift_* columns.
+func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities SET
+			lift_count      = (SELECT COUNT(*)         FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
+			lift_duration_s = (SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
+			lift_ascent_m   = (SELECT COALESCE(SUM(ascent_m),   0) FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
+			updated_at      = NOW()
+		WHERE id = $1`, activityID)
 	return err
 }
