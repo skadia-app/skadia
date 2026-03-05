@@ -19,7 +19,7 @@ function OSMStatusSection() {
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
-      peaks: number; lifts: number; settlements: number; amenities?: number; has_data: boolean
+      peaks: number; passes: number; lifts: number; settlements: number; amenities?: number; has_data: boolean
     }>,
   })
 
@@ -31,11 +31,15 @@ function OSMStatusSection() {
 
   return (
     <div className="space-y-3 text-sm">
-      {/* Stats grid — 4 cols when amenities is available, 3 cols otherwise */}
-      <div className={`grid gap-3 text-center ${osmStatus?.amenities !== undefined ? 'grid-cols-4' : 'grid-cols-3'}`}>
+      {/* Stats grid */}
+      <div className={`grid gap-3 text-center ${osmStatus?.amenities !== undefined ? 'grid-cols-5' : 'grid-cols-4'}`}>
         <div>
           <div className="text-lg font-bold">{osmStatus?.peaks?.toLocaleString('de') ?? '–'}</div>
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Gipfel</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold">{osmStatus?.passes?.toLocaleString('de') ?? '–'}</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Pässe</div>
         </div>
         <div>
           <div className="text-lg font-bold">{osmStatus?.lifts?.toLocaleString('de') ?? '–'}</div>
