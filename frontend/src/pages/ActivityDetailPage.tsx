@@ -931,6 +931,12 @@ function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?
 // ── Map ───────────────────────────────────────────────────────────────────────
 
 /** Haversine-Distanz in Metern zwischen zwei [lng, lat]-Koordinaten */
+const PEAK_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
+  '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
+  '</svg>'
+)}`
+
 function haversineM([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]): number {
   const R = 6371000
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -1068,31 +1074,41 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
           })),
         }
         map.addSource('activity-peaks', { type: 'geojson', data: peakGeoJSON })
-        map.addLayer({
-          id: 'activity-peaks-layer',
-          type: 'circle',
-          source: 'activity-peaks',
-          paint: {
-            'circle-radius': 6,
-            'circle-color': '#f97316',
-            'circle-stroke-color': 'white',
-            'circle-stroke-width': 2,
-          },
-        })
-        map.addLayer({
-          id: 'activity-peaks-labels',
-          type: 'symbol',
-          source: 'activity-peaks',
-          layout: {
-            'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
-            'text-font': ['Open Sans Regular'],
-            'text-size': 11,
-            'text-offset': [0, 1.4],
-            'text-anchor': 'top',
-            'text-optional': true,
-          },
-          paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
-        })
+        const addPeakLayers = () => {
+          map.addLayer({
+            id: 'activity-peaks-layer',
+            type: 'symbol',
+            source: 'activity-peaks',
+            layout: {
+              'icon-image': 'peak-icon',
+              'icon-size': 0.9,
+              'icon-allow-overlap': true,
+              'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
+              'text-font': ['Open Sans Regular'],
+              'text-size': 11,
+              'text-offset': [0, 1.4],
+              'text-anchor': 'top',
+              'text-optional': true,
+            },
+            paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
+          })
+        }
+        if (map.hasImage('peak-icon')) {
+          addPeakLayers()
+        } else {
+          const img = new Image(24, 24)
+          img.onload = () => { map.addImage('peak-icon', img); addPeakLayers() }
+          img.onerror = () => {
+            // Fallback auf circle wenn Icon nicht ladbar
+            map.addLayer({
+              id: 'activity-peaks-layer',
+              type: 'circle',
+              source: 'activity-peaks',
+              paint: { 'circle-radius': 6, 'circle-color': '#f97316', 'circle-stroke-color': 'white', 'circle-stroke-width': 2 },
+            })
+          }
+          img.src = PEAK_ICON_SVG
+        }
       }
 
       // Restaurant-Pins aus Stops (duration >= 900s)
