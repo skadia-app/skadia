@@ -68,7 +68,7 @@ export default function GearDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <span className="text-neutral-400">Ausrüstung nicht gefunden</span>
-        <Link to="/gear" className="text-sm text-orange-500 hover:text-orange-600">Zurück zur Übersicht</Link>
+        <Link to="/gear" className="text-sm text-accent-DEFAULT hover:text-accent-600">Zurück zur Übersicht</Link>
       </div>
     )
   }
@@ -314,7 +314,7 @@ function ComponentsList({ gearId, gearType, components }: {
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Komponenten</h2>
         <button
           onClick={() => setAdding(true)}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer"
         >
           + Hinzufügen
         </button>
@@ -357,7 +357,7 @@ function ComponentsList({ gearId, gearType, components }: {
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                         </svg>
-                        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+                        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
                           {comp.name}
                         </span>
                         <ComponentStatusBadge status={comp.status} />
@@ -542,7 +542,7 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
       <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Transfer-Historie</div>
       {history.map((a: ComponentAssignment) => (
         <div key={a.id} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-          <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-accent-400 flex-shrink-0" />
           <span className="font-medium text-neutral-700 dark:text-neutral-300">{a.gear_name}</span>
           <span>
             {formatDateShort(a.installed_at)}
@@ -598,7 +598,7 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
         <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Service-Historie</div>
         <button
           onClick={() => setAdding(!adding)}
-          className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+          className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
         >
           + Service eintragen
         </button>
@@ -646,7 +646,7 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
             <button
               onClick={() => addMut.mutate()}
               disabled={addMut.isPending}
-              className="px-2.5 py-1 rounded text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
+              className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
             >
               Speichern
             </button>
@@ -758,7 +758,7 @@ function ChainRotationSection({ gearId, components }: {
         {!rotation && !creating && (
           <button
             onClick={() => setCreating(true)}
-            className="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
+            className="text-sm text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
             + Rotation erstellen
           </button>
@@ -792,7 +792,7 @@ function ChainRotationSection({ gearId, components }: {
             <label className="block text-xs text-neutral-500 mb-1">
               Ketten auswählen (min. 2)
               {usingFallback && (
-                <span className="ml-1.5 text-orange-500">
+                <span className="ml-1.5 text-accent-DEFAULT">
                   — alle Komponenten gezeigt, da keine Ketten-Komponenten erkannt wurden
                 </span>
               )}
@@ -832,7 +832,7 @@ function ChainRotationSection({ gearId, components }: {
             <button
               onClick={() => createMut.mutate()}
               disabled={selectedComps.size < 2 || createMut.isPending}
-              className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
             >
               {selectedComps.size < 2
                 ? `Rotation erstellen (${selectedComps.size}/2 gewählt)`
@@ -874,7 +874,7 @@ function ChainRotationSection({ gearId, components }: {
                       </div>
                       <div className="w-full h-1 rounded-full bg-neutral-200 dark:bg-neutral-700 mt-0.5">
                         <div
-                          className={`h-full rounded-full transition-all ${isDue ? 'bg-rose-500' : 'bg-orange-400'}`}
+                          className={`h-full rounded-full transition-all ${isDue ? 'bg-rose-500' : 'bg-accent-400'}`}
                           style={{ width: `${progress}%` }}
                         />
                       </div>
@@ -896,7 +896,7 @@ function ChainRotationSection({ gearId, components }: {
             <button
               onClick={() => swapMut.mutate()}
               disabled={swapMut.isPending}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
             >
               {swapMut.isPending ? 'Wechsle...' : 'Nächste Kette'}
             </button>
@@ -1007,7 +1007,7 @@ function ComponentForm({
                 type="radio"
                 checked={usePreset}
                 onChange={() => setUsePreset(true)}
-                className="text-orange-500"
+                className="text-accent-DEFAULT"
               />
               <span className="text-neutral-700 dark:text-neutral-300">Vorlage</span>
             </label>
@@ -1016,7 +1016,7 @@ function ComponentForm({
                 type="radio"
                 checked={!usePreset}
                 onChange={() => setUsePreset(false)}
-                className="text-orange-500"
+                className="text-accent-DEFAULT"
               />
               <span className="text-neutral-700 dark:text-neutral-300">Eigener Typ</span>
             </label>
@@ -1048,7 +1048,7 @@ function ComponentForm({
           onChange={(e) => setName(e.target.value)}
           required
           placeholder="Name *"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
@@ -1056,28 +1056,28 @@ function ComponentForm({
           onChange={(e) => setType(e.target.value)}
           required
           placeholder="Typ * (z.B. Kette, Reifen)"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
           value={brand}
           onChange={(e) => setBrand(e.target.value)}
           placeholder="Marke"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
           placeholder="Modell"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="number"
           value={weightG}
           onChange={(e) => setWeightG(e.target.value)}
           placeholder="Gewicht (g)"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="number"
@@ -1085,20 +1085,20 @@ function ComponentForm({
           onChange={(e) => setPurchasePrice(e.target.value)}
           placeholder="Kaufpreis (EUR)"
           step="0.01"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="date"
           value={purchaseDate}
           onChange={(e) => setPurchaseDate(e.target.value)}
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
           value={serialNumber}
           onChange={(e) => setSerialNumber(e.target.value)}
           placeholder="Seriennummer"
-          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
       </div>
       <div className="flex gap-2 justify-end">
@@ -1112,7 +1112,7 @@ function ComponentForm({
         <button
           type="submit"
           disabled={isSaving || !name.trim() || !type.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>
@@ -1210,7 +1210,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
         {!creating && (
           <button
             onClick={() => setCreating(true)}
-            className="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
+            className="text-sm text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
             + Neues Setup
           </button>
@@ -1519,7 +1519,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
           type="checkbox"
           checked={isActive}
           onChange={(e) => setIsActive(e.target.checked)}
-          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500"
+          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
         />
         <span className="text-sm text-neutral-700 dark:text-neutral-300">Als aktives Setup setzen</span>
       </label>
@@ -1535,7 +1535,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         <button
           type="submit"
           disabled={isSaving || !name.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>
@@ -1660,7 +1660,7 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
 
   if (images.length === 0 && !uploading) {
     return (
-      <label className="text-xs text-neutral-400 hover:text-orange-500 cursor-pointer transition-colors">
+      <label className="text-xs text-neutral-400 hover:text-accent-DEFAULT cursor-pointer transition-colors">
         + Foto
         <input
           type="file"
@@ -1706,7 +1706,7 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
             </button>
           </div>
         ))}
-        <label className="w-16 h-16 rounded-lg border-2 border-dashed border-neutral-200 dark:border-neutral-700 flex items-center justify-center cursor-pointer hover:border-orange-400 transition-colors text-neutral-400 hover:text-orange-500">
+        <label className="w-16 h-16 rounded-lg border-2 border-dashed border-neutral-200 dark:border-neutral-700 flex items-center justify-center cursor-pointer hover:border-accent-400 transition-colors text-neutral-400 hover:text-accent-DEFAULT">
           {uploading ? (
             <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -1795,7 +1795,7 @@ function GearImagesSection({ gearId }: { gearId: string }) {
     <div>
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bilder</h2>
-        <label className="px-3 py-1.5 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer">
+        <label className="px-3 py-1.5 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer">
           + Foto hinzufuegen
           <input
             type="file"
@@ -1814,13 +1814,13 @@ function GearImagesSection({ gearId }: { gearId: string }) {
         onDrop={handleDrop}
         className={`rounded-xl border-2 border-dashed transition-colors p-3 ${
           dragOver
-            ? 'border-orange-400 bg-orange-50 dark:bg-orange-900/10'
+            ? 'border-accent-400 bg-orange-50 dark:bg-orange-900/10'
             : 'border-neutral-200 dark:border-neutral-800'
         }`}
       >
         {uploading && (
           <div className="flex items-center justify-center py-4 text-sm text-neutral-400">
-            <svg className="animate-spin h-5 w-5 mr-2 text-orange-500" viewBox="0 0 24 24">
+            <svg className="animate-spin h-5 w-5 mr-2 text-accent-DEFAULT" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>

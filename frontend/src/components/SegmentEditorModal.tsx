@@ -348,7 +348,7 @@ export default function SegmentEditorModal({
               onClick={() => setHeatmapVisible(v => !v)}
               className={`px-2 py-1 text-xs rounded-md border transition-colors ${
                 heatmapVisible
-                  ? 'bg-orange-500/20 border-orange-500/50 text-orange-400'
+                  ? 'bg-accent-DEFAULT/20 border-accent-DEFAULT/50 text-orange-400'
                   : 'border-neutral-700 text-neutral-400 hover:text-neutral-200'
               }`}
             >
@@ -426,7 +426,7 @@ export default function SegmentEditorModal({
               &#x2190; Zurück
             </button>
             <button onClick={handleSubmit} disabled={!segName.trim() || mutation.isPending}
-              className="px-4 py-1.5 text-sm bg-orange-500 rounded-lg text-white hover:bg-orange-600 disabled:opacity-50">
+              className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50">
               {mutation.isPending ? 'Speichern...' : 'Segment speichern'}
             </button>
           </div>
@@ -477,7 +477,7 @@ export default function SegmentEditorModal({
                           Zurück bearbeiten
                         </button>
                         <button onClick={() => { setGeoJSON(extractSubTrack(trackPoints!, startIdx, endIdx)); setPhase('form') }}
-                          className="px-3 py-1.5 text-sm bg-orange-500 rounded-lg text-white hover:bg-orange-600">
+                          className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600">
                           Weiter &#x2192;
                         </button>
                       </>
@@ -533,7 +533,7 @@ export default function SegmentEditorModal({
                   </button>
                   <button
                     onClick={() => { setGeoJSON(drawGeoJSON!); setPhase('form') }}
-                    className="px-3 py-1.5 text-sm bg-orange-500 rounded-lg text-white hover:bg-orange-600"
+                    className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                   >
                     Weiter &#x2192;
                   </button>
@@ -570,7 +570,7 @@ export default function SegmentEditorModal({
                         setLapMeta({ finish_lat: finish.lat, finish_lng: finish.lng })
                         setPhase('form')
                       }}
-                      className="px-3 py-1.5 text-sm bg-orange-500 rounded-lg text-white hover:bg-orange-600"
+                      className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                     >
                       Weiter &#x2192;
                     </button>

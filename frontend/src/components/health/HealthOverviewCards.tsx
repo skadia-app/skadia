@@ -16,7 +16,7 @@ function totalSleepSeconds(sleep: { deep_seconds: number | null; light_seconds: 
 
 function readinessColor(score: number): string {
   if (score < 40) return 'text-rose-500'
-  if (score < 70) return 'text-orange-500'
+  if (score < 70) return 'text-accent-DEFAULT'
   return 'text-emerald-500'
 }
 
@@ -75,7 +75,7 @@ export default function HealthOverviewCards({ data }: Props) {
         {stepProgress != null && (
           <div className="mt-2 h-1.5 w-full rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${stepProgress >= 100 ? 'bg-emerald-500' : 'bg-orange-400'}`}
+              className={`h-full rounded-full transition-all ${stepProgress >= 100 ? 'bg-emerald-500' : 'bg-accent-400'}`}
               style={{ width: `${stepProgress}%` }}
             />
           </div>

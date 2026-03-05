@@ -77,7 +77,7 @@ function ZoneListItem({
       {/* Toggle */}
       <button
         onClick={() => onToggle(zone)}
-        className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${zone.is_active ? 'bg-orange-500' : 'bg-neutral-300 dark:bg-neutral-600'}`}
+        className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${zone.is_active ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600'}`}
         title={zone.is_active ? 'Deaktivieren' : 'Aktivieren'}
       >
         <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${zone.is_active ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
@@ -357,7 +357,7 @@ export default function PrivacySettingsPage() {
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Private Zonen</h1>
         <button
           onClick={handleNew}
-          className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          className="bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           Neue Zone
         </button>
@@ -386,7 +386,7 @@ export default function PrivacySettingsPage() {
       ) : zones.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
           <p className="text-neutral-500 dark:text-neutral-400 mb-4">Noch keine privaten Zonen definiert.</p>
-          <button onClick={handleNew} className="text-sm text-orange-500 hover:text-orange-600 font-medium transition-colors">
+          <button onClick={handleNew} className="text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
             Erste Zone erstellen
           </button>
         </div>

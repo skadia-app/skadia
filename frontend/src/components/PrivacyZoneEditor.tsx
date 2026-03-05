@@ -476,7 +476,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           onClick={() => setZoneMode('circle')}
           className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
             zoneMode === 'circle'
-              ? 'bg-orange-500 border-orange-500 text-white'
+              ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
           }`}
         >
@@ -486,7 +486,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           onClick={() => setZoneMode('polygon')}
           className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
             zoneMode === 'polygon'
-              ? 'bg-orange-500 border-orange-500 text-white'
+              ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
           }`}
         >
@@ -547,7 +547,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="z.B. Zuhause, Arbeitsplatz"
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
       </div>
 
@@ -602,7 +602,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         <button
           onClick={handleSave}
           disabled={!canSave || isSaving}
-          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          className="bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           {isSaving ? 'Speichern...' : 'Speichern'}
         </button>

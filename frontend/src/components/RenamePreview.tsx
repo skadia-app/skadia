@@ -106,7 +106,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                       <span className="text-neutral-500 dark:text-neutral-400 truncate flex-1 text-right">
                         {item.old_path}
                       </span>
-                      <svg className="w-4 h-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <svg className="w-4 h-4 text-accent-DEFAULT flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                       </svg>
                       <span className="text-neutral-800 dark:text-neutral-200 truncate flex-1">
@@ -122,7 +122,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
           {renameMutation.isPending && (
             <div className="mt-4">
               <div className="h-2 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
-                <div className="h-full bg-orange-500 rounded-full animate-pulse w-full" />
+                <div className="h-full bg-accent-DEFAULT rounded-full animate-pulse w-full" />
               </div>
               <p className="text-xs text-neutral-400 mt-2 text-center">Dateien werden verschoben...</p>
             </div>
@@ -141,7 +141,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
             <button
               onClick={handleClose}
               className="px-4 py-2 rounded-lg text-sm font-medium
-                         bg-orange-500 hover:bg-orange-600 text-white transition-colors"
+                         bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors"
             >
               Schließen
             </button>
@@ -185,7 +185,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                 onClick={() => setConfirmOpen(true)}
                 disabled={!items || items.length === 0}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-white
-                           bg-orange-500 hover:bg-orange-600
+                           bg-accent-DEFAULT hover:bg-accent-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Reorganisieren

@@ -124,7 +124,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           <button
             onClick={() => mutation.mutate()}
             disabled={!name.trim() || mutation.isPending}
-            className="px-4 py-1.5 text-sm bg-orange-500 rounded-lg text-white hover:bg-orange-600 disabled:opacity-50"
+            className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50"
           >
             {mutation.isPending ? 'Speichern...' : 'Speichern'}
           </button>

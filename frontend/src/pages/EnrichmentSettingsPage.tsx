@@ -195,7 +195,7 @@ export default function EnrichmentSettingsPage() {
                   step={step}
                   value={settings[key] as number}
                   onChange={(e) => updateNumber(key, e.target.value)}
-                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
                 />
                 <span className="text-sm text-neutral-500 dark:text-neutral-400 flex-shrink-0">{unit}</span>
               </div>
@@ -214,14 +214,14 @@ export default function EnrichmentSettingsPage() {
           <button
             onClick={() => weatherMut.mutate()}
             disabled={weatherMut.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {weatherMut.isPending ? 'Wird geladen...' : 'Wetter nachträglich laden'}
           </button>
           <button
             onClick={() => enrichMut.mutate()}
             disabled={enrichMut.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {enrichMut.isPending ? 'Wird berechnet...' : 'Enrichment neu berechnen'}
           </button>

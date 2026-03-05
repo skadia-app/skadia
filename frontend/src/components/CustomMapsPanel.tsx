@@ -174,7 +174,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
                       onClick={() => onAddMarkerMode(addMarkerModeMapID === map.id ? null : map.id)}
                       className={`w-full text-left text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
                         addMarkerModeMapID === map.id
-                          ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+                          ? 'bg-accent-100 dark:bg-orange-900/30 text-accent-600 dark:text-orange-400'
                           : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
                     >
@@ -193,7 +193,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="Kartenname"
-                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newName.trim()) {
@@ -212,7 +212,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
                       }
                     }}
                     disabled={!newName.trim() || createMapMutation.isPending}
-                    className="flex-1 text-xs px-2 py-1 rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 cursor-pointer"
+                    className="flex-1 text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
                   >
                     Erstellen
                   </button>
@@ -227,7 +227,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
             ) : (
               <button
                 onClick={() => setShowNewForm(true)}
-                className="w-full text-left text-xs text-neutral-400 hover:text-orange-500 cursor-pointer px-1 py-1"
+                className="w-full text-left text-xs text-neutral-400 hover:text-accent-DEFAULT cursor-pointer px-1 py-1"
               >
                 + Neue Karte
               </button>

@@ -70,7 +70,7 @@ function getDateRange(range: TimeRange): { from: string; to: string } {
 function acwrStatusColor(status: string): string {
   switch (status) {
     case 'optimal': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    case 'high': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+    case 'high': return 'bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
     case 'low': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
     default: return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
   }
@@ -382,8 +382,8 @@ export default function PMCChartExtended() {
                 <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
                 CTL {latest.ctl.toFixed(1)}
               </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-                <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                <span className="w-2 h-2 rounded-full bg-accent-DEFAULT inline-block" />
                 ATL {latest.atl.toFixed(1)}
               </span>
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${latest.tsb >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>

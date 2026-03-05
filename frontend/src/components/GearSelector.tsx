@@ -36,7 +36,7 @@ export default function GearSelector({ activityId, currentGearId }: GearSelector
           value={currentGearId ?? ''}
           onChange={(e) => mutation.mutate(e.target.value || null)}
           disabled={mutation.isPending}
-          className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         >
           <option value="">Keine Ausrüstung</option>
           {activeGear.map((g) => (

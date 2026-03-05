@@ -49,9 +49,9 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
         </div>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
           Noch keine Standort-Tags vorhanden. Erstelle einen in{' '}
-          <a href="/workshop/tags" className="text-orange-500 hover:underline">Tags</a> oder
+          <a href="/workshop/tags" className="text-accent-DEFAULT hover:underline">Tags</a> oder
           über das Indoor-Panel auf der{' '}
-          <a href="/map" className="text-orange-500 hover:underline">Karte</a>.
+          <a href="/map" className="text-accent-DEFAULT hover:underline">Karte</a>.
         </p>
       </div>
     )
@@ -69,7 +69,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
         {availableTags.length > 0 && !showPicker && (
           <button
             onClick={() => setShowPicker(true)}
-            className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+            className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
             + Standort zuweisen
           </button>
@@ -115,7 +115,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
           {availableTags.length > 0 && (
             <button
               onClick={() => setShowPicker(true)}
-              className="text-orange-500 hover:underline cursor-pointer"
+              className="text-accent-DEFAULT hover:underline cursor-pointer"
             >
               Jetzt zuweisen
             </button>

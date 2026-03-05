@@ -108,13 +108,13 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
             className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
                        bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
                        placeholder:text-neutral-400 dark:placeholder:text-neutral-600
-                       focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm font-mono"
+                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
           />
           <button
             onClick={onSave}
             disabled={!isDirty || isSaving}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white
-                       bg-orange-500 hover:bg-orange-600
+                       bg-accent-DEFAULT hover:bg-accent-600
                        disabled:opacity-40 disabled:cursor-not-allowed
                        transition-colors"
           >
@@ -134,7 +134,7 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
                          border border-neutral-200 dark:border-neutral-700
                          bg-neutral-50 dark:bg-neutral-800
                          text-neutral-600 dark:text-neutral-400
-                         hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600
+                         hover:bg-orange-50 hover:border-orange-300 hover:text-accent-600
                          dark:hover:bg-orange-900/20 dark:hover:border-orange-700 dark:hover:text-orange-400
                          transition-colors"
             >
@@ -146,7 +146,7 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
 
         <button
           onClick={() => setShowAll(prev => !prev)}
-          className="text-xs text-neutral-400 hover:text-orange-500 dark:hover:text-orange-400 transition-colors"
+          className="text-xs text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-orange-400 transition-colors"
         >
           {showAll
             ? '↑ Weniger anzeigen'

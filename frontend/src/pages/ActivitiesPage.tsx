@@ -1178,16 +1178,16 @@ function ActivityRow({
 
   let rowClass = 'even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
   if (isSelected) {
-    rowClass = 'bg-orange-50/70 dark:bg-orange-900/15 hover:bg-orange-100/60 dark:hover:bg-orange-900/25 transition-colors cursor-pointer group'
+    rowClass = 'bg-orange-50/70 dark:bg-orange-900/15 hover:bg-accent-100/60 dark:hover:bg-orange-900/25 transition-colors cursor-pointer group'
   } else if (isLastVisited) {
-    rowClass = 'bg-orange-100/60 dark:bg-orange-900/25 ring-1 ring-inset ring-orange-400/40 dark:ring-orange-500/30 hover:bg-orange-100/80 dark:hover:bg-orange-900/35 transition-colors cursor-pointer group'
+    rowClass = 'bg-accent-100/60 dark:bg-orange-900/25 ring-1 ring-inset ring-orange-400/40 dark:ring-accent-DEFAULT/30 hover:bg-accent-100/80 dark:hover:bg-orange-900/35 transition-colors cursor-pointer group'
   } else if (highlighted) {
     rowClass = 'bg-orange-50 dark:bg-orange-900/20 even:bg-orange-50 dark:even:bg-orange-900/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
   }
 
   const titleClass = isLastVisited && !isSelected
-    ? 'text-orange-600 dark:text-orange-400 font-medium'
-    : 'text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors'
+    ? 'text-accent-600 dark:text-orange-400 font-medium'
+    : 'text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-accent-DEFAULT dark:group-hover:text-orange-400 transition-colors'
 
   return (
     <tr

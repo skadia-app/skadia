@@ -16,7 +16,7 @@ function eventLabel(event: string): string {
 function eventColor(event: string): string {
   switch (event) {
     case 'approach': return 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-    case 'start': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
+    case 'start': return 'bg-accent-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
     case 'complete': return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
     default: return 'bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400'
   }

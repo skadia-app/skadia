@@ -5,6 +5,10 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-accent-DEFAULT: #F97316;
+  --color-accent-600: #EA580C;
+  --color-accent-400: #FB923C;
+  --color-accent-100: #FFEDD5;
 }
 
 * {

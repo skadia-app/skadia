@@ -457,8 +457,8 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate }: Week
                       )}
                       {summary.atl != null && (
                         <div className="flex justify-between">
-                          <span className="text-orange-500">ATL</span>
-                          <span className="font-medium tabular-nums text-orange-500">
+                          <span className="text-accent-DEFAULT">ATL</span>
+                          <span className="font-medium tabular-nums text-accent-DEFAULT">
                             {summary.atl.toFixed(0)}
                           </span>
                         </div>

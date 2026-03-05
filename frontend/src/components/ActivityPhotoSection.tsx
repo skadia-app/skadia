@@ -74,7 +74,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 <div key={photo.id} className="relative group aspect-square">
                   <button
                     onClick={() => setSelectedPhoto(photo)}
-                    className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-orange-400 transition-colors"
+                    className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-accent-400 transition-colors"
                   >
                     <img
                       src={photo.thumb_url}
@@ -109,7 +109,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadMutation.isPending}
-              className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer disabled:opacity-50"
+              className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer disabled:opacity-50"
             >
               {uploadMutation.isPending ? 'Wird hochgeladen...' : '+ Fotos hochladen'}
             </button>

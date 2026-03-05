@@ -134,7 +134,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</span>
                 <button
                   onClick={toggleAll}
-                  className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+                  className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
                 >
                   {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
                 </button>
@@ -153,7 +153,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                               if (el) el.indeterminate = isParentIndeterminate(opt)
                             }}
                             onChange={() => toggleParent(opt)}
-                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                           />
                           <button
                             onClick={() => toggleGroup(opt.groupKey!)}
@@ -179,7 +179,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                                     type="checkbox"
                                     checked={filters.sportTypes.has(key)}
                                     onChange={() => toggleSport(key)}
-                                    className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                                    className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                                   />
                                   <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                                     {child.label}
@@ -197,7 +197,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                           type="checkbox"
                           checked={filters.sportTypes.has(opt.value)}
                           onChange={() => toggleSport(opt.value)}
-                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                         />
                         <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                           {opt.label}
@@ -217,14 +217,14 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   type="date"
                   value={filters.dateFrom}
                   onChange={(e) => onChange({ ...filters, dateFrom: e.target.value })}
-                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
                   placeholder="Von"
                 />
                 <input
                   type="date"
                   value={filters.dateTo}
                   onChange={(e) => onChange({ ...filters, dateTo: e.target.value })}
-                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
                   placeholder="Bis"
                 />
               </div>
@@ -275,13 +275,13 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs mb-2">
                     <button
                       onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'uniform' } })}
-                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
+                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
                       Einheitlich
                     </button>
                     <button
                       onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'per-type' } })}
-                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-orange-500 text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
+                      className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
                       Nach Sportart
                     </button>
@@ -326,7 +326,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                         </button>
                         <button
                           onClick={() => localStorage.setItem(USER_DEFAULT_KEY, JSON.stringify(filters.colorConfig.colors))}
-                          className="flex-1 text-xs text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer"
+                          className="flex-1 text-xs text-orange-400 hover:text-accent-600 dark:hover:text-orange-300 cursor-pointer"
                         >
                           Als Standard speichern
                         </button>
@@ -344,7 +344,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   type="checkbox"
                   checked={filters.showLocationTags ?? true}
                   onChange={(e) => onChange({ ...filters, showLocationTags: e.target.checked })}
-                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1 mt-0.5 flex-shrink-0"
+                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1 mt-0.5 flex-shrink-0"
                 />
                 <div>
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">Indoor-Standort-Pins</span>

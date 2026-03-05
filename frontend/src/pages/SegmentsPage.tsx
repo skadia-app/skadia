@@ -24,7 +24,7 @@ const SPORT_GROUP_ICONS: Record<string, string> = {
 }
 
 const SPORT_GROUP_COLORS: Record<string, string> = {
-  bike: 'text-orange-500',
+  bike: 'text-accent-DEFAULT',
   foot: 'text-green-500',
   swim: 'text-cyan-500',
   ski: 'text-blue-500',
@@ -118,7 +118,7 @@ export default function SegmentsPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
         <button onClick={() => setEditorMode('draw')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -206,7 +206,7 @@ export default function SegmentsPage() {
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor">
                     <path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} />
                   </svg>
-                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors truncate">
+                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">
                     {segment.name}
                   </h3>
                   {segment.segment_type === 'trail' && (
@@ -216,7 +216,7 @@ export default function SegmentsPage() {
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }}
-                    className="p-1 rounded text-neutral-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                    className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
                     title="Segment bearbeiten"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -312,7 +312,7 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
               {(['all', 'forward', 'reverse'] as const).map(dir => (
                 <button key={dir}
                   onClick={() => setDirection(dir)}
-                  className={`px-2 py-1 text-xs rounded ${direction === dir ? 'bg-orange-500 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  className={`px-2 py-1 text-xs rounded ${direction === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                 >
                   {dir === 'all' ? 'Alle' : dir === 'forward' ? '→' : '←'}
                 </button>

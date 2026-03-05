@@ -39,7 +39,7 @@ export default function PhysiologicalProfilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/workshop" className="text-sm text-orange-500 hover:text-orange-600 transition-colors">
+        <Link to="/workshop" className="text-sm text-accent-DEFAULT hover:text-accent-600 transition-colors">
           ← Werkstatt
         </Link>
       </div>
@@ -180,7 +180,7 @@ export default function PhysiologicalProfilePage() {
           <button
             onClick={() => profileMutation.mutate(profileForm)}
             disabled={profileMutation.isPending}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50 transition-colors"
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 transition-colors"
           >
             {profileMutation.isPending ? 'Speichern...' : 'Profil speichern'}
           </button>

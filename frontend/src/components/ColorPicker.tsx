@@ -243,7 +243,7 @@ export default function ColorPicker({ value, onChange, onConfirm, onCancel, clas
             }}
             maxLength={7}
             spellCheck={false}
-            className="w-full px-2 py-1 text-xs font-mono rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 outline-none focus:border-orange-400 dark:focus:border-orange-500 uppercase"
+            className="w-full px-2 py-1 text-xs font-mono rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 outline-none focus:border-accent-400 dark:focus:border-accent-DEFAULT uppercase"
             placeholder="#RRGGBB"
           />
 

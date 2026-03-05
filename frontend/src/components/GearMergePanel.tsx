@@ -37,7 +37,7 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
     return (
       <div className="text-center py-8">
         <p className="text-neutral-500 dark:text-neutral-400 text-sm">Keine möglichen Duplikate gefunden.</p>
-        <button onClick={onClose} className="mt-4 text-sm text-orange-500 hover:text-orange-600 font-medium transition-colors">
+        <button onClick={onClose} className="mt-4 text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
           Schließen
         </button>
       </div>
@@ -75,14 +75,14 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => mergeMut.mutate({ primary: idA, from: idB })}
                 disabled={isPending}
-                className="flex-1 text-xs py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white transition-colors"
+                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
               >
                 {gA.name} behalten
               </button>
               <button
                 onClick={() => mergeMut.mutate({ primary: idB, from: idA })}
                 disabled={isPending}
-                className="flex-1 text-xs py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white transition-colors"
+                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
               >
                 {gB.name} behalten
               </button>

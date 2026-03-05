@@ -30,7 +30,7 @@ function strokeColor(stroke?: string): string {
     case 'freestyle': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
     case 'backstroke': return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
     case 'breaststroke': return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400'
-    case 'butterfly': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
+    case 'butterfly': return 'bg-accent-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
     default: return 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
   }
 }

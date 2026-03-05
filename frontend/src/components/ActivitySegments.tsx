@@ -62,7 +62,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
             Segmente
           </h2>
           {efforts.length > 0 && (
@@ -77,7 +77,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                        border border-neutral-200 dark:border-neutral-700
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700
-                       hover:text-orange-600 dark:hover:text-orange-400
+                       hover:text-accent-600 dark:hover:text-orange-400
                        transition-colors"
             title="Segment aus dem Track dieser Aktivitaet erstellen"
           >
@@ -133,7 +133,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => navigate('/segments')}
-                        className="text-neutral-900 dark:text-neutral-100 hover:text-orange-500 transition-colors text-left"
+                        className="text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT transition-colors text-left"
                       >
                         {effort.segment_name ?? 'Unbenannt'}
                       </button>

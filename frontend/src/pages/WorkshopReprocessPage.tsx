@@ -134,7 +134,7 @@ export default function WorkshopReprocessPage() {
             onClick={() => setMode('all')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
               mode === 'all'
-                ? 'bg-orange-500 text-white'
+                ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
@@ -144,7 +144,7 @@ export default function WorkshopReprocessPage() {
             onClick={() => setMode('selection')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
               mode === 'selection'
-                ? 'bg-orange-500 text-white'
+                ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
@@ -322,8 +322,8 @@ export default function WorkshopReprocessPage() {
           <button
             onClick={handleStart}
             disabled={mutation.isPending || scope.size === 0 || (mode === 'selection' && selectedIds.size === 0)}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white
-                       hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
+                       hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed
                        transition-colors cursor-pointer"
           >
             {mutation.isPending ? 'Verarbeite...' : 'Neu verarbeiten'}
@@ -374,8 +374,8 @@ export default function WorkshopReprocessPage() {
                 </button>
                 <button
                   onClick={handleConfirm}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white
-                             hover:bg-orange-600 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
+                             hover:bg-accent-600 transition-colors cursor-pointer"
                 >
                   Bestätigen
                 </button>

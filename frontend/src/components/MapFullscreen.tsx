@@ -704,7 +704,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
             {isZoomed && (
               <button
                 onClick={handleResetZoom}
-                className="text-xs px-2.5 py-1 rounded-md bg-orange-100 text-orange-700 hover:bg-orange-200
+                className="text-xs px-2.5 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                            dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors"
               >
                 Zoom zurücksetzen

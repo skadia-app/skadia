@@ -272,7 +272,7 @@ export default function SleepAnalysisChart() {
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 font-medium">
             Avg Schlafdauer: {fmtMinutes(data.avg_duration_min)}
           </span>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">
             Avg Score: {data.avg_score.toFixed(0)}
           </span>
           {trend && (

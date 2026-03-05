@@ -19,7 +19,7 @@ const timeOfDayStyles: Record<string, { label: string; classes: string }> = {
   },
   'buergerliche-daemmerung': {
     label: 'Bürgerl. Dämmerung',
-    classes: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    classes: 'bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   },
   'goldene-stunde': {
     label: 'Goldene Stunde',

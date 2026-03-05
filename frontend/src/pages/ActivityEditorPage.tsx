@@ -322,7 +322,7 @@ export default function ActivityEditorPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <span className="text-neutral-400">Aktivität nicht gefunden</span>
-        <Link to="/activities" className="text-sm text-orange-500 hover:text-orange-600">
+        <Link to="/activities" className="text-sm text-accent-DEFAULT hover:text-accent-600">
           Zur Liste
         </Link>
       </div>
@@ -353,7 +353,7 @@ export default function ActivityEditorPage() {
           </p>
         </div>
         {activity.has_edits && (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
             Bearbeitet
           </span>
         )}
@@ -373,7 +373,7 @@ export default function ActivityEditorPage() {
             <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
               Herzfrequenz
               {detectedSpikes.length > 0 && (
-                <span className="ml-2 text-xs text-orange-500">
+                <span className="ml-2 text-xs text-accent-DEFAULT">
                   {detectedSpikes.length} Spike{detectedSpikes.length !== 1 ? 's' : ''} markiert
                 </span>
               )}
@@ -401,7 +401,7 @@ export default function ActivityEditorPage() {
           <div ref={chartRef} style={{ height: 260 }} />
           <div className="mt-2 flex items-center gap-4 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2 w-4 rounded bg-orange-500 opacity-80" />
+              <span className="inline-block h-2 w-4 rounded bg-accent-DEFAULT opacity-80" />
               Erkannte Spikes
             </span>
             {showPreview && (
@@ -470,8 +470,8 @@ export default function ActivityEditorPage() {
               disabled={isApplying || hasUnsavedSpikes}
               title={hasUnsavedSpikes ? 'Bitte Edits zuerst speichern' : 'Edits anwenden und Metriken neu berechnen'}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-                         bg-orange-500 text-white
-                         hover:bg-orange-600
+                         bg-accent-DEFAULT text-white
+                         hover:bg-accent-600
                          disabled:opacity-50 disabled:cursor-not-allowed
                          transition-colors"
             >
@@ -507,7 +507,7 @@ export default function ActivityEditorPage() {
             <ul className="space-y-1">
               {sidecar!.edits.map((edit, i) => (
                 <li key={i} className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-400 flex-shrink-0" />
                   {editLabel(edit)}
                 </li>
               ))}

@@ -72,6 +72,11 @@ export function applyAccentColor(entry: AccentEntry) {
   root.style.setProperty('--color-orange-600', entry.shade600)
   root.style.setProperty('--color-orange-400', entry.shade400)
   root.style.setProperty('--color-orange-100', entry.shade100)
+  // Also expose as --color-accent-* for components that reference accent directly
+  root.style.setProperty('--color-accent-DEFAULT', entry.shade500)
+  root.style.setProperty('--color-accent-600', entry.shade600)
+  root.style.setProperty('--color-accent-400', entry.shade400)
+  root.style.setProperty('--color-accent-100', entry.shade100)
 }
 
 function findEntry(hex: string): AccentEntry {

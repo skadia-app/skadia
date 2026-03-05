@@ -187,7 +187,7 @@ function TagForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Tag-Name"
-          className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400 w-40"
+          className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400 w-40"
           required
         />
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -205,7 +205,7 @@ function TagForm({
         </span>
         <div className="flex items-center gap-2">
           <button type="submit" disabled={isPending || !name.trim()}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >{tag ? 'Speichern' : 'Erstellen'}</button>
           <button type="button" onClick={onCancel}
             className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
@@ -226,7 +226,7 @@ function TagForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Tag-Name"
-          className="w-full px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+          className="w-full px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
           required
         />
       </div>
@@ -238,7 +238,7 @@ function TagForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Optionale Beschreibung"
-          className="w-full px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+          className="w-full px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         />
       </div>
 
@@ -273,13 +273,13 @@ function TagForm({
             </svg>
             <span>Standort</span>
             {isLocationTag && locationLat && locationLng && (
-              <span className="text-xs font-normal text-orange-500">
+              <span className="text-xs font-normal text-accent-DEFAULT">
                 {parseFloat(locationLat).toFixed(4)}, {parseFloat(locationLng).toFixed(4)}
               </span>
             )}
           </span>
           <div className="flex items-center gap-2">
-            <span className={`w-9 h-5 rounded-full transition-colors flex items-center ${isLocationTag ? 'bg-orange-500' : 'bg-neutral-200 dark:bg-neutral-700'}`}>
+            <span className={`w-9 h-5 rounded-full transition-colors flex items-center ${isLocationTag ? 'bg-accent-DEFAULT' : 'bg-neutral-200 dark:bg-neutral-700'}`}>
               <span className={`w-4 h-4 rounded-full bg-white shadow mx-0.5 transition-transform ${isLocationTag ? 'translate-x-4' : ''}`} />
             </span>
           </div>
@@ -309,7 +309,7 @@ function TagForm({
                   value={locationLat}
                   onChange={(e) => setLocationLat(e.target.value)}
                   placeholder="z.B. 48.1234"
-                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
                 />
               </div>
               <div className="flex-1">
@@ -322,7 +322,7 @@ function TagForm({
                   value={locationLng}
                   onChange={(e) => setLocationLng(e.target.value)}
                   placeholder="z.B. 11.5678"
-                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
                 />
               </div>
             </div>
@@ -333,7 +333,7 @@ function TagForm({
       {/* Actions */}
       <div className="flex items-center gap-2 pt-1">
         <button type="submit" disabled={isPending || !name.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >{tag ? 'Speichern' : 'Erstellen'}</button>
         <button type="button" onClick={onCancel}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
@@ -409,13 +409,13 @@ export default function TagsPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/workshop/rules?new=1"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
           >
             Automatisierungsregel erstellen
           </Link>
           <button
             onClick={() => { setShowForm(true); setEditingId(null) }}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
           >
             Tag erstellen
           </button>
@@ -511,7 +511,7 @@ export default function TagsPage() {
                             </button>
                             <Link
                               to={`/workshop/rules?new=1&tag_name=${encodeURIComponent(tag.name)}`}
-                              className="p-1.5 rounded-md text-neutral-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                              className="p-1.5 rounded-md text-neutral-400 hover:text-accent-DEFAULT hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
                               title="Automatisierungsregel erstellen"
                             >
                               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -579,7 +579,7 @@ export default function TagsPage() {
               <select
                 value={mergeSourceId}
                 onChange={e => { setMergeSourceId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
-                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Quell-Tag wählen —</option>
                 {allTags.filter(t => !t.is_system && t.id !== mergeTargetId).map(t => (
@@ -594,7 +594,7 @@ export default function TagsPage() {
               <select
                 value={mergeTargetId}
                 onChange={e => { setMergeTargetId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
-                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Ziel-Tag wählen —</option>
                 {allTags.filter(t => t.id !== mergeSourceId).map(t => (
@@ -636,7 +636,7 @@ export default function TagsPage() {
               mergeMut.mutate({ targetId: mergeTargetId, sourceId: mergeSourceId })
             }}
             disabled={!mergeSourceId || !mergeTargetId || mergeSourceId === mergeTargetId || mergeMut.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             {mergeMut.isPending ? 'Fusioniere…' : 'Fusionieren'}
           </button>

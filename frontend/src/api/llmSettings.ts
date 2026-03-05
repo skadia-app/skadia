@@ -1,3 +1,5 @@
+import { apiClient } from '@/api/client'
+
 export interface LLMSystemConfig {
   role: string
   backend_type: 'ollama' | 'llama_server' | 'openai' | 'anthropic' | 'disabled'
@@ -21,9 +23,7 @@ export interface LLMTestResult {
 }
 
 export async function fetchLLMConfig(): Promise<LLMSystemConfig[]> {
-  const res = await fetch('/api/v1/admin/llm-config')
-  if (!res.ok) throw new Error('Failed to fetch LLM config')
-  return res.json()
+  return apiClient<LLMSystemConfig[]>('/admin/llm-config')
 }
 
 export async function saveLLMRole(role: string, update: {
@@ -33,18 +33,18 @@ export async function saveLLMRole(role: string, update: {
   api_key?: string
   enabled: boolean
 }): Promise<void> {
-  const res = await fetch(`/api/v1/admin/llm-config/${role}`, {
+  return apiClient<void>(`/admin/llm-config/${role}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(update),
+    body: update,
   })
-  if (!res.ok) throw new Error('Failed to save LLM config')
 }
 
 export async function fetchOllamaModels(apiBase: string): Promise<OllamaModel[]> {
-  const res = await fetch(`/api/v1/admin/llm-config/models?backend=ollama&api_base=${encodeURIComponent(apiBase)}`)
-  if (!res.ok) return []
-  return res.json()
+  try {
+    return await apiClient<OllamaModel[]>(`/admin/llm-config/models?backend=ollama&api_base=${encodeURIComponent(apiBase)}`)
+  } catch {
+    return []
+  }
 }
 
 export async function testLLMConnection(params: {
@@ -53,11 +53,8 @@ export async function testLLMConnection(params: {
   model_name: string
   api_key?: string
 }): Promise<LLMTestResult> {
-  const res = await fetch('/api/v1/admin/llm-config/test', {
+  return apiClient<LLMTestResult>('/admin/llm-config/test', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: params,
   })
-  if (!res.ok) throw new Error('Test failed')
-  return res.json()
 }

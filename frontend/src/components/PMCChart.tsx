@@ -308,7 +308,7 @@ export default function PMCChart() {
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
-              className="text-sm px-3 py-1 rounded-md bg-orange-100 text-orange-700 hover:bg-orange-200
+              className="text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
               Zoom zurücksetzen
             </button>
@@ -361,7 +361,7 @@ export default function PMCChart() {
           </div>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">ATL (Ermüdung)</div>
-            <div className="text-xl font-semibold text-orange-500 tabular-nums">{latest.atl.toFixed(1)}</div>
+            <div className="text-xl font-semibold text-accent-DEFAULT tabular-nums">{latest.atl.toFixed(1)}</div>
           </div>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">TSB (Form)</div>

@@ -153,7 +153,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
       <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
         <button
           onClick={() => setShowNewLocation(true)}
-          className="px-2.5 py-1.5 text-xs text-orange-500 border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 cursor-pointer whitespace-nowrap"
+          className="px-2.5 py-1.5 text-xs text-accent-DEFAULT border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 cursor-pointer whitespace-nowrap"
         >
           + Neu
         </button>
@@ -168,7 +168,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           onDragEnd={handleDragEnd}
           className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors select-none ${
             hasSelection
-              ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
+              ? 'border-orange-300 dark:border-orange-700 text-accent-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
               : 'border-neutral-200 dark:border-neutral-700 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
           }`}
           title={hasSelection ? 'Auf die Karte ziehen' : 'Erst Aktivitäten auswählen'}
@@ -199,12 +199,12 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Titel / Beschreibung suchen..."
-          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         />
         <select
           value={sportFilter}
           onChange={(e) => setSportFilter(e.target.value)}
-          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         >
           <option value="">Alle Sportarten</option>
           {sportTypes.map(s => (
@@ -278,7 +278,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
             <select
               value={selectedTagId}
               onChange={(e) => setSelectedTagId(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             >
               <option value="">An Standort zuweisen...</option>
               {locationTags.map(t => (
@@ -288,7 +288,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
             <button
               onClick={() => assignMutation.mutate()}
               disabled={selectedIds.size === 0 || !selectedTagId || assignMutation.isPending}
-              className="w-full py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              className="w-full py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
               {assignMutation.isPending ? 'Zuweisen...' : 'Zuweisen'}
             </button>
@@ -309,7 +309,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               value={newLocName}
               onChange={(e) => setNewLocName(e.target.value)}
               placeholder="Name des Standorts"
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-orange-400"
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             />
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -329,7 +329,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               <button
                 onClick={handleNewLocationSubmit}
                 disabled={!newLocName.trim()}
-                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 {selectedIds.size > 0 ? 'Auf Karte setzen' : 'Erstellen'}
               </button>

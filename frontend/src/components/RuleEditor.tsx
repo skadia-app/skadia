@@ -287,7 +287,7 @@ function flattenGroups(groups: RuleConditionGroup[]): { conditions: RuleConditio
 // Small UI bits
 // ---------------------------------------------------------------------------
 
-const inputClass = 'border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent'
+const inputClass = 'border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
 
 // ---------------------------------------------------------------------------
 // Geofence mini-map
@@ -528,8 +528,8 @@ function ConditionValueEditor({
               onClick={() => toggle(s.value)}
               className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors cursor-pointer ${
                 selected.includes(s.value)
-                  ? 'bg-orange-500 text-white border-orange-500'
-                  : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-orange-400'
+                  ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                  : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-accent-400'
               }`}
             >
               {s.label}
@@ -787,7 +787,7 @@ function ConditionGroupBlock({
                 onClick={() => onChange({ ...group, logic: l })}
                 className={`px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
                   group.logic === l
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-accent-DEFAULT text-white'
                     : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
@@ -812,7 +812,7 @@ function ConditionGroupBlock({
           <div key={i}>
             {i > 0 && (
               <div className="flex items-center gap-2 my-1">
-                <span className="text-xs font-semibold text-orange-500 uppercase tracking-wide px-1">
+                <span className="text-xs font-semibold text-accent-DEFAULT uppercase tracking-wide px-1">
                   {group.logic === 'and' ? 'UND' : 'ODER'}
                 </span>
               </div>
@@ -830,7 +830,7 @@ function ConditionGroupBlock({
       <button
         type="button"
         onClick={addCondition}
-        className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+        className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
       >
         + Bedingung hinzufügen
       </button>
@@ -1080,7 +1080,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           <button
             type="button"
             onClick={addGroup}
-            className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+            className="text-sm text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
           >
             + Gruppe hinzufügen
           </button>
@@ -1188,7 +1188,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           <button
             type="button"
             onClick={addAction}
-            className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+            className="text-sm text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
           >
             + Aktion
           </button>
@@ -1242,7 +1242,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
         <button
           type="submit"
           disabled={isSaving || !name.trim() || totalConditions === 0 || actions.length === 0}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>

@@ -58,10 +58,10 @@ export default function WorkshopPage() {
                        hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-sm transition-all"
           >
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-50 dark:bg-orange-900/20 text-orange-500">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-50 dark:bg-orange-900/20 text-accent-DEFAULT">
                 <Icon />
               </div>
-              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-orange-500 transition-colors">
+              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
                 {title}
               </h2>
             </div>

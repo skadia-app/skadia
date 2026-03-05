@@ -51,7 +51,7 @@ export default function GearPage() {
                 onClick={() => setStatusFilter(value)}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                   statusFilter === value
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-accent-DEFAULT text-white'
                     : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
@@ -67,7 +67,7 @@ export default function GearPage() {
           </button>
           <button
             onClick={() => setShowForm(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
           >
             Ausrüstung hinzufügen
           </button>
@@ -204,7 +204,7 @@ function GearCard({ gear }: { gear: Gear }) {
             {gear.default_for_sports.map((sport) => (
               <span
                 key={sport}
-                className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400"
+                className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
               >
                 {sport}
               </span>

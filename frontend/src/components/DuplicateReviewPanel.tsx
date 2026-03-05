@@ -91,7 +91,7 @@ export default function DuplicateReviewPanel({ entries, onDone }: DuplicateRevie
           <div key={key} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3">
             {/* Header */}
             <div className="flex items-center gap-2 text-xs text-neutral-400">
-              <span className="bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">
+              <span className="bg-accent-100 dark:bg-orange-900/30 text-accent-600 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">
                 {Math.round(entry.overlap_percent)}% Übereinstimmung
               </span>
               <span>·</span>

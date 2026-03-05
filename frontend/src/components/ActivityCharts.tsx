@@ -404,7 +404,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
-              className="text-sm px-3 py-1 rounded-md bg-orange-100 text-orange-700 hover:bg-orange-200
+              className="text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
               ✕ Zoom zurücksetzen
             </button>

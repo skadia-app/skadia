@@ -251,7 +251,7 @@ function LLMRoleCard({ role, config, onSave }: {
             </div>
           )}
 
-          {/* Test + Speichern */}
+          {/* Verbindung testen */}
           <div className="flex items-center gap-3 pt-1">
             <button
               onClick={runTest}
@@ -262,14 +262,6 @@ function LLMRoleCard({ role, config, onSave }: {
             >
               {isTesting ? 'Teste...' : 'Verbindung testen'}
             </button>
-            <button
-              onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending}
-              className="px-4 py-1.5 text-sm rounded-lg text-white disabled:opacity-50 transition-colors"
-              style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
-            >
-              {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
-            </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
                 {testResult.success ? 'OK' : 'Fehler'} {testResult.message}
@@ -279,6 +271,18 @@ function LLMRoleCard({ role, config, onSave }: {
           </div>
         </div>
       )}
+
+      {/* Speichern – immer sichtbar, auch wenn deaktiviert */}
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+          className="px-4 py-1.5 text-sm rounded-lg text-white disabled:opacity-50 transition-colors"
+          style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
+        >
+          {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
+        </button>
+      </div>
     </div>
   )
 }

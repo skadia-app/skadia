@@ -62,7 +62,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
           placeholder="z.B. Canyon Spectral"
         />
       </div>
@@ -76,7 +76,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           value={type}
           onChange={(e) => setType(e.target.value)}
           required
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         >
           <option value="">Bitte wählen...</option>
           {GEAR_TYPES.map(({ value, label }) => (
@@ -94,7 +94,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           type="text"
           value={subType}
           onChange={(e) => setSubType(e.target.value)}
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
           placeholder="z.B. MTB, Rennrad, Trail"
         />
       </div>
@@ -109,7 +109,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
             type="text"
             value={brand}
             onChange={(e) => setBrand(e.target.value)}
-            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
           />
         </div>
         <div>
@@ -120,7 +120,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
             type="text"
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
           />
         </div>
       </div>
@@ -134,7 +134,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           type="date"
           value={purchasedAt}
           onChange={(e) => setPurchasedAt(e.target.value)}
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
       </div>
 
@@ -150,7 +150,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
                 type="checkbox"
                 checked={defaultForSports.includes(value)}
                 onChange={() => toggleSport(value)}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
               />
               <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
             </label>
@@ -167,7 +167,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent resize-none"
         />
       </div>
 
@@ -183,7 +183,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
         <button
           type="submit"
           disabled={isSaving || !name.trim() || !type}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>

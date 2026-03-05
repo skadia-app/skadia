@@ -234,7 +234,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
         onClick={() => setOpen(!open)}
         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer ${
           activeCount > 0
-            ? 'border-orange-400 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400'
+            ? 'border-accent-400 bg-orange-50 dark:bg-orange-950/30 text-accent-600 dark:text-orange-400'
             : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
         }`}
       >
@@ -243,7 +243,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
         </svg>
         Filter
         {activeCount > 0 && (
-          <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-orange-500 text-white">
+          <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-accent-DEFAULT text-white">
             {activeCount}
           </span>
         )}
@@ -260,7 +260,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportarten</span>
                 <button
                   onClick={toggleAllSports}
-                  className="text-xs text-orange-500 hover:text-orange-600 cursor-pointer"
+                  className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
                 >
                   {allSportsSelected ? 'Keine' : 'Alle'}
                 </button>
@@ -270,7 +270,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 value={sportSearch}
                 onChange={e => setSportSearch(e.target.value)}
                 placeholder="Sportart suchen..."
-                className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-accent-400"
               />
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {visibleOptions.filter(matchesSportSearch).map(opt => (
@@ -283,7 +283,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                             checked={isParentChecked(opt)}
                             ref={el => { if (el) el.indeterminate = isParentIndeterminate(opt) }}
                             onChange={() => toggleParent(opt)}
-                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                           />
                           <button
                             onClick={() => toggleGroup(opt.groupKey!)}
@@ -310,7 +310,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                                       type="checkbox"
                                       checked={filters.sportTypes.has(key)}
                                       onChange={() => toggleSport(key)}
-                                      className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                                      className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                                     />
                                     <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                                       {child.label}
@@ -327,7 +327,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                           type="checkbox"
                           checked={filters.sportTypes.has(opt.value)}
                           onChange={() => toggleSport(opt.value)}
-                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-orange-500 focus:ring-orange-500 focus:ring-1"
+                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
                         />
                         <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                           {opt.label}
@@ -349,7 +349,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                     type="date"
                     value={filters.dateFrom}
                     onChange={e => onChange({ ...filters, dateFrom: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
                   />
                 </div>
                 <div>
@@ -358,7 +358,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                     type="date"
                     value={filters.dateTo}
                     onChange={e => onChange({ ...filters, dateTo: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
                   />
                 </div>
               </div>
@@ -379,7 +379,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                       onClick={() => onChange({ ...filters, isIndoor: val })}
                       className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
                         filters.isIndoor === val
-                          ? 'bg-orange-500 text-white font-medium'
+                          ? 'bg-accent-DEFAULT text-white font-medium'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
                     >
@@ -401,7 +401,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                       onClick={() => onChange({ ...filters, hasGPS: val })}
                       className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
                         filters.hasGPS === val
-                          ? 'bg-orange-500 text-white font-medium'
+                          ? 'bg-accent-DEFAULT text-white font-medium'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
                     >
@@ -419,7 +419,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 <select
                   value={filters.gearId}
                   onChange={e => onChange({ ...filters, gearId: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
                 >
                   <option value="">Alle</option>
                   {gearList.map(g => (
@@ -448,7 +448,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
           {chips.map(chip => (
             <span
               key={chip.label}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800"
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-accent-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800"
             >
               {chip.label}
               <button

@@ -49,7 +49,7 @@ function splitTypeLabel(type: string, subType?: string): string {
 
 function splitTypeBadgeColor(type: string): string {
   switch (type) {
-    case 'climb_active': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
+    case 'climb_active': return 'bg-accent-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
     case 'climb_rest': return 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
     case 'ski_run': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
     case 'ski_lift': return 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
