@@ -2843,3 +2843,85 @@ func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from
 	}
 	return result, nil
 }
+
+// VisitedPOI represents a unique visited restaurant/hut.
+type VisitedPOI struct {
+	Name    string  `json:"name"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+	Count   int     `json:"count"`
+	PoiType string  `json:"poi_type,omitempty"`
+}
+
+// GetVisitedPOIs returns all named stops the user has spent >= 900s at.
+func (db *DB) GetVisitedPOIs(ctx context.Context, userID string) ([]VisitedPOI, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			s.name,
+			AVG(ST_Y(s.location::geometry)) AS lat,
+			AVG(ST_X(s.location::geometry)) AS lng,
+			COUNT(*) AS count
+		FROM activity_stops s
+		JOIN activities a ON a.id = s.activity_id
+		WHERE a.user_id = $1
+		  AND s.name IS NOT NULL
+		  AND s.duration_s >= 900
+		GROUP BY s.name
+		ORDER BY count DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get visited pois: %w", err)
+	}
+	defer rows.Close()
+	var result []VisitedPOI
+	for rows.Next() {
+		var p VisitedPOI
+		if err := rows.Scan(&p.Name, &p.Lat, &p.Lng, &p.Count); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+// LiftCandidate represents an unconfirmed lift ride detected by ML.
+type LiftCandidate struct {
+	ID         string    `json:"id"`
+	ActivityID string    `json:"activity_id"`
+	StartedAt  time.Time `json:"started_at"`
+	EndedAt    time.Time `json:"ended_at"`
+	DurationS  int       `json:"duration_s"`
+	AscentM    float64   `json:"ascent_m"`
+	Confidence string    `json:"confidence"`
+	Confirmed  bool      `json:"confirmed"`
+}
+
+func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftCandidate, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, activity_id, started_at, ended_at, duration_s, ascent_m, confidence, confirmed
+		FROM activity_lift_candidates
+		WHERE activity_id = $1
+		ORDER BY started_at
+	`, activityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []LiftCandidate
+	for rows.Next() {
+		var c LiftCandidate
+		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
+			&c.DurationS, &c.AscentM, &c.Confidence, &c.Confirmed); err != nil {
+			return nil, err
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
+
+func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1`,
+		candidateID)
+	return err
+}

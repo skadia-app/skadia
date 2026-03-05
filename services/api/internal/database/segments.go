@@ -786,6 +786,62 @@ func sportGroupFromSportType(sportType string) string {
 	return sport.SegmentGroup(sportType)
 }
 
+// ImportLiftSegments creates segment_type='lift' segments from osm_lifts.
+// Idempotent: skips lifts that already have a matching segment.
+func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT l.id, l.osm_id, l.name, ST_AsGeoJSON(l.geom) AS geojson
+		FROM osm_lifts l
+		WHERE NOT EXISTS (
+			SELECT 1 FROM segments s WHERE s.osm_lift_id = l.osm_id
+		)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("query osm_lifts: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var id int64
+		var osmID int64
+		var name *string
+		var geojson string
+		if err := rows.Scan(&id, &osmID, &name, &geojson); err != nil {
+			return count, err
+		}
+		segName := "Lift"
+		if name != nil && *name != "" {
+			segName = *name
+		}
+		_, err := db.Pool.Exec(ctx, `
+			INSERT INTO segments (created_by, name, sport_group, segment_type,
+			                      segment_type_meta, osm_lift_id, visibility)
+			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'private')
+		`, userID, segName, osmID)
+		if err != nil {
+			continue
+		}
+		var segID string
+		_ = db.Pool.QueryRow(ctx, `
+			SELECT id FROM segments WHERE osm_lift_id = $1 LIMIT 1
+		`, osmID).Scan(&segID)
+		if segID != "" {
+			_, _ = db.Pool.Exec(ctx, `
+				INSERT INTO segment_versions (segment_id, version_number, track,
+				                              start_point, end_point, valid_from, created_by)
+				VALUES ($1, 1,
+				        ST_SetSRID(ST_GeomFromGeoJSON($2), 4326),
+				        ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+				        ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+				        CURRENT_DATE, $3)
+			`, segID, geojson, userID)
+		}
+		count++
+	}
+	return count, rows.Err()
+}
+
 // ListActivityIDsForSegmentBackfill returns IDs of all GPS activities belonging
 // to userID whose track passes within 50 m of the given segment's latest version track.
 // This mirrors GetSpatialCandidateSegments but in the opposite direction:

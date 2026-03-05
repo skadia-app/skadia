@@ -218,6 +218,7 @@ func main() {
 			r.Post("/admin/backfill-weather", h.BackfillWeather)
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
 			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
+			r.Get("/admin/osm-status", h.GetOSMStatus)
 
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
@@ -293,6 +294,9 @@ func main() {
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
 			r.Get("/map/photos", h.ListMapPhotos)
 
+			// Geo
+			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
+
 			// Segments
 			r.Get("/segments", h.ListSegments)
 			r.Post("/segments", h.CreateSegment)
@@ -301,10 +305,14 @@ func main() {
 			r.Delete("/segments/{id}", h.DeleteSegment)
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
+			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
 			r.Get("/activities/{id}/surfaces", h.GetActivitySurfaces)
+			r.Get("/activities/{id}/lift-candidates", h.GetLiftCandidates)
+			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
+			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
 
 			// Track Editor
 			r.Get("/activities/{id}/edits", h.GetActivityEdits)
