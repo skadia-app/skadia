@@ -39,13 +39,9 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             return 0
 
         has_osm = await conn.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='osm_lifts')"
+            "SELECT EXISTS (SELECT 1 FROM osm_lifts LIMIT 1)"
         )
         if not has_osm:
-            return 0
-
-        osm_count = await conn.fetchval("SELECT COUNT(*) FROM osm_lifts")
-        if osm_count == 0:
             return 0
 
         track = await conn.fetchval(
@@ -53,6 +49,12 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         )
         if track is None:
             return 0
+
+        # Bestehende Lift-Daten löschen, damit ein Re-Run idempotent ist.
+        await conn.execute(
+            "DELETE FROM activity_lift_candidates WHERE activity_id = $1",
+            activity_id,
+        )
 
         total = 0
 

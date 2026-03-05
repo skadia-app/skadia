@@ -9,7 +9,7 @@ CREATE OR REPLACE FUNCTION amenities_mvt(
 RETURNS bytea AS $$
 DECLARE
   bounds  geometry;
-  user_id TEXT := query_params->>'user_id';
+  uid TEXT := query_params->>'user_id';
 BEGIN
   bounds := ST_TileEnvelope(z, x, y);  -- EPSG:3857
   RETURN (
@@ -30,7 +30,7 @@ BEGIN
           'ice_cream', 'biergarten', 'alpine_hut', 'guest_house', 'hostel',
           'hotel', 'kiosk', 'bakery', 'butcher'
         )
-        AND (user_id IS NULL OR act.created_by = user_id)
+        AND (user_id IS NULL OR act.user_id::text = user_id)
       GROUP BY a.osm_id, a.name, a.subtype, a.geom
     ) tile
     WHERE tile.geom IS NOT NULL

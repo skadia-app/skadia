@@ -28,14 +28,20 @@ async def enrich_forests(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
             WITH route AS (
                 SELECT track_full AS geom
                 FROM activity_tracks WHERE activity_id = $1
+            ),
+            intersected AS (
+                SELECT f.osm_id, f.name,
+                       ST_Intersection(route.geom, f.geom) AS isect,
+                       ST_XMin(f.geom) AS bbox_west, ST_YMin(f.geom) AS bbox_south,
+                       ST_XMax(f.geom) AS bbox_east, ST_YMax(f.geom) AS bbox_north
+                FROM osm_forests f, route
+                WHERE ST_Intersects(f.geom, route.geom)
             )
-            SELECT f.osm_id, f.name,
-                   ROUND(ST_Length(ST_Intersection(route.geom, f.geom)::geography))::int AS length_m,
-                   ST_XMin(f.geom) AS bbox_west, ST_YMin(f.geom) AS bbox_south,
-                   ST_XMax(f.geom) AS bbox_east, ST_YMax(f.geom) AS bbox_north
-            FROM osm_forests f, route
-            WHERE ST_Intersects(f.geom, route.geom)
-              AND ST_Length(ST_Intersection(route.geom, f.geom)::geography) >= $2
+            SELECT osm_id, name,
+                   ROUND(ST_Length(isect::geography))::int AS length_m,
+                   bbox_west, bbox_south, bbox_east, bbox_north
+            FROM intersected
+            WHERE ST_Length(isect::geography) >= $2
             ORDER BY length_m DESC
             """,
             activity_id,
