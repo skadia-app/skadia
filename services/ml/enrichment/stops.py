@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                     stop["lat"],
                     stop["lng"],
                     stop["duration_s"] // 60,
-                    {"poi_type": poi_type},
+                    json.dumps({"poi_type": poi_type}),
                 ))
 
         await conn.executemany(
@@ -192,7 +193,7 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                     (activity_id, category, name, osm_id, map_type,
                      map_point_lat, map_point_lon, duration_min, meta)
                 VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7)
-                ON CONFLICT (activity_id, osm_id) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """,
                 geo_tag_records,
             )

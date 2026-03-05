@@ -78,15 +78,12 @@ func (p *Publisher) PublishStage2Ready(event Stage2ReadyEvent) error {
 		return fmt.Errorf("marshal stage2 event: %w", err)
 	}
 
-	_, err = p.js.Publish("skadia.stage2.high", data)
-	if err != nil {
-		return fmt.Errorf("publish stage2 event: %w", err)
+	for _, subject := range []string{"skadia.stage2.high", "skadia.stage2.normal", "skadia.stage2.low"} {
+		if _, err = p.js.Publish(subject, data); err != nil {
+			return fmt.Errorf("publish stage2 event to %s: %w", subject, err)
+		}
+		slog.Info("event published", "subject", subject, "activity_id", event.ActivityID)
 	}
-
-	slog.Info("event published",
-		"subject", "skadia.stage2.high",
-		"activity_id", event.ActivityID,
-	)
 	return nil
 }
 

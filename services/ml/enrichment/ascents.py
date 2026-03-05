@@ -24,7 +24,7 @@ async def enrich_ascents(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         # Load user-specific thresholds if available
         settings = await conn.fetchrow(
             """
-            SELECT climb_min_gradient_pct, climb_min_elevation_m, climb_min_length_m
+            SELECT climb_min_gradient_pct, climb_min_elevation_m
             FROM user_enrichment_settings
             WHERE user_id = $1
             """,
@@ -32,7 +32,7 @@ async def enrich_ascents(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         )
         min_gradient = settings["climb_min_gradient_pct"] if settings else MIN_GRADIENT_PCT
         min_elevation = settings["climb_min_elevation_m"] if settings else MIN_ELEVATION_M
-        min_length = settings["climb_min_length_m"] if settings else MIN_LENGTH_M
+        min_length = MIN_LENGTH_M
 
         # Fetch elevation and distance streams
         stream_rows = await conn.fetch(

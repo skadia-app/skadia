@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ async def enrich_forests(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
                 row["bbox_east"],
                 row["bbox_north"],
                 row["length_m"],
-                meta,
+                json.dumps(meta),
             )
 
         logger.info(

@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,7 @@ async def enrich_peaks(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 row["lon"],
                 row["ele"],
                 row["dist_m"],
-                meta,
+                json.dumps(meta),
             )
 
         logger.info(

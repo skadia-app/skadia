@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ async def enrich_borders(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
                 activity_id,
                 name,
                 row["crossing_geom"],
-                meta,
+                json.dumps(meta),
             )
 
         logger.info(

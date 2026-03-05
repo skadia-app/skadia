@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 row["bbox_east"],
                 row["bbox_north"],
                 row["min_dist_m"],
-                meta,
+                json.dumps(meta),
             )
         count += len(still_rows)
 
@@ -112,7 +113,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 row["osm_id"],
                 row["nearby_section"],
                 row["min_dist_m"],
-                meta,
+                json.dumps(meta),
             )
         count += len(flow_rows)
 

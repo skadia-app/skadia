@@ -1,4 +1,5 @@
 import asyncpg
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ async def enrich_settlements(
                 row["osm_id"],
                 row["center_lat"],
                 row["center_lon"],
-                {"place": row["place"]} if row["place"] else {},
+                json.dumps({"place": row["place"]} if row["place"] else {}),
             )
 
         logger.info(

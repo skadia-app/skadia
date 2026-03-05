@@ -62,7 +62,7 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         candidates = await conn.fetch(
             """
             SELECT
-                l.id, l.osm_id, l.name,
+                l.way_id AS id, l.osm_id, l.name,
                 ST_Length(l.geom::geography) AS lift_length_m,
                 ST_HausdorffDistance(
                     ST_Intersection(

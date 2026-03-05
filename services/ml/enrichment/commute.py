@@ -70,8 +70,8 @@ async def enrich_commute(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         await conn.execute(
             """
             INSERT INTO commute_clusters
-                (user_id, cluster_label, center, radius_m, point_count, cluster_type)
-            VALUES ($1, 0, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4, 'home')
+                (user_id, cluster_label, center, radius_m, point_count)
+            VALUES ($1, 0, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
             """,
             user_id,
             home_center[0],
@@ -81,8 +81,8 @@ async def enrich_commute(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         await conn.execute(
             """
             INSERT INTO commute_clusters
-                (user_id, cluster_label, center, radius_m, point_count, cluster_type)
-            VALUES ($1, 1, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4, 'work')
+                (user_id, cluster_label, center, radius_m, point_count)
+            VALUES ($1, 1, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
             """,
             user_id,
             work_center[0],
