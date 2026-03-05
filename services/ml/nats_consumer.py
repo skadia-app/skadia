@@ -20,6 +20,7 @@ from enrichment import (
     enrich_stops,
     enrich_ascents,
     compute_route_embedding,
+    enrich_lifts,
 )
 from enrichment.document_vlm import process_document
 from analytics import (
@@ -61,6 +62,7 @@ def get_metrics() -> dict:
 # Mapping of NATS subjects to enrichment functions
 HIGH_PRIORITY_STEPS = [
     ("peaks", enrich_peaks),
+    ("lifts", enrich_lifts),
     ("settlements", enrich_settlements),
     ("commute", enrich_commute),
     ("borders", enrich_borders),
