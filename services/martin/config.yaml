@@ -10,3 +10,12 @@ postgres:
     heatmap_points:
       schema: public
       function: heatmap_points_mvt
+    peaks:
+      schema: public
+      function: peaks_mvt
+    waters:
+      schema: public
+      function: waters_mvt
+    forests:
+      schema: public
+      function: forests_mvt
