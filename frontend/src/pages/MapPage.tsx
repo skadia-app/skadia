@@ -8,6 +8,7 @@ import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
+import { useTheme } from '@/lib/theme'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
@@ -412,6 +413,8 @@ const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm']
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
+  const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [baseStyle, setBaseStyle] = useState<BaseStyle>('osm')
   const [filters, setFilters] = useState<MapFilterState>({
     ...defaultFilters,
@@ -419,6 +422,19 @@ export default function MapPage() {
     heatmapColor: loadHeatmapColor(),
   })
   const [viewMode, setViewMode] = useState<ViewMode>('tracks')
+  // Dark-Karte → UI-Dark-Mode: beim Wechsel auf 'dark' Karte schaltet die gesamte UI
+  // in den Dark Mode; beim Wegwechseln wird der vorherige Zustand wiederhergestellt.
+  useEffect(() => {
+    if (baseStyle === 'dark') {
+      themeBeforeDarkMap.current = uiTheme
+      setUiTheme('dark')
+    } else {
+      setUiTheme(themeBeforeDarkMap.current)
+    }
+    // uiTheme absichtlich nicht als Dependency — nur baseStyle-Wechsel soll triggern
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseStyle])
+
   // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
   // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
   const autoSwitchedToDark = useRef(false)
