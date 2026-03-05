@@ -19,7 +19,7 @@ function OSMStatusSection() {
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
-      peaks: number; lifts: number; settlements: number; has_data: boolean
+      peaks: number; lifts: number; settlements: number; amenities?: number; has_data: boolean
     }>,
   })
 
@@ -27,38 +27,145 @@ function OSMStatusSection() {
     mutationFn: () => apiFetch('/api/v1/segments/import-lifts', { method: 'POST' }).then(r => r.json()),
   })
 
+  const hasData = osmStatus?.has_data ?? false
+
   return (
     <div className="space-y-3 text-sm">
-      <div className="grid grid-cols-3 gap-3 text-center">
+      {/* Stats grid — 4 cols when amenities is available, 3 cols otherwise */}
+      <div className={`grid gap-3 text-center ${osmStatus?.amenities !== undefined ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <div>
           <div className="text-lg font-bold">{osmStatus?.peaks?.toLocaleString('de') ?? '–'}</div>
-          <div className="text-xs text-muted-foreground">Gipfel</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Gipfel</div>
         </div>
         <div>
           <div className="text-lg font-bold">{osmStatus?.lifts?.toLocaleString('de') ?? '–'}</div>
-          <div className="text-xs text-muted-foreground">Lifte</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Lifte</div>
         </div>
         <div>
           <div className="text-lg font-bold">{osmStatus?.settlements?.toLocaleString('de') ?? '–'}</div>
-          <div className="text-xs text-muted-foreground">Ortschaften</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Ortschaften</div>
         </div>
+        {osmStatus?.amenities !== undefined && (
+          <div>
+            <div className="text-lg font-bold">{osmStatus.amenities.toLocaleString('de')}</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Restaurants/Hütten</div>
+          </div>
+        )}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Import via <code className="text-xs">scripts/import-osm.sh --region dach</code>
-      </p>
+
+      {/* No-data warning */}
+      {!hasData && (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          Keine OSM-Daten vorhanden. Import starten mit:{' '}
+          <code className="font-mono">bash scripts/import-osm.sh --region dach</code>
+        </div>
+      )}
+
+      {hasData && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Import via <code className="text-xs font-mono">scripts/import-osm.sh --region dach</code>
+        </p>
+      )}
+
       <button
         onClick={() => importLifts.mutate()}
-        disabled={importLifts.isPending || !osmStatus?.has_data}
+        disabled={importLifts.isPending || !hasData}
         className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
       >
         {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
       </button>
-      {importLifts.data && (
-        <p className="text-xs text-green-600 dark:text-green-400">
+      {importLifts.isSuccess && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">
           {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
         </p>
       )}
     </div>
+  )
+}
+
+// Stage-2 ML enrichment module configuration stored in localStorage.
+// These settings are advisory — the ML service will read them in a future backend feature.
+const STAGE2_MODULES = [
+  { key: 'peaks',       label: 'Gipfel & Pässe',       description: 'Erkennt besuchte Gipfel und Bergsättel' },
+  { key: 'forests',     label: 'Wälder',               description: 'Erkennt durchquerte Waldgebiete' },
+  { key: 'water',       label: 'Gewässer',              description: 'Erkennt Seen und Fließgewässer entlang der Route' },
+  { key: 'settlements', label: 'Ortschaften',           description: 'Erkennt durchquerte Siedlungen' },
+  { key: 'borders',     label: 'Grenzüberquerungen',   description: 'Erkennt überquerte Ländergrenzen' },
+  { key: 'stops',       label: 'Stopps & Einkehr',      description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)' },
+  { key: 'lifts',       label: 'Lifte / Seilbahnen',   description: 'Erkennt Gondelbahnen und Sessellifte' },
+  { key: 'surfaces',    label: 'Untergrundtypen',       description: 'Erkennt Asphalt, Schotter, Trail etc.' },
+  { key: 'ascents',     label: 'Anstiege',              description: 'Erkennt und klassifiziert Anstiege' },
+  { key: 'commute',     label: 'Pendelrouten',          description: 'Erkennt regelmäßig genutzte Routen' },
+] as const
+
+type Stage2Key = typeof STAGE2_MODULES[number]['key']
+type Stage2Settings = Record<Stage2Key, boolean>
+
+const STAGE2_STORAGE_KEY = 'skadia-enrichment-settings'
+
+function loadStage2Settings(): Stage2Settings {
+  try {
+    const raw = localStorage.getItem(STAGE2_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // Ensure all keys are present — new modules default to true
+      const result = {} as Stage2Settings
+      for (const m of STAGE2_MODULES) result[m.key] = parsed[m.key] !== false
+      return result
+    }
+  } catch {
+    // ignore parse errors
+  }
+  // Default: all enabled
+  return Object.fromEntries(STAGE2_MODULES.map(m => [m.key, true])) as Stage2Settings
+}
+
+function Stage2EnrichmentSection() {
+  const [settings, setSettings] = useState<Stage2Settings>(loadStage2Settings)
+
+  function toggle(key: Stage2Key) {
+    const next = { ...settings, [key]: !settings[key] }
+    setSettings(next)
+    try { localStorage.setItem(STAGE2_STORAGE_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+  }
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Anreicherung (Stage 2)</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          ML-Module, die nach dem Upload im Hintergrund ausgeführt werden.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {STAGE2_MODULES.map(({ key, label, description }) => (
+          <div key={key} className="flex items-center justify-between gap-4 py-1">
+            <div className="min-w-0 flex-1">
+              <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+            </div>
+            <button
+              onClick={() => toggle(key)}
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
+              style={{ backgroundColor: settings[key] ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
+              role="switch"
+              aria-checked={settings[key]}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  settings[key] ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
+        &Auml;nderungen werden bei der n&auml;chsten Aktivit&auml;t oder bei Neuberechnung unter &quot;Enrichment-Einstellungen&quot; angewendet.
+      </p>
+    </section>
   )
 }
 
@@ -281,7 +388,7 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Enrichment */}
+      {/* Enrichment Stage 1 */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Enrichment</h2>
@@ -296,6 +403,9 @@ export default function SettingsPage() {
           Enrichment-Einstellungen
         </Link>
       </section>
+
+      {/* Enrichment Stage 2 — ML-Module */}
+      <Stage2EnrichmentSection />
 
       {/* Automatisierung */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">

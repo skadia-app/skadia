@@ -94,6 +94,11 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), id)
@@ -102,7 +107,7 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity", r.URL.Path)
 		return
 	}
-	if activity == nil {
+	if activity == nil || activity.UserID != userID {
 		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
@@ -111,7 +116,24 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
+
+	// Verify ownership before mutating.
+	existing, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("update activity: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if existing == nil || existing.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	var update model.ActivityUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -134,7 +156,24 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
+
+	// Verify ownership before deleting.
+	activity, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("delete activity: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	if err := h.DB.DeleteActivity(r.Context(), id); err != nil {
 		if err.Error() == "activity not found" {
@@ -172,7 +211,7 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleted, err := h.DB.DeleteActivities(r.Context(), body.IDs)
+	deleted, err := h.DB.DeleteActivities(r.Context(), userID, body.IDs)
 	if err != nil {
 		slog.Error("bulk delete activities failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activities", r.URL.Path)
@@ -184,6 +223,11 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 
 // ExportActivity exports an activity in the requested format.
 func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
 	format := r.URL.Query().Get("format")
 	if format == "" {
@@ -191,7 +235,12 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activity, err := h.DB.GetActivity(r.Context(), id)
-	if err != nil || activity == nil {
+	if err != nil {
+		slog.Error("export activity: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
 		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
@@ -619,6 +668,18 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		return
+	}
+
+	// Verify ownership.
+	activity, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("get zone distribution: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 

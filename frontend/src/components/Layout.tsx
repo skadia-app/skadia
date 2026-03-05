@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
+import ImportHub from '@/components/ImportHub'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -39,6 +40,8 @@ export default function Layout() {
               </NavLink>
             ))}
           </nav>
+
+          <ImportHub />
 
           <button
             onClick={toggle}

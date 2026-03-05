@@ -1111,7 +1111,7 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
         }
       }
 
-      // Restaurant-Pins aus Stops (duration >= 900s)
+      // Restaurant-Pins aus Stops (duration >= 900s) — Fallback ohne GeoTags
       const poiStops = (stops ?? []).filter(
         (s) => s.name && (s.duration_s ?? 0) >= 900 && s.lat != null
       )
@@ -1121,7 +1121,11 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
           features: poiStops.map((s) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [s.lng!, s.lat!] },
-            properties: { name: s.name!, duration_min: Math.round((s.duration_s ?? 0) / 60) },
+            properties: {
+              name: s.poi_name ?? s.name!,
+              duration_min: Math.round((s.duration_s ?? 0) / 60),
+              poi_type: s.poi_type ?? '',
+            },
           })),
         }
         map.addSource('activity-pois', { type: 'geojson', data: poiGeoJSON })
@@ -1142,6 +1146,47 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
           new maplibregl.Popup()
             .setLngLat(e.lngLat)
             .setHTML(`<strong>${props.name}</strong><br>${props.duration_min} min`)
+            .addTo(map)
+        })
+      }
+
+      // Gastronomy-Pins aus GeoTags (category: gastronomy)
+      const gastronomyTags = (geoTags ?? []).filter(
+        (t) => t.category === 'gastronomy' && t.map_point_lat != null && t.map_point_lon != null
+      )
+      if (gastronomyTags.length > 0) {
+        const gastronomyGeoJSON = {
+          type: 'FeatureCollection' as const,
+          features: gastronomyTags.map((t) => ({
+            type: 'Feature' as const,
+            geometry: { type: 'Point' as const, coordinates: [t.map_point_lon!, t.map_point_lat!] },
+            properties: {
+              name: t.name,
+              duration_min: t.duration_min != null ? Math.round(t.duration_min) : null,
+              poi_type: (t.meta?.poi_type as string | undefined) ?? '',
+            },
+          })),
+        }
+        map.addSource('activity-gastronomy-source', { type: 'geojson', data: gastronomyGeoJSON })
+        map.addLayer({
+          id: 'activity-gastronomy-layer',
+          type: 'circle',
+          source: 'activity-gastronomy-source',
+          paint: {
+            'circle-color': '#f97316',
+            'circle-radius': 7,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#fff',
+          },
+        })
+        map.on('click', 'activity-gastronomy-layer', (e) => {
+          const props = e.features?.[0]?.properties
+          if (!props) return
+          const durationStr = props.duration_min != null ? `<br>${props.duration_min} min` : ''
+          const typeStr = props.poi_type ? `<br><span style="color:#6b7280">${props.poi_type}</span>` : ''
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`<strong>${props.name}</strong>${typeStr}${durationStr}`)
             .addTo(map)
         })
       }

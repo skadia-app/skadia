@@ -152,6 +152,17 @@ export interface GeoTag {
   ele?: number
   dist_m?: number
   duration_min?: number
+  meta?: Record<string, unknown>
+  map_type?: string
+  map_point_lat?: number
+  map_point_lon?: number
+  map_bbox_west?: number
+  map_bbox_south?: number
+  map_bbox_east?: number
+  map_bbox_north?: number
+  map_section?: string
+  length_m?: number
+  ele_m?: number
   created_at: string
 }
 
@@ -189,6 +200,9 @@ export interface ActivityStop {
   lat?: number
   lng?: number
   name?: string
+  poi_type?: string
+  poi_name?: string
+  poi_osm_id?: number
 }
 
 export interface ActivitySurface {

@@ -102,7 +102,12 @@ function osm2pgsql.process_node(object)
         })
     end
 
-    -- Amenities
+    -- Amenities (gastronomic, tourism, leisure)
+    -- Relevant tags: amenity=restaurant/cafe/bar/pub/fast_food/biergarten/food_court/ice_cream,
+    --   tourism=alpine_hut/guest_house/hostel/hotel,
+    --   leisure=fitness_station/sports_centre etc.
+    -- The generic catch-all (tourism or amenity or leisure) is intentional — it captures
+    -- a wide range of POIs relevant for activity enrichment without enumerating every subtype.
     local amenity_type = tags.tourism or tags.amenity or tags.leisure
     if amenity_type and tags.name then
         local subtype = nil
@@ -117,6 +122,20 @@ function osm2pgsql.process_node(object)
             subtype = subtype,
             geom = object:as_point(),
         })
+    end
+
+    -- Shops: kiosk, bakery, butcher (alle mit Namen, kein takeaway-Filter --
+    -- viele Bäckereien haben Sitzplätze aber keinen takeaway-Tag in OSM)
+    if tags.name then
+        if tags.shop == 'kiosk' or tags.shop == 'bakery' or tags.shop == 'butcher' then
+            tables.amenities:insert({
+                osm_id = object.id,
+                name = tags.name,
+                type = 'shop',
+                subtype = tags.shop,
+                geom = object:as_point(),
+            })
+        end
     end
 end
 

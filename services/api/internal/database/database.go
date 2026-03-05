@@ -742,20 +742,21 @@ func (db *DB) DeleteActivity(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteActivities deletes multiple activities by ID in a single query.
-// Returns the number of rows deleted.
-func (db *DB) DeleteActivities(ctx context.Context, ids []string) (int64, error) {
+// DeleteActivities deletes multiple activities by ID that belong to the given user.
+// Returns the number of rows deleted. Activities not owned by userID are silently ignored.
+func (db *DB) DeleteActivities(ctx context.Context, userID string, ids []string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	// Convert []string → []any for pgx
-	args := make([]any, len(ids))
+	// userID is $1; activity IDs start at $2
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, userID)
 	placeholders := make([]string, len(ids))
 	for i, id := range ids {
-		args[i] = id
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args = append(args, id)
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
 	}
-	query := fmt.Sprintf(`DELETE FROM activities WHERE id IN (%s)`,
+	query := fmt.Sprintf(`DELETE FROM activities WHERE user_id = $1 AND id IN (%s)`,
 		strings.Join(placeholders, ", "))
 	result, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -1980,7 +1981,11 @@ func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error 
 func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, activity_id, category, name, osm_id,
-			lat, lng, ele, dist_m, duration_min, created_at
+			lat, lng, ele, dist_m, duration_min, created_at,
+			map_type, map_point_lat, map_point_lon,
+			map_bbox_west, map_bbox_south, map_bbox_east, map_bbox_north,
+			length_m, ele_m,
+			ST_AsGeoJSON(map_section) AS map_section_geojson
 		FROM activity_geo_tags
 		WHERE activity_id = $1
 		ORDER BY COALESCE(dist_m, 0)`,
@@ -1997,6 +2002,10 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 		if err := rows.Scan(
 			&t.ID, &t.ActivityID, &t.Category, &t.Name, &t.OsmID,
 			&t.Lat, &t.Lng, &t.Ele, &t.DistM, &t.DurationMin, &t.CreatedAt,
+			&t.MapType, &t.MapPointLat, &t.MapPointLon,
+			&t.MapBboxWest, &t.MapBboxSouth, &t.MapBboxEast, &t.MapBboxNorth,
+			&t.LengthM, &t.EleM,
+			&t.MapSection,
 		); err != nil {
 			return nil, fmt.Errorf("scan geo tag: %w", err)
 		}
@@ -2755,7 +2764,7 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, started_at, ended_at, duration_s,
 		        ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng,
-		        name
+		        name, poi_type, poi_name, poi_osm_id
 		 FROM activity_stops WHERE activity_id = $1 ORDER BY started_at`,
 		activityID)
 	if err != nil {
@@ -2766,7 +2775,7 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 	for rows.Next() {
 		var s model.ActivityStop
 		if err := rows.Scan(&s.ID, &s.StartedAt, &s.EndedAt, &s.DurationS,
-			&s.Lat, &s.Lng, &s.Name); err != nil {
+			&s.Lat, &s.Lng, &s.Name, &s.PoiType, &s.PoiName, &s.PoiOsmID); err != nil {
 			return nil, fmt.Errorf("scan activity stop: %w", err)
 		}
 		stops = append(stops, s)

@@ -147,7 +147,7 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
                         await conn.execute(
                             """
                             INSERT INTO enrichment_errors
-                                (activity_id, stage, error_msg)
+                                (activity_id, module, error_message)
                             VALUES ($1, 'stage2', $2)
                             ON CONFLICT DO NOTHING
                             """,

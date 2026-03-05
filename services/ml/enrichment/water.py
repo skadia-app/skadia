@@ -37,7 +37,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 SELECT track_full AS geom
                 FROM activity_tracks WHERE activity_id = $1
             )
-            SELECT DISTINCT ON (w.osm_id) w.osm_id, w.name, w.type,
+            SELECT DISTINCT ON (w.osm_id) w.osm_id, w.name,
                    ROUND(ST_Distance(route.geom::geography, w.geom::geography))::int AS min_dist_m,
                    ST_XMin(w.geom) AS bbox_west, ST_YMin(w.geom) AS bbox_south,
                    ST_XMax(w.geom) AS bbox_east, ST_YMax(w.geom) AS bbox_north,
@@ -52,7 +52,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         )
 
         for row in still_rows:
-            meta = {"type": row["type"]} if row["type"] else {}
+            meta = {}
             if row["area_m2"]:
                 meta["area_m2"] = row["area_m2"]
 
@@ -83,7 +83,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 SELECT track_full AS geom
                 FROM activity_tracks WHERE activity_id = $1
             )
-            SELECT DISTINCT ON (ww.osm_id) ww.osm_id, ww.name, ww.type,
+            SELECT DISTINCT ON (ww.osm_id) ww.osm_id, ww.name, ww.waterway,
                    ROUND(ST_Distance(route.geom::geography, ww.geom::geography))::int AS min_dist_m,
                    ST_Intersection(
                        ST_Buffer(route.geom::geography, $2)::geometry, ww.geom
@@ -98,7 +98,7 @@ async def enrich_water(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         )
 
         for row in flow_rows:
-            meta = {"type": row["type"]} if row["type"] else {}
+            meta = {"waterway": row["waterway"]} if row["waterway"] else {}
 
             await conn.execute(
                 """

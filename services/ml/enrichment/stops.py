@@ -1,6 +1,5 @@
 import asyncpg
 import logging
-from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +9,16 @@ SPEED_THRESHOLD = 0.5
 MIN_DURATION_S = 60
 # Radius in meters for POI matching around a stop point
 POI_RADIUS_M = 50
+# Minimum stop duration in seconds to write a gastronomy geo tag
+GASTRONOMY_MIN_DURATION_S = 600
+
+# POI subtypes that qualify as gastronomic stops
+GASTRONOMY_TYPES = {
+    'restaurant', 'cafe', 'biergarten', 'fast_food', 'ice_cream', 'bar',
+    'pub', 'food_court',                        # amenity
+    'alpine_hut', 'guest_house', 'hostel', 'hotel',  # tourism
+    'kiosk', 'bakery', 'butcher',               # shop
+}
 
 
 async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
@@ -88,9 +97,13 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         if not stops:
             return 0
 
-        # Delete existing stops for re-enrichment
+        # Delete existing stops and gastronomy geo tags for re-enrichment
         await conn.execute(
             "DELETE FROM activity_stops WHERE activity_id = $1",
+            activity_id,
+        )
+        await conn.execute(
+            "DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy'",
             activity_id,
         )
 
@@ -101,7 +114,7 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 WITH stop_pt AS (
                     SELECT ST_SetSRID(ST_MakePoint($2, $1), 4326) AS geom
                 )
-                SELECT a.osm_id, a.name, a.amenity, a.tourism,
+                SELECT a.osm_id, a.name, a.type AS tag_key, a.subtype AS tag_value,
                        ROUND(ST_Distance(stop_pt.geom::geography, a.geom::geography))::int AS dist_m
                 FROM osm_amenities a, stop_pt
                 WHERE ST_DWithin(stop_pt.geom::geography, a.geom::geography, $3)
@@ -112,7 +125,7 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 POI_RADIUS_M,
             )
 
-            poi_type = poi["amenity"] or poi["tourism"] if poi else None
+            poi_type = poi["tag_value"] if poi else None  # subtype is the specific value
             poi_name = poi["name"] if poi else None
             poi_osm_id = poi["osm_id"] if poi else None
 
@@ -136,22 +149,27 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 poi_osm_id,
             )
 
-        # Also write significant stops (>15 min) as geo tags
-        for stop in stops:
-            if stop["duration_s"] >= 900 and poi_name:
+            # Write gastronomy geo tag for stops >= 10 min at a known gastronomy POI
+            if (
+                stop["duration_s"] >= GASTRONOMY_MIN_DURATION_S
+                and poi_type in GASTRONOMY_TYPES
+                and poi_name
+            ):
                 await conn.execute(
                     """
                     INSERT INTO activity_geo_tags
-                        (activity_id, category, name, map_type,
+                        (activity_id, category, name, osm_id, map_type,
                          map_point_lat, map_point_lon, duration_min, meta)
-                    VALUES ($1, 'stop', $2, 'point', $3, $4, $5, $6)
+                    VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7)
+                    ON CONFLICT (activity_id, osm_id) DO NOTHING
                     """,
                     activity_id,
-                    poi_name or f"Stopp ({stop['duration_s'] // 60} min)",
+                    poi_name,
+                    poi_osm_id,
                     stop["lat"],
                     stop["lng"],
                     stop["duration_s"] // 60,
-                    {"poi_type": poi_type} if poi_type else {},
+                    {"poi_type": poi_type},
                 )
 
         logger.info(

@@ -19,3 +19,6 @@ postgres:
     forests:
       schema: public
       function: forests_mvt
+    amenities:
+      schema: public
+      function: amenities_mvt

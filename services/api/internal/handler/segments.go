@@ -112,7 +112,24 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
+
+	// Verify ownership before mutating.
+	existing, err := h.DB.GetSegment(r.Context(), id)
+	if err != nil {
+		slog.Error("update segment: get segment failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
+		return
+	}
+	if existing == nil || existing.CreatedBy != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		return
+	}
 
 	var update model.SegmentUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -174,7 +191,23 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("get activity segment efforts: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	efforts, err := h.DB.GetActivitySegmentEfforts(r.Context(), id)
 	if err != nil {
@@ -233,7 +266,23 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	id := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("get detected laps: get activity failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	laps, err := h.DB.GetDetectedLaps(r.Context(), id)
 	if err != nil {

@@ -29,7 +29,7 @@ async def enrich_forests(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
                 SELECT track_full AS geom
                 FROM activity_tracks WHERE activity_id = $1
             )
-            SELECT f.osm_id, f.name, f.type,
+            SELECT f.osm_id, f.name,
                    ROUND(ST_Length(ST_Intersection(route.geom, f.geom)::geography))::int AS length_m,
                    ST_XMin(f.geom) AS bbox_west, ST_YMin(f.geom) AS bbox_south,
                    ST_XMax(f.geom) AS bbox_east, ST_YMax(f.geom) AS bbox_north
@@ -51,7 +51,7 @@ async def enrich_forests(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         )
 
         for row in rows:
-            meta = {"type": row["type"]} if row["type"] else {}
+            meta = {}
 
             await conn.execute(
                 """

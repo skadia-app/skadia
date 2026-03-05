@@ -35,7 +35,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   settlement: {
     label: 'Ortschaften',
-    order: 3,
+    order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-4h6v4" />
@@ -44,7 +44,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   still_water: {
     label: 'Gewässer',
-    order: 4,
+    order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-2 4-2 6 0s4 2 6 0 4-2 6 0M2 17c2-2 4-2 6 0s4 2 6 0 4-2 6 0" />
@@ -53,7 +53,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   flowing_water: {
     label: 'Gewässer',
-    order: 4,
+    order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-2 4-2 6 0s4 2 6 0 4-2 6 0M2 17c2-2 4-2 6 0s4 2 6 0 4-2 6 0" />
@@ -62,7 +62,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   water: {
     label: 'Gewässer',
-    order: 4,
+    order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-2 4-2 6 0s4 2 6 0 4-2 6 0M2 17c2-2 4-2 6 0s4 2 6 0 4-2 6 0" />
@@ -71,16 +71,28 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   forest: {
     label: 'Wälder',
-    order: 5,
+    order: 6,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l-7 10h4l-3 8h12l-3-8h4L12 3z" />
       </svg>
     ),
   },
+  gastronomy: {
+    label: 'Einkehr',
+    order: 3,
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 2l4 4-4 4" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 6h16" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 2l-7 7" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 9l-7 7 7 7 7-7" />
+      </svg>
+    ),
+  },
   border: {
     label: 'Grenzen',
-    order: 6,
+    order: 7,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" />
@@ -89,7 +101,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
   stop: {
     label: 'Stopps',
-    order: 7,
+    order: 8,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <circle cx="12" cy="12" r="9" />
@@ -103,6 +115,29 @@ function getGroupKey(category: string): string {
   if (category === 'summit' || category === 'peak') return 'summit'
   if (category === 'still_water' || category === 'flowing_water' || category === 'water') return 'water'
   return category
+}
+
+const POI_TYPE_LABELS: Record<string, string> = {
+  restaurant: 'Restaurant',
+  cafe: 'Café',
+  alpine_hut: 'Berghütte / Alm',
+  wilderness_hut: 'Schutzhütte',
+  fast_food: 'Imbiss',
+  ice_cream: 'Eisdiele',
+  bar: 'Bar',
+  pub: 'Pub',
+  biergarten: 'Biergarten',
+  kiosk: 'Kiosk',
+  bakery: 'Bäckerei',
+  butcher: 'Metzgerei',
+  food_court: 'Food Court',
+  guest_house: 'Pension',
+  hostel: 'Hostel',
+  hotel: 'Hotel',
+}
+
+function formatPoiType(poiType: string): string {
+  return POI_TYPE_LABELS[poiType] ?? poiType
 }
 
 function getConfig(groupKey: string): CategoryConfig {
@@ -169,36 +204,44 @@ export default function GeoTagsList({ activityId }: GeoTagsListProps) {
                   {config.label}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {items.map(tag => (
-                    <div
-                      key={tag.id}
-                      className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1"
-                    >
-                      <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                        {tag.name}
-                        {tag.ele != null && (groupKey === 'summit' || groupKey === 'pass') && (
-                          <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
-                            ({Math.round(tag.ele)} m)
-                          </span>
-                        )}
+                  {items.map(tag => {
+                    const poiType = groupKey === 'gastronomy'
+                      ? (tag.meta?.poi_type as string | undefined)
+                      : undefined
+                    return (
+                      <div
+                        key={tag.id}
+                        className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1"
+                      >
+                        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                          {tag.name}
+                          {tag.ele != null && (groupKey === 'summit' || groupKey === 'pass') && (
+                            <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
+                              ({Math.round(tag.ele)} m)
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                          {poiType && (
+                            <span>{formatPoiType(poiType)}</span>
+                          )}
+                          {tag.ele != null && groupKey !== 'summit' && groupKey !== 'pass' && (
+                            <span>{Math.round(tag.ele)} m</span>
+                          )}
+                          {tag.dist_m != null && (
+                            <span>
+                              {tag.dist_m >= 1000
+                                ? `${(tag.dist_m / 1000).toFixed(1)} km`
+                                : `${Math.round(tag.dist_m)} m`}
+                            </span>
+                          )}
+                          {tag.duration_min != null && (
+                            <span>{Math.round(tag.duration_min)} min</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-                        {tag.ele != null && groupKey !== 'summit' && groupKey !== 'pass' && (
-                          <span>{Math.round(tag.ele)} m</span>
-                        )}
-                        {tag.dist_m != null && (
-                          <span>
-                            {tag.dist_m >= 1000
-                              ? `${(tag.dist_m / 1000).toFixed(1)} km`
-                              : `${Math.round(tag.dist_m)} m`}
-                          </span>
-                        )}
-                        {tag.duration_min != null && (
-                          <span>{Math.round(tag.duration_min)} min</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )

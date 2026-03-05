@@ -608,17 +608,28 @@ type PrivacyZoneUpdate struct {
 
 // GeoTag represents a geographic feature associated with an activity.
 type GeoTag struct {
-	ID          string    `json:"id"`
-	ActivityID  string    `json:"activity_id"`
-	Category    string    `json:"category"`
-	Name        string    `json:"name"`
-	OsmID       *int64    `json:"osm_id,omitempty"`
-	Lat         *float64  `json:"lat,omitempty"`
-	Lng         *float64  `json:"lng,omitempty"`
-	Ele         *float64  `json:"ele,omitempty"`
-	DistM       *float64  `json:"dist_m,omitempty"`
-	DurationMin *int      `json:"duration_min,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	ActivityID   string    `json:"activity_id"`
+	Category     string    `json:"category"`
+	Name         string    `json:"name"`
+	OsmID        *int64    `json:"osm_id,omitempty"`
+	Lat          *float64  `json:"lat,omitempty"`
+	Lng          *float64  `json:"lng,omitempty"`
+	Ele          *float64  `json:"ele,omitempty"`
+	DistM        *float64  `json:"dist_m,omitempty"`
+	DurationMin  *int      `json:"duration_min,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	MapType      *string   `json:"map_type,omitempty"       db:"map_type"`
+	MapPointLat  *float64  `json:"map_point_lat,omitempty"  db:"map_point_lat"`
+	MapPointLon  *float64  `json:"map_point_lon,omitempty"  db:"map_point_lon"`
+	MapBboxWest  *float64  `json:"map_bbox_west,omitempty"  db:"map_bbox_west"`
+	MapBboxSouth *float64  `json:"map_bbox_south,omitempty" db:"map_bbox_south"`
+	MapBboxEast  *float64  `json:"map_bbox_east,omitempty"  db:"map_bbox_east"`
+	MapBboxNorth *float64  `json:"map_bbox_north,omitempty" db:"map_bbox_north"`
+	LengthM      *float64  `json:"length_m,omitempty"       db:"length_m"`
+	EleM         *float64  `json:"ele_m,omitempty"          db:"ele_m"`
+	// MapSection is a geometry column — read from DB as GeoJSON via ST_AsGeoJSON.
+	MapSection *string `json:"map_section,omitempty" db:"-"`
 }
 
 // Tag represents a user-defined tag for categorizing activities.
@@ -940,6 +951,9 @@ type ActivityStop struct {
 	Lat       *float64  `json:"lat,omitempty"`
 	Lng       *float64  `json:"lng,omitempty"`
 	Name      *string   `json:"name,omitempty"`
+	PoiType   *string   `json:"poi_type,omitempty"   db:"poi_type"`
+	PoiName   *string   `json:"poi_name,omitempty"   db:"poi_name"`
+	PoiOsmID  *int64    `json:"poi_osm_id,omitempty" db:"poi_osm_id"`
 }
 
 // ActivitySurface represents a detected surface type within an activity.

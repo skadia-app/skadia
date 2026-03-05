@@ -14,9 +14,25 @@ import (
 
 // GetGeoTags returns geo tags for an activity.
 func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 	if activityID == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		return
+	}
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get geo tags: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -204,9 +220,25 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 
 // GetActivityClimbs returns detected climbs for an activity.
 func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 	if activityID == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		return
+	}
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get activity climbs: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -222,7 +254,24 @@ func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 
 // GetActivityStops returns detected stops for an activity.
 func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get activity stops: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
 	stops, err := h.DB.GetActivityStops(r.Context(), activityID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get stops", r.URL.Path)
@@ -236,7 +285,24 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 
 // GetActivitySurfaces returns detected surfaces for an activity.
 func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get activity surfaces: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
 	surfaces, err := h.DB.GetActivitySurfaces(r.Context(), activityID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get surfaces", r.URL.Path)

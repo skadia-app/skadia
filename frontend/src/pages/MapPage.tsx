@@ -111,6 +111,7 @@ interface MapOverlayState {
   showWaters: boolean
   showForests: boolean
   showVisitedPois: boolean
+  showAmenities: boolean
 }
 
 const defaultOverlayState: MapOverlayState = {
@@ -119,6 +120,7 @@ const defaultOverlayState: MapOverlayState = {
   showWaters: false,
   showForests: false,
   showVisitedPois: false,
+  showAmenities: false,
 }
 
 const PEAK_ICON_VISITED = `data:image/svg+xml,${encodeURIComponent(
@@ -425,6 +427,7 @@ export default function MapPage() {
   // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
   const lastPeaksUserId = useRef<string>('')
   const lastForestsUserId = useRef<string>('')
+  const lastAmenitiesUserId = useRef<string>('')
 
   // Custom Maps
   const [showCustomMaps, setShowCustomMaps] = useState(false)
@@ -1458,6 +1461,52 @@ export default function MapPage() {
     }
   }, [overlayState.showVisitedPois, visitedPoisGeoJSON, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Amenities-Layer (Martin MVT) ──────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+
+    if (overlayState.showAmenities) {
+      const amenityTileUrl = currentUserId
+        ? `${martinBase}/amenities/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
+        : `${martinBase}/amenities/{z}/{x}/{y}`
+
+      // Reload source when user_id changes
+      if (map.getSource('amenities-source') && lastAmenitiesUserId.current !== currentUserId) {
+        if (map.getLayer('amenities-layer')) map.removeLayer('amenities-layer')
+        map.removeSource('amenities-source')
+      }
+      if (!map.getSource('amenities-source')) {
+        map.addSource('amenities-source', {
+          type: 'vector',
+          tiles: [amenityTileUrl],
+          minzoom: 0,
+          maxzoom: 14,
+        })
+        lastAmenitiesUserId.current = currentUserId
+      }
+      if (!map.getLayer('amenities-layer')) {
+        map.addLayer({
+          id: 'amenities-layer',
+          type: 'circle',
+          source: 'amenities-source',
+          'source-layer': 'amenities',
+          minzoom: 10,
+          paint: {
+            'circle-color': '#f97316',
+            'circle-radius': 6,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#fff',
+          },
+        })
+      }
+    } else {
+      if (map.getLayer('amenities-layer')) map.removeLayer('amenities-layer')
+      if (map.getSource('amenities-source')) map.removeSource('amenities-source')
+    }
+  }, [overlayState.showAmenities, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="relative flex-1 min-h-0">
@@ -1698,6 +1747,15 @@ export default function MapPage() {
                 className="rounded"
               />
               <span>Besuchte Einkehr</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overlayState.showAmenities}
+                onChange={e => updateOverlay('showAmenities', e.target.checked)}
+                className="rounded"
+              />
+              <span>Einkehr (Tiles)</span>
             </label>
           </div>
         </div>

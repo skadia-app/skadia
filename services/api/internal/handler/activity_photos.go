@@ -26,7 +26,23 @@ const maxPhotoSize = 20 << 20 // 20 MB
 
 func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
+
+	// Verify ownership before accepting upload.
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("upload photo: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
 	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
@@ -134,7 +150,24 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 	activityID := chi.URLParam(r, "id")
+
+	// Verify ownership before listing photos.
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("list activity photos: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
 	photos, err := h.DB.ListActivityPhotos(r.Context(), activityID, userID)
 	if err != nil {
 		slog.Error("list activity photos failed", "error", err)
