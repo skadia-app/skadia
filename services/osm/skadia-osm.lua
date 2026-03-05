@@ -79,8 +79,9 @@ end
 function osm2pgsql.process_node(object)
     local tags = object.tags
 
-    -- Peaks
-    if tags.natural == 'peak' or tags.natural == 'volcano' then
+    -- Peaks, Vulkane und Pässe/Sättel
+    if tags.natural == 'peak' or tags.natural == 'volcano'
+       or tags.natural == 'saddle' or tags.natural == 'pass' then
         tables.peaks:insert({
             osm_id = object.id,
             name = tags.name,
