@@ -133,12 +133,13 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             await conn.execute(
                 """
                 INSERT INTO activity_lift_candidates
-                    (activity_id, started_at, ended_at, duration_s, ascent_m, confidence, confirmed)
-                VALUES ($1, $2, $3, $4, $5, $6, false)
+                    (activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
                 ON CONFLICT (activity_id, started_at) DO NOTHING
                 """,
                 activity_id, ride["started_at"], ride["ended_at"],
-                ride["duration_s"], ride["ascent_m"], ride["confidence"],
+                ride["duration_s"], ride["ascent_m"], ride["descent_m"],
+                ride["distance_m"], ride["confidence"],
             )
 
         await _update_lift_stats(conn, activity_id)
@@ -231,8 +232,11 @@ async def _detect_heuristic_rides(conn, activity_id: str) -> list:
             i += 1
             continue
 
-        alt_rate = (alts[-1] - alts[0]) / max((window[-1]["time"] - window[0]["time"]).total_seconds(), 1)
-        if alt_rate <= 0:
+        dt_window = max((window[-1]["time"] - window[0]["time"]).total_seconds(), 1)
+        alt_rate = (alts[-1] - alts[0]) / dt_window
+        # Lifte fahren aufwärts (alt_rate > 0) oder abwärts als Talfahrt (alt_rate < 0).
+        # Reine Auf-/Abfahrten beim Gehen/Fahren werden durch Sinuosität und Gradient herausgefiltert.
+        if abs(alt_rate) < 0.05:
             i += 1
             continue
 
@@ -249,40 +253,60 @@ async def _detect_heuristic_rides(conn, activity_id: str) -> list:
 
         is_candidate = False
         confidence = "low"
+        abs_alt_rate = abs(alt_rate)
 
         if speeds:
             mean_spd = sum(speeds) / len(speeds)
             std_spd = math.sqrt(sum((s - mean_spd) ** 2 for s in speeds) / len(speeds))
             cv = std_spd / max(mean_spd, 0.001)
-            gradient = alt_rate / max(mean_spd, 0.001)
+            gradient = abs_alt_rate / max(mean_spd, 0.001)
             if HEURISTIC_MIN_SPEED_MS <= mean_spd <= HEURISTIC_MAX_SPEED_MS and cv < HEURISTIC_MAX_CV and gradient > HEURISTIC_MIN_GRADIENT:
                 is_candidate = True
                 confidence = "high"
         else:
-            if alt_rate > HEURISTIC_NO_SPEED_MIN_RATE:
+            if abs_alt_rate > HEURISTIC_NO_SPEED_MIN_RATE:
                 is_candidate = True
                 confidence = "medium"
 
         if is_candidate:
             end_idx = j
+            going_up = alt_rate > 0
             while end_idx + 1 < len(rows):
                 nxt = rows[end_idx + 1]
-                if nxt["altitude_m"] and alts and (nxt["altitude_m"] - alts[-1]) > -2:
-                    alts.append(nxt["altitude_m"])
-                    if nxt["speed_ms"]:
-                        speeds.append(nxt["speed_ms"])
-                    end_idx += 1
+                if nxt["altitude_m"] and alts:
+                    alt_delta = nxt["altitude_m"] - alts[-1]
+                    # Erlaubt kleine Abweichungen (±2 m) in der Hauptrichtung
+                    continues_direction = alt_delta > -2 if going_up else alt_delta < 2
+                    if continues_direction:
+                        alts.append(nxt["altitude_m"])
+                        if nxt["speed_ms"]:
+                            speeds.append(nxt["speed_ms"])
+                        end_idx += 1
+                    else:
+                        break
                 else:
                     break
 
-            duration = (rows[end_idx]["time"] - window[0]["time"]).total_seconds()
+            # Gesamtdistanz der erweiterten Ride-Strecke berechnen
+            end_time = rows[end_idx]["time"]
+            ride_rows = [r for r in rows[i:end_idx+1] if r["lat"] is not None]
+            total_dist = sum(
+                _haversine(ride_rows[k]["lat"], ride_rows[k]["lng"],
+                           ride_rows[k+1]["lat"], ride_rows[k+1]["lng"])
+                for k in range(len(ride_rows) - 1)
+            )
+
+            duration = (end_time - window[0]["time"]).total_seconds()
             min_dur = HEURISTIC_MIN_DURATION_S if confidence == "high" else HEURISTIC_NO_SPEED_MIN_DURATION
             if duration >= min_dur:
+                alt_change = alts[-1] - alts[0]
                 rides.append({
                     "started_at": window[0]["time"],
-                    "ended_at": rows[end_idx]["time"],
+                    "ended_at": end_time,
                     "duration_s": int(duration),
-                    "ascent_m": max(0.0, alts[-1] - alts[0]),
+                    "ascent_m":  max(0.0,  alt_change),
+                    "descent_m": max(0.0, -alt_change),
+                    "distance_m": total_dist,
                     "confidence": confidence,
                 })
             i = end_idx + 1
@@ -302,26 +326,53 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
 
 
 async def _update_lift_stats(conn, activity_id: str) -> None:
+    """Recompute lift_* columns from both OSM segment_efforts and confirmed heuristic candidates."""
     await conn.execute(
         """
-        UPDATE activities a SET
-            lift_count      = stats.cnt,
-            lift_distance_m = stats.dist,
-            lift_ascent_m   = stats.asc,
-            lift_descent_m  = stats.desc_m,
-            lift_duration_s = stats.dur
-        FROM (
-            SELECT
-                COUNT(*) AS cnt,
-                SUM(se.distance_m) AS dist,
-                SUM(CASE WHEN NOT se.is_reverse THEN se.elevation_gain_m ELSE 0 END) AS asc,
-                SUM(CASE WHEN se.is_reverse THEN se.elevation_gain_m ELSE 0 END) AS desc_m,
-                SUM(se.elapsed_time_s) AS dur
-            FROM segment_efforts se
-            JOIN segments s ON s.id = se.segment_id
-            WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-        ) stats
-        WHERE a.id = $1
+        UPDATE activities SET
+            lift_count = (
+                SELECT COUNT(*) FROM segment_efforts se
+                JOIN segments s ON s.id = se.segment_id
+                WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+            ) + (
+                SELECT COUNT(*) FROM activity_lift_candidates
+                WHERE activity_id = $1 AND confirmed = true
+            ),
+            lift_duration_s = (
+                SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
+                JOIN segments s ON s.id = se.segment_id
+                WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+            ) + (
+                SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
+                WHERE activity_id = $1 AND confirmed = true
+            ),
+            lift_ascent_m = (
+                SELECT COALESCE(SUM(CASE WHEN NOT se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
+                FROM segment_efforts se
+                JOIN segments s ON s.id = se.segment_id
+                WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+            ) + (
+                SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
+                WHERE activity_id = $1 AND confirmed = true
+            ),
+            lift_descent_m = (
+                SELECT COALESCE(SUM(CASE WHEN se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
+                FROM segment_efforts se
+                JOIN segments s ON s.id = se.segment_id
+                WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+            ) + (
+                SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
+                WHERE activity_id = $1 AND confirmed = true
+            ),
+            lift_distance_m = (
+                SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
+                JOIN segments s ON s.id = se.segment_id
+                WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+            ) + (
+                SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
+                WHERE activity_id = $1 AND confirmed = true
+            )
+        WHERE id = $1
         """,
         activity_id,
     )

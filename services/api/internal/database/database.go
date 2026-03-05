@@ -2895,19 +2895,21 @@ func (db *DB) GetVisitedPOIs(ctx context.Context, userID string) ([]VisitedPOI, 
 
 // LiftCandidate represents an unconfirmed lift ride detected by ML.
 type LiftCandidate struct {
-	ID         string    `json:"id"`
-	ActivityID string    `json:"activity_id"`
+	ID         string   `json:"id"`
+	ActivityID string   `json:"activity_id"`
 	StartedAt  time.Time `json:"started_at"`
 	EndedAt    time.Time `json:"ended_at"`
-	DurationS  int       `json:"duration_s"`
-	AscentM    float64   `json:"ascent_m"`
-	Confidence string    `json:"confidence"`
-	Confirmed  bool      `json:"confirmed"`
+	DurationS  int      `json:"duration_s"`
+	AscentM    float64  `json:"ascent_m"`
+	DescentM   *float64 `json:"descent_m,omitempty"`
+	DistanceM  *float64 `json:"distance_m,omitempty"`
+	Confidence string   `json:"confidence"`
+	Confirmed  bool     `json:"confirmed"`
 }
 
 func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftCandidate, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, activity_id, started_at, ended_at, duration_s, ascent_m, confidence, confirmed
+		SELECT id, activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed
 		FROM activity_lift_candidates
 		WHERE activity_id = $1
 		ORDER BY started_at
@@ -2920,7 +2922,7 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftC
 	for rows.Next() {
 		var c LiftCandidate
 		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
-			&c.DurationS, &c.AscentM, &c.Confidence, &c.Confirmed); err != nil {
+			&c.DurationS, &c.AscentM, &c.DescentM, &c.DistanceM, &c.Confidence, &c.Confirmed); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
@@ -2953,14 +2955,55 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID string) error
 	return db.recomputeLiftStats(ctx, activityID)
 }
 
-// recomputeLiftStats aggregates confirmed lift candidates into activities.lift_* columns.
+// recomputeLiftStats recomputes activities.lift_* columns from both sources:
+//   - segment_efforts with segment_type='lift' (Method A: OSM-matched, auto-confirmed)
+//   - activity_lift_candidates where confirmed=true (Method B: heuristic, user-confirmed)
 func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities SET
-			lift_count      = (SELECT COUNT(*)         FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
-			lift_duration_s = (SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
-			lift_ascent_m   = (SELECT COALESCE(SUM(ascent_m),   0) FROM activity_lift_candidates WHERE activity_id = $1 AND confirmed = true),
-			updated_at      = NOW()
+			lift_count = (
+				SELECT COUNT(*) FROM segment_efforts se
+				JOIN segments s ON s.id = se.segment_id
+				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+			) + (
+				SELECT COUNT(*) FROM activity_lift_candidates
+				WHERE activity_id = $1 AND confirmed = true
+			),
+			lift_duration_s = (
+				SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
+				JOIN segments s ON s.id = se.segment_id
+				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+			) + (
+				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
+				WHERE activity_id = $1 AND confirmed = true
+			),
+			lift_ascent_m = (
+				SELECT COALESCE(SUM(CASE WHEN NOT se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
+				FROM segment_efforts se
+				JOIN segments s ON s.id = se.segment_id
+				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+			) + (
+				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
+				WHERE activity_id = $1 AND confirmed = true
+			),
+			lift_descent_m = (
+				SELECT COALESCE(SUM(CASE WHEN se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
+				FROM segment_efforts se
+				JOIN segments s ON s.id = se.segment_id
+				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+			) + (
+				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
+				WHERE activity_id = $1 AND confirmed = true
+			),
+			lift_distance_m = (
+				SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
+				JOIN segments s ON s.id = se.segment_id
+				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+			) + (
+				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
+				WHERE activity_id = $1 AND confirmed = true
+			),
+			updated_at = NOW()
 		WHERE id = $1`, activityID)
 	return err
 }
