@@ -421,6 +421,10 @@ export default function MapPage() {
   // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
   const autoSwitchedToDark = useRef(false)
   const styleBeforeAutoSwitch = useRef<BaseStyle>('osm')
+  // Track welche user_id zuletzt für den jeweiligen Source verwendet wurde,
+  // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
+  const lastPeaksUserId = useRef<string>('')
+  const lastForestsUserId = useRef<string>('')
 
   // Custom Maps
   const [showCustomMaps, setShowCustomMaps] = useState(false)
@@ -528,6 +532,13 @@ export default function MapPage() {
       return next
     })
   }
+
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => fetch('/api/v1/me', { credentials: 'include' }).then(r => r.json()) as Promise<{ user_id: string }>,
+    staleTime: Infinity,
+  })
+  const currentUserId = meData?.user_id ?? ''
 
   const { data: visitedPoisGeoJSON } = useQuery({
     queryKey: ['visited-pois'],
@@ -1263,15 +1274,24 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const peakTileUrl = currentUserId
+      ? `${martinBase}/peaks/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
+      : `${martinBase}/peaks/{z}/{x}/{y}`
 
     const addPeaksLayer = () => {
+      // Source neu laden wenn sich user_id geändert hat (visited-Flag korrekt rendern)
+      if (map.getSource('peaks-source') && lastPeaksUserId.current !== currentUserId) {
+        if (map.getLayer('peaks-layer')) map.removeLayer('peaks-layer')
+        map.removeSource('peaks-source')
+      }
       if (!map.getSource('peaks-source')) {
         map.addSource('peaks-source', {
           type: 'vector',
-          tiles: [`${martinBase}/peaks/{z}/{x}/{y}`],
+          tiles: [peakTileUrl],
           minzoom: 0,
           maxzoom: 14,
         })
+        lastPeaksUserId.current = currentUserId
       }
       if (!map.getLayer('peaks-layer')) {
         map.addLayer({
@@ -1326,7 +1346,7 @@ export default function MapPage() {
       if (map.getLayer('peaks-layer')) map.removeLayer('peaks-layer')
       if (map.getSource('peaks-source')) map.removeSource('peaks-source')
     }
-  }, [overlayState.showPeaks, overlayState.peaksOnlyVisited, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [overlayState.showPeaks, overlayState.peaksOnlyVisited, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Gewässer-Layer ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1363,20 +1383,30 @@ export default function MapPage() {
     }
   }, [overlayState.showWaters, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+
   // ── Wald-Layer ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const forestTileUrl = currentUserId
+      ? `${martinBase}/forests/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
+      : `${martinBase}/forests/{z}/{x}/{y}`
 
     if (overlayState.showForests) {
+      // Source neu laden wenn sich user_id geändert hat
+      if (map.getSource('forests-source') && lastForestsUserId.current !== currentUserId) {
+        if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
+        map.removeSource('forests-source')
+      }
       if (!map.getSource('forests-source')) {
         map.addSource('forests-source', {
           type: 'vector',
-          tiles: [`${martinBase}/forests/{z}/{x}/{y}`],
+          tiles: [forestTileUrl],
           minzoom: 0,
           maxzoom: 14,
         })
+        lastForestsUserId.current = currentUserId
       }
       if (!map.getLayer('forests-layer')) {
         map.addLayer({
@@ -1396,7 +1426,7 @@ export default function MapPage() {
       if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
       if (map.getSource('forests-source')) map.removeSource('forests-source')
     }
-  }, [overlayState.showForests, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [overlayState.showForests, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Besuchte Einkehr-Layer ────────────────────────────────────────────────
   useEffect(() => {

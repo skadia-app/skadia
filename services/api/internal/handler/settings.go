@@ -9,6 +9,17 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// GetMe returns the authenticated user's ID.
+// GET /api/v1/me
+func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"user_id": userID})
+}
+
 // GetProfile returns the user's physiological profile.
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

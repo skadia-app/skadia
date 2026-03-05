@@ -1,0 +1,2 @@
+-- Restore original (buggy) version — see 000069_mvt_functions.up.sql
+-- In der Praxis: Migration 000069 neu anwenden genügt.

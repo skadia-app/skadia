@@ -220,6 +220,8 @@ func main() {
 			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 			r.Get("/admin/osm-status", h.GetOSMStatus)
 
+			r.Get("/me", h.GetMe)
+
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
 			r.Post("/admin/detect-max-hr", h.DetectMaxHR)
