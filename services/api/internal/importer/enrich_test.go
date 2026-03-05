@@ -1,0 +1,84 @@
+package importer
+
+import (
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
+)
+
+func ptr[T any](v T) *T { return &v }
+
+// TestBuildEnrichFields_ElevationLoss stellt sicher, dass elevation_loss_m
+// propagiert wird, wenn die bestehende Aktivität keinen Wert hat.
+func TestBuildEnrichFields_ElevationLoss(t *testing.T) {
+	existing := &model.Activity{} // alle Felder nil
+	newData := &model.ActivityData{ElevationLossM: 312.5}
+
+	fields := buildEnrichFields(existing, newData)
+
+	if _, ok := fields["elevation_loss_m"]; !ok {
+		t.Error("elevation_loss_m fehlt in fields, obwohl existing nil und newData > 0")
+	}
+	if fields["elevation_loss_m"] != 312.5 {
+		t.Errorf("elevation_loss_m = %v, want 312.5", fields["elevation_loss_m"])
+	}
+}
+
+// TestBuildEnrichFields_ElevationLoss_ExistingKept stellt sicher, dass ein
+// vorhandener Wert nicht überschrieben wird.
+func TestBuildEnrichFields_ElevationLoss_ExistingKept(t *testing.T) {
+	existing := &model.Activity{ElevationLossM: ptr(200.0)}
+	newData := &model.ActivityData{ElevationLossM: 312.5}
+
+	fields := buildEnrichFields(existing, newData)
+
+	if _, ok := fields["elevation_loss_m"]; ok {
+		t.Error("elevation_loss_m soll nicht in fields sein, wenn bestehender Wert vorhanden")
+	}
+}
+
+// TestBuildEnrichFields_MaxMinElevation stellt sicher, dass max/min_elevation_m
+// propagiert werden wenn fehlend.
+func TestBuildEnrichFields_MaxMinElevation(t *testing.T) {
+	existing := &model.Activity{}
+	newData := &model.ActivityData{MaxElevationM: 2500.0, MinElevationM: 800.0}
+
+	fields := buildEnrichFields(existing, newData)
+
+	if _, ok := fields["max_elevation_m"]; !ok {
+		t.Error("max_elevation_m fehlt in fields")
+	}
+	if _, ok := fields["min_elevation_m"]; !ok {
+		t.Error("min_elevation_m fehlt in fields")
+	}
+}
+
+// TestBuildReplaceFields_ElevationLoss stellt sicher, dass ReplaceActivity
+// immer elevation_loss_m enthält.
+func TestBuildReplaceFields_ElevationLoss(t *testing.T) {
+	newData := &model.ActivityData{ElevationLossM: 450.0}
+
+	fields := buildReplaceFields(newData)
+
+	if _, ok := fields["elevation_loss_m"]; !ok {
+		t.Error("elevation_loss_m fehlt in buildReplaceFields")
+	}
+	if fields["elevation_loss_m"] != 450.0 {
+		t.Errorf("elevation_loss_m = %v, want 450.0", fields["elevation_loss_m"])
+	}
+}
+
+// TestBuildReplaceFields_MaxMinElevation stellt sicher, dass max/min_elevation_m
+// in ReplaceActivity enthalten sind.
+func TestBuildReplaceFields_MaxMinElevation(t *testing.T) {
+	newData := &model.ActivityData{MaxElevationM: 3000.0, MinElevationM: 500.0}
+
+	fields := buildReplaceFields(newData)
+
+	if _, ok := fields["max_elevation_m"]; !ok {
+		t.Error("max_elevation_m fehlt in buildReplaceFields")
+	}
+	if _, ok := fields["min_elevation_m"]; !ok {
+		t.Error("min_elevation_m fehlt in buildReplaceFields")
+	}
+}
