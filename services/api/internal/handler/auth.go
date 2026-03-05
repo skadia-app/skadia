@@ -65,7 +65,7 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 	params.Set("response_type", "code")
 	params.Set("client_id", h.Auth.OIDCClientID)
 	params.Set("redirect_uri", h.Auth.AppRedirectURI)
-	params.Set("scope", "openid profile email")
+	params.Set("scope", "openid profile email offline_access")
 	params.Set("state", state)
 
 	authorizeURL := fmt.Sprintf("%s/application/o/authorize/?%s",
