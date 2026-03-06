@@ -26,6 +26,10 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 		           JOIN activities a ON se.activity_id = a.id
 		           WHERE se.segment_id = s.id AND a.user_id = $1
 		       ), 0) AS ridden_count,
+		       EXISTS(
+		           SELECT 1 FROM segment_favorites sf
+		           WHERE sf.segment_id = s.id AND sf.user_id = $1
+		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
 		       ST_AsGeoJSON(sv.track) AS track_geojson,
 		       s.terrain_type, s.climb_type
@@ -86,7 +90,7 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 			&s.SourceActivityID, &s.OsmLiftID,
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
-			&s.RiddenCount,
+			&s.RiddenCount, &s.IsFavorite,
 			&s.Visibility, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
 			&s.TerrainType, &s.ClimbType,
@@ -213,7 +217,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
-func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment, error) {
+func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.Segment, error) {
 	var s model.Segment
 	err := db.Pool.QueryRow(ctx, `
 		SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
@@ -222,6 +226,15 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		       s.source_activity_id, s.osm_lift_id,
 		       s.distance_m, s.elevation_gain_m,
 		       s.effort_count, s.athlete_count,
+		       COALESCE((
+		           SELECT COUNT(*)::int FROM segment_efforts se
+		           JOIN activities a ON se.activity_id = a.id
+		           WHERE se.segment_id = s.id AND a.user_id = $2
+		       ), 0) AS ridden_count,
+		       EXISTS(
+		           SELECT 1 FROM segment_favorites sf
+		           WHERE sf.segment_id = s.id AND sf.user_id = $2
+		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
 		       ST_AsGeoJSON(sv.track) AS track_geojson,
 		       s.terrain_type, s.climb_type
@@ -232,7 +245,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 			ORDER BY version_number DESC
 			LIMIT 1
 		) sv ON true
-		WHERE s.id = $1`, segmentID,
+		WHERE s.id = $1`, segmentID, userID,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -240,6 +253,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
+		&s.RiddenCount, &s.IsFavorite,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType,
@@ -292,7 +306,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 	}
 
 	if len(setClauses) == 0 {
-		return db.GetSegment(ctx, segmentID)
+		return db.GetSegment(ctx, segmentID, "")
 	}
 
 	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d",
@@ -307,7 +321,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 		return nil, nil
 	}
 
-	return db.GetSegment(ctx, segmentID)
+	return db.GetSegment(ctx, segmentID, "")
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.

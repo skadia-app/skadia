@@ -106,8 +106,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := middleware.GetUserID(r.Context())
 
-	segment, err := h.DB.GetSegment(r.Context(), id)
+	segment, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
 		slog.Error("get segment failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -130,7 +131,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	// Verify ownership before mutating.
-	existing, err := h.DB.GetSegment(r.Context(), id)
+	existing, err := h.DB.GetSegment(r.Context(), id, "")
 	if err != nil {
 		slog.Error("update segment: get segment failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
@@ -235,7 +236,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
 
-	seg, err := h.DB.GetSegment(r.Context(), id)
+	seg, err := h.DB.GetSegment(r.Context(), id, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return

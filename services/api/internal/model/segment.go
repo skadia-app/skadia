@@ -22,6 +22,7 @@ type Segment struct {
 	EffortCount       int             `json:"effort_count" db:"effort_count"`
 	AthleteCount      int             `json:"athlete_count" db:"athlete_count"`
 	RiddenCount       int             `json:"ridden_count" db:"ridden_count"`
+	IsFavorite        bool            `json:"is_favorite" db:"is_favorite"`
 	Visibility        string          `json:"visibility" db:"visibility"`
 	RouteHash         *string         `json:"route_hash,omitempty" db:"route_hash"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
