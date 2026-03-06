@@ -305,7 +305,7 @@ export default function CalendarPage() {
         </h1>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Health data toggle — LINKS before Tab-Toggle, only when weeks view */}
+          {/* Health data toggle — LINKS, only when weeks view */}
           {tab === 'weeks' && (
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300">
               <div
@@ -324,6 +324,25 @@ export default function CalendarPage() {
               </div>
               Gesundheitsdaten
             </label>
+          )}
+
+          {/* Week count toggle — only when weeks view, before Tab-Toggle */}
+          {tab === 'weeks' && (
+            <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+              {([4, 8, 12] as WeekCount[]).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setWeekCount(n)}
+                  className={
+                    n === weekCount
+                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  }
+                >
+                  {n} Wo
+                </button>
+              ))}
+            </div>
           )}
 
           {/* Tab Toggle — always visible */}
@@ -352,22 +371,6 @@ export default function CalendarPage() {
 
           {tab === 'weeks' && (
             <>
-              {/* Week count toggle */}
-              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-                {([4, 8, 12] as WeekCount[]).map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setWeekCount(n)}
-                    className={
-                      n === weekCount
-                        ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                        : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-                    }
-                  >
-                    {n} Wo
-                  </button>
-                ))}
-              </div>
 
               {/* Navigation */}
               <div className="flex items-center gap-1">
