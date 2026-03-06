@@ -902,4 +902,44 @@ func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID strin
 		userID, segmentID)
 	return err
 }
+
+// GetSegmentPerformances retrieves all segment efforts for a specific segment from a given user.
+func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string) ([]model.SegmentPerformance, error) {
+	query := `
+	SELECT
+		se.id,
+		se.activity_id,
+		se.elapsed_time_s,
+		a.moving_time_s,
+		a.started_at,
+		a.sport_type,
+		a.title,
+		a.gear_id
+	FROM segment_efforts se
+	JOIN activities a ON se.activity_id = a.id
+	WHERE se.segment_id = $1 AND a.user_id = $2
+	ORDER BY a.started_at DESC`
+
+	rows, err := db.Pool.Query(ctx, query, segmentID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get segment performances: %w", err)
+	}
+	defer rows.Close()
+
+	var performances []model.SegmentPerformance
+	for rows.Next() {
+		var perf model.SegmentPerformance
+		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
+			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.GearID); err != nil {
+			return nil, fmt.Errorf("scan performance: %w", err)
+		}
+		performances = append(performances, perf)
+	}
+
+	if performances == nil {
+		performances = []model.SegmentPerformance{}
+	}
+
+	return performances, rows.Err()
+}
 }

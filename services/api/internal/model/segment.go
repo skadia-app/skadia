@@ -85,6 +85,18 @@ type SegmentEffort struct {
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
 }
 
+// SegmentPerformance represents a single effort on a segment with associated activity metadata.
+type SegmentPerformance struct {
+	SegmentEffortID string    `json:"id"`
+	ActivityID      string    `json:"activity_id"`
+	ElapsedTimeS    int       `json:"elapsed_time_s"`
+	MovingTimeS     int       `json:"moving_time_s"`
+	StartedAt       time.Time `json:"started_at"`
+	SportType       string    `json:"sport_type"`
+	Title           string    `json:"title"`
+	GearID          *string   `json:"gear_id,omitempty"`
+}
+
 // DetectedLap represents an automatically detected lap/round within an activity.
 type DetectedLap struct {
 	ID            string    `json:"id"`

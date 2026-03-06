@@ -350,3 +350,25 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
+
+// GetSegmentPerformances retrieves all efforts on a segment from the user's activities.
+func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	performances, err := h.DB.GetSegmentPerformances(r.Context(), segmentID, userID)
+	if err != nil {
+		slog.Error("get segment performances failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch performances", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"performances": performances,
+		"count":        len(performances),
+	})
+}

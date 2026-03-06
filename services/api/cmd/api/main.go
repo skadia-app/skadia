@@ -310,6 +310,7 @@ func main() {
 			r.Get("/segments/{id}/favorite", h.GetSegmentFavoriteStatus)
 			r.Post("/segments/{id}/favorite", h.AddSegmentFavorite)
 			r.Delete("/segments/{id}/favorite", h.RemoveSegmentFavorite)
+			r.Get("/segments/{id}/performances", h.GetSegmentPerformances)
 			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
