@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
@@ -97,7 +98,7 @@ export default function SegmentsPage() {
       }
 
       // When no terrain checkboxes are checked: show standard + trail (not lift)
-      if (terrainFilter.length === 0) return terrain !== 'lift'
+      if (terrainFilter.length === 0) return true // terrain is already not 'lift' here
 
       // Otherwise show only selected terrain types
       return terrainFilter.includes(terrain)
@@ -139,13 +140,25 @@ export default function SegmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
-        <button onClick={() => setEditorMode('draw')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Segment zeichnen
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/map"
+            state={{ activateSegmentsOverlay: true }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            Auf Karte
+          </Link>
+          <button onClick={() => setEditorMode('draw')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Segment zeichnen
+          </button>
+        </div>
       </div>
 
       {/* Editor Modal */}

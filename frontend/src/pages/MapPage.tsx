@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useLocation } from 'react-router-dom'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
@@ -15,6 +16,7 @@ import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, type Tag, type TagActivity } from '@/api/tags'
 import { updateActivity, fetchActivity } from '@/api/activities'
+import { SegmentsOverlay } from '@/components/Map/SegmentsOverlay'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -113,6 +115,7 @@ interface MapOverlayState {
   showForests: boolean
   showVisitedPois: boolean
   showAmenities: boolean
+  showSegmentsOverlay: boolean
 }
 
 const defaultOverlayState: MapOverlayState = {
@@ -122,6 +125,7 @@ const defaultOverlayState: MapOverlayState = {
   showForests: false,
   showVisitedPois: false,
   showAmenities: false,
+  showSegmentsOverlay: false,
 }
 
 const PEAK_ICON_VISITED = `data:image/svg+xml,${encodeURIComponent(
@@ -413,6 +417,8 @@ const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm']
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
   const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [baseStyle, setBaseStyle] = useState<BaseStyle>('osm')
@@ -551,6 +557,15 @@ export default function MapPage() {
       return next
     })
   }
+
+  // location.state: activateSegmentsOverlay — z.B. von SegmentsPage aus
+  useEffect(() => {
+    if (location.state?.activateSegmentsOverlay) {
+      updateOverlay('showSegmentsOverlay', true)
+      // State clearen damit beim Zurück-Navigieren kein erneutes Aktivieren passiert
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: meData } = useQuery({
     queryKey: ['me'],
@@ -1635,6 +1650,13 @@ export default function MapPage() {
           </button>
         </div>
 
+        {/* Segments Overlay — Segment-Linien als Karten-Ebene */}
+        <SegmentsOverlay
+          map={mapRef.current}
+          enabled={overlayState.showSegmentsOverlay}
+          styleVersion={styleVersion}
+        />
+
         {/* Custom Maps Panel */}
         {showCustomMaps && (
           <CustomMapsPanel
@@ -1772,6 +1794,15 @@ export default function MapPage() {
                 className="rounded"
               />
               <span>Einkehr (Tiles)</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overlayState.showSegmentsOverlay}
+                onChange={e => updateOverlay('showSegmentsOverlay', e.target.checked)}
+                className="rounded"
+              />
+              <span>Segmente (Linien)</span>
             </label>
           </div>
         </div>
