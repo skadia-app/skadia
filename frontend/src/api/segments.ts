@@ -16,6 +16,8 @@ export interface Segment {
   visibility: string
   created_at: string
   track_geojson?: string
+  terrain_type?: string
+  climb_type?: string
 }
 
 export interface SegmentEffort {
@@ -51,6 +53,8 @@ export interface CreateSegmentPayload {
   geojson_track: string
   source_activity_id?: string
   description?: string
+  terrain_type?: string
+  climb_type?: string
 }
 
 export async function fetchSegments(params?: {
@@ -74,6 +78,8 @@ export interface UpdateSegmentPayload {
   sport_group?: string
   segment_type_meta?: Record<string, unknown>
   new_version?: boolean
+  terrain_type?: string
+  climb_type?: string
 }
 
 export async function fetchSegmentLeaderboard(

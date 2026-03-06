@@ -27,7 +27,8 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 		           WHERE se.segment_id = s.id AND a.user_id = $1
 		       ), 0) AS ridden_count,
 		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
+		       ST_AsGeoJSON(sv.track) AS track_geojson,
+		       s.terrain_type, s.climb_type
 		FROM segments s
 		LEFT JOIN LATERAL (
 			SELECT track FROM segment_versions
@@ -88,6 +89,7 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 			&s.RiddenCount,
 			&s.Visibility, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
+			&s.TerrainType, &s.ClimbType,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan segment: %w", err)
@@ -115,17 +117,19 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Insert segment
 	var s model.Segment
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_sport_types, allowed_sub_types,
 		          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
-		          visibility, route_hash, created_at`,
+		          visibility, route_hash, created_at,
+		          terrain_type, climb_type`,
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
+		create.TerrainType, create.ClimbType,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -134,6 +138,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
+		&s.TerrainType, &s.ClimbType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment: %w", err)
@@ -218,7 +223,8 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		       s.distance_m, s.elevation_gain_m,
 		       s.effort_count, s.athlete_count,
 		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
+		       ST_AsGeoJSON(sv.track) AS track_geojson,
+		       s.terrain_type, s.climb_type
 		FROM segments s
 		LEFT JOIN LATERAL (
 			SELECT track FROM segment_versions
@@ -236,6 +242,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		&s.EffortCount, &s.AthleteCount,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
+		&s.TerrainType, &s.ClimbType,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -271,6 +278,16 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 	if update.SegmentTypeMeta != nil {
 		setClauses = append(setClauses, fmt.Sprintf("segment_type_meta = $%d", argIdx))
 		args = append(args, *update.SegmentTypeMeta)
+		argIdx++
+	}
+	if update.TerrainType != nil {
+		setClauses = append(setClauses, fmt.Sprintf("terrain_type = $%d", argIdx))
+		args = append(args, *update.TerrainType)
+		argIdx++
+	}
+	if update.ClimbType != nil {
+		setClauses = append(setClauses, fmt.Sprintf("climb_type = $%d", argIdx))
+		args = append(args, *update.ClimbType)
 		argIdx++
 	}
 

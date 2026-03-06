@@ -18,6 +18,17 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
   const [sacScale, setSacScale] = useState((segment.segment_type_meta?.sac_scale as string) ?? '')
   const [mtbScale, setMtbScale] = useState((segment.segment_type_meta?.mtb_scale as string) ?? '')
   const [newVersion, setNewVersion] = useState(false)
+  const initialClimbType = segment.climb_type ?? 'standard'
+  const [isMountain, setIsMountain] = useState(initialClimbType === 'bergauf' || initialClimbType === 'bergab')
+  const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>(
+    initialClimbType === 'bergab' ? 'bergab' : 'bergauf'
+  )
+
+  function getClimbType(): string {
+    if (segment.segment_type === 'lap') return 'standard'
+    if (isMountain) return climbDirection
+    return 'standard'
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -32,6 +43,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         description: description.trim() || undefined,
         segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
         new_version: newVersion || undefined,
+        climb_type: getClimbType(),
       })
     },
     onSuccess: () => {
@@ -91,6 +103,46 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
               <option value="">MTB-Skala — keine</option>
               {MTB_SCALES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+        )}
+
+        {/* Berg-Checkbox (nicht bei Lap-Segmenten) */}
+        {segment.segment_type !== 'lap' && (
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isMountain}
+                onChange={e => setIsMountain(e.target.checked)}
+                className="rounded border-neutral-600"
+              />
+              <span className="text-sm text-neutral-300">Berg (Auf-/Abstieg unterscheiden)</span>
+            </label>
+
+            {isMountain && (
+              <div className="ml-6 flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-climb-dir"
+                    checked={climbDirection === 'bergauf'}
+                    onChange={() => setClimbDirection('bergauf')}
+                    className="border-neutral-600"
+                  />
+                  <span className="text-sm text-neutral-300">Bergauf</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-climb-dir"
+                    checked={climbDirection === 'bergab'}
+                    onChange={() => setClimbDirection('bergab')}
+                    className="border-neutral-600"
+                  />
+                  <span className="text-sm text-neutral-300">Bergab</span>
+                </label>
+              </div>
+            )}
           </div>
         )}
 

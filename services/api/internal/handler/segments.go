@@ -53,6 +53,16 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	if create.SegmentType == "" {
 		create.SegmentType = "standard"
 	}
+	if create.TerrainType == "" {
+		create.TerrainType = "standard"
+	}
+	if create.ClimbType == "" {
+		create.ClimbType = "standard"
+	}
+	// Lift segments always get bergfahrt as default climb_type
+	if create.TerrainType == "lift" && create.ClimbType == "standard" {
+		create.ClimbType = "bergfahrt"
+	}
 
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
