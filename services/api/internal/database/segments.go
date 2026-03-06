@@ -21,8 +21,18 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 		       s.source_activity_id, s.osm_lift_id,
 		       s.distance_m, s.elevation_gain_m,
 		       s.effort_count, s.athlete_count,
+		       COALESCE((
+		           SELECT COUNT(*)::int FROM segment_efforts se
+		           JOIN activities a ON se.activity_id = a.id
+		           WHERE se.segment_id = s.id AND a.user_id = $1
+		       ), 0) AS ridden_count,
+		       EXISTS(
+		           SELECT 1 FROM segment_favorites sf
+		           WHERE sf.segment_id = s.id AND sf.user_id = $1
+		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
+		       ST_AsGeoJSON(sv.track) AS track_geojson,
+		       s.terrain_type, s.climb_type
 		FROM segments s
 		LEFT JOIN LATERAL (
 			SELECT track FROM segment_versions
@@ -80,8 +90,10 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 			&s.SourceActivityID, &s.OsmLiftID,
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
+			&s.RiddenCount, &s.IsFavorite,
 			&s.Visibility, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
+			&s.TerrainType, &s.ClimbType,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan segment: %w", err)
@@ -109,17 +121,19 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Insert segment
 	var s model.Segment
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_sport_types, allowed_sub_types,
 		          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
-		          visibility, route_hash, created_at`,
+		          visibility, route_hash, created_at,
+		          terrain_type, climb_type`,
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
+		create.TerrainType, create.ClimbType,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -128,6 +142,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
+		&s.TerrainType, &s.ClimbType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment: %w", err)
@@ -202,7 +217,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
-func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment, error) {
+func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.Segment, error) {
 	var s model.Segment
 	err := db.Pool.QueryRow(ctx, `
 		SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
@@ -211,8 +226,18 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		       s.source_activity_id, s.osm_lift_id,
 		       s.distance_m, s.elevation_gain_m,
 		       s.effort_count, s.athlete_count,
+		       COALESCE((
+		           SELECT COUNT(*)::int FROM segment_efforts se
+		           JOIN activities a ON se.activity_id = a.id
+		           WHERE se.segment_id = s.id AND a.user_id = $2
+		       ), 0) AS ridden_count,
+		       EXISTS(
+		           SELECT 1 FROM segment_favorites sf
+		           WHERE sf.segment_id = s.id AND sf.user_id = $2
+		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
+		       ST_AsGeoJSON(sv.track) AS track_geojson,
+		       s.terrain_type, s.climb_type
 		FROM segments s
 		LEFT JOIN LATERAL (
 			SELECT track FROM segment_versions
@@ -220,7 +245,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 			ORDER BY version_number DESC
 			LIMIT 1
 		) sv ON true
-		WHERE s.id = $1`, segmentID,
+		WHERE s.id = $1`, segmentID, userID,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -228,8 +253,10 @@ func (db *DB) GetSegment(ctx context.Context, segmentID string) (*model.Segment,
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
+		&s.RiddenCount, &s.IsFavorite,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
+		&s.TerrainType, &s.ClimbType,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -267,9 +294,19 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 		args = append(args, *update.SegmentTypeMeta)
 		argIdx++
 	}
+	if update.TerrainType != nil {
+		setClauses = append(setClauses, fmt.Sprintf("terrain_type = $%d", argIdx))
+		args = append(args, *update.TerrainType)
+		argIdx++
+	}
+	if update.ClimbType != nil {
+		setClauses = append(setClauses, fmt.Sprintf("climb_type = $%d", argIdx))
+		args = append(args, *update.ClimbType)
+		argIdx++
+	}
 
 	if len(setClauses) == 0 {
-		return db.GetSegment(ctx, segmentID)
+		return db.GetSegment(ctx, segmentID, "")
 	}
 
 	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d",
@@ -284,7 +321,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 		return nil, nil
 	}
 
-	return db.GetSegment(ctx, segmentID)
+	return db.GetSegment(ctx, segmentID, "")
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
@@ -875,4 +912,74 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+// IsSegmentFavoriteByUser checks if a segment is favorited by a user.
+func (db *DB) IsSegmentFavoriteByUser(ctx context.Context, userID, segmentID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM segment_favorites WHERE user_id = $1 AND segment_id = $2)`,
+		userID, segmentID).Scan(&exists)
+	return exists, err
+}
+
+// AddSegmentFavorite adds a favorite record for a segment.
+func (db *DB) AddSegmentFavorite(ctx context.Context, userID, segmentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO segment_favorites (user_id, segment_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+		userID, segmentID)
+	return err
+}
+
+// RemoveSegmentFavorite removes a favorite record for a segment.
+func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_favorites WHERE user_id = $1 AND segment_id = $2`,
+		userID, segmentID)
+	return err
+}
+
+// GetSegmentPerformances retrieves all segment efforts for a specific segment from a given user.
+func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string) ([]model.SegmentPerformance, error) {
+	query := `
+	SELECT
+		se.id,
+		se.activity_id,
+		se.elapsed_time_s,
+		a.moving_time_s,
+		a.started_at,
+		a.sport_type,
+		a.title,
+		a.gear_id,
+		g.name AS gear_name,
+		g.type AS gear_type
+	FROM segment_efforts se
+	JOIN activities a ON se.activity_id = a.id
+	LEFT JOIN gear g ON a.gear_id = g.id
+	WHERE se.segment_id = $1 AND a.user_id = $2
+	ORDER BY a.started_at DESC`
+
+	rows, err := db.Pool.Query(ctx, query, segmentID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get segment performances: %w", err)
+	}
+	defer rows.Close()
+
+	var performances []model.SegmentPerformance
+	for rows.Next() {
+		var perf model.SegmentPerformance
+		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
+			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.GearID,
+			&perf.GearName, &perf.GearType); err != nil {
+			return nil, fmt.Errorf("scan performance: %w", err)
+		}
+		performances = append(performances, perf)
+	}
+
+	if performances == nil {
+		performances = []model.SegmentPerformance{}
+	}
+
+	return performances, rows.Err()
 }

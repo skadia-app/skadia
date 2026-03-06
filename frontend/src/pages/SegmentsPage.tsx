@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
@@ -55,7 +56,8 @@ function fmtDist(m?: number): string {
 export default function SegmentsPage() {
   const queryClient = useQueryClient()
   const [sportGroup, setSportGroup] = useState('')
-  const [segmentType, setSegmentType] = useState('')
+  const [terrainFilter, setTerrainFilter] = useState<string[]>([])
+  const [showAllLifts, setShowAllLifts] = useState(false)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
@@ -73,14 +75,35 @@ export default function SegmentsPage() {
 
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
-    segment_type: segmentType || undefined,
     search: search || undefined,
-  }), [sportGroup, segmentType, search])
+  }), [sportGroup, search])
 
-  const { data: segments = [], isLoading } = useQuery({
+  const { data: rawSegments = [], isLoading } = useQuery({
     queryKey: ['segments', filterParams],
     queryFn: () => fetchSegments(filterParams),
   })
+
+  const segments = useMemo(() => {
+    return rawSegments.filter(seg => {
+      const terrain = seg.segment_type === 'lift' ? 'lift'
+        : seg.segment_type === 'trail' ? 'trail'
+        : 'standard'
+
+      if (terrain === 'lift') {
+        // Lifts are hidden by default; only shown when explicitly selected
+        if (!terrainFilter.includes('lift')) return false
+        // When "show all" is off, only show lifts the user has ridden
+        if (!showAllLifts && (seg.ridden_count ?? 0) === 0) return false
+        return true
+      }
+
+      // When no terrain checkboxes are checked: show standard + trail (not lift)
+      if (terrainFilter.length === 0) return true // terrain is already not 'lift' here
+
+      // Otherwise show only selected terrain types
+      return terrainFilter.includes(terrain)
+    })
+  }, [rawSegments, terrainFilter, showAllLifts])
 
   const deleteMut = useMutation({
     mutationFn: deleteSegment,
@@ -117,13 +140,25 @@ export default function SegmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
-        <button onClick={() => setEditorMode('draw')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Segment zeichnen
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/map"
+            state={{ activateSegmentsOverlay: true }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            Auf Karte
+          </Link>
+          <button onClick={() => setEditorMode('draw')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Segment zeichnen
+          </button>
+        </div>
       </div>
 
       {/* Editor Modal */}
@@ -153,18 +188,37 @@ export default function SegmentsPage() {
           ))}
         </select>
 
-        <select
-          value={segmentType}
-          onChange={e => setSegmentType(e.target.value)}
-          className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm
-                     bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
-                     focus:outline-none focus:ring-1 focus:ring-neutral-400"
-        >
-          <option value="">Alle Typen</option>
-          {Object.entries(SEGMENT_TYPE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
+        <div className="flex items-center gap-3 flex-wrap">
+          {(Object.entries(SEGMENT_TYPE_LABELS) as [string, string][]).map(([id, label]) => (
+            <label key={id} className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={terrainFilter.includes(id)}
+                onChange={e => {
+                  if (e.target.checked) {
+                    setTerrainFilter(prev => [...prev, id])
+                  } else {
+                    setTerrainFilter(prev => prev.filter(t => t !== id))
+                    if (id === 'lift') setShowAllLifts(false)
+                  }
+                }}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
+            </label>
           ))}
-        </select>
+          {terrainFilter.includes('lift') && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+              <input
+                type="checkbox"
+                checked={showAllLifts}
+                onChange={e => setShowAllLifts(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">Alle anzeigen</span>
+            </label>
+          )}
+        </div>
 
         <div className="relative">
           <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

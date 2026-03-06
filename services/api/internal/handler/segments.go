@@ -53,6 +53,16 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	if create.SegmentType == "" {
 		create.SegmentType = "standard"
 	}
+	if create.TerrainType == "" {
+		create.TerrainType = "standard"
+	}
+	if create.ClimbType == "" {
+		create.ClimbType = "standard"
+	}
+	// Lift segments always get bergfahrt as default climb_type
+	if create.TerrainType == "lift" && create.ClimbType == "standard" {
+		create.ClimbType = "bergfahrt"
+	}
 
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
@@ -96,8 +106,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := middleware.GetUserID(r.Context())
 
-	segment, err := h.DB.GetSegment(r.Context(), id)
+	segment, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
 		slog.Error("get segment failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -120,7 +131,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	// Verify ownership before mutating.
-	existing, err := h.DB.GetSegment(r.Context(), id)
+	existing, err := h.DB.GetSegment(r.Context(), id, "")
 	if err != nil {
 		slog.Error("update segment: get segment failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
@@ -225,7 +236,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
 
-	seg, err := h.DB.GetSegment(r.Context(), id)
+	seg, err := h.DB.GetSegment(r.Context(), id, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return
@@ -292,4 +303,81 @@ func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, laps)
+}
+
+// GetSegmentFavoriteStatus checks if a segment is favorited by the user.
+func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	isFavorite, err := h.DB.IsSegmentFavoriteByUser(r.Context(), userID, segmentID)
+	if err != nil {
+		slog.Error("check favorite status failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check favorite status", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"favorite": isFavorite})
+}
+
+// AddSegmentFavorite adds a segment to the user's favorites.
+func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	if err := h.DB.AddSegmentFavorite(r.Context(), userID, segmentID); err != nil {
+		slog.Error("add favorite failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to add favorite", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// RemoveSegmentFavorite removes a segment from the user's favorites.
+func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	if err := h.DB.RemoveSegmentFavorite(r.Context(), userID, segmentID); err != nil {
+		slog.Error("remove favorite failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to remove favorite", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// GetSegmentPerformances retrieves all efforts on a segment from the user's activities.
+func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	performances, err := h.DB.GetSegmentPerformances(r.Context(), segmentID, userID)
+	if err != nil {
+		slog.Error("get segment performances failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch performances", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"performances": performances,
+		"count":        len(performances),
+	})
 }

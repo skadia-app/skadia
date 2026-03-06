@@ -102,7 +102,15 @@ export default function SegmentEditorModal({
   const [mtbScale, setMtbScale] = useState('')
   const [diffColor, setDiffColor] = useState('')
   const [surface, setSurface] = useState('')
+  const [isMountain, setIsMountain] = useState(false)
+  const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>('bergauf')
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  function getClimbType(): string {
+    if (segType === 'lap') return 'standard'
+    if (isMountain) return climbDirection
+    return 'standard'
+  }
 
   // Mutation
   const mutation = useMutation({
@@ -130,6 +138,8 @@ export default function SegmentEditorModal({
       segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
       geojson_track: geoJSON,
       source_activity_id: sourceActivityId,
+      terrain_type: segType === 'trail' ? 'trail' : 'standard',
+      climb_type: getClimbType(),
     })
   }
 
@@ -382,6 +392,46 @@ export default function SegmentEditorModal({
               <option value="standard">Standard</option>
               <option value="trail">Trail</option>
             </select>
+          )}
+
+          {/* Berg-Checkbox (nur bei Standard und Trail, nicht bei Lap) */}
+          {mode !== 'lap' && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isMountain}
+                  onChange={e => setIsMountain(e.target.checked)}
+                  className="rounded border-neutral-600"
+                />
+                <span className="text-sm text-neutral-300">Berg (Auf-/Abstieg unterscheiden)</span>
+              </label>
+
+              {isMountain && (
+                <div className="ml-6 flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="climb-dir"
+                      checked={climbDirection === 'bergauf'}
+                      onChange={() => setClimbDirection('bergauf')}
+                      className="border-neutral-600"
+                    />
+                    <span className="text-sm text-neutral-300">Bergauf</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="climb-dir"
+                      checked={climbDirection === 'bergab'}
+                      onChange={() => setClimbDirection('bergab')}
+                      className="border-neutral-600"
+                    />
+                    <span className="text-sm text-neutral-300">Bergab</span>
+                  </label>
+                </div>
+              )}
+            </div>
           )}
 
           {segType === 'trail' && (

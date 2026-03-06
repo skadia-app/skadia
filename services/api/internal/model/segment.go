@@ -21,9 +21,13 @@ type Segment struct {
 	ElevationGainM    *float64        `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
 	EffortCount       int             `json:"effort_count" db:"effort_count"`
 	AthleteCount      int             `json:"athlete_count" db:"athlete_count"`
+	RiddenCount       int             `json:"ridden_count" db:"ridden_count"`
+	IsFavorite        bool            `json:"is_favorite" db:"is_favorite"`
 	Visibility        string          `json:"visibility" db:"visibility"`
 	RouteHash         *string         `json:"route_hash,omitempty" db:"route_hash"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
+	TerrainType       *string         `json:"terrain_type,omitempty" db:"terrain_type"`
+	ClimbType         *string         `json:"climb_type,omitempty" db:"climb_type"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }
@@ -36,6 +40,8 @@ type SegmentCreate struct {
 	GeoJSONTrack     string          `json:"geojson_track"`
 	SourceActivityID *string         `json:"source_activity_id,omitempty"`
 	Description      *string         `json:"description,omitempty"`
+	TerrainType      string          `json:"terrain_type"`
+	ClimbType        string          `json:"climb_type"`
 }
 
 type SegmentUpdate struct {
@@ -43,6 +49,8 @@ type SegmentUpdate struct {
 	Description     *string          `json:"description,omitempty"`
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
 	NewVersion      bool             `json:"new_version,omitempty"`
+	TerrainType     *string          `json:"terrain_type,omitempty"`
+	ClimbType       *string          `json:"climb_type,omitempty"`
 }
 
 type SegmentVersion struct {
@@ -81,6 +89,20 @@ type SegmentEffort struct {
 	DisplayName     *string          `json:"display_name,omitempty"`
 	GearName        *string          `json:"gear_name,omitempty"`
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
+}
+
+// SegmentPerformance represents a single effort on a segment with associated activity metadata.
+type SegmentPerformance struct {
+	SegmentEffortID string    `json:"id"`
+	ActivityID      string    `json:"activity_id"`
+	ElapsedTimeS    int       `json:"elapsed_time_s"`
+	MovingTimeS     int       `json:"moving_time_s"`
+	StartedAt       time.Time `json:"started_at"`
+	SportType       string    `json:"sport_type"`
+	Title           string    `json:"title"`
+	GearID          *string   `json:"gear_id,omitempty"`
+	GearName        *string   `json:"gear_name,omitempty"`
+	GearType        *string   `json:"gear_type,omitempty"`
 }
 
 // DetectedLap represents an automatically detected lap/round within an activity.
