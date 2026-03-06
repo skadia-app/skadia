@@ -328,7 +328,6 @@ func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -347,7 +346,6 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
