@@ -60,7 +60,7 @@ function formatWeeklyDistance(meters: number): string {
 
 export default function CalendarPage() {
   const navigate = useNavigate()
-  const [weekCount, setWeekCount] = useState<WeekCount>(8)
+  const weekCount: WeekCount = 8 // Fixed to 8 weeks
   const [tab, setTab] = useState<ViewTab>('weeks')
   const [yearViewMode, setYearViewMode] = useState<YearViewMode>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear())
@@ -329,7 +329,7 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* Health data toggle — hidden when year view */}
+          {/* Health data toggle — only in weeks view */}
           <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
             <div
               onClick={toggleHealthData}
@@ -348,21 +348,28 @@ export default function CalendarPage() {
             Gesundheitsdaten
           </label>
 
-          {/* Week count toggle — hidden when year view */}
-          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'weeks' ? 'hidden' : ''}`}>
-            {([4, 8, 12] as WeekCount[]).map((n) => (
-              <button
-                key={n}
-                onClick={() => setWeekCount(n)}
-                className={
-                  n === weekCount
-                    ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                    : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-                }
-              >
-                {n} Wo
-              </button>
-            ))}
+          {/* View mode toggle — Kalender/TSS-Heatmap always visible */}
+          <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+            <button
+              onClick={() => setYearViewMode('calendar')}
+              className={
+                yearViewMode === 'calendar'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+              }
+            >
+              Kalender
+            </button>
+            <button
+              onClick={() => setYearViewMode('heatmap')}
+              className={
+                yearViewMode === 'heatmap'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+              }
+            >
+              TSS-Heatmap
+            </button>
           </div>
 
           {/* Navigation — hidden when year view */}
@@ -389,30 +396,6 @@ export default function CalendarPage() {
                   ›
                 </button>
               </div>
-
-          {/* Year view controls — hidden when weeks view */}
-          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'year' ? 'hidden' : ''}`}>
-                <button
-                  onClick={() => setYearViewMode('calendar')}
-                  className={
-                    yearViewMode === 'calendar'
-                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-                  }
-                >
-                  Kalender
-                </button>
-                <button
-                  onClick={() => setYearViewMode('heatmap')}
-                  className={
-                    yearViewMode === 'heatmap'
-                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-                  }
-                >
-                  TSS-Heatmap
-                </button>
-          </div>
 
           {/* Year navigation with dropdown picker — hidden when weeks view */}
           <div className={`flex items-center gap-1 ${tab !== 'year' ? 'hidden' : ''}`} ref={yearPickerRef}>
