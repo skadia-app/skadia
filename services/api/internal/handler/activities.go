@@ -289,6 +289,12 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 		return
 	}
 
+	// Check if this is a fallback hash (file reading failed during import)
+	if strings.HasSuffix(*activity.FileHash, "-missing") {
+		writeError(w, http.StatusNotFound, "Not Found", "original file could not be read during import", r.URL.Path)
+		return
+	}
+
 	// S3 key format matches the upload handler: {userID}/{fileHash}.{ext}
 	s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
 	// Original files are stored in the skadia-originals bucket

@@ -263,37 +263,47 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-		var hashStr string
-		if len(fileBytes) > 0 {
-			// Parse the file to fill GPS/stream data
-			var parseErr error
-			var parsedData *model.ActivityData
-			switch format {
-			case "fit":
-				parsedData, parseErr = fitimport.ParseFIT(bytes.NewReader(fileBytes), filename)
-			case "gpx":
-				parsedData, parseErr = gpximport.ParseGPX(bytes.NewReader(fileBytes), filename)
-			case "tcx":
-				parsedData, parseErr = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
-			}
-
-			if parseErr != nil {
-				slog.Warn("strava activities: parse failed — using CSV metadata only",
-					"file", filename, "format", format, "error", parseErr)
-				// Continue with CSV-only data
-			} else if parsedData != nil {
-				// Merge parsed data: prefer parsed GPS/stream data, keep CSV metrics where missing
-				mergeActivityData(data, parsedData)
-			}
-
-			// Compute hash for storage key
-			hash := sha256.Sum256(fileBytes)
-			hashStr = hex.EncodeToString(hash[:])
-			data.FileHash = hashStr
-			data.FileFormat = format
+	var hashStr string
+	if len(fileBytes) > 0 {
+		// Parse the file to fill GPS/stream data
+		var parseErr error
+		var parsedData *model.ActivityData
+		switch format {
+		case "fit":
+			parsedData, parseErr = fitimport.ParseFIT(bytes.NewReader(fileBytes), filename)
+		case "gpx":
+			parsedData, parseErr = gpximport.ParseGPX(bytes.NewReader(fileBytes), filename)
+		case "tcx":
+			parsedData, parseErr = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
 		}
 
-		// Duplicate check (hash + strava_activity_id + temporal)
+		if parseErr != nil {
+			slog.Warn("strava activities: parse failed — using CSV metadata only",
+				"file", filename, "format", format, "error", parseErr)
+			// Continue with CSV-only data
+		} else if parsedData != nil {
+			// Merge parsed data: prefer parsed GPS/stream data, keep CSV metrics where missing
+			mergeActivityData(data, parsedData)
+		}
+
+		// Compute hash for storage key
+		hash := sha256.Sum256(fileBytes)
+		hashStr = hex.EncodeToString(hash[:])
+		data.FileHash = hashStr
+		data.FileFormat = format
+	} else if filename != "" {
+		// File reading or decompression failed: generate a synthetic hash based on filename + timestamp
+		// so that InsertActivity() gets a FileHash that the download handler can detect
+		h := sha256.New()
+		h.Write([]byte(filename))
+		h.Write([]byte(startedAt.String()))
+		hashStr = hex.EncodeToString(h.Sum(nil))
+		// Mark this as a fallback hash: "-missing" suffix indicates file was not successfully retrieved
+		data.FileHash = hashStr + "-missing"
+		// Do not set FileFormat since we don't know it
+	}
+
+	// Duplicate check (hash + strava_activity_id + temporal)
 		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, 0, stravaID)
 		if dupErr != nil {
 			slog.Warn("strava activities: duplicate check failed", "error", dupErr)
