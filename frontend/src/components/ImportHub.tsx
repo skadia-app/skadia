@@ -269,8 +269,6 @@ export default function ImportHub() {
     navigate(`/settings/import?tab=${tab}`)
   }
 
-  const uploading = uploadState.type === 'uploading'
-
   return (
     <div ref={containerRef} className="relative">
       {/* Trigger button */}
