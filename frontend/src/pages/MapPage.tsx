@@ -10,6 +10,7 @@ import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { useTheme } from '@/lib/theme'
+import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
@@ -775,6 +776,8 @@ export default function MapPage() {
   }, [showCustomMaps, allMarkers, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Click-Handler fuer Marker-Hinzufuegen ──────────────────────────────
+  const { openPromptModal } = useModal()
+
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -787,16 +790,22 @@ export default function MapPage() {
     function handleClick(e: maplibregl.MapMouseEvent) {
       if (!addMarkerModeMapID) return
       const { lng, lat } = e.lngLat
-      // TODO: Replace window.prompt with custom PromptModal component (Task 6 follow-up)
-      const name = window.prompt('Marker-Name:')
-      if (!name) {
-        setAddMarkerModeMapID(null)
-        map!.getCanvas().style.cursor = ''
-        return
-      }
-      createMarkerMutation.mutate({ mapID: addMarkerModeMapID, lat, lng, name })
-      setAddMarkerModeMapID(null)
-      map!.getCanvas().style.cursor = ''
+
+      openPromptModal({
+        title: 'Marker-Name',
+        placeholder: 'z.B. "Lieblingskaffee"',
+        onConfirm: async (name) => {
+          if (name.trim()) {
+            createMarkerMutation.mutate({ mapID: addMarkerModeMapID, lat, lng, name })
+          }
+          setAddMarkerModeMapID(null)
+          map!.getCanvas().style.cursor = ''
+        },
+        onCancel: () => {
+          setAddMarkerModeMapID(null)
+          map!.getCanvas().style.cursor = ''
+        },
+      })
     }
 
     map.on('click', handleClick)
@@ -804,7 +813,7 @@ export default function MapPage() {
       map.off('click', handleClick)
       map.getCanvas().style.cursor = ''
     }
-  }, [addMarkerModeMapID]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addMarkerModeMapID, openPromptModal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Photo Markers ──────────────────────────────────────────────────────
   useEffect(() => {

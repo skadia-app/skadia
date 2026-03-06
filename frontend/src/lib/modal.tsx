@@ -15,16 +15,29 @@ export interface ModalConfig {
   onClose?: () => void
 }
 
+export interface PromptModalConfig {
+  title: string
+  message?: string
+  placeholder?: string
+  defaultValue?: string
+  onConfirm: (value: string) => void | Promise<void>
+  onCancel?: () => void
+}
+
 interface ModalContextType {
   modals: ModalConfig[]
   openModal: (config: Omit<ModalConfig, 'id'>) => void
   closeModal: (id: string) => void
+  prompts: PromptModalConfig[]
+  openPromptModal: (config: PromptModalConfig) => void
+  closePromptModal: () => void
 }
 
 const ModalContext = createContext<ModalContextType | null>(null)
 
 export function ModalProvider({ children }: { children: ReactNode }) {
   const [modals, setModals] = useState<ModalConfig[]>([])
+  const [prompts, setPrompts] = useState<PromptModalConfig[]>([])
 
   const openModal = useCallback((config: Omit<ModalConfig, 'id'>) => {
     const id = `modal-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
@@ -35,8 +48,16 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     setModals(prev => prev.filter(m => m.id !== id))
   }, [])
 
+  const openPromptModal = useCallback((config: PromptModalConfig) => {
+    setPrompts([config])
+  }, [])
+
+  const closePromptModal = useCallback(() => {
+    setPrompts([])
+  }, [])
+
   return (
-    <ModalContext.Provider value={{ modals, openModal, closeModal }}>
+    <ModalContext.Provider value={{ modals, openModal, closeModal, prompts, openPromptModal, closePromptModal }}>
       {children}
     </ModalContext.Provider>
   )
