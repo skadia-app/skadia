@@ -48,7 +48,7 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	cursor := r.URL.Query().Get("cursor")
 	limit := 20
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 2000 {
 			limit = parsed
 		}
 	}
