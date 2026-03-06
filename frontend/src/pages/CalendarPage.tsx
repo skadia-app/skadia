@@ -99,12 +99,13 @@ export default function CalendarPage() {
     startOfWeek(new Date(), { weekStartsOn: 1 }),
   )
 
-  // Computed date range for the grid
+  // Computed date range for the grid — 8 week view starting from anchorDate
   const { gridStart, gridEnd } = useMemo(() => {
+    const weekCount = 8
     const end = endOfWeek(anchorDate, { weekStartsOn: 1 })
     const start = startOfWeek(subWeeks(anchorDate, weekCount - 1), { weekStartsOn: 1 })
     return { gridStart: start, gridEnd: end }
-  }, [anchorDate, weekCount])
+  }, [anchorDate])
 
   const fromStr = dateKey(gridStart)
   const toStr = dateKey(gridEnd)
@@ -295,6 +296,9 @@ export default function CalendarPage() {
 
   const currentYear = new Date().getFullYear()
 
+  // Get week number for current anchorDate
+  const weekNum = useMemo(() => getISOWeek(anchorDate), [anchorDate])
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
@@ -329,26 +333,7 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* Health data toggle — only in weeks view */}
-          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
-            <div
-              onClick={toggleHealthData}
-              className={[
-                'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-                showHealthData
-                  ? 'bg-[color:var(--color-accent-DEFAULT)]'
-                  : 'bg-neutral-300 dark:bg-neutral-600',
-              ].join(' ')}
-            >
-              <div className={[
-                'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
-                showHealthData ? 'translate-x-4' : 'translate-x-0.5',
-              ].join(' ')} />
-            </div>
-            Gesundheitsdaten
-          </label>
-
-          {/* View mode toggle — Kalender/TSS-Heatmap always visible */}
+          {/* View mode toggle — Kalender/TSS-Heatmap ALWAYS next to Wochen/Jahr */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setYearViewMode('calendar')}
@@ -372,30 +357,52 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* Navigation — hidden when year view */}
-          <div className={`flex items-center gap-1 ${tab !== 'weeks' ? 'hidden' : ''}`}>
-                <button
-                  onClick={goBack}
-                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-                >
-                  ‹
-                </button>
-                <button
-                  onClick={goToday}
-                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-                >
-                  Heute
-                </button>
-                <button
-                  onClick={goForward}
-                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-                >
-                  ›
-                </button>
-              </div>
+          {/* Health data toggle — only in weeks view */}
+          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
+            <div
+              onClick={toggleHealthData}
+              className={[
+                'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
+                showHealthData
+                  ? 'bg-[color:var(--color-accent-DEFAULT)]'
+                  : 'bg-neutral-300 dark:bg-neutral-600',
+              ].join(' ')}
+            >
+              <div className={[
+                'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
+                showHealthData ? 'translate-x-4' : 'translate-x-0.5',
+              ].join(' ')} />
+            </div>
+            Gesundheitsdaten
+          </label>
+
+          {/* Week navigation — only in weeks view */}
+          <div className={`flex items-center gap-2 ${tab !== 'weeks' ? 'hidden' : ''}`}>
+            <span className="text-xs text-neutral-600 dark:text-neutral-300 font-medium">KW {weekNum}</span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={goBack}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+              >
+                ‹
+              </button>
+              <button
+                onClick={goToday}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Heute
+              </button>
+              <button
+                onClick={goForward}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+              >
+                ›
+              </button>
+            </div>
+          </div>
 
           {/* Year navigation with dropdown picker — hidden when weeks view */}
           <div className={`flex items-center gap-1 ${tab !== 'year' ? 'hidden' : ''}`} ref={yearPickerRef}>
