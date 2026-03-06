@@ -305,43 +305,7 @@ export default function CalendarPage() {
         </h1>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Health data toggle — LINKS, hidden when year view to maintain layout */}
-          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
-              <div
-                onClick={toggleHealthData}
-                className={[
-                  'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-                  showHealthData
-                    ? 'bg-[color:var(--color-accent-DEFAULT)]'
-                    : 'bg-neutral-300 dark:bg-neutral-600',
-                ].join(' ')}
-              >
-                <div className={[
-                  'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
-                  showHealthData ? 'translate-x-4' : 'translate-x-0.5',
-                ].join(' ')} />
-              </div>
-              Gesundheitsdaten
-            </label>
-
-          {/* Week count toggle — hidden when year view to maintain layout */}
-          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'weeks' ? 'hidden' : ''}`}>
-              {([4, 8, 12] as WeekCount[]).map((n) => (
-                <button
-                  key={n}
-                  onClick={() => setWeekCount(n)}
-                  className={
-                    n === weekCount
-                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
-                  }
-                >
-                  {n} Wo
-                </button>
-              ))}
-            </div>
-
-          {/* Tab Toggle — always visible */}
+          {/* Tab Toggle — FIRST so it never moves */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setTab('weeks')}
@@ -365,7 +329,43 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* Navigation — hidden when year view to maintain layout */}
+          {/* Health data toggle — hidden when year view */}
+          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
+            <div
+              onClick={toggleHealthData}
+              className={[
+                'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
+                showHealthData
+                  ? 'bg-[color:var(--color-accent-DEFAULT)]'
+                  : 'bg-neutral-300 dark:bg-neutral-600',
+              ].join(' ')}
+            >
+              <div className={[
+                'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
+                showHealthData ? 'translate-x-4' : 'translate-x-0.5',
+              ].join(' ')} />
+            </div>
+            Gesundheitsdaten
+          </label>
+
+          {/* Week count toggle — hidden when year view */}
+          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'weeks' ? 'hidden' : ''}`}>
+            {([4, 8, 12] as WeekCount[]).map((n) => (
+              <button
+                key={n}
+                onClick={() => setWeekCount(n)}
+                className={
+                  n === weekCount
+                    ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                    : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                }
+              >
+                {n} Wo
+              </button>
+            ))}
+          </div>
+
+          {/* Navigation — hidden when year view */}
           <div className={`flex items-center gap-1 ${tab !== 'weeks' ? 'hidden' : ''}`}>
                 <button
                   onClick={goBack}
