@@ -197,6 +197,7 @@ type Activity struct {
 	SunriseAt               *time.Time `json:"sunrise_at,omitempty"`
 	SunsetAt                *time.Time `json:"sunset_at,omitempty"`
 	OriginalFilename        *string    `json:"original_filename,omitempty"`
+	OriginalFileFormat      *string    `json:"original_file_format,omitempty"`
 	CreatedAt               time.Time  `json:"created_at"`
 	UpdatedAt               time.Time  `json:"updated_at"`
 	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).

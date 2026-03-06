@@ -276,7 +276,11 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 
 func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity *model.Activity) {
 	ext := "fit"
-	if activity.OriginalFilename != nil {
+	// Use stored file format from DB if available (fix for .gz/.zip extraction from compressed filenames)
+	if activity.OriginalFileFormat != nil && *activity.OriginalFileFormat != "" {
+		ext = *activity.OriginalFileFormat
+	} else if activity.OriginalFilename != nil {
+		// Fallback: extract from filename for backward compatibility
 		parts := strings.Split(*activity.OriginalFilename, ".")
 		if len(parts) > 1 {
 			ext = strings.ToLower(parts[len(parts)-1])
