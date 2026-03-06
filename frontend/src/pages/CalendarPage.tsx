@@ -305,9 +305,8 @@ export default function CalendarPage() {
         </h1>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Health data toggle — LINKS, only when weeks view */}
-          {tab === 'weeks' && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300">
+          {/* Health data toggle — LINKS, hidden when year view to maintain layout */}
+          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
               <div
                 onClick={toggleHealthData}
                 className={[
@@ -324,11 +323,9 @@ export default function CalendarPage() {
               </div>
               Gesundheitsdaten
             </label>
-          )}
 
-          {/* Week count toggle — only when weeks view, before Tab-Toggle */}
-          {tab === 'weeks' && (
-            <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+          {/* Week count toggle — hidden when year view to maintain layout */}
+          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'weeks' ? 'hidden' : ''}`}>
               {([4, 8, 12] as WeekCount[]).map((n) => (
                 <button
                   key={n}
@@ -343,7 +340,6 @@ export default function CalendarPage() {
                 </button>
               ))}
             </div>
-          )}
 
           {/* Tab Toggle — always visible */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -369,11 +365,8 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {tab === 'weeks' && (
-            <>
-
-              {/* Navigation */}
-              <div className="flex items-center gap-1">
+          {/* Navigation — hidden when year view to maintain layout */}
+          <div className={`flex items-center gap-1 ${tab !== 'weeks' ? 'hidden' : ''}`}>
                 <button
                   onClick={goBack}
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
@@ -396,13 +389,9 @@ export default function CalendarPage() {
                   ›
                 </button>
               </div>
-            </>
-          )}
 
-          {tab === 'year' && (
-            <>
-              {/* Year view mode toggle */}
-              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+          {/* Year view controls — hidden when weeks view */}
+          <div className={`flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs ${tab !== 'year' ? 'hidden' : ''}`}>
                 <button
                   onClick={() => setYearViewMode('calendar')}
                   className={
@@ -423,10 +412,10 @@ export default function CalendarPage() {
                 >
                   TSS-Heatmap
                 </button>
-              </div>
+          </div>
 
-              {/* Task 3: Year navigation with dropdown picker */}
-              <div className="flex items-center gap-1" ref={yearPickerRef}>
+          {/* Year navigation with dropdown picker — hidden when weeks view */}
+          <div className={`flex items-center gap-1 ${tab !== 'year' ? 'hidden' : ''}`} ref={yearPickerRef}>
                 <button
                   onClick={goPrevYear}
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
@@ -485,8 +474,6 @@ export default function CalendarPage() {
                   ›
                 </button>
               </div>
-            </>
-          )}
         </div>
       </div>
 
