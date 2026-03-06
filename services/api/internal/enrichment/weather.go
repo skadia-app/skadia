@@ -80,9 +80,9 @@ func mapWeatherCode(code int) (string, []string) {
 	case code == 1:
 		return "ueberwiegend klar", []string{"sonnig"}
 	case code == 2:
-		return "teilweise bewoelkt", []string{"bewoelkt"}
+		return "teilweise bewölkt", []string{"bewölkt"}
 	case code == 3:
-		return "bedeckt", []string{"bewoelkt"}
+		return "bedeckt", []string{"bewölkt"}
 	case code >= 45 && code <= 48:
 		return "nebel", []string{"nebel"}
 	case code >= 51 && code <= 55:
