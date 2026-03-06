@@ -784,12 +784,17 @@ function ActivityCard({ activity, onClick }: ActivityCardProps) {
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const title = activity.title ?? label
 
+  const tooltipParts = [title, label]
+  if (activity.elapsed_time_s > 0) tooltipParts.push(formatDuration(activity.elapsed_time_s))
+  if (activity.distance_m != null && activity.distance_m > 0) tooltipParts.push(formatDistance(activity.distance_m))
+
   return (
     <button
       onClick={(e) => {
         e.stopPropagation()
         onClick()
       }}
+      title={tooltipParts.join(' · ')}
       className="w-full text-left rounded px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors
                  flex items-start gap-1 group cursor-pointer"
       style={{ borderLeft: `3px solid ${color}` }}
