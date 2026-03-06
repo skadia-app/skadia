@@ -10,6 +10,7 @@ import {
   type CustomMap,
   type CustomMapMarker,
 } from '@/api/customMaps'
+import { useModal } from '@/lib/modal'
 import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
 
 export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }: Props) {
   const queryClient = useQueryClient()
+  const { openModal } = useModal()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedMapID, setExpandedMapID] = useState<string | null>(null)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -74,14 +76,46 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
   })
 
   function handleDeleteMap(map: CustomMap) {
-    if (!window.confirm(`Karte "${map.name}" wirklich löschen?`)) return
-    deleteMapMutation.mutate(map.id)
-    if (expandedMapID === map.id) setExpandedMapID(null)
+    openModal({
+      title: `Karte "${map.name}" löschen?`,
+      message: 'Löschen ist nicht rückgängig zu machen.',
+      buttons: [
+        {
+          label: 'Abbrechen',
+          variant: 'default',
+          onClick: () => {}
+        },
+        {
+          label: 'Löschen',
+          variant: 'destructive',
+          onClick: async () => {
+            deleteMapMutation.mutate(map.id)
+            if (expandedMapID === map.id) setExpandedMapID(null)
+          }
+        }
+      ]
+    })
   }
 
   function handleDeleteMarker(marker: CustomMapMarker) {
-    if (!window.confirm(`Marker "${marker.name}" wirklich löschen?`)) return
-    deleteMarkerMutation.mutate({ mapID: marker.map_id, markerID: marker.id })
+    openModal({
+      title: `Marker "${marker.name}" löschen?`,
+      message: 'Löschen ist nicht rückgängig zu machen.',
+      buttons: [
+        {
+          label: 'Abbrechen',
+          variant: 'default',
+          onClick: () => {}
+        },
+        {
+          label: 'Löschen',
+          variant: 'destructive',
+          onClick: async () => {
+            deleteMarkerMutation.mutate({ mapID: marker.map_id, markerID: marker.id })
+          }
+        }
+      ]
+    })
   }
 
   return (

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
+import { useModal } from '@/lib/modal'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -55,6 +56,7 @@ function fmtDist(m?: number): string {
 
 export default function SegmentsPage() {
   const queryClient = useQueryClient()
+  const { openModal } = useModal()
   const [sportGroup, setSportGroup] = useState('')
   const [terrainFilter, setTerrainFilter] = useState<string[]>([])
   const [showAllLifts, setShowAllLifts] = useState(false)
@@ -121,9 +123,22 @@ export default function SegmentsPage() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    if (window.confirm('Segment wirklich loeschen?')) {
-      deleteMut.mutate(id)
-    }
+    openModal({
+      title: 'Segment löschen?',
+      message: 'Löschen ist nicht rückgängig zu machen.',
+      buttons: [
+        {
+          label: 'Abbrechen',
+          variant: 'default',
+          onClick: () => {}
+        },
+        {
+          label: 'Löschen',
+          variant: 'destructive',
+          onClick: () => deleteMut.mutate(id)
+        }
+      ]
+    })
   }
 
   const handleRecompute = (e: React.MouseEvent, id: string) => {

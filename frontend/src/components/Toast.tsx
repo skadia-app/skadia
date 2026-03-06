@@ -49,7 +49,7 @@ export function ToastItem({ toast }: ToastItemProps) {
 
   return (
     <div
-      className={`${styles.bg} ${styles.border} border rounded-lg p-4 flex items-start gap-3 min-w-[320px] max-w-[400px] shadow-lg animate-in slide-in-from-top-2 fade-in`}
+      className={`${styles.bg} ${styles.border} border rounded-lg p-4 flex items-start gap-3 min-w-[320px] max-w-[400px] shadow-lg animate-in slide-in-from-bottom-2 fade-in`}
       role="alert"
     >
       <span className={`${styles.iconColor} text-lg font-bold flex-shrink-0`}>
@@ -80,7 +80,7 @@ export function ToastContainer() {
   const { toasts } = useToast()
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-3 pointer-events-auto">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-3 pointer-events-auto max-w-[500px]">
       {toasts.map(toast => (
         <ToastItem key={toast.id} toast={toast} />
       ))}
