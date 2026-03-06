@@ -49,7 +49,7 @@ export default function LoginPage() {
                          text-neutral-600 dark:text-neutral-300 text-sm
                          hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
             >
-              Dev Login (Mock)
+              Dev-Anmeldung (Test)
             </button>
           )}
         </div>

@@ -284,7 +284,7 @@ export default function ImportHub() {
           }`}
       >
         <UploadIcon className="w-4 h-4 shrink-0" />
-        <span className="hidden sm:inline">Upload</span>
+        <span className="hidden sm:inline">Hochladen</span>
       </button>
 
       {/* Popover */}
@@ -325,7 +325,7 @@ export default function ImportHub() {
                   <CheckIcon className="w-4 h-4 shrink-0 text-green-600 dark:text-green-400" />
                   <span className="text-green-700 dark:text-green-300 font-medium">
                     {uploadState.count === 0
-                      ? 'Aktivitat bereits vorhanden'
+                      ? 'Aktivität bereits vorhanden'
                       : `${uploadState.count} Aktivität${uploadState.count !== 1 ? 'en' : ''} importiert`}
                   </span>
                   <button

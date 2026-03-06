@@ -421,7 +421,7 @@ function UploadDialog({
           {/* Upload error */}
           {uploadMutation.isError && (
             <p className="text-sm text-rose-500">
-              Upload fehlgeschlagen: {uploadMutation.error instanceof Error ? uploadMutation.error.message : 'Unbekannt'}
+              Hochladen fehlgeschlagen: {uploadMutation.error instanceof Error ? uploadMutation.error.message : 'Unbekannt'}
             </p>
           )}
 

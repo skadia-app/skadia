@@ -3,9 +3,11 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
 import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
+import { ToastProvider } from '@/lib/toast'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { ToastContainer } from '@/components/Toast'
 
 // Lazy-loaded pages (route-based code splitting)
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
@@ -13,6 +15,7 @@ const ActivitiesPage = lazy(() => import('@/pages/ActivitiesPage'))
 const ActivityDetailPage = lazy(() => import('@/pages/ActivityDetailPage'))
 const MapPage = lazy(() => import('@/pages/MapPage'))
 const SegmentsPage = lazy(() => import('@/pages/SegmentsPage'))
+const SegmentDetailPage = lazy(() => import('@/pages/SegmentDetailPage'))
 const GearPage = lazy(() => import('@/pages/GearPage'))
 const GearDetailPage = lazy(() => import('@/pages/GearDetailPage'))
 const TagsPage = lazy(() => import('@/pages/TagsPage'))
@@ -46,10 +49,11 @@ function LoadingSpinner() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AccentColorProvider>
-      <GlobalSportSettingsProvider>
-      <ErrorBoundary>
-      <Suspense fallback={<LoadingSpinner />}>
+      <ToastProvider>
+        <AccentColorProvider>
+          <GlobalSportSettingsProvider>
+            <ErrorBoundary>
+              <Suspense fallback={<LoadingSpinner />}>
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -74,6 +78,7 @@ export default function App() {
                 <Route path="insights" element={<InsightsTab />} />
               </Route>
               <Route path="segments" element={<SegmentsPage />} />
+              <Route path="segments/:id" element={<SegmentDetailPage />} />
               <Route path="workshop" element={<WorkshopPage />} />
               <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
               <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
@@ -91,10 +96,12 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
-      </Suspense>
-      </ErrorBoundary>
-      </GlobalSportSettingsProvider>
-      </AccentColorProvider>
+              </Suspense>
+            </ErrorBoundary>
+          </GlobalSportSettingsProvider>
+        </AccentColorProvider>
+        <ToastContainer />
+      </ToastProvider>
     </ThemeProvider>
   )
 }

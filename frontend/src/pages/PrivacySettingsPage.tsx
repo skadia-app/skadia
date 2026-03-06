@@ -68,12 +68,6 @@ function ZoneListItem({
 
   return (
     <div className="flex items-center gap-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
-      {/* Farb-Indikator */}
-      <div
-        className="w-3 h-10 rounded-full flex-shrink-0"
-        style={{ backgroundColor: zone.color || '#F97316' }}
-      />
-
       {/* Toggle */}
       <button
         onClick={() => onToggle(zone)}

@@ -92,7 +92,7 @@ function LocationPinMiniMap({
     <div
       ref={mapContainerRef}
       className="w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700"
-      style={{ height: 200 }}
+      style={{ height: 400 }}
     />
   )
 }

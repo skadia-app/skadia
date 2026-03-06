@@ -4,6 +4,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
 import ColorPicker from '@/components/ColorPicker'
+import { useToast } from '@/lib/toast'
 
 interface Props {
   zone: PrivacyZone | null
@@ -46,6 +47,7 @@ function centroid(points: [number, number][]): [number, number] {
 
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -89,7 +91,11 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     mutationFn: createPrivacyZone,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['privacy-zones'] })
+      addToast({ type: 'success', title: 'Zone erstellt' })
       onClose()
+    },
+    onError: (error) => {
+      addToast({ type: 'error', title: 'Zone konnte nicht erstellt werden', message: error instanceof Error ? error.message : 'Unbekannter Fehler' })
     },
   })
 
@@ -98,7 +104,11 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       updatePrivacyZone(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['privacy-zones'] })
+      addToast({ type: 'success', title: 'Zone aktualisiert' })
       onClose()
+    },
+    onError: (error) => {
+      addToast({ type: 'error', title: 'Zone konnte nicht aktualisiert werden', message: error instanceof Error ? error.message : 'Unbekannter Fehler' })
     },
   })
 
@@ -462,7 +472,6 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   }
 
   const isSaving = createMut.isPending || updateMut.isPending
-  const error = createMut.error || updateMut.error
 
   const canSave =
     name.trim().length > 0 &&
@@ -591,11 +600,6 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         </div>
       )}
 
-      {error && (
-        <div className="text-sm text-red-500">
-          Fehler beim Speichern. Bitte versuche es erneut.
-        </div>
-      )}
 
       {/* Actions */}
       <div className="flex items-center gap-3">
