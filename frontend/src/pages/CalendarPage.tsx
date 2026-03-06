@@ -331,6 +331,25 @@ export default function CalendarPage() {
 
           {tab === 'weeks' && (
             <>
+              {/* Health data toggle — links next to Wochen/Jahr */}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300">
+                <div
+                  onClick={toggleHealthData}
+                  className={[
+                    'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
+                    showHealthData
+                      ? 'bg-[color:var(--color-accent-DEFAULT)]'
+                      : 'bg-neutral-300 dark:bg-neutral-600',
+                  ].join(' ')}
+                >
+                  <div className={[
+                    'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
+                    showHealthData ? 'translate-x-4' : 'translate-x-0.5',
+                  ].join(' ')} />
+                </div>
+                Gesundheit
+              </label>
+
               {/* Week count toggle */}
               <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
                 {([4, 8, 12] as WeekCount[]).map((n) => (
@@ -373,24 +392,6 @@ export default function CalendarPage() {
                 </button>
               </div>
 
-              {/* Task 5: Health data toggle */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300">
-                <div
-                  onClick={toggleHealthData}
-                  className={[
-                    'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-                    showHealthData
-                      ? 'bg-[color:var(--color-accent-DEFAULT)]'
-                      : 'bg-neutral-300 dark:bg-neutral-600',
-                  ].join(' ')}
-                >
-                  <div className={[
-                    'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
-                    showHealthData ? 'translate-x-4' : 'translate-x-0.5',
-                  ].join(' ')} />
-                </div>
-                Gesundheit
-              </label>
             </>
           )}
 
@@ -712,8 +713,9 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
             )}
             {healthDaily?.total_steps != null && healthDaily.total_steps > 0 && (
               <div className="flex items-center gap-0.5">
+                {/* Sneaker/shoe icon — clearly "steps", not sport activity */}
                 <svg className="w-2.5 h-2.5 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/>
+                  <path d="M21 16c0-1.1-.9-2-2-2h-1l-1.2-4.2C16.4 8.7 15.3 8 14 8H4C2.9 8 2 8.9 2 10v7h1c0 1.1.9 2 2 2s2-.9 2-2h8c0 1.1.9 2 2 2s2-.9 2-2h2v-1zm-16 2c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm12 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm1-4H9.5L8 10h6l.8 2.7.6 1.3H18z"/>
                 </svg>
                 <span className="tabular-nums">
                   {healthDaily.total_steps >= 1000
@@ -724,8 +726,9 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
             )}
             {sleepH != null && sleepH > 0 && (
               <div className="flex items-center gap-0.5">
+                {/* Bed icon — clearly "sleep" */}
                 <svg className="w-2.5 h-2.5 text-indigo-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
+                  <path d="M7 13c1.66 0 3-1.34 3-3S8.66 7 7 7s-3 1.34-3 3 1.34 3 3 3zm12-6h-8v7H3V5H1v15h2v-3h18v3h2v-9c0-2.21-1.79-4-4-4z"/>
                 </svg>
                 <span className="tabular-nums">{sleepH.toFixed(1)}h</span>
               </div>
@@ -886,9 +889,9 @@ interface MonthCardProps {
 
 function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate, frozenDate, onFreezeToggle }: MonthCardProps) {
   return (
-    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {/* Month header */}
-      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/80">
+      <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/80 rounded-t-xl">
         <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
           {monthName}
         </span>
@@ -1003,13 +1006,14 @@ function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }:
         </div>
       )}
 
-      {/* Task 2: Overlay — hover CSS or frozen state */}
+      {/* Overlay — hover (pointer-events-none) OR frozen (clickable) */}
       {hasActivities && (
         <div
           className={[
             'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50',
             isFrozen ? 'block' : 'hidden group-hover:block',
-            'w-56 rounded-lg shadow-xl border border-neutral-200 dark:border-neutral-700',
+            isFrozen ? '' : 'pointer-events-none',
+            'w-52 rounded-lg shadow-lg border border-neutral-200 dark:border-neutral-700',
             'bg-white dark:bg-neutral-800 text-xs',
           ].join(' ')}
         >
