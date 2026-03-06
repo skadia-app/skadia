@@ -4,10 +4,12 @@ import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
 import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
 import { ToastProvider } from '@/lib/toast'
+import { ModalProvider } from '@/lib/modal'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastContainer } from '@/components/Toast'
+import { ModalContainer } from '@/components/Modal'
 
 // Lazy-loaded pages (route-based code splitting)
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
@@ -50,57 +52,60 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <AccentColorProvider>
-          <GlobalSportSettingsProvider>
-            <ErrorBoundary>
-              <Suspense fallback={<LoadingSpinner />}>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/callback" element={<CallbackPage />} />
+        <ModalProvider>
+          <AccentColorProvider>
+            <GlobalSportSettingsProvider>
+              <ErrorBoundary>
+                <Suspense fallback={<LoadingSpinner />}>
+                  <Routes>
+                    {/* Public routes */}
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/callback" element={<CallbackPage />} />
 
-          {/* Protected routes */}
-          <Route element={<AuthGuard />}>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="activities" element={<ActivitiesPage />} />
-              <Route path="activities/:id" element={<ActivityDetailPage />} />
-              <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
-              <Route path="map" element={<MapPage />} />
-              <Route path="calendar" element={<CalendarPage />} />
-              <Route path="health" element={<Navigate to="/analytics/health" replace />} />
-              <Route path="analytics" element={<AnalyticsPage />}>
-                <Route index element={<Navigate to="/analytics/training" replace />} />
-                <Route path="training" element={<TrainingTab />} />
-                <Route path="health" element={<HealthTab />} />
-                <Route path="stats" element={<StatsTab />} />
-                <Route path="insights" element={<InsightsTab />} />
-              </Route>
-              <Route path="segments" element={<SegmentsPage />} />
-              <Route path="segments/:id" element={<SegmentDetailPage />} />
-              <Route path="workshop" element={<WorkshopPage />} />
-              <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
-              <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
-              <Route path="workshop/tags" element={<TagsPage />} />
-              <Route path="gear" element={<GearPage />} />
-              <Route path="gear/:id" element={<GearDetailPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="settings/privacy" element={<PrivacySettingsPage />} />
-              <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
-              <Route path="workshop/rules" element={<AutomationRulesPage />} />
-              <Route path="workshop/document-review" element={<DocumentReviewPage />} />
-              <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
-              <Route path="settings/tags" element={<TagsPage />} />
-              <Route path="settings/import" element={<ImportPage />} />
-            </Route>
-          </Route>
-        </Routes>
-              </Suspense>
-            </ErrorBoundary>
-          </GlobalSportSettingsProvider>
-        </AccentColorProvider>
-        <ToastContainer />
+                    {/* Protected routes */}
+                    <Route element={<AuthGuard />}>
+                      <Route path="/" element={<Layout />}>
+                        <Route index element={<Navigate to="/dashboard" replace />} />
+                        <Route path="dashboard" element={<DashboardPage />} />
+                        <Route path="activities" element={<ActivitiesPage />} />
+                        <Route path="activities/:id" element={<ActivityDetailPage />} />
+                        <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
+                        <Route path="map" element={<MapPage />} />
+                        <Route path="calendar" element={<CalendarPage />} />
+                        <Route path="health" element={<Navigate to="/analytics/health" replace />} />
+                        <Route path="analytics" element={<AnalyticsPage />}>
+                          <Route index element={<Navigate to="/analytics/training" replace />} />
+                          <Route path="training" element={<TrainingTab />} />
+                          <Route path="health" element={<HealthTab />} />
+                          <Route path="stats" element={<StatsTab />} />
+                          <Route path="insights" element={<InsightsTab />} />
+                        </Route>
+                        <Route path="segments" element={<SegmentsPage />} />
+                        <Route path="segments/:id" element={<SegmentDetailPage />} />
+                        <Route path="workshop" element={<WorkshopPage />} />
+                        <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
+                        <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
+                        <Route path="workshop/tags" element={<TagsPage />} />
+                        <Route path="gear" element={<GearPage />} />
+                        <Route path="gear/:id" element={<GearDetailPage />} />
+                        <Route path="settings" element={<SettingsPage />} />
+                        <Route path="settings/privacy" element={<PrivacySettingsPage />} />
+                        <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
+                        <Route path="workshop/rules" element={<AutomationRulesPage />} />
+                        <Route path="workshop/document-review" element={<DocumentReviewPage />} />
+                        <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
+                        <Route path="settings/tags" element={<TagsPage />} />
+                        <Route path="settings/import" element={<ImportPage />} />
+                      </Route>
+                    </Route>
+                  </Routes>
+                </Suspense>
+              </ErrorBoundary>
+            </GlobalSportSettingsProvider>
+          </AccentColorProvider>
+          <ToastContainer />
+          <ModalContainer />
+        </ModalProvider>
       </ToastProvider>
     </ThemeProvider>
   )

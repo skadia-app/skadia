@@ -26,17 +26,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = `${Date.now()}-${Math.random()}`
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     const newToast: Toast = { ...toast, id }
 
     setToasts(prev => [...prev, newToast])
 
     if (toast.duration !== 0) {
-      const timeout = setTimeout(() => {
+      setTimeout(() => {
         removeToast(id)
       }, toast.duration ?? 4000)
-
-      return () => clearTimeout(timeout)
     }
 
     return id
