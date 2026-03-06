@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ModalConfig } from '@/lib/modal'
 import { useModal } from '@/lib/modal'
 import { useAccentColor } from '@/lib/accentColor'
@@ -8,9 +8,23 @@ interface ModalItemProps {
 }
 
 function ModalItem({ modal }: ModalItemProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
   const { closeModal } = useModal()
   const [isLoading, setIsLoading] = useState(false)
   const { accent } = useAccentColor()
+
+  useEffect(() => {
+    dialogRef.current?.focus()
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeModal(modal.id)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [modal.id, closeModal])
 
   const handleButtonClick = async (button: ModalConfig['buttons'][0]) => {
     try {
@@ -33,19 +47,23 @@ function ModalItem({ modal }: ModalItemProps) {
 
       {/* Modal Content */}
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="relative bg-white dark:bg-neutral-950 rounded-lg shadow-lg p-6 max-w-md w-[90vw] max-h-[90vh] overflow-auto"
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={`modal-title-${modal.id}`}
+        aria-describedby={modal.message ? `modal-message-${modal.id}` : undefined}
       >
         {/* Title */}
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+        <h2 id={`modal-title-${modal.id}`} className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
           {modal.title}
         </h2>
 
         {/* Message */}
         {modal.message && (
-          <p className="mt-3 text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
+          <p id={`modal-message-${modal.id}`} className="mt-3 text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
             {modal.message}
           </p>
         )}
@@ -61,10 +79,10 @@ function ModalItem({ modal }: ModalItemProps) {
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:gap-2 sm:justify-end">
           {modal.buttons.map((button, idx) => (
             <button
-              key={idx}
+              key={`${modal.id}-btn-${idx}`}
               onClick={() => handleButtonClick(button)}
               disabled={isLoading}
-              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap ${
+              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed ${
                 button.variant === 'destructive'
                   ? 'bg-red-500 hover:bg-red-600 text-white disabled:opacity-50'
                   : 'text-white disabled:opacity-50 hover:opacity-90'

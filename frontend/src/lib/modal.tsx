@@ -27,7 +27,7 @@ export function ModalProvider({ children }: { children: ReactNode }) {
   const [modals, setModals] = useState<ModalConfig[]>([])
 
   const openModal = useCallback((config: Omit<ModalConfig, 'id'>) => {
-    const id = `modal-${Date.now()}-${Math.random()}`
+    const id = `modal-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     setModals(prev => [...prev, { ...config, id }])
   }, [])
 
