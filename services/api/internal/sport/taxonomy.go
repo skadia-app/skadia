@@ -227,7 +227,7 @@ func init() {
 			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1,
 		},
 		{
-			SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln", AutoTitleDE: "Paddeltour",
+			SportType: "paddling", CategoryKey: "water", LabelDE: "Wassersport", AutoTitleDE: "Wassersport-Tour",
 			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
 		},
 		{

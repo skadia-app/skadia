@@ -123,7 +123,7 @@ export const SPORT_DEFS: SportDef[] = [
     sub('lap_swimming', 'Hallenbad'),
     sub('open_water', 'Freiwasser'),
   ]),
-  def('paddling', 'water', 'Paddeln', true),
+  def('paddling', 'water', 'Wassersport', true),
   def('kayaking', 'water', 'Kajak', true, [
     sub('whitewater', 'Wildwasser'),
   ]),
