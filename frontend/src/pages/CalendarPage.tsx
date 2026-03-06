@@ -21,6 +21,8 @@ import { CalendarComponent, TooltipComponent, VisualMapComponent } from 'echarts
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchActivities } from '@/api/activities'
 import { fetchPMC } from '@/api/stats'
+import { fetchHealthDailySummary, fetchHealthSleep, fetchHealthHRV } from '@/api/health'
+import type { HealthDailySummary, HealthSleep, HealthHRVSnapshot } from '@/api/health'
 import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
@@ -62,6 +64,34 @@ export default function CalendarPage() {
   const [tab, setTab] = useState<ViewTab>('weeks')
   const [yearViewMode, setYearViewMode] = useState<YearViewMode>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear())
+
+  // Task 3: Year picker dropdown
+  const [yearPickerOpen, setYearPickerOpen] = useState(false)
+  const yearPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!yearPickerOpen) return
+    function handleClick(e: MouseEvent) {
+      if (!yearPickerRef.current?.contains(e.target as Node)) {
+        setYearPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [yearPickerOpen])
+
+  // Task 5: Health data toggle
+  const [showHealthData, setShowHealthData] = useState<boolean>(() => {
+    try { return localStorage.getItem('skadia-cal-health') === 'true' } catch { return false }
+  })
+
+  function toggleHealthData() {
+    setShowHealthData(prev => {
+      const next = !prev
+      try { localStorage.setItem('skadia-cal-health', String(next)) } catch {}
+      return next
+    })
+  }
 
   // anchorDate = the Monday of the "most recent" week shown.
   // We start with "this week's Monday" so the current week is visible.
@@ -144,6 +174,47 @@ export default function CalendarPage() {
     return map
   }, [pmcData])
 
+  // ── Task 5: Fetch Health Data ──────────────────────────────────────────────
+  const { data: healthDailies } = useQuery({
+    queryKey: ['health-daily', fromStr, toStr],
+    queryFn: () => fetchHealthDailySummary(fromStr, toStr),
+    enabled: showHealthData && tab === 'weeks',
+  })
+
+  const { data: healthSleepData } = useQuery({
+    queryKey: ['health-sleep', fromStr, toStr],
+    queryFn: () => fetchHealthSleep(fromStr, toStr),
+    enabled: showHealthData && tab === 'weeks',
+  })
+
+  const { data: healthHRVData } = useQuery({
+    queryKey: ['health-hrv', fromStr, toStr],
+    queryFn: () => fetchHealthHRV(fromStr, toStr),
+    enabled: showHealthData && tab === 'weeks',
+  })
+
+  const healthDailyByDate = useMemo(() => {
+    const map = new Map<string, HealthDailySummary>()
+    for (const d of healthDailies ?? []) map.set(d.calendar_date, d)
+    return map
+  }, [healthDailies])
+
+  const healthSleepByDate = useMemo(() => {
+    const map = new Map<string, HealthSleep>()
+    for (const s of healthSleepData ?? []) map.set(s.calendar_date, s)
+    return map
+  }, [healthSleepData])
+
+  const healthHRVByDate = useMemo(() => {
+    const map = new Map<string, HealthHRVSnapshot>()
+    for (const h of healthHRVData ?? []) {
+      const dk = h.measured_at_utc.slice(0, 10)
+      const existing = map.get(dk)
+      if (!existing || h.time_of_day === 'MORNING') map.set(dk, h)
+    }
+    return map
+  }, [healthHRVData])
+
   // ── Build weeks array ─────────────────────────────────────────────────────
   const weeks = useMemo(() => {
     const result: Date[][] = []
@@ -222,6 +293,8 @@ export default function CalendarPage() {
     setSelectedYear((y) => y + 1)
   }
 
+  const currentYear = new Date().getFullYear()
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
@@ -282,7 +355,7 @@ export default function CalendarPage() {
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Zurück
+                  ‹
                 </button>
                 <button
                   onClick={goToday}
@@ -296,9 +369,28 @@ export default function CalendarPage() {
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Vor
+                  ›
                 </button>
               </div>
+
+              {/* Task 5: Health data toggle */}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300">
+                <div
+                  onClick={toggleHealthData}
+                  className={[
+                    'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
+                    showHealthData
+                      ? 'bg-[color:var(--color-accent-DEFAULT)]'
+                      : 'bg-neutral-300 dark:bg-neutral-600',
+                  ].join(' ')}
+                >
+                  <div className={[
+                    'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
+                    showHealthData ? 'translate-x-4' : 'translate-x-0.5',
+                  ].join(' ')} />
+                </div>
+                Gesundheit
+              </label>
             </>
           )}
 
@@ -328,24 +420,64 @@ export default function CalendarPage() {
                 </button>
               </div>
 
-              {/* Year navigation */}
-              <div className="flex items-center gap-1">
+              {/* Task 3: Year navigation with dropdown picker */}
+              <div className="flex items-center gap-1" ref={yearPickerRef}>
                 <button
                   onClick={goPrevYear}
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Zurück
+                  ‹
                 </button>
-                <span className="px-2.5 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 min-w-[3.5rem] text-center">
-                  {selectedYear}
-                </span>
+
+                {/* Clickable year label */}
+                <div className="relative">
+                  <button
+                    onClick={() => setYearPickerOpen(prev => !prev)}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-neutral-200 dark:border-neutral-700
+                               text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
+                               min-w-[3.5rem] text-center"
+                  >
+                    {selectedYear}
+                  </button>
+
+                  {yearPickerOpen && (
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50
+                                    rounded-lg border border-neutral-200 dark:border-neutral-700
+                                    bg-white dark:bg-neutral-800 shadow-lg
+                                    max-h-48 overflow-y-auto py-1 min-w-[5rem]">
+                      {Array.from(
+                        { length: currentYear - 2010 + 2 },
+                        (_, i) => currentYear + 1 - i,
+                      ).map((year) => (
+                        <button
+                          key={year}
+                          onClick={() => {
+                            setSelectedYear(year)
+                            setYearPickerOpen(false)
+                          }}
+                          className={[
+                            'w-full px-3 py-1.5 text-xs text-left transition-colors',
+                            year === selectedYear
+                              ? 'bg-[color:var(--color-accent-DEFAULT)] text-white font-semibold'
+                              : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800',
+                          ].join(' ')}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={goNextYear}
+                  disabled={selectedYear >= currentYear + 1}
                   className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
+                             disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Vor
+                  ›
                 </button>
               </div>
             </>
@@ -359,6 +491,10 @@ export default function CalendarPage() {
           weekSummaries={weekSummaries}
           activitiesByDate={activitiesByDate}
           navigate={navigate}
+          showHealthData={showHealthData}
+          healthDailyByDate={healthDailyByDate}
+          healthSleepByDate={healthSleepByDate}
+          healthHRVByDate={healthHRVByDate}
         />
       ) : yearViewMode === 'calendar' ? (
         <YearCalendarView
@@ -391,14 +527,19 @@ interface WeekGridProps {
   }>
   activitiesByDate: Map<string, Activity[]>
   navigate: (path: string) => void
+  showHealthData: boolean
+  healthDailyByDate: Map<string, HealthDailySummary>
+  healthSleepByDate: Map<string, HealthSleep>
+  healthHRVByDate: Map<string, HealthHRVSnapshot>
 }
 
-function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate }: WeekGridProps) {
+function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHealthData, healthDailyByDate, healthSleepByDate, healthHRVByDate }: WeekGridProps) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+            {/* Task 4: Wochenspalte Header */}
             <th className="text-left px-2 py-2 text-neutral-500 dark:text-neutral-400 font-medium w-[140px] text-xs">
               Woche
             </th>
@@ -417,13 +558,15 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate }: Week
             const summary = weekSummaries[wi]
             return (
               <tr key={wi} className="align-top">
-                {/* Week summary cell */}
+                {/* Task 4: Week summary cell — date bold, KW small below */}
                 <td className="px-2 py-2 border-r border-neutral-100 dark:border-neutral-800/50 bg-neutral-50/50 dark:bg-neutral-900/30">
-                  <div className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-                    KW {summary.weekNum}
+                  {/* Datum-Range fett oben */}
+                  <div className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                    {format(summary.monday, 'dd.MM.')}–{format(summary.sunday, 'dd.MM.')}
                   </div>
+                  {/* KW klein darunter */}
                   <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                    {format(summary.monday, 'dd.MM.')} – {format(summary.sunday, 'dd.MM.')}
+                    KW {summary.weekNum}
                   </div>
                   {summary.actCount > 0 && (
                     <div className="mt-1.5 space-y-0.5 text-[10px] text-neutral-500 dark:text-neutral-400">
@@ -483,14 +626,25 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate }: Week
                 </td>
 
                 {/* Day cells */}
-                {days.map((day) => (
-                  <DayCell
-                    key={dateKey(day)}
-                    day={day}
-                    activities={activitiesByDate.get(dateKey(day)) ?? []}
-                    navigate={navigate}
-                  />
-                ))}
+                {days.map((day, di) => {
+                  // Task 4: detect first day of month or first day with new month in row
+                  const isFirstInMonth =
+                    day.getDate() === 1 ||
+                    (di > 0 && days[di - 1].getMonth() !== day.getMonth())
+                  return (
+                    <DayCell
+                      key={dateKey(day)}
+                      day={day}
+                      activities={activitiesByDate.get(dateKey(day)) ?? []}
+                      navigate={navigate}
+                      isFirstInMonth={isFirstInMonth}
+                      showHealthData={showHealthData}
+                      healthDaily={healthDailyByDate.get(dateKey(day))}
+                      healthSleep={healthSleepByDate.get(dateKey(day))}
+                      healthHRV={healthHRVByDate.get(dateKey(day))}
+                    />
+                  )
+                })}
               </tr>
             )
           })}
@@ -506,12 +660,22 @@ interface DayCellProps {
   day: Date
   activities: Activity[]
   navigate: (path: string) => void
+  isFirstInMonth?: boolean
+  showHealthData: boolean
+  healthDaily?: HealthDailySummary
+  healthSleep?: HealthSleep
+  healthHRV?: HealthHRVSnapshot
 }
 
-function DayCell({ day, activities, navigate }: DayCellProps) {
+function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, healthDaily, healthSleep, healthHRV }: DayCellProps) {
   const today = isToday(day)
   const shown = activities.slice(0, MAX_CARDS_PER_CELL)
   const extra = activities.length - MAX_CARDS_PER_CELL
+
+  // Task 5: Sleep duration in hours
+  const sleepH = healthSleep
+    ? ((healthSleep.deep_seconds ?? 0) + (healthSleep.light_seconds ?? 0) + (healthSleep.rem_seconds ?? 0)) / 3600
+    : null
 
   return (
     <td
@@ -521,26 +685,86 @@ function DayCell({ day, activities, navigate }: DayCellProps) {
           : ''
       }`}
     >
-      <div
-        className={`text-[10px] mb-1 px-0.5 ${
-          today
-            ? 'font-bold text-[color:var(--color-accent-DEFAULT)]'
-            : 'text-neutral-400 dark:text-neutral-500'
-        }`}
-      >
-        {format(day, 'd.M.')}
-      </div>
-
-      <div className="space-y-0.5">
-        {shown.map((a) => (
-          <ActivityCard key={a.id} activity={a} onClick={() => navigate(`/activities/${a.id}`)} />
-        ))}
-        {extra > 0 && (
-          <div className="text-[10px] text-neutral-400 dark:text-neutral-500 px-1">
-            +{extra} mehr
-          </div>
+      {/* Task 4: Date header — date bold, month indicator on transition */}
+      <div className={`mb-1 px-0.5 flex items-baseline gap-0.5 ${today ? 'text-[color:var(--color-accent-DEFAULT)]' : ''}`}>
+        <span className={`text-xs font-bold ${today ? '' : 'text-neutral-700 dark:text-neutral-300'}`}>
+          {format(day, 'd')}
+        </span>
+        {isFirstInMonth && (
+          <span className="text-[9px] font-medium text-[color:var(--color-accent-DEFAULT)] uppercase tracking-wide">
+            {format(day, 'MMM', { locale: de })}
+          </span>
         )}
       </div>
+
+      {showHealthData ? (
+        /* Task 5: Two-column layout: health left | activities right */
+        <div className="flex gap-1">
+          {/* Health column */}
+          <div className="flex flex-col gap-0.5 text-[9px] text-neutral-500 dark:text-neutral-400 min-w-[44px] shrink-0">
+            {healthDaily?.resting_heart_rate != null && (
+              <div className="flex items-center gap-0.5">
+                <svg className="w-2.5 h-2.5 text-rose-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+                <span className="tabular-nums">{healthDaily.resting_heart_rate}</span>
+              </div>
+            )}
+            {healthDaily?.total_steps != null && healthDaily.total_steps > 0 && (
+              <div className="flex items-center gap-0.5">
+                <svg className="w-2.5 h-2.5 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/>
+                </svg>
+                <span className="tabular-nums">
+                  {healthDaily.total_steps >= 1000
+                    ? `${(healthDaily.total_steps / 1000).toFixed(1)}k`
+                    : healthDaily.total_steps}
+                </span>
+              </div>
+            )}
+            {sleepH != null && sleepH > 0 && (
+              <div className="flex items-center gap-0.5">
+                <svg className="w-2.5 h-2.5 text-indigo-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
+                </svg>
+                <span className="tabular-nums">{sleepH.toFixed(1)}h</span>
+              </div>
+            )}
+            {healthHRV?.rmssd_ms != null && (
+              <div className="flex items-center gap-0.5">
+                <svg className="w-2.5 h-2.5 text-violet-500 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <polyline points="2,12 5,12 7,6 9,18 11,10 13,14 15,12 22,12"/>
+                </svg>
+                <span className="tabular-nums">{Math.round(healthHRV.rmssd_ms)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Activities column */}
+          <div className="flex-1 min-w-0 space-y-0.5">
+            {shown.map((a) => (
+              <ActivityCard key={a.id} activity={a} onClick={() => navigate(`/activities/${a.id}`)} />
+            ))}
+            {extra > 0 && (
+              <div className="text-[10px] text-neutral-400 dark:text-neutral-500 px-1">
+                +{extra} mehr
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Standard layout without health data */
+        <div className="space-y-0.5">
+          {shown.map((a) => (
+            <ActivityCard key={a.id} activity={a} onClick={() => navigate(`/activities/${a.id}`)} />
+          ))}
+          {extra > 0 && (
+            <div className="text-[10px] text-neutral-400 dark:text-neutral-500 px-1">
+              +{extra} mehr
+            </div>
+          )}
+        </div>
+      )}
     </td>
   )
 }
@@ -598,6 +822,23 @@ function mondayFirstDayIndex(d: Date): number {
 }
 
 function YearCalendarView({ year, activitiesByDate, navigate }: YearCalendarViewProps) {
+  // Task 2: Freeze state for click-to-freeze overlay
+  const [frozenDate, setFrozenDate] = useState<string | null>(null)
+
+  function handleFreezeToggle(key: string) {
+    setFrozenDate(prev => prev === key ? null : key)
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (frozenDate && !(e.target as Element).closest('[data-calendar-day]')) {
+        setFrozenDate(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [frozenDate])
+
   const months = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const firstDay = new Date(year, i, 1)
@@ -623,6 +864,8 @@ function YearCalendarView({ year, activitiesByDate, navigate }: YearCalendarView
           leadingBlanks={leadingBlanks}
           activitiesByDate={activitiesByDate}
           navigate={navigate}
+          frozenDate={frozenDate}
+          onFreezeToggle={handleFreezeToggle}
         />
       ))}
     </div>
@@ -637,9 +880,11 @@ interface MonthCardProps {
   leadingBlanks: number
   activitiesByDate: Map<string, Activity[]>
   navigate: (path: string) => void
+  frozenDate: string | null
+  onFreezeToggle: (key: string) => void
 }
 
-function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate }: MonthCardProps) {
+function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate, frozenDate, onFreezeToggle }: MonthCardProps) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
       {/* Month header */}
@@ -675,6 +920,8 @@ function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate 
               day={day}
               activities={dayActivities}
               navigate={navigate}
+              frozenDate={frozenDate}
+              onFreezeToggle={onFreezeToggle}
             />
           )
         })}
@@ -689,11 +936,15 @@ interface MonthDayCellProps {
   day: Date
   activities: Activity[]
   navigate: (path: string) => void
+  frozenDate: string | null
+  onFreezeToggle: (key: string) => void
 }
 
-function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
+function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }: MonthDayCellProps) {
   const today = isToday(day)
   const hasActivities = activities.length > 0
+  const key = dateKey(day)
+  const isFrozen = frozenDate === key
 
   // For single activity: use that sport's color for faint bg tint
   const singleColor = hasActivities && activities.length === 1
@@ -705,15 +956,18 @@ function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
   const shownDots = activities.slice(0, MAX_DOTS)
   const extraDots = activities.length - MAX_DOTS
 
-  // Determine tooltip side: last 3 cols → open left; first 3 cols → open right; middle → center/right
-  // We use a relative container and position the tooltip accordingly
-
   return (
-    <div className="relative flex flex-col items-center pb-1.5 group">
+    <div
+      className="relative flex flex-col items-center pb-1.5 group"
+      data-calendar-day={key}
+    >
       {/* Day number */}
       <div
+        onClick={hasActivities ? () => onFreezeToggle(key) : undefined}
         className={[
-          'w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium transition-colors cursor-default',
+          'w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium transition-all',
+          hasActivities ? 'cursor-pointer' : 'cursor-default',
+          isFrozen ? 'ring-2 ring-offset-1 ring-[color:var(--color-accent-DEFAULT)] scale-110' : '',
           today
             ? 'text-white font-bold'
             : hasActivities
@@ -724,7 +978,7 @@ function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
           today
             ? { backgroundColor: 'var(--color-accent-DEFAULT)' }
             : singleColor
-              ? { backgroundColor: `${singleColor}1a` } // ~10% opacity hex
+              ? { backgroundColor: `${singleColor}1a` }
               : undefined
         }
       >
@@ -749,17 +1003,15 @@ function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
         </div>
       )}
 
-      {/* Hover tooltip */}
+      {/* Task 2: Overlay — hover CSS or frozen state */}
       {hasActivities && (
         <div
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50
-                     hidden group-hover:block
-                     w-52 rounded-lg shadow-lg border border-neutral-200 dark:border-neutral-700
-                     bg-white dark:bg-neutral-800 text-xs
-                     pointer-events-none"
-          style={{
-            // Prevent overflow on right side by shifting tooltip if needed — handled via CSS below
-          }}
+          className={[
+            'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50',
+            isFrozen ? 'block' : 'hidden group-hover:block',
+            'w-56 rounded-lg shadow-xl border border-neutral-200 dark:border-neutral-700',
+            'bg-white dark:bg-neutral-800 text-xs',
+          ].join(' ')}
         >
           {/* Arrow */}
           <div className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5
@@ -767,8 +1019,16 @@ function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
                           bg-white dark:bg-neutral-800 rotate-45" />
 
           <div className="p-2 space-y-1.5">
-            <div className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1">
-              {format(day, 'EEEE, d. MMMM', { locale: de })}
+            <div className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1 flex justify-between items-center">
+              <span>{format(day, 'EEEE, d. MMMM', { locale: de })}</span>
+              {isFrozen && (
+                <button
+                  onClick={() => onFreezeToggle(key)}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 ml-2 leading-none text-sm"
+                >
+                  ×
+                </button>
+              )}
             </div>
             {activities.map((a) => {
               const color = sportColor(a.sport_type)
@@ -785,7 +1045,7 @@ function MonthDayCell({ day, activities, navigate }: MonthDayCellProps) {
                   }}
                   className="flex items-start gap-1.5 rounded px-1 py-0.5
                              hover:bg-neutral-50 dark:hover:bg-neutral-700/60 transition-colors
-                             pointer-events-auto cursor-pointer"
+                             cursor-pointer"
                   style={{ borderLeft: `3px solid ${color}` }}
                 >
                   <div className="min-w-0 flex-1">
@@ -929,9 +1189,13 @@ function YearHeatmapView({ activitiesByDate, year }: YearHeatmapProps) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="p-4">
-        <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+        <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
           TSS-Heatmap {year}
         </h2>
+        {/* Task 6: TSS info text */}
+        <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mb-3">
+          Tägliche Trainingsbelastung (TSS). Nur Aktivitäten mit berechnetem TSS (z.B. Radfahren mit Leistungsmesser oder HR-Zonen).
+        </p>
         <div ref={containerRef} className="h-[220px] w-full" />
       </div>
     </div>
