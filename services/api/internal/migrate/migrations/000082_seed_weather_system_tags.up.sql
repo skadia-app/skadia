@@ -2,8 +2,8 @@
 -- These are automatically assigned during Stage 1 enrichment
 INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 SELECT DISTINCT u.id,
-       tag_names.name,
-       tag_colors.color,
+       tag_data.name,
+       tag_data.color,
        '#FFFFFF',
        'weather',
        true,
@@ -17,7 +17,7 @@ CROSS JOIN (VALUES
     ('Schnee', '#F3F4F6'),
     ('Nebel', '#D1D5DB'),
     ('Gewitter', '#7C3AED')
-) AS tag_names(name, color)
+) AS tag_data(name, color)
 WHERE u.is_active = true
 ON CONFLICT (user_id, name) DO NOTHING;
 
