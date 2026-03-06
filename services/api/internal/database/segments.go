@@ -942,4 +942,3 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 
 	return performances, rows.Err()
 }
-}
