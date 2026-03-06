@@ -186,7 +186,6 @@ function PromptModalItem({ config }: PromptModalItemProps) {
             }
           }}
           className="w-full px-3 py-2 mt-4 border border-neutral-300 rounded-md dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-offset-0"
-          style={{ focusRingColor: accent.shade500 }}
           disabled={isLoading}
         />
 
