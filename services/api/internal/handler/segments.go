@@ -293,3 +293,60 @@ func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request
 
 	writeJSON(w, http.StatusOK, laps)
 }
+
+// GetSegmentFavoriteStatus checks if a segment is favorited by the user.
+func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	isFavorite, err := h.DB.IsSegmentFavoriteByUser(r.Context(), userID, segmentID)
+	if err != nil {
+		slog.Error("check favorite status failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check favorite status", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"favorite": isFavorite})
+}
+
+// AddSegmentFavorite adds a segment to the user's favorites.
+func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	if err := h.DB.AddSegmentFavorite(r.Context(), userID, segmentID); err != nil {
+		slog.Error("add favorite failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to add favorite", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// RemoveSegmentFavorite removes a segment from the user's favorites.
+func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	segmentID := chi.URLParam(r, "id")
+
+	if err := h.DB.RemoveSegmentFavorite(r.Context(), userID, segmentID); err != nil {
+		slog.Error("remove favorite failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to remove favorite", r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}

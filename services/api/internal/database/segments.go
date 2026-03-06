@@ -876,3 +876,30 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 	}
 	return ids, nil
 }
+
+// IsSegmentFavoriteByUser checks if a segment is favorited by a user.
+func (db *DB) IsSegmentFavoriteByUser(ctx context.Context, userID, segmentID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM segment_favorites WHERE user_id = $1 AND segment_id = $2)`,
+		userID, segmentID).Scan(&exists)
+	return exists, err
+}
+
+// AddSegmentFavorite adds a favorite record for a segment.
+func (db *DB) AddSegmentFavorite(ctx context.Context, userID, segmentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO segment_favorites (user_id, segment_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+		userID, segmentID)
+	return err
+}
+
+// RemoveSegmentFavorite removes a favorite record for a segment.
+func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_favorites WHERE user_id = $1 AND segment_id = $2`,
+		userID, segmentID)
+	return err
+}
+}
