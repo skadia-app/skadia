@@ -82,7 +82,7 @@ export default function CalendarPage() {
 
   // Task 5: Health data toggle
   const [showHealthData, setShowHealthData] = useState<boolean>(() => {
-    try { return localStorage.getItem('skadia-cal-health') === 'true' } catch { return false }
+    try { const s = localStorage.getItem('skadia-cal-health'); return s === null ? true : s === 'true' } catch { return true }
   })
 
   function toggleHealthData() {
@@ -347,7 +347,7 @@ export default function CalendarPage() {
                     showHealthData ? 'translate-x-4' : 'translate-x-0.5',
                   ].join(' ')} />
                 </div>
-                Gesundheit
+                Gesundheitsdaten
               </label>
 
               {/* Week count toggle */}
