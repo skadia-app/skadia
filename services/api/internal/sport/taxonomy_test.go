@@ -46,7 +46,7 @@ func TestAutoTitleBackwardsCompat(t *testing.T) {
 	titles := map[string]string{
 		"cycling": "Radfahrt", "running": "Lauf", "hiking": "Wanderung",
 		"walking": "Spaziergang", "swimming": "Schwimmen", "e_biking": "E-Bike-Tour",
-		"cross_country_skiing": "Langlauf", "paddling": "Paddeltour",
+		"cross_country_skiing": "Langlauf", "paddling": "Wassersport-Tour",
 		"rock_climbing": "Klettern", "stand_up_paddleboarding": "SUP-Tour",
 		"trail_running": "Trailrun", "mountaineering": "Bergtour",
 		"inline_skating": "Inline-Skaten", "open_water_swimming": "Freiwasserschwimmen",
