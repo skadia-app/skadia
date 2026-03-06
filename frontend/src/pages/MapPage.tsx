@@ -787,6 +787,7 @@ export default function MapPage() {
     function handleClick(e: maplibregl.MapMouseEvent) {
       if (!addMarkerModeMapID) return
       const { lng, lat } = e.lngLat
+      // TODO: Replace window.prompt with custom PromptModal component (Task 6 follow-up)
       const name = window.prompt('Marker-Name:')
       if (!name) {
         setAddMarkerModeMapID(null)
