@@ -8,12 +8,14 @@ export interface Toast {
   title: string
   message?: string
   duration?: number
+  group?: string
 }
 
 interface ToastContextType {
   toasts: Toast[]
   addToast: (toast: Omit<Toast, 'id'>) => string | (() => void)
   removeToast: (id: string) => void
+  clearGroup: (group: string) => void
 }
 
 const ToastContext = createContext<ToastContextType | null>(null)
@@ -23,6 +25,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const clearGroup = useCallback((group: string) => {
+    setToasts(prev => prev.filter(t => t.group !== group))
   }, [])
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
@@ -41,7 +47,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [removeToast])
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
+    <ToastContext.Provider value={{ toasts, addToast, removeToast, clearGroup }}>
       {children}
     </ToastContext.Provider>
   )
