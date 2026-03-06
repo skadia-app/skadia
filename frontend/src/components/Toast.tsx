@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import type { Toast, ToastType } from '@/lib/toast'
 import { useToast } from '@/lib/toast'
 
