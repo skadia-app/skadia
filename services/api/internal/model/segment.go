@@ -24,6 +24,8 @@ type Segment struct {
 	Visibility        string          `json:"visibility" db:"visibility"`
 	RouteHash         *string         `json:"route_hash,omitempty" db:"route_hash"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
+	TerrainType       *string         `json:"terrain_type,omitempty" db:"terrain_type"`
+	ClimbType         *string         `json:"climb_type,omitempty" db:"climb_type"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }
