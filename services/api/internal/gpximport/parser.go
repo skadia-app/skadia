@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -98,8 +99,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	var hrCount int
 	var prevLat, prevLon float64
 	var prevTime time.Time
-	var prevEle float64
-	firstEle := true
+	var allElevations []float64 // Collect elevations for filtering
 	minEle = math.MaxFloat64
 	maxEle = -math.MaxFloat64
 
@@ -124,22 +124,13 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		if pt.Elevation != nil {
 			alt := *pt.Elevation
 			sp.AltitudeM = &alt
+			allElevations = append(allElevations, alt)
 			if alt < minEle {
 				minEle = alt
 			}
 			if alt > maxEle {
 				maxEle = alt
 			}
-			if !firstEle {
-				diff := alt - prevEle
-				if diff > 0 {
-					elevGain += diff
-				} else {
-					elevLoss -= diff
-				}
-			}
-			prevEle = alt
-			firstEle = false
 		}
 
 		if pt.Extensions.TPExt.HR != nil {
@@ -202,6 +193,17 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 
 	data.DistanceM = totalDistance
+
+	// Apply Savitzky-Golay filter to reduce elevation noise (GPS ±5-15m)
+	// Calculate average speed for determining filter window size
+	var avgSpeed float64
+	if elapsed > 0 {
+		avgSpeed = totalDistance / float64(elapsed)
+	}
+	if len(allElevations) > 0 {
+		elevGain, elevLoss = enrichment.FilterElevationGainLoss(allElevations, avgSpeed)
+	}
+
 	data.ElevationGainM = elevGain
 	data.ElevationLossM = elevLoss
 	if minEle != math.MaxFloat64 {

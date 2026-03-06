@@ -3040,3 +3040,46 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 		WHERE id = $1`, activityID)
 	return err
 }
+
+// GetTagIDsByNamesAndCategory returns a map of tag names to tag IDs
+// for tags matching the given user, category, and names (case-insensitive).
+func (db *DB) GetTagIDsByNamesAndCategory(ctx context.Context, userID, category string, names []string) (map[string]string, error) {
+	if len(names) == 0 {
+		return make(map[string]string), nil
+	}
+
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name FROM tags WHERE user_id = $1 AND category = $2 AND name ILIKE ANY($3)`,
+		userID, category, names)
+	if err != nil {
+		return nil, fmt.Errorf("query tags: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		result[name] = id
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return result, nil
+}
+
+// LinkActivityTag links a tag to an activity with the given assignment type.
+// If the link already exists, it's silently ignored (ON CONFLICT DO NOTHING).
+func (db *DB) LinkActivityTag(ctx context.Context, activityID, tagID, assignedBy string) error {
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, $3)
+		 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+		activityID, tagID, assignedBy)
+	if err != nil {
+		return fmt.Errorf("link activity tag: %w", err)
+	}
+	return nil
+}
