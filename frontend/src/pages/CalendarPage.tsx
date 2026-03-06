@@ -757,36 +757,51 @@ function ActivityCard({ activity, onClick }: ActivityCardProps) {
   const color = sportColor(activity.sport_type)
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const title = activity.title ?? label
-
-  const tooltipParts = [title, label]
-  if (activity.elapsed_time_s > 0) tooltipParts.push(formatDuration(activity.elapsed_time_s))
-  if (activity.distance_m != null && activity.distance_m > 0) tooltipParts.push(formatDistance(activity.distance_m))
+  const [showTooltip, setShowTooltip] = useState(false)
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      title={tooltipParts.join(' · ')}
-      className="w-full text-left rounded px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors
-                 flex items-start gap-1 group cursor-pointer"
-      style={{ borderLeft: `3px solid ${color}` }}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300 truncate group-hover:text-neutral-900 dark:group-hover:text-neutral-100 transition-colors">
-          {title}
+    <div className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick()
+        }}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className="w-full text-left rounded px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors
+                   flex items-start gap-1 group cursor-pointer"
+        style={{ borderLeft: `3px solid ${color}` }}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300 truncate group-hover:text-neutral-900 dark:group-hover:text-neutral-100 transition-colors">
+            {title}
+          </div>
+          <div className="text-[9px] text-neutral-400 dark:text-neutral-500 flex gap-1.5 tabular-nums">
+            {activity.elapsed_time_s > 0 && (
+              <span>{formatDuration(activity.elapsed_time_s)}</span>
+            )}
+            {activity.distance_m != null && activity.distance_m > 0 && (
+              <span>{formatDistance(activity.distance_m)}</span>
+            )}
+          </div>
         </div>
-        <div className="text-[9px] text-neutral-400 dark:text-neutral-500 flex gap-1.5 tabular-nums">
-          {activity.elapsed_time_s > 0 && (
-            <span>{formatDuration(activity.elapsed_time_s)}</span>
-          )}
-          {activity.distance_m != null && activity.distance_m > 0 && (
-            <span>{formatDistance(activity.distance_m)}</span>
+      </button>
+
+      {/* Hover Tooltip Box */}
+      {showTooltip && (
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-lg" style={{ borderLeft: `3px solid ${color}` }}>
+          <div className="font-semibold">{title}</div>
+          <div className="text-[11px] opacity-90">{label}</div>
+          {(activity.elapsed_time_s > 0 || (activity.distance_m != null && activity.distance_m > 0)) && (
+            <div className="text-[10px] opacity-75 mt-1">
+              {activity.elapsed_time_s > 0 && formatDuration(activity.elapsed_time_s)}
+              {activity.elapsed_time_s > 0 && activity.distance_m != null && activity.distance_m > 0 && ' · '}
+              {activity.distance_m != null && activity.distance_m > 0 && formatDistance(activity.distance_m)}
+            </div>
           )}
         </div>
-      </div>
-    </button>
+      )}
+    </div>
   )
 }
 
