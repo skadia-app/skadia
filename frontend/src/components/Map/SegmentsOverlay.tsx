@@ -4,26 +4,46 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchSegments, type Segment } from '@/api/segments'
 
+export interface SegmentColorConfig {
+  standard: string
+  trail: string
+  lift: string
+  ridden: string
+}
+
+export const DEFAULT_SEGMENT_COLORS: SegmentColorConfig = {
+  standard: '#6B7280',
+  trail: '#EC4899',
+  lift: '#6366F1',
+  ridden: '#F97316',
+}
+
+export interface SegmentsOverlayFilters {
+  terrainTypes: string[]   // [] = alle anzeigen; ['lift'] = nur Lift; etc.
+  riddenOnly: boolean
+  sportGroups: string[]    // [] = alle Sport-Gruppen; ['bike'] = nur Rad etc.
+}
+
+export const DEFAULT_SEGMENT_FILTERS: SegmentsOverlayFilters = {
+  terrainTypes: [],
+  riddenOnly: false,
+  sportGroups: [],
+}
+
 interface SegmentsOverlayProps {
   map: maplibregl.Map | null
   enabled: boolean
+  filters?: Partial<SegmentsOverlayFilters>
+  colorConfig?: Partial<SegmentColorConfig>
   styleVersion?: number
 }
 
-const TERRAIN_COLORS: Record<string, string> = {
-  lift: '#6366F1',   // Indigo
-  trail: '#EC4899',  // Pink
-  standard: '#6B7280', // Grau
-}
-
-// Farbe nach Segment-Typ (gefahren = kräftiger, nicht gefahren = gedämpft)
-function segmentColor(segmentType: string): string {
-  return TERRAIN_COLORS[segmentType] ?? TERRAIN_COLORS.standard
-}
-
-export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayProps) {
+export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersion }: SegmentsOverlayProps) {
   const navigate = useNavigate()
   const popupRef = useRef<maplibregl.Popup | null>(null)
+
+  const mergedFilters: SegmentsOverlayFilters = { ...DEFAULT_SEGMENT_FILTERS, ...filters }
+  const colors: SegmentColorConfig = { ...DEFAULT_SEGMENT_COLORS, ...colorConfig }
 
   const { data: segmentData = [] } = useQuery<Segment[]>({
     queryKey: ['segments-overlay-list'],
@@ -56,7 +76,24 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
 
     cleanup()
 
-    const segments = segmentData
+    // Filter anwenden
+    const segments = segmentData.filter((seg: Segment) => {
+      const segType = seg.segment_type || 'standard'
+      if (mergedFilters.terrainTypes.length > 0 && !mergedFilters.terrainTypes.includes(segType)) return false
+      if (mergedFilters.riddenOnly && (seg.ridden_count ?? 0) === 0) return false
+      if (mergedFilters.sportGroups.length > 0 && !mergedFilters.sportGroups.includes(seg.sport_group)) return false
+      return true
+    })
+
+    // Farbe je Segment ermitteln
+    function resolveColor(seg: Segment): string {
+      const segType = seg.segment_type || 'standard'
+      const isRidden = (seg.ridden_count ?? 0) > 0
+      if (segType === 'lift') return colors.lift
+      if (segType === 'trail') return colors.trail
+      if (isRidden) return colors.ridden
+      return colors.standard
+    }
 
     // Features aus Segmenten mit track_geojson aufbauen
     const lineFeatures: GeoJSON.Feature[] = segments.reduce<GeoJSON.Feature[]>((acc, seg) => {
@@ -76,8 +113,9 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
           segment_type: seg.segment_type || 'standard',
           sport_group: seg.sport_group,
           effort_count: seg.effort_count ?? 0,
+          ridden_count: seg.ridden_count ?? 0,
           distance_m: seg.distance_m ?? 0,
-          color: segmentColor(seg.segment_type || 'standard'),
+          color: resolveColor(seg),
         },
       })
       return acc
@@ -103,7 +141,8 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
             segment_type: seg.segment_type || 'standard',
             sport_group: seg.sport_group,
             effort_count: seg.effort_count ?? 0,
-            color: segmentColor(seg.segment_type || 'standard'),
+            ridden_count: seg.ridden_count ?? 0,
+            color: resolveColor(seg),
           },
         })
         return acc
@@ -119,7 +158,7 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
 
     map.addSource(sourceId, { type: 'geojson', data: geojson })
 
-    // Linie-Layer: farbig nach Typ, gestrichelt = Trail
+    // Linie-Layer: farbig nach Typ
     map.addLayer({
       id: lineLayerId,
       type: 'line',
@@ -129,12 +168,12 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
         'line-color': ['get', 'color'],
         'line-width': [
           'case',
-          ['>', ['get', 'effort_count'], 0], 3,
+          ['>', ['get', 'ridden_count'], 0], 3,
           2,
         ],
         'line-opacity': [
           'case',
-          ['>', ['get', 'effort_count'], 0], 0.9,
+          ['>', ['get', 'ridden_count'], 0], 0.9,
           0.6,
         ],
       },
@@ -227,7 +266,7 @@ export function SegmentsOverlay({ map, enabled, styleVersion }: SegmentsOverlayP
       map.off('click', dotLayerId, onClickDot)
       cleanup()
     }
-  }, [map, enabled, segmentData, navigate, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map, enabled, segmentData, navigate, styleVersion, filters, colorConfig]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return null
 }

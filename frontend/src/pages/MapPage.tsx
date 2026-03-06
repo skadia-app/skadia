@@ -16,7 +16,7 @@ import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, type Tag, type TagActivity } from '@/api/tags'
 import { updateActivity, fetchActivity } from '@/api/activities'
-import { SegmentsOverlay } from '@/components/Map/SegmentsOverlay'
+import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -464,6 +464,13 @@ export default function MapPage() {
   const [showSegments, setShowSegments] = useState(false)
   const [segmentBbox, setSegmentBbox] = useState<string>('')
   const segmentPopupRef = useRef<maplibregl.Popup | null>(null)
+  const [segmentColors, setSegmentColors] = useState<Partial<SegmentColorConfig>>(() => {
+    try {
+      const saved = localStorage.getItem('skadia-segment-colors')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
+  const [segmentFilters, setSegmentFilters] = useState<SegmentsOverlayFilters>(DEFAULT_SEGMENT_FILTERS)
 
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1654,6 +1661,8 @@ export default function MapPage() {
         <SegmentsOverlay
           map={mapRef.current}
           enabled={overlayState.showSegmentsOverlay}
+          filters={segmentFilters}
+          colorConfig={segmentColors}
           styleVersion={styleVersion}
         />
 
@@ -1795,15 +1804,85 @@ export default function MapPage() {
               />
               <span>Einkehr (Tiles)</span>
             </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overlayState.showSegmentsOverlay}
-                onChange={e => updateOverlay('showSegmentsOverlay', e.target.checked)}
-                className="rounded"
-              />
-              <span>Segmente (Linien)</span>
-            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={overlayState.showSegmentsOverlay}
+                  onChange={e => updateOverlay('showSegmentsOverlay', e.target.checked)}
+                  className="rounded"
+                />
+                <span>Segmente (Linien)</span>
+              </label>
+              {overlayState.showSegmentsOverlay && (
+                <div className="ml-5 space-y-2">
+                  {/* Terrain-Typ-Filter */}
+                  <div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Typ:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {([
+                        { id: 'standard', label: 'Standard' },
+                        { id: 'trail', label: 'Trail' },
+                        { id: 'lift', label: 'Lift' },
+                      ] as const).map(({ id, label }) => (
+                        <button
+                          key={id}
+                          onClick={() => setSegmentFilters(f => ({
+                            ...f,
+                            terrainTypes: f.terrainTypes.includes(id)
+                              ? f.terrainTypes.filter(t => t !== id)
+                              : [...f.terrainTypes, id],
+                          }))}
+                          className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                            segmentFilters.terrainTypes.includes(id)
+                              ? 'bg-accent-DEFAULT text-white border-transparent'
+                              : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Status-Filter */}
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={segmentFilters.riddenOnly}
+                      onChange={e => setSegmentFilters(f => ({ ...f, riddenOnly: e.target.checked }))}
+                      className="rounded"
+                    />
+                    <span>Nur gefahrene</span>
+                  </label>
+
+                  {/* Farb-Konfiguration */}
+                  <div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      {([
+                        { key: 'standard', label: 'Standard' },
+                        { key: 'trail', label: 'Trail' },
+                        { key: 'lift', label: 'Lift' },
+                        { key: 'ridden', label: 'Gefahren' },
+                      ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
+                        <div key={key} className="flex items-center gap-1.5 text-xs">
+                          <ColorPicker
+                            value={segmentColors[key] ?? DEFAULT_SEGMENT_COLORS[key]}
+                            onChange={hex => {
+                              const next = { ...segmentColors, [key]: hex }
+                              setSegmentColors(next)
+                              localStorage.setItem('skadia-segment-colors', JSON.stringify(next))
+                            }}
+                          />
+                          <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
