@@ -3,9 +3,10 @@ import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-quer
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { fetchActivities, getActivityExportUrl, downloadActivitiesZip } from '@/api/activities'
+import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
+import { apiDownload } from '@/api/client'
 import {
   formatDuration, formatDistance,
   formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
@@ -89,6 +90,24 @@ const EXPORT_FORMATS: [ExportFormat, string][] = [
 
 function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: () => void }) {
   const [open, setOpen] = useState(false)
+
+  const handleExport = async (format: ExportFormat) => {
+    try {
+      const { blob, filename } = await apiDownload(`/activities/${activityId}/export?format=${format}`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || `activity.${format}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      onClose()
+    } catch (error) {
+      console.error('Export failed:', error)
+    }
+  }
+
   return (
     <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button className="w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer">
@@ -105,15 +124,13 @@ function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: (
       {open && (
         <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-50 py-1">
           {EXPORT_FORMATS.map(([fmt, label]) => (
-            <a
+            <button
               key={fmt}
-              href={getActivityExportUrl(activityId, fmt)}
-              download
-              onClick={onClose}
-              className="block px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors no-underline cursor-pointer"
+              onClick={() => handleExport(fmt)}
+              className="w-full text-left block px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
             >
               {label}
-            </a>
+            </button>
           ))}
         </div>
       )}

@@ -1,0 +1,3 @@
+-- No-op: This migration is idempotent and only ensures data integrity.
+-- Rolling back would just re-clear the values, which would be re-filled on next migration.
+-- We keep it simple: no action needed on rollback.
