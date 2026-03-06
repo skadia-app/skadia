@@ -951,9 +951,12 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		a.started_at,
 		a.sport_type,
 		a.title,
-		a.gear_id
+		a.gear_id,
+		g.name AS gear_name,
+		g.type AS gear_type
 	FROM segment_efforts se
 	JOIN activities a ON se.activity_id = a.id
+	LEFT JOIN gear g ON a.gear_id = g.id
 	WHERE se.segment_id = $1 AND a.user_id = $2
 	ORDER BY a.started_at DESC`
 
@@ -967,7 +970,8 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	for rows.Next() {
 		var perf model.SegmentPerformance
 		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
-			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.GearID); err != nil {
+			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.GearID,
+			&perf.GearName, &perf.GearType); err != nil {
 			return nil, fmt.Errorf("scan performance: %w", err)
 		}
 		performances = append(performances, perf)

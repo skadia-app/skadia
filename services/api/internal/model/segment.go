@@ -101,6 +101,8 @@ type SegmentPerformance struct {
 	SportType       string    `json:"sport_type"`
 	Title           string    `json:"title"`
 	GearID          *string   `json:"gear_id,omitempty"`
+	GearName        *string   `json:"gear_name,omitempty"`
+	GearType        *string   `json:"gear_type,omitempty"`
 }
 
 // DetectedLap represents an automatically detected lap/round within an activity.
