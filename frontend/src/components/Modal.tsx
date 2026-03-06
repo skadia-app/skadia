@@ -14,7 +14,13 @@ function ModalItem({ modal }: ModalItemProps) {
   const { accent } = useAccentColor()
 
   useEffect(() => {
-    dialogRef.current?.focus()
+    // Focus auf ersten Button (oder Modal selbst, falls kein Button)
+    const firstButton = dialogRef.current?.querySelector('button')
+    if (firstButton && firstButton instanceof HTMLButtonElement) {
+      firstButton.focus()
+    } else {
+      dialogRef.current?.focus()
+    }
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -48,7 +54,7 @@ function ModalItem({ modal }: ModalItemProps) {
       {/* Modal Content */}
       <div
         ref={dialogRef}
-        tabIndex={-1}
+        tabIndex={0}
         className="relative bg-white dark:bg-neutral-950 rounded-lg shadow-lg p-6 max-w-md w-[90vw] max-h-[90vh] overflow-auto"
         onClick={e => e.stopPropagation()}
         role="dialog"
