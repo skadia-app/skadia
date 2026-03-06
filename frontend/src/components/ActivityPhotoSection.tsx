@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
+import { useModal } from '@/lib/modal'
 
 interface Props {
   activityId: string
@@ -11,6 +12,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<ActivityPhoto | null>(null)
+  const { openModal } = useModal()
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ['activity-photos', activityId],
@@ -39,9 +41,25 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   }
 
   function handleDeletePhoto(photo: ActivityPhoto) {
-    if (!window.confirm(`Foto "${photo.original_filename}" wirklich löschen?`)) return
-    deleteMutation.mutate(photo.id)
-    if (selectedPhoto?.id === photo.id) setSelectedPhoto(null)
+    openModal({
+      title: `Foto "${photo.original_filename}" löschen?`,
+      message: 'Löschen ist nicht rückgängig zu machen.',
+      buttons: [
+        {
+          label: 'Abbrechen',
+          variant: 'default',
+          onClick: () => {}
+        },
+        {
+          label: 'Löschen',
+          variant: 'destructive',
+          onClick: async () => {
+            deleteMutation.mutate(photo.id)
+            if (selectedPhoto?.id === photo.id) setSelectedPhoto(null)
+          }
+        }
+      ]
+    })
   }
 
   // Default collapsed state: collapsed if no photos, expanded if photos
