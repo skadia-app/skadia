@@ -21,6 +21,11 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 		       s.source_activity_id, s.osm_lift_id,
 		       s.distance_m, s.elevation_gain_m,
 		       s.effort_count, s.athlete_count,
+		       COALESCE((
+		           SELECT COUNT(*)::int FROM segment_efforts se
+		           JOIN activities a ON se.activity_id = a.id
+		           WHERE se.segment_id = s.id AND a.user_id = $1
+		       ), 0) AS ridden_count,
 		       s.visibility, s.route_hash, s.created_at,
 		       ST_AsGeoJSON(sv.track) AS track_geojson
 		FROM segments s
@@ -80,6 +85,7 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 			&s.SourceActivityID, &s.OsmLiftID,
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
+			&s.RiddenCount,
 			&s.Visibility, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
 		)

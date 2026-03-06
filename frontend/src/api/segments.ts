@@ -12,6 +12,7 @@ export interface Segment {
   elevation_gain_m?: number
   effort_count: number
   athlete_count: number
+  ridden_count: number
   visibility: string
   created_at: string
   track_geojson?: string

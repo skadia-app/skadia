@@ -55,7 +55,8 @@ function fmtDist(m?: number): string {
 export default function SegmentsPage() {
   const queryClient = useQueryClient()
   const [sportGroup, setSportGroup] = useState('')
-  const [segmentType, setSegmentType] = useState('')
+  const [terrainFilter, setTerrainFilter] = useState<string[]>([])
+  const [showAllLifts, setShowAllLifts] = useState(false)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
@@ -73,14 +74,35 @@ export default function SegmentsPage() {
 
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
-    segment_type: segmentType || undefined,
     search: search || undefined,
-  }), [sportGroup, segmentType, search])
+  }), [sportGroup, search])
 
-  const { data: segments = [], isLoading } = useQuery({
+  const { data: rawSegments = [], isLoading } = useQuery({
     queryKey: ['segments', filterParams],
     queryFn: () => fetchSegments(filterParams),
   })
+
+  const segments = useMemo(() => {
+    return rawSegments.filter(seg => {
+      const terrain = seg.segment_type === 'lift' ? 'lift'
+        : seg.segment_type === 'trail' ? 'trail'
+        : 'standard'
+
+      if (terrain === 'lift') {
+        // Lifts are hidden by default; only shown when explicitly selected
+        if (!terrainFilter.includes('lift')) return false
+        // When "show all" is off, only show lifts the user has ridden
+        if (!showAllLifts && (seg.ridden_count ?? 0) === 0) return false
+        return true
+      }
+
+      // When no terrain checkboxes are checked: show standard + trail (not lift)
+      if (terrainFilter.length === 0) return terrain !== 'lift'
+
+      // Otherwise show only selected terrain types
+      return terrainFilter.includes(terrain)
+    })
+  }, [rawSegments, terrainFilter, showAllLifts])
 
   const deleteMut = useMutation({
     mutationFn: deleteSegment,
@@ -153,18 +175,37 @@ export default function SegmentsPage() {
           ))}
         </select>
 
-        <select
-          value={segmentType}
-          onChange={e => setSegmentType(e.target.value)}
-          className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm
-                     bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
-                     focus:outline-none focus:ring-1 focus:ring-neutral-400"
-        >
-          <option value="">Alle Typen</option>
-          {Object.entries(SEGMENT_TYPE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
+        <div className="flex items-center gap-3 flex-wrap">
+          {(Object.entries(SEGMENT_TYPE_LABELS) as [string, string][]).map(([id, label]) => (
+            <label key={id} className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={terrainFilter.includes(id)}
+                onChange={e => {
+                  if (e.target.checked) {
+                    setTerrainFilter(prev => [...prev, id])
+                  } else {
+                    setTerrainFilter(prev => prev.filter(t => t !== id))
+                    if (id === 'lift') setShowAllLifts(false)
+                  }
+                }}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
+            </label>
           ))}
-        </select>
+          {terrainFilter.includes('lift') && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+              <input
+                type="checkbox"
+                checked={showAllLifts}
+                onChange={e => setShowAllLifts(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">Alle anzeigen</span>
+            </label>
+          )}
+        </div>
 
         <div className="relative">
           <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

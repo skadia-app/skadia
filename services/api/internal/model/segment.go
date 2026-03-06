@@ -21,6 +21,7 @@ type Segment struct {
 	ElevationGainM    *float64        `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
 	EffortCount       int             `json:"effort_count" db:"effort_count"`
 	AthleteCount      int             `json:"athlete_count" db:"athlete_count"`
+	RiddenCount       int             `json:"ridden_count" db:"ridden_count"`
 	Visibility        string          `json:"visibility" db:"visibility"`
 	RouteHash         *string         `json:"route_hash,omitempty" db:"route_hash"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
@@ -38,6 +39,8 @@ type SegmentCreate struct {
 	GeoJSONTrack     string          `json:"geojson_track"`
 	SourceActivityID *string         `json:"source_activity_id,omitempty"`
 	Description      *string         `json:"description,omitempty"`
+	TerrainType      string          `json:"terrain_type"`
+	ClimbType        string          `json:"climb_type"`
 }
 
 type SegmentUpdate struct {
@@ -45,6 +48,8 @@ type SegmentUpdate struct {
 	Description     *string          `json:"description,omitempty"`
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
 	NewVersion      bool             `json:"new_version,omitempty"`
+	TerrainType     *string          `json:"terrain_type,omitempty"`
+	ClimbType       *string          `json:"climb_type,omitempty"`
 }
 
 type SegmentVersion struct {
