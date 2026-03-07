@@ -1,6 +1,10 @@
 package editor
 
-import "time"
+import (
+	"math"
+	"strings"
+	"time"
+)
 
 // DetectHRSpikes finds heart rate outliers where consecutive HR values differ
 // by more than threshold bpm. Returns timestamps of the spike points.
@@ -58,4 +62,89 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// DetectGPSOutliers findet GPS-Punkte mit unrealistischer Geschwindigkeit.
+// maxSpeedMS ist die sport-spezifische Maximalgeschwindigkeit in m/s.
+// stddevFactor bestimmt wie viele Standardabweichungen über dem Mittel als Ausreißer gelten.
+func DetectGPSOutliers(points []StreamPoint, maxSpeedMS float64, stddevFactor float64) []time.Time {
+	if len(points) < 3 {
+		return nil
+	}
+
+	type speedEntry struct {
+		index int
+		speed float64
+	}
+	var speeds []speedEntry
+
+	for i := 1; i < len(points); i++ {
+		if points[i-1].Lat == nil || points[i-1].Lng == nil ||
+			points[i].Lat == nil || points[i].Lng == nil {
+			continue
+		}
+		deltaS := points[i].Time.Sub(points[i-1].Time).Seconds()
+		if deltaS <= 0 {
+			continue
+		}
+		dist := haversine(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
+		speeds = append(speeds, speedEntry{index: i, speed: dist / deltaS})
+	}
+
+	if len(speeds) < 10 {
+		return nil
+	}
+
+	var sum, sumSq float64
+	for _, s := range speeds {
+		sum += s.speed
+		sumSq += s.speed * s.speed
+	}
+	mean := sum / float64(len(speeds))
+	variance := sumSq/float64(len(speeds)) - mean*mean
+	if variance < 0 {
+		variance = 0
+	}
+	stddev := math.Sqrt(variance)
+	threshold := mean + stddevFactor*stddev
+
+	outlierSet := make(map[int]bool)
+	for _, s := range speeds {
+		if s.speed > maxSpeedMS || s.speed > threshold {
+			outlierSet[s.index] = true
+		}
+	}
+
+	var outliers []time.Time
+	for idx := range outlierSet {
+		outliers = append(outliers, points[idx].Time)
+	}
+	return outliers
+}
+
+// haversine berechnet die Distanz in Metern zwischen zwei GPS-Koordinaten.
+func haversine(lat1, lng1, lat2, lng2 float64) float64 {
+	const R = 6371000
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLng := (lng2 - lng1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
+			math.Sin(dLng/2)*math.Sin(dLng/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// SportMaxSpeed gibt die sport-spezifische Maximalgeschwindigkeit in m/s zurück.
+func SportMaxSpeed(sportType string) float64 {
+	switch {
+	case strings.HasPrefix(sportType, "running"), sportType == "trail_running":
+		return 10.0
+	case strings.Contains(sportType, "cycling"), strings.Contains(sportType, "biking"):
+		return 25.0
+	case strings.Contains(sportType, "skiing"):
+		return 40.0
+	case sportType == "swimming":
+		return 3.0
+	default:
+		return 50.0
+	}
 }

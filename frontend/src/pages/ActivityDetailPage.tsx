@@ -30,6 +30,7 @@ import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
 import ClimbProChart from '@/components/ClimbProChart'
 import ClimbsSection from '@/components/ClimbsSection'
+import IntervalSection from '@/components/IntervalSection'
 import StopsSection from '@/components/StopsSection'
 import SurfacesSection from '@/components/SurfacesSection'
 import ActivitySegments from '@/components/ActivitySegments'
@@ -293,6 +294,9 @@ export default function ActivityDetailPage() {
 
       {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
       {activity.has_gps && <ClimbsSection activityId={activity.id} />}
+
+      {/* Intervalltraining */}
+      <IntervalSection activityId={activity.id} />
 
       {/* Liftfahrten */}
       {(activity.lift_count ?? 0) > 0 ? (

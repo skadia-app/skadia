@@ -20,6 +20,8 @@ func ApplyEdits(points []StreamPoint, sidecar *EditSidecar) []StreamPoint {
 			result = applyCrop(result, edit)
 		case "hr_spike_smooth":
 			result = applyHRSmooth(result, edit)
+		case EditTypeGPSOutlierSmooth:
+			result = applyGPSSmooth(result, edit)
 		}
 	}
 	return result
@@ -147,4 +149,70 @@ func findNextHRInSlice(points []StreamPoint, idx int) *int16 {
 		}
 	}
 	return nil
+}
+
+// buildTimestampSet wandelt eine Liste von ISO-8601-Zeitstempel-Strings in ein Unix-Sekunden-Set um.
+func buildTimestampSet(timestamps []string) map[int64]bool {
+	m := make(map[int64]bool, len(timestamps))
+	for _, tsStr := range timestamps {
+		t, err := time.Parse(time.RFC3339, tsStr)
+		if err != nil {
+			continue
+		}
+		m[t.Unix()] = true
+	}
+	return m
+}
+
+// applyGPSSmooth korrigiert GPS-Ausreißer durch Interpolation oder Entfernung.
+func applyGPSSmooth(points []StreamPoint, edit Edit) []StreamPoint {
+	if len(edit.Timestamps) == 0 {
+		return points
+	}
+	outlierSet := buildTimestampSet(edit.Timestamps)
+
+	result := make([]StreamPoint, len(points))
+	copy(result, points)
+
+	for i := range result {
+		if !outlierSet[result[i].Time.Unix()] {
+			continue
+		}
+		switch edit.Method {
+		case "remove":
+			result[i].Lat = nil
+			result[i].Lng = nil
+		default: // "interpolate"
+			prevLat, prevLng := findPrevGPS(result, i)
+			nextLat, nextLng := findNextGPS(result, i)
+			if prevLat != nil && nextLat != nil {
+				avgLat := (*prevLat + *nextLat) / 2
+				avgLng := (*prevLng + *nextLng) / 2
+				result[i].Lat = &avgLat
+				result[i].Lng = &avgLng
+			} else if prevLat != nil {
+				result[i].Lat = prevLat
+				result[i].Lng = prevLng
+			}
+		}
+	}
+	return result
+}
+
+func findPrevGPS(points []StreamPoint, idx int) (*float64, *float64) {
+	for i := idx - 1; i >= 0; i-- {
+		if points[i].Lat != nil && points[i].Lng != nil {
+			return points[i].Lat, points[i].Lng
+		}
+	}
+	return nil, nil
+}
+
+func findNextGPS(points []StreamPoint, idx int) (*float64, *float64) {
+	for i := idx + 1; i < len(points); i++ {
+		if points[i].Lat != nil && points[i].Lng != nil {
+			return points[i].Lat, points[i].Lng
+		}
+	}
+	return nil, nil
 }

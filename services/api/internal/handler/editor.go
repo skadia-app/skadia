@@ -252,6 +252,66 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// DetectGPSOutliersHandler detects GPS outliers in an activity's stream data.
+//
+// POST /api/v1/activities/{id}/edits/detect-gps-outliers
+func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	activityID := chi.URLParam(r, "id")
+
+	// Verify ownership
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("editor: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	// Load streams from DB
+	streams, err := h.DB.GetStreams(r.Context(), activityID)
+	if err != nil {
+		slog.Error("editor: get streams failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+		return
+	}
+
+	// Convert to editor StreamPoints
+	points := make([]editor.StreamPoint, 0, len(streams))
+	for _, s := range streams {
+		p := editor.StreamPoint{
+			Time:      s.Time,
+			HeartRate: s.HeartRate,
+			Lat:       s.Lat,
+			Lng:       s.Lng,
+		}
+		points = append(points, p)
+	}
+
+	maxSpeed := editor.SportMaxSpeed(activity.SportType)
+	outlierTimes := editor.DetectGPSOutliers(points, maxSpeed, 3.0)
+
+	// Format as ISO 8601 strings
+	timestamps := make([]string, 0, len(outlierTimes))
+	for _, t := range outlierTimes {
+		timestamps = append(timestamps, t.Format(time.RFC3339))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"count":          len(timestamps),
+		"timestamps":     timestamps,
+		"max_speed_ms":   maxSpeed,
+		"sport_type":     activity.SportType,
+	})
+}
+
 // ApplyActivityEdits applies the saved edits and triggers a recompute.
 //
 // POST /api/v1/activities/{id}/edits/apply

@@ -21,6 +21,7 @@ from enrichment import (
     enrich_ascents,
     compute_route_embedding,
     enrich_lifts,
+    enrich_intervals,
 )
 from enrichment.document_vlm import process_document
 from analytics import (
@@ -73,6 +74,7 @@ NORMAL_PRIORITY_STEPS = [
     ("forests", enrich_forests),
     ("surfaces", enrich_surfaces),
     ("stops", enrich_stops),
+    ("intervals", enrich_intervals),
 ]
 
 LOW_PRIORITY_STEPS = [

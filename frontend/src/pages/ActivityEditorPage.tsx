@@ -36,6 +36,13 @@ interface DetectSpikesResponse {
   threshold: number
 }
 
+interface DetectGPSOutliersResponse {
+  count: number
+  timestamps: string[]
+  max_speed_ms: number
+  sport_type: string
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 function getEdits(activityId: string): Promise<EditSidecar> {
@@ -57,6 +64,12 @@ function detectSpikes(activityId: string, threshold = 25): Promise<DetectSpikesR
   return apiClient<DetectSpikesResponse>(`/activities/${activityId}/edits/detect-hr-spikes`, {
     method: 'POST',
     body: { threshold },
+  })
+}
+
+function detectGPSOutliers(activityId: string): Promise<DetectGPSOutliersResponse> {
+  return apiClient<DetectGPSOutliersResponse>(`/activities/${activityId}/edits/detect-gps-outliers`, {
+    method: 'POST',
   })
 }
 
@@ -188,6 +201,10 @@ export default function ActivityEditorPage() {
   const [isApplying, setIsApplying] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
 
+  const [detectedGPSOutliers, setDetectedGPSOutliers] = useState<string[]>([])
+  const [isDetectingGPS, setIsDetectingGPS] = useState(false)
+  const [isSavingGPS, setIsSavingGPS] = useState(false)
+
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: ['activity', id],
     queryFn: () => fetchActivity(id!),
@@ -300,6 +317,7 @@ export default function ActivityEditorPage() {
     try {
       await deleteEdits(id)
       setDetectedSpikes([])
+      setDetectedGPSOutliers([])
       setShowPreview(false)
       await refetchSidecar()
       showStatus('Edits zurückgesetzt.')
@@ -307,6 +325,57 @@ export default function ActivityEditorPage() {
       showStatus('Zurücksetzen fehlgeschlagen.')
     } finally {
       setIsResetting(false)
+    }
+  }
+
+  // Detect GPS outliers
+  async function handleDetectGPSOutliers() {
+    if (!id) return
+    setIsDetectingGPS(true)
+    try {
+      const result = await detectGPSOutliers(id)
+      setDetectedGPSOutliers(result.timestamps)
+      showStatus(
+        result.count > 0
+          ? `${result.count} GPS-Ausreißer erkannt (Max. ${result.max_speed_ms.toFixed(1)} m/s für ${result.sport_type})`
+          : 'Keine GPS-Ausreißer erkannt.',
+      )
+    } catch {
+      showStatus('GPS-Ausreißer-Erkennung fehlgeschlagen.')
+    } finally {
+      setIsDetectingGPS(false)
+    }
+  }
+
+  // Save GPS outliers as edit to sidecar
+  async function handleSaveGPSOutliers() {
+    if (!id || detectedGPSOutliers.length === 0) return
+    setIsSavingGPS(true)
+    try {
+      const now = new Date().toISOString()
+      const newSidecar: EditSidecar = {
+        version: 1,
+        activity_id: id,
+        created_at: sidecar?.created_at ?? now,
+        updated_at: now,
+        edits: [
+          // Keep non-GPS edits from existing sidecar
+          ...(sidecar?.edits.filter(e => e.type !== 'gps_outlier_smooth') ?? []),
+          {
+            type: 'gps_outlier_smooth',
+            method: 'interpolate',
+            timestamps: detectedGPSOutliers,
+          },
+        ],
+      }
+      await putEdits(id, newSidecar)
+      await refetchSidecar()
+      setDetectedGPSOutliers([])
+      showStatus('GPS-Korrektur gespeichert.')
+    } catch {
+      showStatus('Speichern fehlgeschlagen.')
+    } finally {
+      setIsSavingGPS(false)
     }
   }
 
@@ -329,8 +398,8 @@ export default function ActivityEditorPage() {
     )
   }
 
-  const hasEdits = (sidecar?.edits.length ?? 0) > 0 || detectedSpikes.length > 0
-  const hasUnsavedSpikes = detectedSpikes.length > 0
+  const hasEdits = (sidecar?.edits.length ?? 0) > 0 || detectedSpikes.length > 0 || detectedGPSOutliers.length > 0
+  const hasUnsavedSpikes = detectedSpikes.length > 0 || detectedGPSOutliers.length > 0
 
   return (
     <div className="space-y-6">
@@ -460,6 +529,39 @@ export default function ActivityEditorPage() {
             </>
           )}
 
+          {/* Detect GPS outliers */}
+          <>
+            <button
+              onClick={handleDetectGPSOutliers}
+              disabled={isDetectingGPS}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                         border border-neutral-200 dark:border-neutral-700
+                         text-neutral-700 dark:text-neutral-300
+                         hover:bg-neutral-100 dark:hover:bg-neutral-800
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors"
+            >
+              <MapPinIcon className="w-4 h-4 text-blue-500" />
+              {isDetectingGPS ? 'Erkenne...' : 'GPS-Ausreißer erkennen'}
+            </button>
+
+            {detectedGPSOutliers.length > 0 && (
+              <button
+                onClick={handleSaveGPSOutliers}
+                disabled={isSavingGPS}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                           border border-blue-300 dark:border-blue-700
+                           text-blue-700 dark:text-blue-400
+                           hover:bg-blue-50 dark:hover:bg-blue-900/20
+                           disabled:opacity-50 disabled:cursor-not-allowed
+                           transition-colors"
+              >
+                <CheckCircleIcon className="w-4 h-4" />
+                {isSavingGPS ? 'Speichere...' : `GPS korrigieren (${detectedGPSOutliers.length})`}
+              </button>
+            )}
+          </>
+
           {/* Spacer */}
           <div className="flex-1" />
 
@@ -525,6 +627,8 @@ function editLabel(edit: Edit): string {
   switch (edit.type) {
     case 'hr_spike_smooth':
       return `HR-Spikes glatten: ${edit.timestamps?.length ?? 0} Punkte (${edit.method ?? 'interpolate'})`
+    case 'gps_outlier_smooth':
+      return `GPS-Ausreißer korrigieren: ${edit.timestamps?.length ?? 0} Punkte (${edit.method ?? 'interpolate'})`
     case 'trim_start':
       return `Anfang trimmen ab ${edit.timestamp ?? '?'}`
     case 'trim_end':
@@ -537,6 +641,15 @@ function editLabel(edit: Edit): string {
 }
 
 // ── Inline Icons (Lucide-style SVGs) ─────────────────────────────────────────
+
+function MapPinIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  )
+}
 
 function HeartPulseIcon({ className }: { className?: string }) {
   return (

@@ -189,6 +189,7 @@ func main() {
 			r.Get("/activities/{id}/lengths", h.GetLengths)
 			r.Get("/activities/{id}/climbs", h.GetActivityClimbs)
 			r.Get("/activities/{id}/climb-pro", h.GetClimbProEvents)
+			r.Get("/activities/{id}/intervals", h.GetActivityIntervals)
 			r.Get("/activities/{id}/export", h.ExportActivity)
 			r.Post("/activities/{id}/fusion", h.SetActivityFusion)
 			r.Get("/activities/{id}/fusion-candidates", h.GetFusionCandidates)
@@ -336,6 +337,7 @@ func main() {
 			r.Put("/activities/{id}/edits", h.PutActivityEdits)
 			r.Delete("/activities/{id}/edits", h.DeleteActivityEdits)
 			r.Post("/activities/{id}/edits/detect-hr-spikes", h.DetectHRSpikesHandler)
+			r.Post("/activities/{id}/edits/detect-gps-outliers", h.DetectGPSOutliersHandler)
 			r.Post("/activities/{id}/edits/apply", h.ApplyActivityEdits)
 
 			// Non-destructive edit operations (Trim / Split / Merge)

@@ -192,6 +192,20 @@ export interface Climb {
   category: string
 }
 
+export interface ActivityInterval {
+  id: string
+  activity_id: string
+  segment_num: number
+  start_time: string
+  end_time: string
+  duration_s: number
+  avg_power_w?: number | null
+  avg_heart_rate?: number | null
+  avg_speed_ms?: number | null
+  avg_cadence?: number | null
+  intensity: 'hard' | 'moderate' | 'easy' | 'recovery'
+}
+
 export interface ActivityStop {
   id: string
   started_at: string

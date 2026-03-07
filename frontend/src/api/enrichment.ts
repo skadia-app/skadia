@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 import { apiFetch } from '@/lib/auth'
-import type { GeoTag, Climb, EnrichmentSettings, ActivityStop, ActivitySurface } from './types'
+import type { GeoTag, Climb, ActivityInterval, EnrichmentSettings, ActivityStop, ActivitySurface } from './types'
 import type * as GeoJSON from 'geojson'
 
 export async function fetchGeoTags(activityId: string): Promise<GeoTag[]> {
@@ -9,6 +9,10 @@ export async function fetchGeoTags(activityId: string): Promise<GeoTag[]> {
 
 export async function fetchActivityClimbs(activityId: string): Promise<Climb[]> {
   return apiClient<Climb[]>(`/activities/${activityId}/climbs`)
+}
+
+export async function fetchActivityIntervals(activityId: string): Promise<ActivityInterval[]> {
+  return apiClient<ActivityInterval[]>(`/activities/${activityId}/intervals`)
 }
 
 export async function fetchEnrichmentSettings(): Promise<EnrichmentSettings> {
