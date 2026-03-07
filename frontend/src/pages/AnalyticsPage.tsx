@@ -3,8 +3,8 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAnalyticsFilters, getPresets, savePreset, deletePreset } from '@/lib/analyticsFilters'
 import type { AnalyticsFilterState, FilterPreset } from '@/lib/analyticsFilters'
-import { CATEGORIES } from '@/lib/sportTaxonomy'
-import { generateFilterOptions, filterToExistingSports } from '@/lib/sportOptions'
+import { generateActivityFilterOptions, getOptionKey, filterToExistingSports } from '@/lib/sportOptions'
+import type { SportOption } from '@/lib/sportOptions'
 import { fetchSportTypeStats } from '@/api/stats'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import TagFilterInput from '@/components/TagFilterInput'
@@ -56,9 +56,9 @@ function activeFilterCount(filters: AnalyticsFilterState): number {
   return count
 }
 
-// ── Sport Type Selector ───────────────────────────────────────────────────────
+// ── Sport Type Selector (checkbox tree — matches ActivityFilters layout) ─────
 
-const ANALYTICS_SPORT_OPTIONS = generateFilterOptions('analytics')
+const ANALYTICS_SPORT_OPTIONS = generateActivityFilterOptions()
 
 interface SportTypeSelectorProps {
   selected: string[]
@@ -66,7 +66,8 @@ interface SportTypeSelectorProps {
 }
 
 function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [sportSearch, setSportSearch] = useState('')
   const { hideUnused } = useGlobalSportSettings()
   const { data: statsData } = useQuery({
     queryKey: ['sport-type-stats'],
@@ -84,85 +85,157 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
     return ANALYTICS_SPORT_OPTIONS
   }, [hideUnused, existingSportTypes])
 
-  const toggleSport = (sportType: string) => {
-    if (selected.includes(sportType)) {
+  // Analytics uses plain sport type values (not composite sport:subType keys)
+  // because the backend filters on a.sport_type directly.
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+
+  function toggleSport(sportType: string) {
+    if (selectedSet.has(sportType)) {
       onChange(selected.filter(s => s !== sportType))
     } else {
       onChange([...selected, sportType])
     }
   }
 
-  const toggleCategory = (catKey: string, childValues: string[]) => {
-    const allSelected = childValues.every(s => selected.includes(s))
+  function toggleParent(parent: SportOption) {
+    if (!parent.children) return
+    const childValues = parent.children.map(c => c.value)
+    const unique = [...new Set(childValues)]
+    const allSelected = unique.every(v => selectedSet.has(v))
     if (allSelected) {
-      onChange(selected.filter(s => !childValues.includes(s)))
+      onChange(selected.filter(s => !unique.includes(s)))
     } else {
-      const toAdd = childValues.filter(s => !selected.includes(s))
+      const toAdd = unique.filter(v => !selectedSet.has(v))
       onChange([...selected, ...toAdd])
     }
   }
 
-  return (
-    <div className="space-y-1">
-      {visibleOptions.map(opt => {
-        const cat = CATEGORIES.find(c => c.key === opt.value)
-        const childValues = opt.children
-          ? opt.children.map(c => c.value)
-          : [opt.value]
-        const selectedInGroup = childValues.filter(s => selected.includes(s)).length
-        const isExpanded = expanded === opt.value
+  function isParentChecked(parent: SportOption): boolean {
+    if (!parent.children) return false
+    const childValues = [...new Set(parent.children.map(c => c.value))]
+    return childValues.every(v => selectedSet.has(v))
+  }
 
-        return (
-          <div key={opt.value} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => toggleCategory(opt.value, childValues)}
-                className={`flex-1 text-left px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  selectedInGroup > 0
-                    ? 'text-neutral-900 dark:text-neutral-100'
-                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                }`}
-              >
-                <span
-                  className="inline-block w-2 h-2 rounded-full mr-1.5"
-                  style={{ backgroundColor: selectedInGroup > 0 ? (cat?.color ?? '#9ca3af') : '#9ca3af' }}
-                />
-                {opt.label}
-                {selectedInGroup > 0 && (
-                  <span className="ml-1.5 text-xs opacity-60">({selectedInGroup})</span>
-                )}
-              </button>
-              {opt.children && opt.children.length > 1 && (
-                <button
-                  onClick={() => setExpanded(isExpanded ? null : opt.value)}
-                  className="px-2 py-1.5 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
-                  title="Einzelne Sportarten"
-                >
-                  {isExpanded ? '▲' : '▼'}
-                </button>
-              )}
-            </div>
-            {isExpanded && opt.children && (
-              <div className="px-2.5 pb-1.5 flex flex-wrap gap-1">
-                {opt.children.map(child => (
+  function isParentIndeterminate(parent: SportOption): boolean {
+    if (!parent.children) return false
+    const childValues = [...new Set(parent.children.map(c => c.value))]
+    const count = childValues.filter(v => selectedSet.has(v)).length
+    return count > 0 && count < childValues.length
+  }
+
+  function toggleGroup(groupKey: string) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(groupKey)) next.delete(groupKey)
+      else next.add(groupKey)
+      return next
+    })
+  }
+
+  const sportSearchLower = sportSearch.toLowerCase().trim()
+  function matchesSportSearch(opt: SportOption): boolean {
+    if (!sportSearchLower) return true
+    if (opt.label.toLowerCase().includes(sportSearchLower)) return true
+    if (opt.children) return opt.children.some(c => c.label.toLowerCase().includes(sportSearchLower))
+    return false
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportarten</span>
+        <button
+          onClick={() => {
+            if (selected.length > 0) onChange([])
+            else {
+              const all: string[] = []
+              for (const opt of visibleOptions) {
+                if (opt.children) {
+                  for (const c of opt.children) {
+                    if (!all.includes(c.value)) all.push(c.value)
+                  }
+                } else {
+                  if (!all.includes(opt.value)) all.push(opt.value)
+                }
+              }
+              onChange(all)
+            }
+          }}
+          className="text-xs text-[var(--color-accent-DEFAULT)] hover:text-[var(--color-accent-600)] cursor-pointer"
+        >
+          {selected.length > 0 ? 'Keine' : 'Alle'}
+        </button>
+      </div>
+      <input
+        type="text"
+        value={sportSearch}
+        onChange={e => setSportSearch(e.target.value)}
+        placeholder="Sportart suchen..."
+        className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5
+                   text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-DEFAULT)]"
+      />
+      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+        {visibleOptions.filter(matchesSportSearch).map(opt => (
+          <div key={opt.groupKey ?? opt.value}>
+            {opt.children && opt.groupKey ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={isParentChecked(opt)}
+                    ref={el => { if (el) el.indeterminate = isParentIndeterminate(opt) }}
+                    onChange={() => toggleParent(opt)}
+                    className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-[var(--color-accent-DEFAULT)] focus:ring-[var(--color-accent-DEFAULT)] focus:ring-1"
+                  />
                   <button
-                    key={child.value}
-                    onClick={() => toggleSport(child.value)}
-                    className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                      selected.includes(child.value)
-                        ? 'border-transparent text-white font-medium'
-                        : 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-600'
-                    }`}
-                    style={selected.includes(child.value) ? { backgroundColor: cat?.color ?? '#9ca3af' } : undefined}
+                    onClick={() => toggleGroup(opt.groupKey!)}
+                    className="flex items-center gap-1 text-sm text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
                   >
-                    {child.label}
+                    <svg
+                      className={`w-3 h-3 text-neutral-400 transition-transform ${expandedGroups.has(opt.groupKey!) ? '' : '-rotate-90'}`}
+                      viewBox="0 0 20 20" fill="currentColor"
+                    >
+                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                    </svg>
+                    {opt.label}
                   </button>
-                ))}
+                </div>
+                {(expandedGroups.has(opt.groupKey!) || sportSearchLower) && (
+                  <div className="ml-6 mt-1 space-y-1">
+                    {opt.children
+                      .filter(c => !sportSearchLower || c.label.toLowerCase().includes(sportSearchLower))
+                      .map(child => (
+                        <label key={getOptionKey(child)} className="flex items-center gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={selectedSet.has(child.value)}
+                            onChange={() => toggleSport(child.value)}
+                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-[var(--color-accent-DEFAULT)] focus:ring-[var(--color-accent-DEFAULT)] focus:ring-1"
+                          />
+                          <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                            {child.label}
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                )}
               </div>
+            ) : (
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(opt.value)}
+                  onChange={() => toggleSport(opt.value)}
+                  className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-[var(--color-accent-DEFAULT)] focus:ring-[var(--color-accent-DEFAULT)] focus:ring-1"
+                />
+                <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
+                  {opt.label}
+                </span>
+              </label>
             )}
           </div>
-        )
-      })}
+        ))}
+      </div>
     </div>
   )
 }
