@@ -6,9 +6,9 @@ import { fetchSportTypeStats } from '@/api/stats'
 import { sportLabel } from '@/lib/utils'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import TagFilterInput from '@/components/TagFilterInput'
-import GearFilterInput from '@/components/GearFilterInput'
-import type { TagFilter } from '@/components/TagFilterInput'
-import type { GearFilter } from '@/components/GearFilterInput'
+import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
+import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
+import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
@@ -248,18 +248,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
   }
-  if (filters.tagFilters.length) {
-    chips.push({
-      label: `${filters.tagFilters.length} Tag${filters.tagFilters.length > 1 ? 's' : ''}`,
-      onRemove: () => onChange({ ...filters, tagFilters: [] }),
-    })
-  }
-  if (filters.gearFilters.length) {
-    chips.push({
-      label: `${filters.gearFilters.length} Ausrüstung`,
-      onRemove: () => onChange({ ...filters, gearFilters: [] }),
-    })
-  }
+  // Tag and gear chips are rendered separately with tri-state cycling
 
   return (
     <div className="relative" ref={popoverRef}>
@@ -285,8 +274,12 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
       {/* Popover */}
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-80 bg-white dark:bg-neutral-900 rounded-xl shadow-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-          <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
+        <div
+          onMouseDown={e => e.stopPropagation()}
+          className="absolute right-0 top-full mt-1 z-20 w-80 bg-white dark:bg-neutral-900 rounded-xl shadow-lg border border-neutral-200 dark:border-neutral-800"
+          style={{ maxHeight: 'calc(100vh - 80px)' }}
+        >
+          <div className="overflow-y-auto p-4 space-y-4" style={{ maxHeight: 'calc(100vh - 82px)' }}>
 
             {/* Sportarten */}
             <div>
@@ -373,14 +366,6 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
-            {/* Tags */}
-            <div>
-              <TagFilterInput
-                value={filters.tagFilters}
-                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
-              />
-            </div>
-
             {/* Zeitraum */}
             <div>
               <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
@@ -454,6 +439,14 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
+            {/* Tags (tri-state filter) */}
+            <div>
+              <TagFilterInput
+                value={filters.tagFilters}
+                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
+              />
+            </div>
+
             {/* Gear (tri-state filter) */}
             <div>
               <GearFilterInput
@@ -476,7 +469,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
       )}
 
       {/* Active filter chips (rendered inline below button) */}
-      {chips.length > 0 && (
+      {(chips.length > 0 || filters.tagFilters.length > 0 || filters.gearFilters.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {chips.map(chip => (
             <span
@@ -491,6 +484,48 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 &times;
               </button>
             </span>
+          ))}
+          {filters.tagFilters.map(tf => (
+            <button
+              key={`tag-${tf.id}`}
+              onClick={() => {
+                if (tf.state === 'include') {
+                  onChange({ ...filters, tagFilters: filters.tagFilters.map(f => f.id === tf.id ? { ...f, state: 'exclude' as TagFilterState } : f) })
+                } else {
+                  onChange({ ...filters, tagFilters: filters.tagFilters.filter(f => f.id !== tf.id) })
+                }
+              }}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full border cursor-pointer transition-colors ${
+                tf.state === 'include'
+                  ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                  : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tf.color }} />
+              {tf.name}
+              <span className="opacity-60 text-[10px]">{tf.state === 'include' ? '\u2713' : '\u2715'}</span>
+            </button>
+          ))}
+          {filters.gearFilters.map(gf => (
+            <button
+              key={`gear-${gf.id}`}
+              onClick={() => {
+                if (gf.state === 'include') {
+                  onChange({ ...filters, gearFilters: filters.gearFilters.map(f => f.id === gf.id ? { ...f, state: 'exclude' as GearFilterState } : f) })
+                } else {
+                  onChange({ ...filters, gearFilters: filters.gearFilters.filter(f => f.id !== gf.id) })
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] rounded-full border cursor-pointer transition-colors ${
+                gf.state === 'include'
+                  ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                  : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through'
+              }`}
+            >
+              <span className="flex-shrink-0">{gearTypeIcon(gf.type)}</span>
+              {gf.name}
+              <span className="opacity-60 text-[10px]">{gf.state === 'include' ? '\u2713' : '\u2715'}</span>
+            </button>
           ))}
         </div>
       )}

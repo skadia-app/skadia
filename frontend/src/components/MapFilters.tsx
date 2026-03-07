@@ -12,9 +12,9 @@ import ColorPicker from '@/components/ColorPicker'
 import { fetchSportTypeStats } from '@/api/stats'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import TagFilterInput from '@/components/TagFilterInput'
-import GearFilterInput from '@/components/GearFilterInput'
+import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
-import type { GearFilter } from '@/components/GearFilterInput'
+import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
@@ -254,22 +254,6 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
               </div>
             </div>
 
-            {/* Tag filter */}
-            <div>
-              <TagFilterInput
-                value={filters.tagFilters ?? []}
-                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
-              />
-            </div>
-
-            {/* Gear filter */}
-            <div>
-              <GearFilterInput
-                value={filters.gearFilters ?? []}
-                onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
-              />
-            </div>
-
             {/* Date range */}
             <div>
               <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
@@ -307,6 +291,82 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   >&#x2715;</span>
                 )}
               </button>
+            </div>
+
+            {/* Tag & Gear filter — combined chips + compact search fields */}
+            <div className="space-y-2">
+              {/* Combined selected chips (tags + gear) */}
+              {((filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0) && (
+                <div>
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {(filters.tagFilters ?? []).filter(f => f.state !== undefined).map((chip) => (
+                      <button
+                        key={`tag-${chip.id}`}
+                        type="button"
+                        onClick={() => {
+                          const tags = filters.tagFilters ?? []
+                          if (chip.state === 'include') {
+                            onChange({ ...filters, tagFilters: tags.map(f => f.id === chip.id ? { ...f, state: 'exclude' as const } : f) })
+                          } else {
+                            onChange({ ...filters, tagFilters: tags.filter(f => f.id !== chip.id) })
+                          }
+                        }}
+                        className={[
+                          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
+                          chip.state === 'include'
+                            ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                            : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',
+                        ].join(' ')}
+                      >
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: chip.color }} />
+                        {chip.name}
+                        <span className="ml-0.5 opacity-60 text-[10px]">
+                          {chip.state === 'include' ? '✓' : '✕'}
+                        </span>
+                      </button>
+                    ))}
+                    {(filters.gearFilters ?? []).filter(f => f.state !== undefined).map((chip) => (
+                      <button
+                        key={`gear-${chip.id}`}
+                        type="button"
+                        onClick={() => {
+                          const gear = filters.gearFilters ?? []
+                          if (chip.state === 'include') {
+                            onChange({ ...filters, gearFilters: gear.map(f => f.id === chip.id ? { ...f, state: 'exclude' as GearFilterState } : f) })
+                          } else {
+                            onChange({ ...filters, gearFilters: gear.filter(f => f.id !== chip.id) })
+                          }
+                        }}
+                        className={[
+                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
+                          chip.state === 'include'
+                            ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                            : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',
+                        ].join(' ')}
+                      >
+                        <span className="flex-shrink-0" aria-hidden="true">{gearTypeIcon(chip.type)}</span>
+                        {chip.name}
+                        <span className="ml-0.5 opacity-60 text-[10px]">
+                          {chip.state === 'include' ? '✓' : '✕'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+                    Klick: einschließen → ausschließen → entfernen
+                  </p>
+                </div>
+              )}
+              <TagFilterInput
+                value={filters.tagFilters ?? []}
+                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
+                compact
+              />
+              <GearFilterInput
+                value={filters.gearFilters ?? []}
+                onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
+                compact
+              />
             </div>
 
             {/* Opacity slider */}
