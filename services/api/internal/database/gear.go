@@ -215,6 +215,11 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		args = append(args, *update.Notes)
 		argIdx++
 	}
+	if update.WeightG != nil {
+		sets = append(sets, fmt.Sprintf("weight_g = $%d", argIdx))
+		args = append(args, *update.WeightG)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		return db.GetGear(ctx, id)

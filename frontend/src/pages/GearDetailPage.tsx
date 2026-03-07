@@ -134,6 +134,14 @@ export default function GearDetailPage() {
             <StatCard label="Aktivitäten" value={String(gear.total_activities)} />
           </div>
 
+          {/* Weight */}
+          {gear.weight_g != null && (
+            <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+              <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gewicht</h3>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">{gear.weight_g} g</p>
+            </div>
+          )}
+
           {/* Notes */}
           {gear.notes && (
             <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">

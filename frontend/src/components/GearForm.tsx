@@ -28,6 +28,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
   const [purchasedAt, setPurchasedAt] = useState(gear?.purchased_at?.split('T')[0] ?? '')
   const [defaultForSports, setDefaultForSports] = useState<string[]>(gear?.default_for_sports ?? [])
   const [notes, setNotes] = useState(gear?.notes ?? '')
+  const [weightG, setWeightG] = useState(gear?.weight_g?.toString() ?? '')
 
   function toggleSport(sport: string) {
     setDefaultForSports((prev) =>
@@ -47,6 +48,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
       purchased_at: purchasedAt || null,
       default_for_sports: defaultForSports,
       notes: notes.trim() || null,
+      weight_g: weightG ? parseInt(weightG, 10) : null,
     })
   }
 
@@ -135,6 +137,21 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           value={purchasedAt}
           onChange={(e) => setPurchasedAt(e.target.value)}
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+        />
+      </div>
+
+      {/* Weight */}
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+          Gewicht (g)
+        </label>
+        <input
+          type="number"
+          min={0}
+          value={weightG}
+          onChange={(e) => setWeightG(e.target.value)}
+          className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+          placeholder="z.B. 8500"
         />
       </div>
 

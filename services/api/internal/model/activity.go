@@ -739,6 +739,7 @@ type GearUpdate struct {
 	IsRetired        *bool    `json:"is_retired,omitempty"`
 	DefaultForSports []string `json:"default_for_sports,omitempty"`
 	Notes            *string  `json:"notes,omitempty"`
+	WeightG          *int     `json:"weight_g,omitempty"`
 }
 
 // GearComponent represents a component attached to a gear item.

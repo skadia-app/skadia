@@ -249,6 +249,7 @@ export interface Gear {
   status: GearStatus
   default_for_sports: string[]
   notes?: string | null
+  weight_g?: number | null
   components?: GearComponent[]
   created_at: string
 }
