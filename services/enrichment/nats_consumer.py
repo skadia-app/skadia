@@ -197,6 +197,20 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
             await msg.ack()
             _metrics["processed_total"] += 1
             logger.info("document processed: %s (success=%s)", doc_id, success)
+
+            # Publish document.processed event
+            try:
+                await nc.publish(
+                    "skadia.document.processed",
+                    json.dumps({
+                        "doc_id": doc_id,
+                        "user_id": user_id,
+                        "gear_id": data.get("gear_id"),
+                        "success": success,
+                    }).encode(),
+                )
+            except Exception as e:
+                logger.warning("failed to publish document.processed: %s", e)
         except Exception as e:
             logger.error("document processing failed for %s: %s", doc_id, e)
             _metrics["errors_total"] += 1

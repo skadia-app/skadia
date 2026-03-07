@@ -156,6 +156,11 @@ async def process_document(
         if image_bytes:
             result = await extract_from_image(image_bytes)
 
+        # Fallback: Falls VLM fehlschlägt aber extracted_text vorhanden
+        if not result and extracted_text:
+            logger.info("VLM failed, falling back to text extraction for %s", doc_id)
+            result = await extract_from_text(extracted_text)
+
     if not result or not result.get("products"):
         logger.info("no products extracted from document %s", doc_id)
         return False
