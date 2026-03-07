@@ -14,6 +14,7 @@ import {
   getDay,
 } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { HeatmapChart } from 'echarts/charts'
@@ -27,6 +28,7 @@ import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
 import { formatDuration, formatDistance } from '@/lib/utils'
+import DateRangePopover from '@/components/DateRangePopover'
 
 echarts.use([HeatmapChart, CalendarComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
@@ -282,10 +284,6 @@ export default function CalendarPage() {
     setAnchorDate((prev) => addWeeks(prev, weekCount))
   }
 
-  function goToday() {
-    setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))
-  }
-
   function goPrevYear() {
     setSelectedYear((y) => y - 1)
   }
@@ -295,9 +293,6 @@ export default function CalendarPage() {
   }
 
   const currentYear = new Date().getFullYear()
-
-  // Get week number for current anchorDate
-  const weekNum = useMemo(() => getISOWeek(anchorDate), [anchorDate])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -309,7 +304,26 @@ export default function CalendarPage() {
         </h1>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Tab Toggle — FIRST so it never moves */}
+          {/* Health data toggle — only in weeks view — FIRST position */}
+          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
+            <div
+              onClick={toggleHealthData}
+              className={[
+                'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
+                showHealthData
+                  ? 'bg-[color:var(--color-accent-DEFAULT)]'
+                  : 'bg-neutral-300 dark:bg-neutral-600',
+              ].join(' ')}
+            >
+              <div className={[
+                'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
+                showHealthData ? 'translate-x-4' : 'translate-x-0.5',
+              ].join(' ')} />
+            </div>
+            Gesundheitsdaten
+          </label>
+
+          {/* Tab Toggle */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setTab('weeks')}
@@ -333,7 +347,7 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* View mode toggle — Kalender/TSS-Heatmap ALWAYS next to Wochen/Jahr */}
+          {/* View mode toggle — Kalender/TSS-Heatmap */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setYearViewMode('calendar')}
@@ -357,28 +371,8 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* Health data toggle — only in weeks view */}
-          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-600 dark:text-neutral-300 ${tab !== 'weeks' ? 'hidden' : ''}`}>
-            <div
-              onClick={toggleHealthData}
-              className={[
-                'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-                showHealthData
-                  ? 'bg-[color:var(--color-accent-DEFAULT)]'
-                  : 'bg-neutral-300 dark:bg-neutral-600',
-              ].join(' ')}
-            >
-              <div className={[
-                'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
-                showHealthData ? 'translate-x-4' : 'translate-x-0.5',
-              ].join(' ')} />
-            </div>
-            Gesundheitsdaten
-          </label>
-
-          {/* Week navigation — only in weeks view */}
-          <div className={`flex items-center gap-2 ${tab !== 'weeks' ? 'hidden' : ''}`}>
-            <span className="text-xs text-neutral-600 dark:text-neutral-300 font-medium">KW {weekNum}</span>
+          {/* Week navigation — left side: arrows, right side: date popover */}
+          <div className={`flex items-center gap-2 ml-auto ${tab !== 'weeks' ? 'hidden' : ''}`}>
             <div className="flex items-center gap-1">
               <button
                 onClick={goBack}
@@ -388,13 +382,6 @@ export default function CalendarPage() {
                 ‹
               </button>
               <button
-                onClick={goToday}
-                className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-              >
-                Heute
-              </button>
-              <button
                 onClick={goForward}
                 className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
                            text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
@@ -402,34 +389,39 @@ export default function CalendarPage() {
                 ›
               </button>
             </div>
+            <DateRangePopover anchorDate={anchorDate} onSelect={setAnchorDate} tab={tab} />
           </div>
 
           {/* Year navigation with dropdown picker — hidden when weeks view */}
-          <div className={`flex items-center gap-1 ${tab !== 'year' ? 'hidden' : ''}`} ref={yearPickerRef}>
+          <div className={`flex items-center gap-2 ${tab !== 'year' ? 'hidden' : ''}`} ref={yearPickerRef}>
                 <button
                   onClick={goPrevYear}
-                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                  className="p-1.5 rounded-md border border-neutral-200 dark:border-neutral-700
+                             text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
+                             hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                  title="Vorheriges Jahr"
                 >
-                  ‹
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
 
                 {/* Clickable year label */}
                 <div className="relative">
                   <button
                     onClick={() => setYearPickerOpen(prev => !prev)}
-                    className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-neutral-200 dark:border-neutral-700
-                               text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
-                               min-w-[3.5rem] text-center"
+                    className="px-3.5 py-1.5 text-sm font-bold rounded-md border border-neutral-200 dark:border-neutral-700
+                               text-neutral-800 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700
+                               transition-colors min-w-[4rem] text-center flex items-center gap-1.5 justify-center
+                               hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT"
                   >
                     {selectedYear}
+                    <ChevronDown className={`w-4 h-4 transition-transform ${yearPickerOpen ? 'rotate-180' : ''}`} />
                   </button>
 
                   {yearPickerOpen && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50
                                     rounded-lg border border-neutral-200 dark:border-neutral-700
                                     bg-white dark:bg-neutral-800 shadow-lg
-                                    max-h-48 overflow-y-auto py-1 min-w-[5rem]">
+                                    max-h-56 overflow-y-auto py-1.5 min-w-[5.5rem]">
                       {Array.from(
                         { length: currentYear - 2010 + 2 },
                         (_, i) => currentYear + 1 - i,
@@ -441,10 +433,10 @@ export default function CalendarPage() {
                             setYearPickerOpen(false)
                           }}
                           className={[
-                            'w-full px-3 py-1.5 text-xs text-left transition-colors',
+                            'w-full px-4 py-2 text-sm text-left transition-colors',
                             year === selectedYear
                               ? 'bg-[color:var(--color-accent-DEFAULT)] text-white font-semibold'
-                              : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800',
+                              : 'text-neutral-700 dark:text-neutral-300 hover:bg-[color:var(--color-accent-100)] dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
                           ].join(' ')}
                         >
                           {year}
@@ -457,11 +449,13 @@ export default function CalendarPage() {
                 <button
                   onClick={goNextYear}
                   disabled={selectedYear >= currentYear + 1}
-                  className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                             text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
-                             disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded-md border border-neutral-200 dark:border-neutral-700
+                             text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
+                             hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors
+                             disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+                  title="Nächstes Jahr"
                 >
-                  ›
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
         </div>
