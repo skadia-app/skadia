@@ -45,14 +45,25 @@ Format:
 Wenn ein Feld unbekannt ist, setze es auf null. Gib NUR valides JSON zurueck, kein Markdown."""
 
 
-async def extract_from_text(text: str) -> Optional[dict]:
+async def _get_user_prompt(pool, user_id: str, prompt_type: str) -> str:
+    """Lädt den benutzerdefinierten Prompt oder gibt den Default zurück."""
+    col = "ocr_invoice_prompt" if prompt_type == "invoice" else "ocr_gear_prompt"
+    async with pool.acquire() as conn:
+        result = await conn.fetchval(
+            f"SELECT {col} FROM user_enrichment_settings WHERE user_id = $1",
+            user_id,
+        )
+    return result or EXTRACTION_PROMPT
+
+
+async def extract_from_text(text: str, prompt: str = EXTRACTION_PROMPT) -> Optional[dict]:
     """Extrahiere Produktdaten aus Text-PDF via Qwen3-8B."""
     client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
     try:
         response = await client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": EXTRACTION_PROMPT},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Rechnung:\n\n{text[:8000]}"},
             ],
             temperature=0.1,
@@ -85,7 +96,7 @@ async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
 
 
 async def extract_from_image(
-    image_bytes: bytes, model: str = VLM_MODEL
+    image_bytes: bytes, model: str = VLM_MODEL, prompt: str = EXTRACTION_PROMPT
 ) -> Optional[dict]:
     """Extrahiere Produktdaten aus Bild-PDF via Qwen3-VL."""
     import base64
@@ -101,7 +112,7 @@ async def extract_from_image(
                     "content": [
                         {
                             "type": "text",
-                            "text": EXTRACTION_PROMPT
+                            "text": prompt
                             + "\n\nExtrahiere aus diesem Rechnungsbild:",
                         },
                         {
@@ -125,7 +136,7 @@ async def extract_from_image(
         logger.warning("VLM extraction with %s failed: %s", model, e)
         if model == VLM_MODEL:
             # Fallback auf kleineres VLM
-            return await extract_from_image(image_bytes, VLM_FALLBACK)
+            return await extract_from_image(image_bytes, VLM_FALLBACK, prompt)
     return None
 
 
@@ -146,20 +157,21 @@ async def process_document(
     """
     logger.info("processing document %s (is_text_pdf=%s)", doc_id, is_text_pdf)
 
+    prompt = await _get_user_prompt(pool, user_id, "invoice")
     result = None
 
     if is_text_pdf and extracted_text:
-        result = await extract_from_text(extracted_text)
+        result = await extract_from_text(extracted_text, prompt)
     else:
         # Bild-PDF: Download aus S3
         image_bytes = await download_s3_doc(s3_bucket, s3_key)
         if image_bytes:
-            result = await extract_from_image(image_bytes)
+            result = await extract_from_image(image_bytes, prompt=prompt)
 
         # Fallback: Falls VLM fehlschlägt aber extracted_text vorhanden
         if not result and extracted_text:
             logger.info("VLM failed, falling back to text extraction for %s", doc_id)
-            result = await extract_from_text(extracted_text)
+            result = await extract_from_text(extracted_text, prompt)
 
     if not result or not result.get("products"):
         logger.info("no products extracted from document %s", doc_id)

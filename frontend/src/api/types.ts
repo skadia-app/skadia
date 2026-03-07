@@ -178,6 +178,8 @@ export interface EnrichmentSettings {
   climb_min_gradient_pct: number
   climb_min_elevation_m: number
   round_trip_threshold_m: number
+  ocr_invoice_prompt?: string | null
+  ocr_gear_prompt?: string | null
 }
 
 export interface Climb {

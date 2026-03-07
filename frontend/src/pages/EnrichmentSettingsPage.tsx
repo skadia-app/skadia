@@ -204,6 +204,61 @@ export default function EnrichmentSettingsPage() {
         </div>
       </section>
 
+      {/* OCR-Prompts */}
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">OCR-Prompts</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Eigene Anweisungen für die Dokumenten-Erkennung (Rechnungen, Gear-Dokumente).
+            Leer lassen = Standard-Prompt verwenden.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">OCR-Prompt für Rechnungen</h3>
+          <textarea
+            value={settings.ocr_invoice_prompt ?? ''}
+            placeholder="Standard-Prompt verwenden (leer lassen)"
+            onChange={e => {
+              const val = e.target.value || null
+              updateMut.mutate({ ...settings, ocr_invoice_prompt: val })
+            }}
+            rows={8}
+            className="w-full text-sm font-mono bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg p-3 resize-y text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+          />
+          {settings.ocr_invoice_prompt && (
+            <button
+              onClick={() => updateMut.mutate({ ...settings, ocr_invoice_prompt: null })}
+              className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+            >
+              Auf Standard zurücksetzen
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">OCR-Prompt für Gear-Dokumente</h3>
+          <textarea
+            value={settings.ocr_gear_prompt ?? ''}
+            placeholder="Standard-Prompt verwenden (leer lassen)"
+            onChange={e => {
+              const val = e.target.value || null
+              updateMut.mutate({ ...settings, ocr_gear_prompt: val })
+            }}
+            rows={8}
+            className="w-full text-sm font-mono bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg p-3 resize-y text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+          />
+          {settings.ocr_gear_prompt && (
+            <button
+              onClick={() => updateMut.mutate({ ...settings, ocr_gear_prompt: null })}
+              className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+            >
+              Auf Standard zurücksetzen
+            </button>
+          )}
+        </div>
+      </section>
+
       {/* Actions */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Aktionen</h2>

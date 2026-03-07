@@ -687,6 +687,8 @@ type EnrichmentSettings struct {
 	ClimbMinGradientPct     float64 `json:"climb_min_gradient_pct"`
 	ClimbMinElevationM      float64 `json:"climb_min_elevation_m"`
 	RoundTripThresholdM     float64 `json:"round_trip_threshold_m"`
+	OCRInvoicePrompt        *string `json:"ocr_invoice_prompt,omitempty"`
+	OCRGearPrompt           *string `json:"ocr_gear_prompt,omitempty"`
 }
 
 // Gear represents a piece of equipment.

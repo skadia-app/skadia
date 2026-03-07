@@ -2591,13 +2591,13 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
-			round_trip_threshold_m`,
+			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
 		&s.EnableStopDetection, &s.EnableClimbDetection, &s.EnableCommuteDetection,
 		&s.EnableAutoNaming, &s.EnableLapDetection, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
-		&s.RoundTripThresholdM,
+		&s.RoundTripThresholdM, &s.OCRInvoicePrompt, &s.OCRGearPrompt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -2613,8 +2613,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
-			round_trip_threshold_m
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
 			enable_weather_enrichment = $3,
@@ -2625,11 +2625,13 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_lap_detection = $8,
 			climb_min_gradient_pct = $9,
 			climb_min_elevation_m = $10,
-			round_trip_threshold_m = $11`,
+			round_trip_threshold_m = $11,
+			ocr_invoice_prompt = $12,
+			ocr_gear_prompt = $13`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
-		s.RoundTripThresholdM,
+		s.RoundTripThresholdM, s.OCRInvoicePrompt, s.OCRGearPrompt,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)
