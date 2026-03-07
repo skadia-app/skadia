@@ -817,7 +817,7 @@ export default function MapPage() {
       addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
