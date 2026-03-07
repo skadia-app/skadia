@@ -51,7 +51,9 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
   function addTag(tag: Tag) {
     onChange([...value, { id: tag.id, name: tag.name, color: tag.color, state: 'include' }])
     setSearch('')
-    setOpen(false)
+    // Keep open so another tag can be selected immediately;
+    // the selected tag disappears from the list automatically.
+    setOpen(true)
   }
 
   function cycleChip(id: string) {
@@ -70,30 +72,34 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
     <div ref={containerRef} className="relative">
       {/* Selected chips */}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {value.map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => cycleChip(chip.id)}
-              title={chip.state === 'include' ? 'Klicken zum Ausschließen' : 'Klicken zum Entfernen'}
-              className={[
-                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
-                chip.state === 'include'
-                  ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
-                  : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',
-              ].join(' ')}
-            >
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: chip.color }}
-              />
-              {chip.name}
-              <span className="ml-0.5 opacity-60 text-[10px]">
-                {chip.state === 'include' ? '✓' : '✕'}
-              </span>
-            </button>
-          ))}
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-1.5 mb-1">
+            {value.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => cycleChip(chip.id)}
+                className={[
+                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
+                  chip.state === 'include'
+                    ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                    : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',
+                ].join(' ')}
+              >
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: chip.color }}
+                />
+                {chip.name}
+                <span className="ml-0.5 opacity-60 text-[10px]">
+                  {chip.state === 'include' ? '✓' : '✕'}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            Klick: einschließen → ausschließen → entfernen
+          </p>
         </div>
       )}
 

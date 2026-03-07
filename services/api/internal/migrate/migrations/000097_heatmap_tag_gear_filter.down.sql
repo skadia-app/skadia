@@ -1,0 +1,3 @@
+-- Restore previous version without tag/gear filter (reapply 000090 version)
+-- No-op: functions are replaced in place; rollback would require restoring 000090 version.
+-- Leave functions as-is on down migration.

@@ -11,6 +11,10 @@ export interface ActivityFilterParams {
   hasGPS?: boolean | null
   gearId?: string
   search?: string
+  includeTags?: string[]
+  excludeTags?: string[]
+  includeGear?: string[]
+  excludeGear?: string[]
 }
 
 export async function fetchActivities(
@@ -57,6 +61,10 @@ export async function fetchActivities(
   if (filters?.hasGPS !== null && filters?.hasGPS !== undefined) params.set('has_gps', String(filters.hasGPS))
   if (filters?.gearId) params.set('gear_id', filters.gearId)
   if (filters?.search) params.set('search', filters.search)
+  if (filters?.includeTags?.length) params.set('include_tags', filters.includeTags.join(','))
+  if (filters?.excludeTags?.length) params.set('exclude_tags', filters.excludeTags.join(','))
+  if (filters?.includeGear?.length) params.set('include_gear', filters.includeGear.join(','))
+  if (filters?.excludeGear?.length) params.set('exclude_gear', filters.excludeGear.join(','))
 
   return apiClient<ActivitiesResponse>(`/activities?${params}`)
 }

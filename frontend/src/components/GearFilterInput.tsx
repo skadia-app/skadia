@@ -78,7 +78,9 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
   function addGear(gear: Gear) {
     onChange([...value, { id: gear.id, name: gear.name, type: gear.type, state: 'include' }])
     setSearch('')
-    setOpen(false)
+    // Keep open so another item can be selected immediately;
+    // the selected gear disappears from the list automatically.
+    setOpen(true)
   }
 
   function cycleChip(id: string) {
@@ -97,13 +99,13 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
     <div ref={containerRef} className="relative">
       {/* Selected chips */}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-1.5 mb-1">
           {value.map((chip) => (
             <button
               key={chip.id}
               type="button"
               onClick={() => cycleChip(chip.id)}
-              title={chip.state === 'include' ? 'Klicken zum Ausschließen' : 'Klicken zum Entfernen'}
               className={[
                 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
                 chip.state === 'include'
@@ -120,6 +122,10 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
               </span>
             </button>
           ))}
+          </div>
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            Klick: einschließen → ausschließen → entfernen
+          </p>
         </div>
       )}
 

@@ -291,6 +291,14 @@ function buildTileUrl(
   if (samplingIntervalM != null && samplingIntervalM > 0) {
     params.set('sample_interval_m', String(samplingIntervalM))
   }
+  const includeTags = (filters.tagFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
+  const excludeTags = (filters.tagFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
+  const includeGear = (filters.gearFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
+  const excludeGear = (filters.gearFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
+  if (includeTags.length) params.set('include_tags', includeTags.join(','))
+  if (excludeTags.length) params.set('exclude_tags', excludeTags.join(','))
+  if (includeGear.length) params.set('include_gear', includeGear.join(','))
+  if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
 
   const qs = params.toString()
   return qs ? `${base}?${qs}` : base
