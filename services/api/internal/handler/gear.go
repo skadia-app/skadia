@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -732,6 +733,18 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PDF-Thumbnail generieren (best-effort)
+	if contentType == "application/pdf" {
+		if thumbData, err := generatePDFThumbnail(data, 400); err == nil {
+			thumbKey := fmt.Sprintf("gear/%s/%s/%s_thumb.jpg", userID, gearID, hashStr)
+			if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
+				_ = h.DB.UpdateGearDocumentThumbnail(r.Context(), result.ID, thumbKey)
+			}
+		} else {
+			slog.Warn("PDF thumbnail generation failed", "err", err)
+		}
+	}
+
 	// PDF text extraction via pdfcpu (best-effort)
 	var extractedText *string
 	var isTextPDF bool
@@ -764,6 +777,42 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, result)
+}
+
+// generatePDFThumbnail rendert die erste Seite eines PDFs als JPEG.
+func generatePDFThumbnail(pdfData []byte, maxWidth int) ([]byte, error) {
+	tmpPDF, err := os.CreateTemp("", "skadia-pdf-*.pdf")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmpPDF.Name())
+	if _, err := tmpPDF.Write(pdfData); err != nil {
+		tmpPDF.Close()
+		return nil, err
+	}
+	tmpPDF.Close()
+
+	tmpOut, err := os.CreateTemp("", "skadia-thumb-*")
+	if err != nil {
+		return nil, err
+	}
+	tmpOutBase := strings.TrimSuffix(tmpOut.Name(), filepath.Ext(tmpOut.Name()))
+	tmpOut.Close()
+	os.Remove(tmpOut.Name())
+
+	cmd := exec.Command("pdftoppm",
+		"-f", "1", "-l", "1",
+		"-jpeg",
+		"-scale-to", fmt.Sprintf("%d", maxWidth),
+		tmpPDF.Name(), tmpOutBase,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("pdftoppm: %w: %s", err, out)
+	}
+
+	outPath := tmpOutBase + "-1.jpg"
+	defer os.Remove(outPath)
+	return os.ReadFile(outPath)
 }
 
 // extractPDFText uses pdfcpu to extract content streams from PDF data.

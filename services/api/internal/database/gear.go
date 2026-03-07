@@ -1617,6 +1617,14 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 	return &s, nil
 }
 
+// UpdateGearDocumentThumbnail updates the s3_key_thumb field of a gear document.
+func (db *DB) UpdateGearDocumentThumbnail(ctx context.Context, docID, thumbKey string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE gear_documents SET s3_key_thumb = $1 WHERE id = $2`,
+		thumbKey, docID)
+	return err
+}
+
 // UpdateGearDocumentText updates the extracted_text field of a gear document.
 func (db *DB) UpdateGearDocumentText(ctx context.Context, docID, text string) error {
 	_, err := db.Pool.Exec(ctx,
