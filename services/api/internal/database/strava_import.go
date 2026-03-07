@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -61,6 +62,15 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 		return nil, fmt.Errorf("get strava import job: %w", err)
 	}
 
+	var parsedErrors []string
+	if len(moduleResults) > 0 {
+		// moduleResults not yet used for display
+		_ = moduleResults
+	}
+	if len(errors) > 0 {
+		_ = json.Unmarshal(errors, &parsedErrors)
+	}
+
 	result := map[string]interface{}{
 		"id":                id,
 		"user_id":           uid,
@@ -69,6 +79,7 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 		"total_modules":     totalModules,
 		"completed_modules": completedModules,
 		"current_module":    currentModule,
+		"errors":            parsedErrors,
 		"started_at":        startedAt,
 		"completed_at":      completedAt,
 		"created_at":        createdAt,
@@ -90,18 +101,59 @@ func (db *DB) UpdateStravaImportJob(ctx context.Context, jobID string, completed
 	return nil
 }
 
-// CompleteStravaImportJob marks a job as completed.
-func (db *DB) CompleteStravaImportJob(ctx context.Context, jobID string) error {
+// UpdateStravaImportCurrentModule updates only the current_module log string (per-item progress).
+func (db *DB) UpdateStravaImportCurrentModule(ctx context.Context, jobID, currentModule string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE strava_import_jobs SET current_module = $2 WHERE id = $1`,
+		jobID, currentModule,
+	)
+	return err
+}
+
+// UpdateStravaImportModuleProgress updates module-level completed/total counts.
+func (db *DB) UpdateStravaImportModuleProgress(ctx context.Context, jobID string, completed, total int) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE strava_import_jobs SET completed_modules = $2, total_modules = $3 WHERE id = $1`,
+		jobID, completed, total,
+	)
+	return err
+}
+
+// CompleteStravaImportJob marks a job as completed, optionally recording non-fatal errors.
+func (db *DB) CompleteStravaImportJob(ctx context.Context, jobID string, errs []string) error {
+	var errJSON []byte
+	if len(errs) > 0 {
+		errJSON, _ = json.Marshal(errs)
+	}
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE strava_import_jobs
-		 SET status = 'completed', completed_at = now()
+		 SET status = 'completed', completed_at = now(), errors = $2
 		 WHERE id = $1`,
-		jobID,
+		jobID, errJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("complete strava import job: %w", err)
 	}
 	return nil
+}
+
+// FindActivityIDAtTime returns the ID of the activity that was running at the given time.
+// Returns an empty string if no matching activity is found.
+func (db *DB) FindActivityIDAtTime(ctx context.Context, userID string, ts time.Time) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM activities
+		 WHERE user_id = $1
+		   AND started_at <= $2 + INTERVAL '30 minutes'
+		   AND (ended_at IS NULL OR ended_at >= $2 - INTERVAL '30 minutes')
+		 ORDER BY ABS(EXTRACT(EPOCH FROM (started_at - $2)))
+		 LIMIT 1`,
+		userID, ts,
+	).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return id, err
 }
 
 // FailStravaImportJob marks a job as failed.

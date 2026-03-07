@@ -21,6 +21,13 @@ tables.peaks = osm2pgsql.define_node_table('osm_peaks', {
     { column = 'geom', type = 'point', projection = 4326 },
 })
 
+tables.passes = osm2pgsql.define_node_table('osm_passes', {
+    { column = 'osm_id', type = 'bigint' },
+    { column = 'name',   type = 'text' },
+    { column = 'ele',    type = 'real' },
+    { column = 'geom',   type = 'point', projection = 4326 },
+})
+
 tables.forests = osm2pgsql.define_area_table('osm_forests', {
     { column = 'osm_id', type = 'bigint' },
     { column = 'name', type = 'text' },
@@ -75,13 +82,38 @@ local function parse_population(pop_str)
     return tonumber(pop_str)
 end
 
+-- Env-var-basierter Kategorie-Filter (gesetzt vom Go-Handler)
+local import_peaks       = os.getenv("SKADIA_IMPORT_PEAKS")       ~= nil
+local import_passes      = os.getenv("SKADIA_IMPORT_PASSES")      ~= nil
+local import_lifts       = os.getenv("SKADIA_IMPORT_LIFTS")       ~= nil
+local import_settlements = os.getenv("SKADIA_IMPORT_SETTLEMENTS") ~= nil
+local import_amenities   = os.getenv("SKADIA_IMPORT_AMENITIES")   ~= nil
+local import_waterways   = os.getenv("SKADIA_IMPORT_WATERWAYS")   ~= nil
+local import_forests     = os.getenv("SKADIA_IMPORT_FORESTS")     ~= nil
+local import_boundaries  = os.getenv("SKADIA_IMPORT_BOUNDARIES")  ~= nil
+-- Wenn keine Flags gesetzt, alles importieren (Backward-Compat für das Shell-Script)
+local import_all = not (import_peaks or import_passes or import_lifts or
+    import_settlements or import_amenities or import_waterways or
+    import_forests or import_boundaries)
+
 -- Process nodes
 function osm2pgsql.process_node(object)
     local tags = object.tags
 
-    -- Peaks, Vulkane und Pässe/Sättel
-    if tags.natural == 'peak' or tags.natural == 'volcano'
-       or tags.natural == 'saddle' or tags.natural == 'pass' then
+    -- Straßenpässe (mountain_pass=yes) — Rennrad-relevante Pässe wie Stilfser Joch
+    if (import_all or import_passes) and tags.mountain_pass == 'yes' then
+        tables.passes:insert({
+            osm_id = object.id,
+            name   = tags.name,
+            ele    = parse_ele(tags.ele),
+            geom   = object:as_point(),
+        })
+    end
+
+    -- Peaks, Vulkane und Sättel
+    if (import_all or import_peaks) and
+       (tags.natural == 'peak' or tags.natural == 'volcano'
+        or tags.natural == 'saddle' or tags.natural == 'pass') then
         tables.peaks:insert({
             osm_id = object.id,
             name = tags.name,
@@ -92,15 +124,17 @@ function osm2pgsql.process_node(object)
     end
 
     -- Settlements
-    local place = tags.place
-    if place == 'city' or place == 'town' or place == 'village' or place == 'hamlet' or place == 'suburb' then
-        tables.settlements:insert({
-            osm_id = object.id,
-            name = tags.name,
-            place = place,
-            population = parse_population(tags.population),
-            geom = object:as_point(),
-        })
+    if import_all or import_settlements then
+        local place = tags.place
+        if place == 'city' or place == 'town' or place == 'village' or place == 'hamlet' or place == 'suburb' then
+            tables.settlements:insert({
+                osm_id = object.id,
+                name = tags.name,
+                place = place,
+                population = parse_population(tags.population),
+                geom = object:as_point(),
+            })
+        end
     end
 
     -- Amenities (gastronomic, tourism, leisure)
@@ -109,33 +143,35 @@ function osm2pgsql.process_node(object)
     --   leisure=fitness_station/sports_centre etc.
     -- The generic catch-all (tourism or amenity or leisure) is intentional — it captures
     -- a wide range of POIs relevant for activity enrichment without enumerating every subtype.
-    local amenity_type = tags.tourism or tags.amenity or tags.leisure
-    if amenity_type and tags.name then
-        local subtype = nil
-        if tags.tourism then subtype = tags.tourism
-        elseif tags.amenity then subtype = tags.amenity
-        elseif tags.leisure then subtype = tags.leisure
-        end
-        tables.amenities:insert({
-            osm_id = object.id,
-            name = tags.name,
-            type = amenity_type,
-            subtype = subtype,
-            geom = object:as_point(),
-        })
-    end
-
-    -- Shops: kiosk, bakery, butcher (alle mit Namen, kein takeaway-Filter --
-    -- viele Bäckereien haben Sitzplätze aber keinen takeaway-Tag in OSM)
-    if tags.name then
-        if tags.shop == 'kiosk' or tags.shop == 'bakery' or tags.shop == 'butcher' then
+    if import_all or import_amenities then
+        local amenity_type = tags.tourism or tags.amenity or tags.leisure
+        if amenity_type and tags.name then
+            local subtype = nil
+            if tags.tourism then subtype = tags.tourism
+            elseif tags.amenity then subtype = tags.amenity
+            elseif tags.leisure then subtype = tags.leisure
+            end
             tables.amenities:insert({
                 osm_id = object.id,
                 name = tags.name,
-                type = 'shop',
-                subtype = tags.shop,
+                type = amenity_type,
+                subtype = subtype,
                 geom = object:as_point(),
             })
+        end
+
+        -- Shops: kiosk, bakery, butcher (alle mit Namen, kein takeaway-Filter --
+        -- viele Bäckereien haben Sitzplätze aber keinen takeaway-Tag in OSM)
+        if tags.name then
+            if tags.shop == 'kiosk' or tags.shop == 'bakery' or tags.shop == 'butcher' then
+                tables.amenities:insert({
+                    osm_id = object.id,
+                    name = tags.name,
+                    type = 'shop',
+                    subtype = tags.shop,
+                    geom = object:as_point(),
+                })
+            end
         end
     end
 end
@@ -145,49 +181,54 @@ function osm2pgsql.process_way(object)
     local tags = object.tags
 
     -- Waterways
-    local waterway = tags.waterway
-    if waterway == 'river' or waterway == 'stream' or waterway == 'canal' then
-        if not object.is_closed then
-            tables.waterways:insert({
-                osm_id = object.id,
-                name = tags.name,
-                waterway = waterway,
-                geom = object:as_linestring(),
-            })
+    if import_all or import_waterways then
+        local waterway = tags.waterway
+        if waterway == 'river' or waterway == 'stream' or waterway == 'canal' then
+            if not object.is_closed then
+                tables.waterways:insert({
+                    osm_id = object.id,
+                    name = tags.name,
+                    waterway = waterway,
+                    geom = object:as_linestring(),
+                })
+            end
         end
     end
 
     -- Lifte (Aerialways, Standseilbahnen, Zahnradbahnen)
-    local passenger_aerialways = {
-        cable_car=true, gondola=true, chair_lift=true, mixed_lift=true,
-        drag_lift=true, ['t-bar']=true, ['j-bar']=true, platter=true,
-        rope_tow=true, magic_carpet=true
-    }
-    if passenger_aerialways[tags.aerialway] then
-        tables.lifts:insert({
-            osm_id = object.id,
-            name   = tags.name,
-            geom   = object:as_linestring(),
-        })
-    end
-    if tags.railway == 'funicular' then
-        tables.lifts:insert({
-            osm_id = object.id,
-            name   = tags.name,
-            geom   = object:as_linestring(),
-        })
-    end
-    if tags.railway == 'rail' and tags.rack == 'yes' then
-        tables.lifts:insert({
-            osm_id = object.id,
-            name   = tags.name,
-            geom   = object:as_linestring(),
-        })
+    if import_all or import_lifts then
+        local passenger_aerialways = {
+            cable_car=true, gondola=true, chair_lift=true, mixed_lift=true,
+            drag_lift=true, ['t-bar']=true, ['j-bar']=true, platter=true,
+            rope_tow=true, magic_carpet=true
+        }
+        if passenger_aerialways[tags.aerialway] then
+            tables.lifts:insert({
+                osm_id = object.id,
+                name   = tags.name,
+                geom   = object:as_linestring(),
+            })
+        end
+        if tags.railway == 'funicular' then
+            tables.lifts:insert({
+                osm_id = object.id,
+                name   = tags.name,
+                geom   = object:as_linestring(),
+            })
+        end
+        if tags.railway == 'rail' and tags.rack == 'yes' then
+            tables.lifts:insert({
+                osm_id = object.id,
+                name   = tags.name,
+                geom   = object:as_linestring(),
+            })
+        end
     end
 
     -- Forests (closed ways)
     if object.is_closed then
-        if tags.natural == 'wood' or tags.landuse == 'forest' then
+        if (import_all or import_forests) and
+           (tags.natural == 'wood' or tags.landuse == 'forest') then
             if tags.name then
                 tables.forests:insert({
                     osm_id = object.id,
@@ -198,7 +239,7 @@ function osm2pgsql.process_way(object)
         end
 
         -- Waters (closed ways)
-        if tags.natural == 'water' then
+        if (import_all or import_waterways) and tags.natural == 'water' then
             tables.waters:insert({
                 osm_id = object.id,
                 name = tags.name,
@@ -214,7 +255,8 @@ function osm2pgsql.process_relation(object)
     local rtype = tags.type
 
     -- Admin boundaries
-    if rtype == 'boundary' and tags.boundary == 'administrative' then
+    if (import_all or import_boundaries) and
+       rtype == 'boundary' and tags.boundary == 'administrative' then
         local admin_level = tonumber(tags.admin_level)
         if admin_level and (admin_level == 2 or admin_level == 4 or admin_level == 6 or admin_level == 8) then
             local country_code = tags['ISO3166-1:alpha2'] or tags['ISO3166-1'] or nil
@@ -230,7 +272,8 @@ function osm2pgsql.process_relation(object)
 
     -- Forests (multipolygon relations)
     if rtype == 'multipolygon' then
-        if tags.natural == 'wood' or tags.landuse == 'forest' then
+        if (import_all or import_forests) and
+           (tags.natural == 'wood' or tags.landuse == 'forest') then
             if tags.name then
                 tables.forests:insert({
                     osm_id = object.id,
@@ -241,7 +284,7 @@ function osm2pgsql.process_relation(object)
         end
 
         -- Waters
-        if tags.natural == 'water' then
+        if (import_all or import_waterways) and tags.natural == 'water' then
             tables.waters:insert({
                 osm_id = object.id,
                 name = tags.name,

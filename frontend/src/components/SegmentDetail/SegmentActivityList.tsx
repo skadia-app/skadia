@@ -3,6 +3,8 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Wrench } from 'lucide-react'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { apiClient } from '@/api/client'
+import type { Segment } from '@/api/segments'
 
 interface Performance {
   id: string
@@ -12,13 +14,21 @@ interface Performance {
   started_at: string
   sport_type: string
   title: string
+  is_reverse: boolean
   gear_id?: string | null
   gear_name?: string | null
   gear_type?: string | null
 }
 
+function getDirectionLabels(segment?: Segment) {
+  if (segment?.segment_type === 'lift') return { standard: 'Bergfahrt', reverse: 'Talfahrt', all: 'Alle' }
+  if (segment?.climb_type === 'bergauf' || segment?.climb_type === 'bergab') return { standard: 'Bergauf', reverse: 'Bergab', all: 'Alle' }
+  return { standard: 'Standard', reverse: 'Reverse', all: 'Alle' }
+}
+
 interface SegmentActivityListProps {
-  segmentId: number
+  segmentId: string
+  segment?: Segment
 }
 
 function formatTime(s: number): string {
@@ -34,23 +44,23 @@ function toggleItem<T>(arr: T[], val: T): T[] {
   return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
 }
 
-export function SegmentActivityList({ segmentId }: SegmentActivityListProps) {
+export function SegmentActivityList({ segmentId, segment }: SegmentActivityListProps) {
   const navigate = useNavigate()
-  const [sortMode, setSortMode] = useState<'standard' | 'reverse' | 'all'>('standard')
+  const [directionMode, setDirectionMode] = useState<'standard' | 'reverse' | 'all'>('standard')
   const [selectedSports, setSelectedSports] = useState<string[]>([])
   const [selectedGearIds, setSelectedGearIds] = useState<string[]>([])
 
+  const isReverse = directionMode === 'all' ? undefined : directionMode === 'reverse'
+
   const { data, isLoading } = useQuery({
-    queryKey: ['segment-performances', segmentId],
-    queryFn: () =>
-      fetch(`/api/v1/segments/${segmentId}/performances`).then(r => r.json()),
+    queryKey: ['segment-performances', segmentId, directionMode],
+    queryFn: () => {
+      const qs = isReverse !== undefined ? `?is_reverse=${isReverse}` : ''
+      return apiClient<{ performances: Performance[] }>(`/segments/${segmentId}/performances${qs}`)
+    },
   })
 
   const all: Performance[] = data?.performances ?? []
-
-  const sorted = useMemo(() => {
-    return sortMode === 'reverse' ? [...all].reverse() : all
-  }, [all, sortMode])
 
   // Unique sport types found in data
   const availableSportTypes = useMemo(
@@ -68,13 +78,13 @@ export function SegmentActivityList({ segmentId }: SegmentActivityListProps) {
   }, [all])
 
   const filtered = useMemo(() => {
-    return sorted.filter(p => {
+    return all.filter(p => {
       if (selectedSports.length > 0 && !selectedSports.includes(p.sport_type)) return false
       if (selectedGearIds.length > 0 && (!p.gear_id || !selectedGearIds.includes(p.gear_id)))
         return false
       return true
     })
-  }, [sorted, selectedSports, selectedGearIds])
+  }, [all, selectedSports, selectedGearIds])
 
   const activeFilterCount =
     (selectedSports.length > 0 ? 1 : 0) + (selectedGearIds.length > 0 ? 1 : 0)
@@ -86,14 +96,14 @@ export function SegmentActivityList({ segmentId }: SegmentActivityListProps) {
         {(['standard', 'reverse', 'all'] as const).map(mode => (
           <button
             key={mode}
-            onClick={() => setSortMode(mode)}
+            onClick={() => setDirectionMode(mode)}
             className={`px-3 py-1 rounded text-sm transition-colors ${
-              sortMode === mode
+              directionMode === mode
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            {mode === 'standard' ? 'Standard' : mode === 'reverse' ? 'Reverse' : 'Alle'}
+            {getDirectionLabels(segment)[mode as 'standard' | 'reverse' | 'all']}
           </button>
         ))}
       </div>
@@ -180,7 +190,7 @@ export function SegmentActivityList({ segmentId }: SegmentActivityListProps) {
           <button
             key={perf.id}
             onClick={() => navigate(`/activities/${perf.activity_id}`)}
-            className="text-left p-3 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:border-neutral-300 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+            className="text-left p-3 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:border-neutral-300 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
           >
             <div className="font-medium text-sm truncate text-neutral-900 dark:text-neutral-100">
               {perf.title}

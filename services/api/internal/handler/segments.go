@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -16,19 +17,41 @@ import (
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
-	sportGroup := r.URL.Query().Get("sport_group")
-	segmentType := r.URL.Query().Get("segment_type")
-	name := r.URL.Query().Get("name")
-	bbox := r.URL.Query().Get("bbox")
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if l == "-1" {
+			limit = -1
+		} else if parsed, err := strconv.Atoi(l); err == nil && parsed >= 0 {
+			limit = parsed
+		}
+	}
 
-	segments, err := h.DB.ListSegments(r.Context(), userID, sportGroup, segmentType, name, bbox)
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		name = r.URL.Query().Get("search")
+	}
+
+	params := model.ListSegmentsParams{
+		UserID:         userID,
+		SportGroup:     r.URL.Query().Get("sport_group"),
+		SegmentType:    r.URL.Query().Get("segment_type"),
+		SegmentTypes:   r.URL.Query().Get("segment_types"),
+		Name:           name,
+		BBox:           r.URL.Query().Get("bbox"),
+		OnlyRidden:     r.URL.Query().Get("only_ridden") == "true",
+		IncludeGeoJSON: r.URL.Query().Get("include_geojson") == "true",
+		Cursor:         r.URL.Query().Get("cursor"),
+		Limit:          limit,
+	}
+
+	result, err := h.DB.ListSegments(r.Context(), params)
 	if err != nil {
 		slog.Error("list segments failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list segments", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, segments)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
@@ -236,8 +259,9 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
 
-	seg, err := h.DB.GetSegment(r.Context(), id, "")
+	seg, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
+		slog.Error("segment recompute: get segment failed", "segment_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return
 	}
@@ -246,34 +270,70 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Aktivitäts-IDs vorab ermitteln (brauchen wir für progress_total).
+	ids, err := h.DB.ListActivityIDsForSegmentBackfill(r.Context(), userID, id)
+	if err != nil {
+		slog.Error("segment recompute: list activities failed", "segment_id", id, "user_id", userID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		return
+	}
+
+	// Vorherige laufende Jobs für dieses Segment abbrechen.
+	if err := h.DB.CancelRunningJobsForEntity(r.Context(), userID, id); err != nil {
+		slog.Warn("segment recompute: cancel previous jobs failed", "segment_id", id, "error", err)
+	}
+
+	// Job in DB anlegen.
+	entityName := seg.Name
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_recompute", &id, &entityName, len(ids))
+	if err != nil {
+		slog.Warn("segment recompute: failed to insert job", "segment_id", id, "error", err)
+		jobID = ""
+	}
+
 	go func() {
 		ctx := context.Background()
-		ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, id)
-		if err != nil {
-			slog.Error("segment recompute: list activities failed", "segment_id", id, "error", err)
-			return
-		}
-		// Delete existing efforts for this segment by this user before re-matching
+		failed := false
+
 		if err := h.DB.DeleteSegmentEffortsBySegment(ctx, id, userID); err != nil {
 			slog.Error("segment recompute: delete existing efforts failed", "segment_id", id, "error", err)
-			return
+			failed = true
 		}
-		slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
-		for _, actID := range ids {
-			act, err := h.DB.GetActivity(ctx, actID)
-			if err != nil || act == nil {
-				continue
+
+		if !failed {
+			slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
+			for i, actID := range ids {
+				act, err := h.DB.GetActivity(ctx, actID)
+				if err != nil || act == nil {
+					continue
+				}
+				subType := ""
+				if act.SubType != nil {
+					subType = *act.SubType
+				}
+				MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID)
+
+				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
+				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
+					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, i+1); err != nil {
+						slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
+					}
+				}
 			}
-			subType := ""
-			if act.SubType != nil {
-				subType = *act.SubType
-			}
-			MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID)
+			slog.Info("segment recompute: done", "segment_id", id)
 		}
-		slog.Info("segment recompute: done", "segment_id", id)
+
+		if jobID != "" {
+			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed); err != nil {
+				slog.Warn("segment recompute: complete job failed", "job_id", jobID, "error", err)
+			}
+		}
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "recompute started"})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "recompute started",
+		"job_id": jobID,
+	})
 }
 
 func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
@@ -369,7 +429,13 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 	}
 	segmentID := chi.URLParam(r, "id")
 
-	performances, err := h.DB.GetSegmentPerformances(r.Context(), segmentID, userID)
+	var isReverse *bool
+	if v := r.URL.Query().Get("is_reverse"); v != "" {
+		b := v == "true"
+		isReverse = &b
+	}
+
+	performances, err := h.DB.GetSegmentPerformances(r.Context(), segmentID, userID, isReverse)
 	if err != nil {
 		slog.Error("get segment performances failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch performances", r.URL.Path)

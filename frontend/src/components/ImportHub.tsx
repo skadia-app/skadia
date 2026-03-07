@@ -1,7 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { apiUpload } from '@/api/client'
 import { getShadowFSSettings } from '@/api/settings'
+import { fetchImportQueueCount, type MediaUploadResult, type MediaUploadResultItem } from '@/api/importQueue'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,7 +20,19 @@ type UploadState =
   | { type: 'idle' }
   | { type: 'uploading'; filename: string }
   | { type: 'success'; count: number }
+  | { type: 'media_success'; result: MediaUploadResult }
   | { type: 'error'; message: string }
+
+// ---------------------------------------------------------------------------
+// File type helpers
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_REGEX = /\.(fit|gpx|tcx)$/i
+const MEDIA_REGEX = /\.(jpe?g|png|gif|webp|avif|hei[cf]|jxl|tiff?|bmp|pdf)$/i
+const ALL_ACCEPTED_REGEX = /\.(fit|gpx|tcx|jpe?g|png|gif|webp|avif|hei[cf]|jxl|tiff?|bmp|pdf)$/i
+
+function isActivityFile(f: File) { return ACTIVITY_REGEX.test(f.name) }
+function isMediaFile(f: File) { return MEDIA_REGEX.test(f.name) }
 
 // ---------------------------------------------------------------------------
 // Inline SVG icons
@@ -93,13 +107,97 @@ function StravaBadge() {
 }
 
 // ---------------------------------------------------------------------------
-// Upload helper
+// Upload helpers
 // ---------------------------------------------------------------------------
 
 async function uploadActivityFile(file: File): Promise<UploadResult> {
   const fd = new FormData()
   fd.append('file', file)
   return apiUpload<UploadResult>('/upload', fd)
+}
+
+async function uploadMediaFiles(files: File[]): Promise<MediaUploadResult> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return apiUpload<MediaUploadResult>('/upload/media', fd)
+}
+
+// ---------------------------------------------------------------------------
+// Media results display
+// ---------------------------------------------------------------------------
+
+function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
+  if (item.status === 'assigned' && item.activity_id) {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <CheckIcon className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-500" />
+        <span className="text-neutral-600 dark:text-neutral-300 truncate">
+          <span className="font-medium">{item.filename}</span>
+          {' → '}
+          <Link
+            to={`/activities/${item.activity_id}`}
+            className="text-accent-DEFAULT hover:underline"
+          >
+            {item.activity_title ?? item.activity_id}
+          </Link>
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-orange-400 inline-block" />
+      <span className="text-neutral-600 dark:text-neutral-300 truncate">
+        <span className="font-medium">{item.filename}</span>
+        {' – In Warteschlange'}
+      </span>
+    </div>
+  )
+}
+
+function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
+  result: MediaUploadResult
+  onReset: () => void
+  onGoToQueue: () => void
+}) {
+  const assigned = result.results.filter(r => r.status === 'assigned')
+  const queued = result.results.filter(r => r.status !== 'assigned')
+
+  return (
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-3 space-y-2">
+      {assigned.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-green-700 dark:text-green-400">
+            Zugeordnet ({assigned.length})
+          </p>
+          {assigned.map((item, i) => <MediaResultItem key={i} item={item} />)}
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">
+            In Warteschlange ({queued.length})
+          </p>
+          {queued.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
+          {queued.length > 3 && (
+            <p className="text-xs text-neutral-500">{queued.length - 3} weitere…</p>
+          )}
+          <button
+            onClick={onGoToQueue}
+            className="text-xs text-accent-DEFAULT hover:underline"
+          >
+            Warteschlange öffnen →
+          </button>
+        </div>
+      )}
+      <button
+        onClick={onReset}
+        className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+      >
+        Weitere hochladen
+      </button>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +227,7 @@ function DropZone({ onFiles, disabled }: DropZoneProps) {
     setDragging(false)
     if (disabled) return
     const files = Array.from(e.dataTransfer.files).filter(f =>
-      /\.(fit|gpx|tcx)$/i.test(f.name)
+      ALL_ACCEPTED_REGEX.test(f.name)
     )
     if (files.length > 0) onFiles(files)
   }
@@ -159,16 +257,16 @@ function DropZone({ onFiles, disabled }: DropZoneProps) {
       <input
         ref={inputRef}
         type="file"
-        accept=".fit,.gpx,.tcx"
+        accept=".fit,.gpx,.tcx,.jpg,.jpeg,.png,.gif,.webp,.avif,.heic,.heif,.jxl,.tif,.tiff,.bmp,.pdf"
         multiple
         className="hidden"
         onChange={handleChange}
       />
       <UploadIcon className="w-5 h-5 mx-auto mb-1 text-neutral-400" />
       <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        FIT · GPX · TCX droppen oder klicken
+        FIT · GPX · TCX · Bilder · PDF
       </p>
-      <p className="text-[11px] text-neutral-400 mt-0.5">Mehrere Dateien gleichzeitig</p>
+      <p className="text-[11px] text-neutral-400 mt-0.5">Droppen oder klicken · mehrere Dateien</p>
     </button>
   )
 }
@@ -183,6 +281,14 @@ export default function ImportHub() {
   const [uploadState, setUploadState] = useState<UploadState>({ type: 'idle' })
   const [hotfolderEnabled, setHotfolderEnabled] = useState<boolean | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Queue count badge
+  const { data: queueCount = 0, refetch: refetchQueueCount } = useQuery({
+    queryKey: ['import-queue-count'],
+    queryFn: fetchImportQueueCount,
+    staleTime: 60_000,
+    retry: false,
+  })
 
   // Load hotfolder status when popover opens
   useEffect(() => {
@@ -217,22 +323,45 @@ export default function ImportHub() {
 
   const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return
-    let successCount = 0
-    for (const file of files) {
-      setUploadState({ type: 'uploading', filename: file.name })
-      try {
-        const result = await uploadActivityFile(file)
-        if (result.status !== 'skipped') successCount++
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        setUploadState({ type: 'error', message: msg })
+
+    const activityFiles = files.filter(isActivityFile)
+    const mediaFiles = files.filter(isMediaFile)
+
+    // Handle activity files (unchanged flow)
+    if (activityFiles.length > 0) {
+      let successCount = 0
+      for (const file of activityFiles) {
+        setUploadState({ type: 'uploading', filename: file.name })
+        try {
+          const result = await uploadActivityFile(file)
+          if (result.status !== 'skipped') successCount++
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          setUploadState({ type: 'error', message: msg })
+          return
+        }
+      }
+      // If only activity files, show success
+      if (mediaFiles.length === 0) {
+        setUploadState({ type: 'success', count: successCount })
+        setTimeout(() => setUploadState({ type: 'idle' }), 4000)
         return
       }
     }
-    setUploadState({ type: 'success', count: successCount })
-    // Auto-reset after 4 seconds
-    setTimeout(() => setUploadState({ type: 'idle' }), 4000)
-  }, [])
+
+    // Handle media files
+    if (mediaFiles.length > 0) {
+      setUploadState({ type: 'uploading', filename: mediaFiles.length === 1 ? mediaFiles[0].name : `${mediaFiles.length} Dateien` })
+      try {
+        const result = await uploadMediaFiles(mediaFiles)
+        setUploadState({ type: 'media_success', result })
+        refetchQueueCount()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setUploadState({ type: 'error', message: msg })
+      }
+    }
+  }, [refetchQueueCount])
 
   // Global drag & drop — opens the popover when files are dragged anywhere on the page
   useEffect(() => {
@@ -248,7 +377,7 @@ export default function ImportHub() {
       e.preventDefault()
       e.stopPropagation()
       const files = Array.from(e.dataTransfer?.files ?? []).filter(f =>
-        /\.(fit|gpx|tcx)$/i.test(f.name)
+        ALL_ACCEPTED_REGEX.test(f.name)
       )
       if (files.length > 0) {
         setOpen(true)
@@ -269,13 +398,18 @@ export default function ImportHub() {
     navigate(`/settings/import?tab=${tab}`)
   }
 
+  function handleGoToQueue() {
+    setOpen(false)
+    navigate('/settings/import?tab=queue')
+  }
+
   return (
     <div ref={containerRef} className="relative">
       {/* Trigger button */}
       <button
         onClick={() => setOpen(v => !v)}
         aria-label="Import-Hub öffnen"
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+        className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
           ${open
             ? 'bg-accent-DEFAULT text-white'
             : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800'
@@ -283,6 +417,11 @@ export default function ImportHub() {
       >
         <UploadIcon className="w-4 h-4 shrink-0" />
         <span className="hidden sm:inline">Hochladen</span>
+        {queueCount > 0 && (
+          <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-bold leading-none">
+            {queueCount > 9 ? '9+' : queueCount}
+          </span>
+        )}
       </button>
 
       {/* Popover */}
@@ -293,10 +432,19 @@ export default function ImportHub() {
           aria-label="Import-Hub"
         >
           {/* Header */}
-          <div className="px-4 pt-3 pb-2 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="px-4 pt-3 pb-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              Aktivität importieren
+              Hochladen
             </h2>
+            {queueCount > 0 && (
+              <button
+                onClick={handleGoToQueue}
+                className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
+                {queueCount} in Warteschlange
+              </button>
+            )}
           </div>
 
           <div className="p-4 space-y-4">
@@ -333,6 +481,14 @@ export default function ImportHub() {
                     Weitere
                   </button>
                 </div>
+              )}
+
+              {uploadState.type === 'media_success' && (
+                <MediaSuccessPanel
+                  result={uploadState.result}
+                  onReset={() => setUploadState({ type: 'idle' })}
+                  onGoToQueue={handleGoToQueue}
+                />
               )}
 
               {uploadState.type === 'error' && (

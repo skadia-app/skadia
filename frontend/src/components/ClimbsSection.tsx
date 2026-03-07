@@ -70,7 +70,7 @@ export default function ClimbsSection({ activityId }: Props) {
       <div>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">Anstiege</h2>
         <p className="text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Anstiege erkannt. Der ML-Service muss aktiv sein und die Aktivität muss Höhendaten enthalten.
+          Keine Anstiege erkannt. Die Aktivität muss Höhendaten enthalten und die Anstiegserkennung muss unter Einstellungen → Automatische Analysen aktiviert sein.
         </p>
       </div>
     )

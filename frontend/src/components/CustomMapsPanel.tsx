@@ -7,21 +7,31 @@ import {
   deleteCustomMap,
   listCustomMapMarkers,
   deleteCustomMapMarker,
+  updateCustomMapMarker,
+  uploadMarkerImage,
   type CustomMap,
   type CustomMapMarker,
 } from '@/api/customMaps'
 import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
 import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
   onAddMarkerMode: (mapID: string | null) => void
   addMarkerModeMapID: string | null
+  onClose: () => void
 }
 
-export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }: Props) {
+export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, onClose }: Props) {
   const queryClient = useQueryClient()
   const { openModal } = useModal()
+  const { addToast } = useToast()
   const [collapsed, setCollapsed] = useState(false)
+  const [editingMarker, setEditingMarker] = useState<CustomMapMarker | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editColor, setEditColor] = useState<string>('')
+  const [editSaving, setEditSaving] = useState(false)
   const [expandedMapID, setExpandedMapID] = useState<string | null>(null)
   const [showNewForm, setShowNewForm] = useState(false)
   const [newName, setNewName] = useState('')
@@ -122,19 +132,26 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
     <div className="absolute top-4 right-[17.5rem] z-10 w-64">
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
         {/* Header */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
-        >
-          <span>Eigene Karten</span>
-          <svg
-            className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
+        <div className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 border-b border-neutral-100 dark:border-neutral-800">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex-1 flex items-center justify-between hover:text-accent-DEFAULT cursor-pointer"
           >
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-          </svg>
-        </button>
+            <span>Eigene Karten</span>
+            <svg className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            className="ml-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer flex-shrink-0"
+            title="Schliessen"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
 
         {!collapsed && (
           <div className="px-3 pb-3 space-y-2 border-t border-neutral-100 dark:border-neutral-800 pt-2 max-h-96 overflow-y-auto">
@@ -192,7 +209,17 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
                           className="w-2 h-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: marker.color ?? map.color }}
                         />
-                        <span className="flex-1 truncate">{marker.name}</span>
+                        <button
+                          className="flex-1 truncate text-left hover:text-accent-DEFAULT cursor-pointer"
+                          onClick={() => {
+                            setEditingMarker(marker)
+                            setEditName(marker.name)
+                            setEditDescription(marker.description ?? '')
+                            setEditColor(marker.color ?? map.color)
+                          }}
+                        >
+                          {marker.name}
+                        </button>
                         <button
                           onClick={() => handleDeleteMarker(marker)}
                           className="p-0.5 text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 cursor-pointer"
@@ -269,6 +296,127 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID }:
           </div>
         )}
       </div>
+
+      {/* Marker Edit Modal */}
+      {editingMarker && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+          onClick={() => setEditingMarker(null)}
+        >
+          <div
+            className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-72 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-4 space-y-3">
+              <div className="text-xs text-neutral-400 font-mono">
+                {editingMarker.lat.toFixed(5)}, {editingMarker.lng.toFixed(5)}
+              </div>
+
+              {editingMarker.image_url ? (
+                <div className="relative">
+                  <img src={editingMarker.image_url} alt="" className="w-full h-32 object-cover rounded-lg" />
+                  <button
+                    className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center cursor-pointer"
+                    onClick={async () => {
+                      await updateCustomMapMarker(editingMarker.map_id, editingMarker.id, { image_url: '' })
+                      queryClient.invalidateQueries({ queryKey: ['custom-map-markers', editingMarker.map_id] })
+                      queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
+                      setEditingMarker({ ...editingMarker, image_url: undefined })
+                    }}
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
+
+              <input
+                type="text"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                placeholder="Name"
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
+              />
+
+              <textarea
+                value={editDescription}
+                onChange={e => setEditDescription(e.target.value)}
+                placeholder="Beschreibung (optional)"
+                rows={2}
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400 resize-none"
+              />
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">Farbe:</span>
+                <ColorPicker value={editColor} onChange={setEditColor} />
+              </div>
+
+              <label className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-accent-DEFAULT cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    try {
+                      const updated = await uploadMarkerImage(editingMarker.map_id, editingMarker.id, file)
+                      queryClient.invalidateQueries({ queryKey: ['custom-map-markers', editingMarker.map_id] })
+                      queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
+                      setEditingMarker(updated)
+                    } catch {
+                      addToast({ type: 'error', title: 'Bild-Upload fehlgeschlagen' })
+                    }
+                  }}
+                />
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
+                </svg>
+                {editingMarker.image_url ? 'Bild ersetzen' : 'Bild hinzufuegen'}
+              </label>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={async () => {
+                    setEditSaving(true)
+                    try {
+                      await updateCustomMapMarker(editingMarker.map_id, editingMarker.id, {
+                        name: editName.trim(),
+                        description: editDescription.trim() || undefined,
+                        color: editColor,
+                      })
+                      queryClient.invalidateQueries({ queryKey: ['custom-map-markers', editingMarker.map_id] })
+                      queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
+                      setEditingMarker(null)
+                    } catch {
+                      addToast({ type: 'error', title: 'Speichern fehlgeschlagen' })
+                    } finally {
+                      setEditSaving(false)
+                    }
+                  }}
+                  disabled={editSaving || !editName.trim()}
+                  className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+                >
+                  {editSaving ? 'Speichern...' : 'Speichern'}
+                </button>
+                <button
+                  onClick={() => {
+                    handleDeleteMarker(editingMarker)
+                    setEditingMarker(null)
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer"
+                  title="Marker loeschen"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM12.5 3.75a1.25 1.25 0 00-1.25-1.25h-2.5a1.25 1.25 0 00-1.25 1.25v.19c1.474-.085 2.963-.085 4.437 0v-.19z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

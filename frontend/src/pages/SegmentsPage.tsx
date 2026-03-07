@@ -1,8 +1,10 @@
-import { useState, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
 import { useModal } from '@/lib/modal'
+import { useActiveJobs } from '@/lib/useActiveJobs'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -12,7 +14,7 @@ const SPORT_GROUP_LABELS: Record<string, string> = {
   foot: 'Laufsport',
   swim: 'Schwimmen',
   ski: 'Wintersport',
-  paddle: 'Paddeln',
+  paddle: 'Wassersport',
   generic: 'Sonstiges',
 }
 
@@ -56,7 +58,11 @@ function fmtDist(m?: number): string {
 
 export default function SegmentsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const { openModal } = useModal()
+  const { isJobActiveForEntity } = useActiveJobs()
+  const { hideUnused } = useGlobalSportSettings()
+  const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [sportGroup, setSportGroup] = useState('')
   const [terrainFilter, setTerrainFilter] = useState<string[]>([])
   const [showAllLifts, setShowAllLifts] = useState(false)
@@ -65,6 +71,22 @@ export default function SegmentsPage() {
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
+
+  // Fetch all sport groups that have at least one segment (for hideUnused filtering)
+  const { data: allGroupsData } = useQuery({
+    queryKey: ['segments-all-groups'],
+    queryFn: () => fetchSegments({ segment_types: 'standard,trail,lift', search: undefined }),
+    enabled: hideUnused,
+    staleTime: 60_000,
+  })
+  const usedSportGroups = useMemo<Set<string>>(() => {
+    if (!allGroupsData) return new Set(Object.keys(SPORT_GROUP_LABELS))
+    return new Set(allGroupsData.segments.map(s => s.sport_group))
+  }, [allGroupsData])
+  const visibleSportGroups = useMemo(() => {
+    if (!hideUnused || !allGroupsData) return Object.entries(SPORT_GROUP_LABELS)
+    return Object.entries(SPORT_GROUP_LABELS).filter(([key]) => usedSportGroups.has(key))
+  }, [hideUnused, allGroupsData, usedSportGroups])
 
   // Debounced search
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
@@ -78,34 +100,43 @@ export default function SegmentsPage() {
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
     search: search || undefined,
-  }), [sportGroup, search])
+    segment_types: terrainFilter.length === 0
+      ? 'standard,trail'
+      : terrainFilter.join(','),
+    only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
+  }), [sportGroup, search, terrainFilter, showAllLifts])
 
-  const { data: rawSegments = [], isLoading } = useQuery({
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
     queryKey: ['segments', filterParams],
-    queryFn: () => fetchSegments(filterParams),
+    queryFn: ({ pageParam }) => fetchSegments({ ...filterParams, cursor: pageParam }),
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.next_cursor : undefined,
+    initialPageParam: undefined as string | undefined,
   })
 
-  const segments = useMemo(() => {
-    return rawSegments.filter(seg => {
-      const terrain = seg.segment_type === 'lift' ? 'lift'
-        : seg.segment_type === 'trail' ? 'trail'
-        : 'standard'
+  const segments = useMemo(
+    () => data?.pages.flatMap(p => p.segments) ?? [],
+    [data]
+  )
 
-      if (terrain === 'lift') {
-        // Lifts are hidden by default; only shown when explicitly selected
-        if (!terrainFilter.includes('lift')) return false
-        // When "show all" is off, only show lifts the user has ridden
-        if (!showAllLifts && (seg.ridden_count ?? 0) === 0) return false
-        return true
-      }
+  // IntersectionObserver for infinite scroll
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
-      // When no terrain checkboxes are checked: show standard + trail (not lift)
-      if (terrainFilter.length === 0) return true // terrain is already not 'lift' here
-
-      // Otherwise show only selected terrain types
-      return terrainFilter.includes(terrain)
-    })
-  }, [rawSegments, terrainFilter, showAllLifts])
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasNextPage) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) fetchNextPage() },
+      { rootMargin: '200px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [fetchNextPage, hasNextPage])
 
   const deleteMut = useMutation({
     mutationFn: deleteSegment,
@@ -116,8 +147,19 @@ export default function SegmentsPage() {
 
   const recomputeMut = useMutation({
     mutationFn: recomputeSegment,
-    onSuccess: () => {
+    onMutate: (segmentId) => {
+      setLocalPendingIds(prev => new Set(prev).add(segmentId))
+      queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
+    },
+    onSuccess: (_data, segmentId) => {
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ['segments'] }), 3000)
+      // Nach 10s bereinigen — bis dahin hat der Poll den Job längst bestätigt
+      setTimeout(() => {
+        setLocalPendingIds(prev => { const s = new Set(prev); s.delete(segmentId); return s })
+      }, 10000)
+    },
+    onError: (_err, segmentId) => {
+      setLocalPendingIds(prev => { const s = new Set(prev); s.delete(segmentId); return s })
     },
   })
 
@@ -144,6 +186,12 @@ export default function SegmentsPage() {
   const handleRecompute = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     recomputeMut.mutate(id)
+  }
+
+  function isSegmentRecomputing(segId: string): boolean {
+    return (recomputeMut.isPending && recomputeMut.variables === segId)
+      || localPendingIds.has(segId)
+      || isJobActiveForEntity(segId)
   }
 
   if (isLoading) {
@@ -198,7 +246,7 @@ export default function SegmentsPage() {
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
           <option value="">Alle Sportarten</option>
-          {Object.entries(SPORT_GROUP_LABELS).map(([key, label]) => (
+          {visibleSportGroups.map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
           ))}
         </select>
@@ -265,7 +313,7 @@ export default function SegmentsPage() {
           {segments.map(segment => (
             <div
               key={segment.id}
-              onClick={() => setSelectedSegmentId(segment.id)}
+              onClick={() => navigate(`/segments/${segment.id}`)}
               className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4
                          hover:border-neutral-300 dark:hover:border-neutral-700
                          hover:shadow-sm transition-all cursor-pointer group"
@@ -282,7 +330,7 @@ export default function SegmentsPage() {
                     <DifficultyBadge meta={segment.segment_type_meta ?? {}} />
                   )}
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                <div className={`flex items-center gap-1 flex-shrink-0 ${isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button
                     onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }}
                     className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
@@ -294,11 +342,11 @@ export default function SegmentsPage() {
                   </button>
                   <button
                     onClick={(e) => handleRecompute(e, segment.id)}
-                    disabled={recomputeMut.isPending && recomputeMut.variables === segment.id}
-                    className="p-1 rounded text-neutral-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+                    disabled={isSegmentRecomputing(segment.id)}
+                    className={`p-1 rounded transition-colors disabled:opacity-50 ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
                     title="Matching neu berechnen"
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   </button>
@@ -336,6 +384,17 @@ export default function SegmentsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Infinite Scroll Sentinel */}
+      {hasNextPage && (
+        <div className="h-8 flex items-center justify-center mt-4">
+          {isFetchingNextPage ? (
+            <span className="text-sm text-neutral-400">Weitere laden...</span>
+          ) : (
+            <div ref={sentinelRef} />
+          )}
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useLocation } from 'react-router-dom'
 import maplibregl from 'maplibre-gl'
@@ -10,13 +10,14 @@ import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { useTheme } from '@/lib/theme'
+import { useAuthImage } from '@/hooks/useAuthImage'
 import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
-import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker } from '@/api/customMaps'
+import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
-import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, type Tag, type TagActivity } from '@/api/tags'
-import { updateActivity, fetchActivity } from '@/api/activities'
+import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
+import { updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
@@ -107,6 +108,8 @@ export interface MapFilterState {
   colorConfig: SportColorConfig
   showLocationTags: boolean
   heatmapColor: string
+  tagFilters: import('@/components/TagFilterInput').TagFilter[]
+  gearFilters: import('@/components/GearFilterInput').GearFilter[]
 }
 
 interface MapOverlayState {
@@ -152,6 +155,8 @@ const defaultFilters: MapFilterState = {
   },
   showLocationTags: true,
   heatmapColor: '#F97316',
+  tagFilters: [],
+  gearFilters: [],
 }
 
 function loadColorConfig(): SportColorConfig {
@@ -171,6 +176,39 @@ function loadHeatmapColor(): string {
     }
   } catch { /* ignorieren */ }
   return defaultFilters.heatmapColor
+}
+
+// ── Viewport persistence ─────────────────────────────────────────────────
+const VIEWPORT_KEY = 'skadia-map-viewport'
+const MAP_DEFAULTS_KEY = 'skadia-map-defaults'
+
+interface StoredViewport {
+  center: [number, number]
+  zoom: number
+  viewMode: ViewMode
+  baseStyle: BaseStyle
+}
+
+function loadViewport(): StoredViewport | null {
+  try {
+    const s = localStorage.getItem(VIEWPORT_KEY)
+    return s ? JSON.parse(s) : null
+  } catch { return null }
+}
+
+function saveViewport(v: StoredViewport) {
+  try { localStorage.setItem(VIEWPORT_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
+
+function loadDefaultBaseStyle(): BaseStyle {
+  try {
+    const s = localStorage.getItem(MAP_DEFAULTS_KEY)
+    if (s) {
+      const p = JSON.parse(s)
+      if (p.defaultBaseStyle && p.defaultBaseStyle in BASE_STYLES) return p.defaultBaseStyle
+    }
+  } catch { /* ignore */ }
+  return 'osm'
 }
 
 // ── Geo-Hilfe: Haversine-Distanz in Metern ───────────────────────────────
@@ -422,16 +460,22 @@ export default function MapPage() {
   const location = useLocation()
   const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
-  const [baseStyle, setBaseStyle] = useState<BaseStyle>('osm')
+  const [savedViewport] = useState<StoredViewport | null>(loadViewport)
+  const [baseStyle, setBaseStyle] = useState<BaseStyle>(
+    savedViewport?.baseStyle ?? loadDefaultBaseStyle()
+  )
+  // Ref zum Zugriff auf aktuellen baseStyle in Unmount-Cleanup (Closure wäre stale)
+  const baseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   const [filters, setFilters] = useState<MapFilterState>({
     ...defaultFilters,
     colorConfig: loadColorConfig(),
     heatmapColor: loadHeatmapColor(),
   })
-  const [viewMode, setViewMode] = useState<ViewMode>('tracks')
+  const [viewMode, setViewMode] = useState<ViewMode>(savedViewport?.viewMode ?? 'tracks')
   // Dark-Karte → UI-Dark-Mode: beim Wechsel auf 'dark' Karte schaltet die gesamte UI
   // in den Dark Mode; beim Wegwechseln wird der vorherige Zustand wiederhergestellt.
   useEffect(() => {
+    baseStyleRef.current = baseStyle
     if (baseStyle === 'dark') {
       themeBeforeDarkMap.current = uiTheme
       setUiTheme('dark')
@@ -441,6 +485,16 @@ export default function MapPage() {
     // uiTheme absichtlich nicht als Dependency — nur baseStyle-Wechsel soll triggern
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseStyle])
+
+  // Beim Verlassen der Seite: Dark-Theme zurücksetzen falls Dark-Karte aktiv war.
+  // Der normale else-Branch im Effect oben läuft beim Unmount nicht — daher eigener Cleanup.
+  useEffect(() => {
+    return () => {
+      if (baseStyleRef.current === 'dark') {
+        setUiTheme(themeBeforeDarkMap.current)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
   // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
@@ -475,7 +529,8 @@ export default function MapPage() {
 
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
-  const [selectedLocationTag, setSelectedLocationTag] = useState<Tag | null>(null)
+  const snapMarkerRef = useRef<{ marker: maplibregl.Marker; el: HTMLElement } | null>(null)
+  const [selectedLocationTagId, setSelectedLocationTagId] = useState<string | null>(null)
   const [tagActivitiesLoading, setTagActivitiesLoading] = useState(false)
   const [tagActivities, setTagActivities] = useState<TagActivity[]>([])
   const [newLocationPick, setNewLocationPick] = useState<{
@@ -543,11 +598,12 @@ export default function MapPage() {
   })
 
   // Segments
-  const { data: segmentData = [] } = useQuery({
+  const { data: segmentRaw } = useQuery({
     queryKey: ['map-segments', segmentBbox],
-    queryFn: () => fetchSegments(segmentBbox ? { bbox: segmentBbox } : undefined),
+    queryFn: () => fetchSegments({ ...(segmentBbox ? { bbox: segmentBbox } : {}), include_geojson: true, limit: -1 }),
     enabled: showSegments,
   })
+  const segmentData = segmentRaw?.segments ?? []
 
   const [overlayState, setOverlayState] = useState<MapOverlayState>(() => {
     try {
@@ -603,10 +659,19 @@ export default function MapPage() {
   const { data: allTags = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
-    enabled: filters.showLocationTags || showIndoorAssign,
+    enabled: filters.showLocationTags || showIndoorAssign || !!selectedLocationTagId,
   })
-  const locationTags = allTags.filter(t => t.lat != null && t.lng != null)
+  const locationTags = useMemo(
+    () => allTags.filter(t => t.lat != null && t.lng != null),
+    [allTags]
+  )
   locationTagsRef.current = locationTags
+
+  // Derive selected tag from fresh query data to avoid stale state
+  const selectedLocationTag = selectedLocationTagId
+    ? (locationTags.find(t => t.id === selectedLocationTagId) ?? null)
+    : null
+  const coverImageBlobUrl = useAuthImage(selectedLocationTag?.cover_image_url)
 
   const updateTagLocationMutation = useMutation({
     mutationFn: ({ id, lat, lng }: { id: string; lat: number; lng: number }) =>
@@ -641,7 +706,13 @@ export default function MapPage() {
   const teleportRef = useRef(teleportThresholdM)
   const samplingRef = useRef(samplingIntervalM)
   useEffect(() => { filtersRef.current = filters }, [filters])
-  useEffect(() => { viewModeRef.current = viewMode }, [viewMode])
+  useEffect(() => {
+    viewModeRef.current = viewMode
+    const stored = loadViewport()
+    if (stored) {
+      saveViewport({ ...stored, viewMode })
+    }
+  }, [viewMode])
   useEffect(() => { teleportRef.current = teleportThresholdM }, [teleportThresholdM])
   useEffect(() => { samplingRef.current = samplingIntervalM }, [samplingIntervalM])
 
@@ -651,9 +722,9 @@ export default function MapPage() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: buildMapStyle('osm'),
-      center: [10.45, 51.16],
-      zoom: 6,
+      style: buildMapStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle()),
+      center: savedViewport ? savedViewport.center : [10.45, 51.16],
+      zoom: savedViewport ? savedViewport.zoom : 6,
       attributionControl: { compact: false },
     })
 
@@ -669,6 +740,23 @@ export default function MapPage() {
       addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current)
       setStyleVersion(v => v + 1)
     })
+
+    // Save viewport position on move/zoom (debounced)
+    let viewportSaveTimer: ReturnType<typeof setTimeout> | null = null
+    function scheduleViewportSave() {
+      if (viewportSaveTimer) clearTimeout(viewportSaveTimer)
+      viewportSaveTimer = setTimeout(() => {
+        const c = map.getCenter()
+        saveViewport({
+          center: [c.lng, c.lat],
+          zoom: map.getZoom(),
+          viewMode: viewModeRef.current,
+          baseStyle: prevBaseStyleRef.current,
+        })
+      }, 500)
+    }
+    map.on('moveend', scheduleViewportSave)
+    map.on('zoomend', scheduleViewportSave)
 
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(mapContainerRef.current)
@@ -686,7 +774,7 @@ export default function MapPage() {
   // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
   // Render (baseStyle='osm' == Initialstil der Map-Instanz). Ohne diesen Schutz
   // würde MapLibre "Style is not done loading.. Rebuilding from scratch" werfen.
-  const prevBaseStyleRef = useRef<BaseStyle>('osm')
+  const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   useEffect(() => {
     const map = mapRef.current
     if (!map || prevBaseStyleRef.current === baseStyle) return
@@ -702,6 +790,12 @@ export default function MapPage() {
       map.setCenter(center)
       map.setZoom(zoom)
     })
+
+    // Persist baseStyle change to viewport
+    const stored = loadViewport()
+    if (stored) {
+      saveViewport({ ...stored, baseStyle })
+    }
   }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Overlay bei Filter-/Modus-/Settings-Änderung aktualisieren ──────────
@@ -773,6 +867,79 @@ export default function MapPage() {
         'text-halo-width': 2,
       },
     })
+  }, [showCustomMaps, allMarkers, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Custom Map Marker Drag ────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !showCustomMaps) return
+
+    let dragging: { id: string; mapId: string } | null = null
+
+    function onMouseDown(e: maplibregl.MapLayerMouseEvent) {
+      const f = e.features?.[0]
+      if (!f) return
+      e.preventDefault()
+      dragging = { id: f.properties?.id as string, mapId: f.properties?.map_id as string }
+      map!.getCanvas().style.cursor = 'grabbing'
+      map!.dragPan.disable()
+    }
+
+    function onMouseMove(e: maplibregl.MapMouseEvent) {
+      if (!dragging) return
+      const src = map!.getSource('custom-markers') as maplibregl.GeoJSONSource | undefined
+      if (!src) return
+      const { lng, lat } = e.lngLat
+      // Update GeoJSON feature position in real-time
+      const geojson: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: allMarkers.map(mk => ({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: mk.id === dragging!.id ? [lng, lat] : [mk.lng, mk.lat],
+          },
+          properties: {
+            id: mk.id,
+            name: mk.name,
+            color: mk.color ?? mk.mapColor ?? '#F97316',
+            map_id: mk.map_id,
+          },
+        })),
+      }
+      src.setData(geojson)
+    }
+
+    function onMouseUp(e: maplibregl.MapMouseEvent) {
+      if (!dragging) return
+      const { lng, lat } = e.lngLat
+      const d = dragging
+      dragging = null
+      map!.getCanvas().style.cursor = ''
+      map!.dragPan.enable()
+      updateCustomMapMarker(d.mapId, d.id, { lat, lng })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
+          queryClient.invalidateQueries({ queryKey: ['custom-map-markers', d.mapId] })
+        })
+        .catch(() => { /* silent */ })
+    }
+
+    map.on('mousedown', 'custom-markers-circles', onMouseDown)
+    map.on('mousemove', onMouseMove)
+    map.on('mouseup', onMouseUp)
+    map.on('mouseenter', 'custom-markers-circles', () => {
+      if (!dragging) map.getCanvas().style.cursor = 'grab'
+    })
+    map.on('mouseleave', 'custom-markers-circles', () => {
+      if (!dragging) map.getCanvas().style.cursor = ''
+    })
+
+    return () => {
+      map.off('mousedown', 'custom-markers-circles', onMouseDown)
+      map.off('mousemove', onMouseMove)
+      map.off('mouseup', onMouseUp)
+    }
   }, [showCustomMaps, allMarkers, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Click-Handler fuer Marker-Hinzufuegen ──────────────────────────────
@@ -874,24 +1041,31 @@ export default function MapPage() {
     locationTags.forEach(tag => {
       if (tag.lat == null || tag.lng == null) return
 
+      // el = MapLibre-Root (trägt nur den MapLibre-Transform, kein eigenes Scale)
       const el = document.createElement('div')
-      el.style.cssText = `
+      el.style.cssText = `width: 36px; cursor: pointer;`
+      el.dataset.tagId = tag.id
+
+      // inner = skalierbares Kind-Element (kein MapLibre-Transform hier)
+      const inner = document.createElement('div')
+      inner.style.cssText = `
         display: inline-flex;
         flex-direction: column;
         align-items: center;
-        cursor: pointer;
         width: 36px;
+        transform-origin: bottom center;
       `
 
       // Pin circle
       const circle = document.createElement('div')
+      const hasZone = tag.zone != null
       circle.style.cssText = `
         width: 32px;
         height: 32px;
         border-radius: 50%;
         background: ${tag.color || '#6366F1'};
-        border: 2px solid rgba(255,255,255,0.9);
-        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        border: ${hasZone ? '3px solid rgba(255,255,255,0.95)' : '2px solid rgba(255,255,255,0.9)'};
+        box-shadow: ${hasZone ? `0 0 0 2px ${tag.color || '#6366F1'}, 0 2px 8px rgba(0,0,0,0.4)` : '0 2px 6px rgba(0,0,0,0.4)'};
         display: flex;
         align-items: center;
         justify-content: center;
@@ -913,12 +1087,13 @@ export default function MapPage() {
         flex-shrink: 0;
       `
 
-      el.appendChild(circle)
-      el.appendChild(tail)
+      inner.appendChild(circle)
+      inner.appendChild(tail)
+      el.appendChild(inner)
 
       el.addEventListener('click', (e) => {
         e.stopPropagation()
-        setSelectedLocationTag(tag)
+        setSelectedLocationTagId(tag.id)
       })
 
       const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'bottom' })
@@ -1001,6 +1176,7 @@ export default function MapPage() {
       queryClient.invalidateQueries({ queryKey: ['activities'] })
       queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
       syncTagLocation(newTag.id).catch(() => {})
+      setSelectedLocationTagId(newTag.id)  // auto-open popup
     } catch (err) {
       console.error('Failed to create location tag from drop:', err)
     }
@@ -1078,14 +1254,57 @@ export default function MapPage() {
     const canvas = map.getCanvas()
 
     function onCanvasDragOver(e: DragEvent) {
-      if (e.dataTransfer?.types.includes('application/skadia-activities')) {
-        e.preventDefault()
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      if (!e.dataTransfer?.types.includes('application/skadia-activities')) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+
+      // Magnetic snap visual feedback
+      const rect = canvas.getBoundingClientRect()
+      const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
+      const lngLat = mapRef.current?.unproject(point)
+      if (!lngLat) return
+
+      const nearby = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
+
+      const markerEntry = nearby
+        ? locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearby.id) ?? null
+        : null
+      const markerEl = markerEntry ? markerEntry.getElement() : null
+
+      // Clear previous snap
+      if (snapMarkerRef.current && snapMarkerRef.current.el !== markerEl) {
+        const prevInner = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+        if (prevInner) { prevInner.style.scale = ''; prevInner.style.transition = '' }
+        snapMarkerRef.current = null
+      }
+
+      // Apply snap to new target (scale inner child, not el — preserves MapLibre translate)
+      if (markerEl && !snapMarkerRef.current) {
+        const innerEl = markerEl.firstElementChild as HTMLElement | null
+        if (innerEl) {
+          innerEl.style.transition = 'scale 0.15s ease'
+          innerEl.style.scale = '1.35'
+        }
+        snapMarkerRef.current = { marker: markerEntry!, el: markerEl }
+      }
+    }
+
+    function onCanvasDragLeave() {
+      if (snapMarkerRef.current) {
+        const innerEl = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+        if (innerEl) { innerEl.style.scale = ''; innerEl.style.transition = '' }
+        snapMarkerRef.current = null
       }
     }
 
     async function onCanvasDrop(e: DragEvent) {
       e.preventDefault()
+      // Clear magnetic snap visual
+      if (snapMarkerRef.current) {
+        const prevInner = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+        if (prevInner) { prevInner.style.scale = ''; prevInner.style.transition = '' }
+        snapMarkerRef.current = null
+      }
       const raw = e.dataTransfer?.getData('application/skadia-activities')
       if (!raw) return
       let activityIDs: string[]
@@ -1098,19 +1317,26 @@ export default function MapPage() {
       // Magnetische Pins: nächster Location-Tag innerhalb 100 m → direkt zuweisen
       const nearbyTag = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
       if (nearbyTag) {
-        await Promise.all(activityIDs.map(async (actId) => {
-          try {
-            const act = await fetchActivity(actId)
-            const cur = act.tags ?? []
-            if (!cur.includes(nearbyTag.name)) {
-              await updateActivity(actId, { tags: [...cur, nearbyTag.name] })
-            }
-          } catch { /* ignorieren */ }
-        }))
+        try {
+          await assignActivitiesToTag(nearbyTag.id, activityIDs)
+        } catch { /* ignorieren */ }
         queryClient.invalidateQueries({ queryKey: ['activities'] })
         queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+        queryClient.invalidateQueries({ queryKey: ['tags'] })
         syncTagLocation(nearbyTag.id).catch(() => {})
         setShowIndoorAssign(false)
+        // Pulse animation on successful drop
+        const targetMarker = locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearbyTag.id)
+        if (targetMarker) {
+          const el = targetMarker.getElement()
+          const innerEl = el.firstElementChild as HTMLElement | null
+          if (innerEl) {
+            innerEl.style.transition = 'scale 0.15s ease'
+            innerEl.style.scale = '1.5'
+            setTimeout(() => { innerEl.style.scale = '1.0' }, 150)
+            setTimeout(() => { innerEl.style.transition = ''; innerEl.style.scale = '' }, 400)
+          }
+        }
       } else {
         // Kein naher Pin → neuen Standort anlegen
         setShowIndoorAssign(false)
@@ -1119,9 +1345,11 @@ export default function MapPage() {
     }
 
     canvas.addEventListener('dragover', onCanvasDragOver)
+    canvas.addEventListener('dragleave', onCanvasDragLeave)
     canvas.addEventListener('drop', onCanvasDrop)
     return () => {
       canvas.removeEventListener('dragover', onCanvasDragOver)
+      canvas.removeEventListener('dragleave', onCanvasDragLeave)
       canvas.removeEventListener('drop', onCanvasDrop)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1309,16 +1537,32 @@ export default function MapPage() {
 
   // Load activities for the selected location tag popup
   useEffect(() => {
-    if (!selectedLocationTag) {
+    if (!selectedLocationTagId) {
       setTagActivities([])
       return
     }
     setTagActivitiesLoading(true)
-    fetchTagActivities(selectedLocationTag.id)
+    fetchTagActivities(selectedLocationTagId)
       .then(acts => setTagActivities(acts))
       .catch(() => setTagActivities([]))
       .finally(() => setTagActivitiesLoading(false))
-  }, [selectedLocationTag])
+  }, [selectedLocationTagId])
+
+  // Location tag popup: gallery state + photo loading
+  const [tagPhotos, setTagPhotos] = useState<import('@/api/activityPhotos').ActivityPhoto[]>([])
+  const [tagGalleryOpen, setTagGalleryOpen] = useState(false)
+  const [tagGallerySelectMode, setTagGallerySelectMode] = useState(false)
+  const [tagLightboxPhoto, setTagLightboxPhoto] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedLocationTagId || tagActivities.length === 0) {
+      setTagPhotos([])
+      return
+    }
+    Promise.all(tagActivities.map(act =>
+      import('@/api/activityPhotos').then(m => m.listActivityPhotos(act.id)).catch(() => [])
+    )).then(results => setTagPhotos(results.flat()))
+  }, [selectedLocationTagId, tagActivities])
 
   // ── Gipfel-Layer ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1681,6 +1925,7 @@ export default function MapPage() {
           <CustomMapsPanel
             onAddMarkerMode={setAddMarkerModeMapID}
             addMarkerModeMapID={addMarkerModeMapID}
+            onClose={() => setShowCustomMaps(false)}
           />
         )}
 
@@ -1866,6 +2111,48 @@ export default function MapPage() {
                     <span>Nur gefahrene</span>
                   </label>
 
+                  {/* Favoriten-Filter */}
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={segmentFilters.favoritesOnly}
+                      onChange={e => setSegmentFilters(f => ({ ...f, favoritesOnly: e.target.checked }))}
+                      className="rounded"
+                    />
+                    <span>Nur Favoriten</span>
+                  </label>
+
+                  {/* Sport-Gruppen-Filter */}
+                  <div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {([
+                        { id: 'bike', label: 'Rad' },
+                        { id: 'foot', label: 'Lauf' },
+                        { id: 'ski', label: 'Winter' },
+                        { id: 'paddle', label: 'Wasser' },
+                        { id: 'generic', label: 'Sonstig' },
+                      ] as const).map(({ id, label }) => (
+                        <button
+                          key={id}
+                          onClick={() => setSegmentFilters(f => ({
+                            ...f,
+                            sportGroups: f.sportGroups.includes(id)
+                              ? f.sportGroups.filter(g => g !== id)
+                              : [...f.sportGroups, id],
+                          }))}
+                          className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                            segmentFilters.sportGroups.includes(id)
+                              ? 'bg-accent-DEFAULT text-white border-transparent'
+                              : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Farb-Konfiguration */}
                   <div>
                     <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
@@ -1875,6 +2162,7 @@ export default function MapPage() {
                         { key: 'trail', label: 'Trail' },
                         { key: 'lift', label: 'Lift' },
                         { key: 'ridden', label: 'Gefahren' },
+                        { key: 'favorite', label: 'Favoriten' },
                       ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
                         <div key={key} className="flex items-center gap-1.5 text-xs">
                           <ColorPicker
@@ -1972,44 +2260,133 @@ export default function MapPage() {
         {selectedLocationTag && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={() => setSelectedLocationTag(null)}
+            onClick={() => { setSelectedLocationTagId(null); setTagGalleryOpen(false); setTagGallerySelectMode(false) }}
           >
             <div
-              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden max-h-[80vh] flex flex-col"
+              className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden flex flex-col max-h-[85vh]"
               onClick={e => e.stopPropagation()}
             >
-              {/* Header */}
-              <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 flex-shrink-0">
+              {/* GPS Coordinates */}
+              <div className="px-4 pt-3 pb-0 flex items-center justify-between flex-shrink-0">
+                <span className="text-xs text-neutral-400 font-mono">
+                  {selectedLocationTag.lat?.toFixed(5)}, {selectedLocationTag.lng?.toFixed(5)}
+                </span>
+                <button
+                  onClick={() => { setSelectedLocationTagId(null); setTagGalleryOpen(false); setTagGallerySelectMode(false) }}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Cover Image */}
+              {selectedLocationTag.cover_image_url ? (
+                <div className="relative flex-shrink-0 mt-2">
+                  {coverImageBlobUrl ? (
+                    <img src={coverImageBlobUrl} alt="" className="w-full h-36 object-cover" />
+                  ) : (
+                    <div className="w-full h-36 bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
+                  )}
+                  <button
+                    onClick={async () => {
+                      await clearTagCoverImage(selectedLocationTag.id)
+                      queryClient.setQueryData<Tag[]>(['tags'], old =>
+                        old?.map(t => t.id === selectedLocationTag.id
+                          ? { ...t, cover_image_url: undefined }
+                          : t
+                        ) ?? []
+                      )
+                    }}
+                    className="absolute top-1.5 right-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs cursor-pointer"
+                    title="Bild entfernen"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Cover image buttons */}
+              <div className="px-4 pt-2 pb-0 flex gap-2 flex-shrink-0">
+                <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-accent-DEFAULT cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async e => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const { uploadTagCoverImage } = await import('@/api/tags')
+                      try {
+                        const result = await uploadTagCoverImage(selectedLocationTag.id, file)
+                        // Sofort im Cache aktualisieren → live ohne Refetch-Verzögerung
+                        queryClient.setQueryData<Tag[]>(['tags'], old =>
+                          old?.map(t => t.id === selectedLocationTag.id
+                            ? { ...t, cover_image_url: result.cover_image_url }
+                            : t
+                          ) ?? []
+                        )
+                      } catch (err) {
+                        console.error('Cover image upload failed:', err)
+                      }
+                    }}
+                  />
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
+                  </svg>
+                  {selectedLocationTag.cover_image_url ? 'Ersetzen' : 'Bild hinzufügen'}
+                </label>
+                {tagPhotos.length > 0 && (
+                  <button
+                    onClick={() => { setTagGalleryOpen(true); setTagGallerySelectMode(true) }}
+                    className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-accent-DEFAULT cursor-pointer"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd"/>
+                    </svg>
+                    Aus Aktivitäten
+                  </button>
+                )}
+              </div>
+
+              {/* Tag name + color */}
+              <div className="px-4 pt-3 pb-2 flex items-center gap-3 flex-shrink-0 border-b border-neutral-100 dark:border-neutral-800">
                 <span
                   className="inline-block px-3 py-1 rounded-full text-sm font-semibold"
                   style={{ backgroundColor: selectedLocationTag.color, color: selectedLocationTag.text_color }}
                 >
                   {selectedLocationTag.name}
                 </span>
-                <span className="text-xs text-neutral-400 ml-auto">
-                  {selectedLocationTag.lat?.toFixed(4)}, {selectedLocationTag.lng?.toFixed(4)}
-                </span>
-                <button
-                  onClick={() => setSelectedLocationTag(null)}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer ml-1"
-                >
-                  ✕
-                </button>
+                <ColorPicker
+                  value={selectedLocationTag.color}
+                  onChange={async hex => {
+                    await updateTag(selectedLocationTag.id, { color: hex })
+                    queryClient.invalidateQueries({ queryKey: ['tags'] })
+                  }}
+                />
               </div>
 
               {/* Activity list */}
-              <div className="overflow-y-auto flex-1">
+              <div className="flex-shrink-0">
+                <div className="px-4 pt-2 pb-1">
+                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                    Aktivitäten ({tagActivities.length})
+                  </span>
+                </div>
                 {tagActivitiesLoading ? (
-                  <div className="flex items-center justify-center py-6 text-sm text-neutral-400">Laden...</div>
+                  <div className="flex items-center justify-center py-4 text-sm text-neutral-400">Laden...</div>
                 ) : tagActivities.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-neutral-400 text-center">
+                  <div className="px-4 py-3 text-sm text-neutral-400 text-center">
                     {selectedLocationTag.description && (
-                      <p className="mb-2 text-xs">{selectedLocationTag.description}</p>
+                      <p className="mb-1 text-xs">{selectedLocationTag.description}</p>
                     )}
                     Noch keine Aktivitäten zugeordnet
                   </div>
                 ) : (
-                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 max-h-[200px] overflow-y-auto">
                     {tagActivities.map(act => {
                       const displayTitle = act.title || act.title_auto || 'Aktivität'
                       const date = new Date(act.started_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -2024,8 +2401,8 @@ export default function MapPage() {
                             href={`/activities/${act.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-between px-4 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
-                            onClick={() => setSelectedLocationTag(null)}
+                            className="flex items-center justify-between px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+                            onClick={() => setSelectedLocationTagId(null)}
                           >
                             <div>
                               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate max-w-[180px]">{displayTitle}</p>
@@ -2039,7 +2416,64 @@ export default function MapPage() {
                   </ul>
                 )}
               </div>
+
+              {/* Gallery section */}
+              {tagPhotos.length > 0 && (
+                <div className="border-t border-neutral-100 dark:border-neutral-800 flex-shrink-0">
+                  <button
+                    onClick={() => setTagGalleryOpen(!tagGalleryOpen)}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer"
+                  >
+                    <span>Galerie ({tagPhotos.length} Fotos)</span>
+                    <svg className={`w-3.5 h-3.5 transition-transform ${tagGalleryOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd"/>
+                    </svg>
+                  </button>
+                  {tagGalleryOpen && (
+                    <div className="px-3 pb-3 max-h-48 overflow-y-auto">
+                      {tagGallerySelectMode && (
+                        <p className="text-xs text-accent-DEFAULT mb-2 text-center">Foto als Titelbild wählen</p>
+                      )}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {tagPhotos.map(photo => (
+                          <div
+                            key={photo.id}
+                            className={`relative aspect-square rounded overflow-hidden cursor-pointer ${tagGallerySelectMode ? 'hover:ring-2 hover:ring-accent-DEFAULT' : ''}`}
+                            onClick={async () => {
+                              if (tagGallerySelectMode) {
+                                const { setTagCoverImageFromPhoto } = await import('@/api/tags')
+                                const result = await setTagCoverImageFromPhoto(selectedLocationTag.id, photo.full_url)
+                                queryClient.setQueryData<Tag[]>(['tags'], old =>
+                                  old?.map(t => t.id === selectedLocationTag.id
+                                    ? { ...t, cover_image_url: result.cover_image_url }
+                                    : t
+                                  ) ?? []
+                                )
+                                setTagGallerySelectMode(false)
+                              } else {
+                                setTagLightboxPhoto(photo.full_url)
+                              }
+                            }}
+                          >
+                            <img src={photo.thumb_url} alt="" className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* Tag photo lightbox */}
+        {tagLightboxPhoto && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80"
+            onClick={() => setTagLightboxPhoto(null)}
+          >
+            <img src={tagLightboxPhoto} alt="" className="max-w-full max-h-full object-contain rounded shadow-2xl" />
           </div>
         )}
 

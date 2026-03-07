@@ -35,6 +35,12 @@ type AnalyticsFilter struct {
 	HRMax            *int
 	PowerMin         *int
 	PowerMax         *int
+	// Tri-state tag filters
+	IncludeTags []uuid.UUID // activity must have ALL of these tags
+	ExcludeTags []uuid.UUID // activity must have NONE of these tags
+	// Tri-state gear filters
+	IncludeGear []uuid.UUID // activity must use one of these gear items
+	ExcludeGear []uuid.UUID // activity must not use any of these gear items
 }
 
 func ParseFilters(r *http.Request) AnalyticsFilter {
@@ -97,6 +103,43 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	f.HRMax = parseOptInt(q.Get("hr_max"))
 	f.PowerMin = parseOptInt(q.Get("power_min"))
 	f.PowerMax = parseOptInt(q.Get("power_max"))
+
+	if v := q.Get("include_tags"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				if uid, err := uuid.Parse(s); err == nil {
+					f.IncludeTags = append(f.IncludeTags, uid)
+				}
+			}
+		}
+	}
+	if v := q.Get("exclude_tags"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				if uid, err := uuid.Parse(s); err == nil {
+					f.ExcludeTags = append(f.ExcludeTags, uid)
+				}
+			}
+		}
+	}
+	if v := q.Get("include_gear"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				if uid, err := uuid.Parse(s); err == nil {
+					f.IncludeGear = append(f.IncludeGear, uid)
+				}
+			}
+		}
+	}
+	if v := q.Get("exclude_gear"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				if uid, err := uuid.Parse(s); err == nil {
+					f.ExcludeGear = append(f.ExcludeGear, uid)
+				}
+			}
+		}
+	}
 
 	return f
 }
@@ -253,6 +296,38 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	if f.WeatherCondition != nil {
 		conditions = append(conditions, "a.weather_condition ILIKE $"+strconv.Itoa(idx))
 		args = append(args, "%"+*f.WeatherCondition+"%")
+		idx++
+	}
+
+	// Tri-state tag filters: activity must have ALL included tags
+	if len(f.IncludeTags) > 0 {
+		conditions = append(conditions, "a.id IN ("+
+			"SELECT at2.activity_id FROM activity_tags at2 "+
+			"JOIN tags t ON t.id = at2.tag_id "+
+			"WHERE t.id = ANY($"+strconv.Itoa(idx)+"::uuid[]) "+
+			"GROUP BY at2.activity_id "+
+			"HAVING COUNT(DISTINCT t.id) = "+strconv.Itoa(len(f.IncludeTags))+")")
+		args = append(args, f.IncludeTags)
+		idx++
+	}
+	// Activity must have NONE of the excluded tags
+	if len(f.ExcludeTags) > 0 {
+		conditions = append(conditions, "a.id NOT IN ("+
+			"SELECT at2.activity_id FROM activity_tags at2 "+
+			"WHERE at2.tag_id = ANY($"+strconv.Itoa(idx)+"::uuid[]))")
+		args = append(args, f.ExcludeTags)
+		idx++
+	}
+	// Tri-state gear filters: activity must use one of the included gear items
+	if len(f.IncludeGear) > 0 {
+		conditions = append(conditions, "a.gear_id = ANY($"+strconv.Itoa(idx)+"::uuid[])")
+		args = append(args, f.IncludeGear)
+		idx++
+	}
+	// Activity must not use any of the excluded gear items
+	if len(f.ExcludeGear) > 0 {
+		conditions = append(conditions, "(a.gear_id IS NULL OR a.gear_id != ALL($"+strconv.Itoa(idx)+"::uuid[]))")
+		args = append(args, f.ExcludeGear)
 		idx++
 	}
 

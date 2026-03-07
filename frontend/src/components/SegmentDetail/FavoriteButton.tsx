@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Heart } from 'lucide-react'
+import { apiClient } from '@/api/client'
 
 interface FavoriteButtonProps {
-  segmentId: number
+  segmentId: string
 }
 
 export function FavoriteButton({ segmentId }: FavoriteButtonProps) {
@@ -11,16 +12,16 @@ export function FavoriteButton({ segmentId }: FavoriteButtonProps) {
   const { data } = useQuery({
     queryKey: ['segment-favorite', segmentId],
     queryFn: () =>
-      fetch(`/api/v1/segments/${segmentId}/favorite`).then(r => r.json()),
+      apiClient<{ favorite: boolean }>(`/segments/${segmentId}/favorite`),
   })
 
   const isFavorite = data?.favorite ?? false
 
   const mutation = useMutation({
     mutationFn: (fav: boolean) =>
-      fetch(`/api/v1/segments/${segmentId}/favorite`, {
+      apiClient<unknown>(`/segments/${segmentId}/favorite`, {
         method: fav ? 'DELETE' : 'POST',
-      }).then(r => r.json()),
+      }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['segment-favorite', segmentId] }),
   })
@@ -29,21 +30,17 @@ export function FavoriteButton({ segmentId }: FavoriteButtonProps) {
     <button
       onClick={() => mutation.mutate(isFavorite)}
       disabled={mutation.isPending}
-      className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-all disabled:opacity-50"
-      style={{
-        borderColor: isFavorite ? 'var(--color-accent-DEFAULT, #FF6B35)' : undefined,
-        color: isFavorite ? 'var(--color-accent-DEFAULT, #FF6B35)' : undefined,
-        backgroundColor: isFavorite
-          ? 'color-mix(in srgb, var(--color-accent-DEFAULT, #FF6B35) 10%, transparent)'
-          : undefined,
-      }}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
+        isFavorite
+          ? 'border-accent-DEFAULT/50 text-accent-DEFAULT bg-accent-DEFAULT/10'
+          : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+      }`}
     >
       <Heart
-        size={18}
-        fill={isFavorite ? 'var(--color-accent-DEFAULT, #FF6B35)' : 'none'}
-        stroke={isFavorite ? 'var(--color-accent-DEFAULT, #FF6B35)' : 'currentColor'}
+        size={14}
+        fill={isFavorite ? 'currentColor' : 'none'}
       />
-      {isFavorite ? 'Favorit' : 'Zu Favoriten'}
+      {isFavorite ? 'Favorit' : 'Favorit'}
     </button>
   )
 }

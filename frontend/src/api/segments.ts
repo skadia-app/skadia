@@ -13,6 +13,7 @@ export interface Segment {
   effort_count: number
   athlete_count: number
   ridden_count: number
+  is_favorite: boolean
   visibility: string
   created_at: string
   track_geojson?: string
@@ -57,19 +58,35 @@ export interface CreateSegmentPayload {
   climb_type?: string
 }
 
-export async function fetchSegments(params?: {
+export interface SegmentsResponse {
+  segments: Segment[]
+  next_cursor?: string
+  has_more: boolean
+}
+
+export async function fetchSegments(params: {
   sport_group?: string
   segment_type?: string
+  segment_types?: string
   search?: string
   bbox?: string
-}): Promise<Segment[]> {
+  only_ridden?: boolean
+  include_geojson?: boolean
+  cursor?: string
+  limit?: number
+} = {}): Promise<SegmentsResponse> {
   const qs = new URLSearchParams()
-  if (params?.sport_group) qs.set('sport_group', params.sport_group)
-  if (params?.segment_type) qs.set('segment_type', params.segment_type)
-  if (params?.search) qs.set('search', params.search)
-  if (params?.bbox) qs.set('bbox', params.bbox)
+  if (params.sport_group) qs.set('sport_group', params.sport_group)
+  if (params.segment_type) qs.set('segment_type', params.segment_type)
+  if (params.segment_types) qs.set('segment_types', params.segment_types)
+  if (params.search) qs.set('search', params.search)
+  if (params.bbox) qs.set('bbox', params.bbox)
+  if (params.only_ridden) qs.set('only_ridden', 'true')
+  if (params.include_geojson) qs.set('include_geojson', 'true')
+  if (params.cursor) qs.set('cursor', params.cursor)
+  if (params.limit !== undefined) qs.set('limit', String(params.limit))
   const q = qs.toString()
-  return apiClient<Segment[]>(`/segments${q ? `?${q}` : ''}`)
+  return apiClient<SegmentsResponse>(`/segments${q ? `?${q}` : ''}`)
 }
 
 export interface UpdateSegmentPayload {
@@ -88,6 +105,10 @@ export async function fetchSegmentLeaderboard(
 ): Promise<LeaderboardEntry[]> {
   const qs = isReverse !== undefined ? `?is_reverse=${isReverse}` : ''
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${qs}`)
+}
+
+export async function fetchSegment(id: string): Promise<Segment> {
+  return apiClient<Segment>(`/segments/${id}`)
 }
 
 export async function updateSegment(id: string, payload: UpdateSegmentPayload): Promise<Segment> {

@@ -51,6 +51,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
+	// after the Handler is fully initialised (needs DB + Handler for matching).
+
 	// S3 Storage (Garage)
 	s3Client, err := storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
 	if err != nil {
@@ -169,6 +172,7 @@ func main() {
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
+			r.Get("/jobs/active", h.ListActiveJobs)
 			r.Get("/activities/sport-type-stats", h.GetSportTypeStats)
 			r.Get("/activities", h.ListActivities)
 			r.Post("/activities/export-zip", h.ExportActivitiesZip)
@@ -210,8 +214,11 @@ func main() {
 			r.Delete("/tags/{id}", h.DeleteTag)
 			r.Post("/tags/seed-defaults", h.SeedDefaultTags)
 			r.Get("/tags/{id}/activities", h.GetTagActivities)
+			r.Post("/tags/{id}/assign-activities", h.AssignActivitiesToTag)
+			r.Delete("/tags/{id}/activities", h.UnassignActivitiesFromTag)
 			r.Post("/tags/{id}/merge", h.MergeTag)
 			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
+			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
 
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)
@@ -219,6 +226,8 @@ func main() {
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
 			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 			r.Get("/admin/osm-status", h.GetOSMStatus)
+			r.Get("/admin/osm-regions", h.ListOSMRegions)
+			r.Post("/admin/osm-import/start", h.StartOSMImport)
 
 			r.Get("/me", h.GetMe)
 
@@ -287,6 +296,7 @@ func main() {
 			r.Post("/custom-maps/{mapID}/markers", h.CreateCustomMapMarker)
 			r.Put("/custom-maps/{mapID}/markers/{markerID}", h.UpdateCustomMapMarker)
 			r.Delete("/custom-maps/{mapID}/markers/{markerID}", h.DeleteCustomMapMarker)
+			r.Post("/custom-maps/{mapID}/markers/{markerID}/image", h.UploadCustomMapMarkerImage)
 
 			// Activity Photos
 			r.Post("/activities/{id}/photos", h.UploadActivityPhoto)
@@ -295,6 +305,7 @@ func main() {
 			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
 			r.Get("/map/photos", h.ListMapPhotos)
+			r.Get("/media/{bucket}/*", h.ServeMedia)
 
 			// Geo
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
@@ -326,6 +337,26 @@ func main() {
 			r.Delete("/activities/{id}/edits", h.DeleteActivityEdits)
 			r.Post("/activities/{id}/edits/detect-hr-spikes", h.DetectHRSpikesHandler)
 			r.Post("/activities/{id}/edits/apply", h.ApplyActivityEdits)
+
+			// Non-destructive edit operations (Trim / Split / Merge)
+			r.Post("/activities/{id}/trim", h.TrimActivity)
+			r.Post("/activities/{id}/split", h.SplitActivity)
+			r.Post("/activities/{id}/merge", h.MergeActivities)
+
+			// Media Upload (multi-file, EXIF auto-assignment)
+			r.Post("/upload/media", h.UploadMedia)
+
+			// Import Queue
+			r.Get("/import-queue", h.ListImportQueue)
+			r.Get("/import-queue/count", h.CountImportQueue)
+			r.Patch("/import-queue/{id}", h.PatchImportQueueItem)
+			r.Delete("/import-queue/{id}", h.DeleteImportQueueItem)
+			r.Post("/import-queue/{id}/assign", h.AssignImportQueueItem)
+
+			// Tag Zones
+			r.Get("/tag-zones/{tagId}", h.GetTagZone)
+			r.Put("/tag-zones/{tagId}", h.UpsertTagZone)
+			r.Delete("/tag-zones/{tagId}", h.DeleteTagZone)
 
 			// LLM Settings (Admin + User)
 			r.Get("/admin/llm-config", h.GetLLMConfig)
@@ -381,6 +412,9 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+
+	// Resume interrupted background jobs from previous server process.
+	go h.ResumeInterruptedJobs(context.Background())
 
 	// Background: recalculate PMC for all active users on startup.
 	// Ensures historical data is populated after service changes or fresh deploys.

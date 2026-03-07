@@ -82,6 +82,18 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	filters.GearID = r.URL.Query().Get("gear_id")
 	filters.Search = r.URL.Query().Get("search")
+	if v := r.URL.Query().Get("include_tags"); v != "" {
+		filters.IncludeTags = strings.Split(v, ",")
+	}
+	if v := r.URL.Query().Get("exclude_tags"); v != "" {
+		filters.ExcludeTags = strings.Split(v, ",")
+	}
+	if v := r.URL.Query().Get("include_gear"); v != "" {
+		filters.IncludeGear = strings.Split(v, ",")
+	}
+	if v := r.URL.Query().Get("exclude_gear"); v != "" {
+		filters.ExcludeGear = strings.Split(v, ",")
+	}
 
 	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir, filters)
 	if err != nil {

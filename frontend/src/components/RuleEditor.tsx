@@ -6,6 +6,7 @@ import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction } fr
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -58,7 +59,7 @@ const VISIBILITY_OPTIONS = [
 interface ConditionField {
   field: string
   label: string
-  inputType: 'number' | 'text' | 'bool' | 'enum' | 'tag' | 'segment' | 'geofence'
+  inputType: 'number' | 'text' | 'bool' | 'enum' | 'tag' | 'segment' | 'geofence' | 'geofence_zone' | 'geofence_proximity'
   unit?: string
   options?: { value: string; label: string }[]
 }
@@ -208,6 +209,8 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
 // Internal-only fields not shown in category dropdown (geofence, round-trip)
 const INTERNAL_FIELDS: ConditionField[] = [
   { field: 'geofence', label: 'Geofence', inputType: 'geofence' },
+  { field: 'geofence_zone', label: 'In Zone', inputType: 'geofence_zone' },
+  { field: 'geofence_proximity', label: 'Nähe zum Pin', inputType: 'geofence_proximity' },
   { field: 'is_round_trip', label: 'Rundtour', inputType: 'bool' },
 ]
 
@@ -235,6 +238,8 @@ function opsForField(cf: ConditionField): string[] {
     case 'tag': return ['eq']
     case 'segment': return ['eq']
     case 'geofence': return ['eq']
+    case 'geofence_zone': return ['eq']
+    case 'geofence_proximity': return ['eq']
   }
 }
 
@@ -484,6 +489,279 @@ function GeofenceEditor({
 }
 
 // ---------------------------------------------------------------------------
+// GeofenceZoneEditor — draws a circle/polygon zone using ZoneEditor
+// ---------------------------------------------------------------------------
+
+interface GeofenceZoneValue {
+  mode: 'inside' | 'outside'
+  shape: 'circle' | 'polygon'
+  lat?: number
+  lon?: number
+  radius_m?: number
+  polygon?: string // GeoJSON Polygon JSON string
+}
+
+function GeofenceZoneEditor({
+  value,
+  onChange,
+}: {
+  value: GeofenceZoneValue
+  onChange: (v: GeofenceZoneValue) => void
+}) {
+  // Reconstruct ZoneData from the stored geofence_zone value
+  const zoneData: ZoneData = (() => {
+    if (value.shape === 'polygon' && value.polygon) {
+      try {
+        const poly = JSON.parse(value.polygon) as { type: 'Polygon'; coordinates: number[][][] }
+        return { mode: 'polygon', polygon: poly }
+      } catch {
+        // fall through to circle default
+      }
+    }
+    return {
+      mode: 'circle',
+      center: value.lon != null && value.lat != null ? [value.lon, value.lat] : undefined,
+      radiusM: value.radius_m ?? 1000,
+    }
+  })()
+
+  function handleZoneChange(zone: ZoneData) {
+    if (zone.mode === 'circle') {
+      onChange({
+        mode: value.mode,
+        shape: 'circle',
+        lat: zone.center?.[1],
+        lon: zone.center?.[0],
+        radius_m: zone.radiusM,
+      })
+    } else if (zone.polygon) {
+      onChange({
+        mode: value.mode,
+        shape: 'polygon',
+        polygon: JSON.stringify(zone.polygon),
+      })
+    }
+  }
+
+  return (
+    <div className="space-y-3 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 bg-neutral-50 dark:bg-neutral-800/30">
+      <div className="flex items-center gap-3">
+        <label className="text-xs text-neutral-600 dark:text-neutral-400">Modus:</label>
+        <select
+          value={value.mode}
+          onChange={(e) => onChange({ ...value, mode: e.target.value as 'inside' | 'outside' })}
+          className={inputClass + ' py-1 text-xs'}
+        >
+          <option value="inside">innerhalb</option>
+          <option value="outside">außerhalb</option>
+        </select>
+      </div>
+      <ZoneEditor
+        value={zoneData}
+        onChange={handleZoneChange}
+        minRadiusM={50}
+        maxRadiusM={100000}
+        enableHoles={false}
+        className="text-sm"
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// GeofenceProximityEditor — pin + radius, no hard upper limit
+// ---------------------------------------------------------------------------
+
+interface GeofenceProximityValue {
+  lat: number
+  lon: number
+  radius_m: number
+  mode: 'inside' | 'outside'
+}
+
+function GeofenceProximityEditor({
+  value,
+  onChange,
+}: {
+  value: GeofenceProximityValue
+  onChange: (v: GeofenceProximityValue) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
+  const circleSourceId = 'gfp-circle'
+  const valueRef = useRef<GeofenceProximityValue>(value)
+  valueRef.current = value
+
+  function buildCircleGeoJSON(lat: number, lon: number, radiusM: number) {
+    const points = 64
+    const coords: [number, number][] = []
+    const earthRadius = 6371000
+    const angularDist = radiusM / earthRadius
+    const latRad = (lat * Math.PI) / 180
+    const lonRad = (lon * Math.PI) / 180
+    for (let i = 0; i <= points; i++) {
+      const bearing = (i * 360) / points * (Math.PI / 180)
+      const pLat = Math.asin(
+        Math.sin(latRad) * Math.cos(angularDist) +
+        Math.cos(latRad) * Math.sin(angularDist) * Math.cos(bearing)
+      )
+      const pLon = lonRad + Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDist) * Math.cos(latRad),
+        Math.cos(angularDist) - Math.sin(latRad) * Math.sin(pLat)
+      )
+      coords.push([(pLon * 180) / Math.PI, (pLat * 180) / Math.PI])
+    }
+    return {
+      type: 'Feature' as const,
+      geometry: { type: 'Polygon' as const, coordinates: [coords] },
+      properties: {},
+    }
+  }
+
+  function updateCircle(map: maplibregl.Map, lat: number, lon: number, radiusM: number) {
+    const src = map.getSource(circleSourceId) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildCircleGeoJSON(lat, lon, radiusM) as any)
+  }
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          basemap: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            attribution: '&copy; OpenStreetMap',
+          },
+        },
+        layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap', minzoom: 0, maxzoom: 19 }],
+      },
+      center: [value.lon || 10.0, value.lat || 51.0],
+      zoom: value.lat ? 11 : 5,
+    })
+    mapRef.current = map
+
+    map.on('load', () => {
+      map.addSource(circleSourceId, {
+        type: 'geojson',
+        data: buildCircleGeoJSON(value.lat || 51, value.lon || 10, value.radius_m || 1000) as any,
+      })
+      map.addLayer({
+        id: 'gfp-fill',
+        type: 'fill',
+        source: circleSourceId,
+        paint: { 'fill-color': '#3B82F6', 'fill-opacity': 0.12 },
+      })
+      map.addLayer({
+        id: 'gfp-outline',
+        type: 'line',
+        source: circleSourceId,
+        paint: { 'line-color': '#3B82F6', 'line-width': 2 },
+      })
+
+      const el = document.createElement('div')
+      el.style.cssText = `
+        width:14px;height:14px;border-radius:50%;
+        background:#3B82F6;border:2px solid white;
+        box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:grab;
+      `
+      const marker = new maplibregl.Marker({ element: el, draggable: true })
+        .setLngLat([value.lon || 10.0, value.lat || 51.0])
+        .addTo(map)
+      markerRef.current = marker
+
+      marker.on('dragend', () => {
+        const lngLat = marker.getLngLat()
+        const current = valueRef.current
+        updateCircle(map, lngLat.lat, lngLat.lng, current.radius_m || 1000)
+        onChange({ ...current, lat: lngLat.lat, lon: lngLat.lng })
+      })
+
+      map.on('click', (e) => {
+        const { lat, lng } = e.lngLat
+        marker.setLngLat([lng, lat])
+        const current = valueRef.current
+        updateCircle(map, lat, lng, current.radius_m || 1000)
+        onChange({ ...current, lat, lon: lng })
+      })
+    })
+
+    return () => { map.remove() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    updateCircle(map, value.lat || 51, value.lon || 10, value.radius_m || 1000)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.radius_m])
+
+  const radiusDisplay = value.radius_m >= 1000
+    ? `${(value.radius_m / 1000).toFixed(1)} km`
+    : `${value.radius_m} m`
+
+  return (
+    <div className="space-y-3 border border-blue-200 dark:border-blue-800 rounded-lg p-3 bg-blue-50/30 dark:bg-blue-950/20">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-neutral-600 dark:text-neutral-400">Modus:</label>
+          <select
+            value={value.mode}
+            onChange={(e) => onChange({ ...value, mode: e.target.value as 'inside' | 'outside' })}
+            className={inputClass + ' py-1 text-xs'}
+          >
+            <option value="inside">innerhalb</option>
+            <option value="outside">außerhalb</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+          <label className="text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+            Radius: <span className="font-medium text-neutral-900 dark:text-neutral-100">{radiusDisplay}</span>
+          </label>
+          <input
+            type="range"
+            min={50}
+            max={200000}
+            step={50}
+            value={value.radius_m}
+            onChange={(e) => onChange({ ...value, radius_m: Number(e.target.value) })}
+            className="flex-1 accent-blue-500"
+          />
+          <input
+            type="number"
+            min={50}
+            step={50}
+            value={value.radius_m}
+            onChange={(e) => {
+              const v = Math.max(50, Number(e.target.value) || 1000)
+              onChange({ ...value, radius_m: v })
+            }}
+            className={inputClass + ' w-24 py-1 text-xs'}
+            title="Radius in Metern (kein Limit)"
+          />
+          <span className="text-xs text-neutral-400">m</span>
+        </div>
+        <div className="flex items-center gap-1 text-xs text-neutral-500">
+          <span>Lat:</span>
+          <span className="font-mono tabular-nums">{value.lat ? value.lat.toFixed(5) : '—'}</span>
+          <span className="ml-2">Lon:</span>
+          <span className="font-mono tabular-nums">{value.lon ? value.lon.toFixed(5) : '—'}</span>
+        </div>
+      </div>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        Klicke auf die Karte oder ziehe den Pin, um den genauen Standort zu setzen.
+      </p>
+      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height: 260 }} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Condition value editor — renders the right input for each field type
 // ---------------------------------------------------------------------------
 
@@ -620,6 +898,38 @@ function ConditionValueEditor({
     )
   }
 
+  if (inputType === 'geofence_zone') {
+    const gzVal: GeofenceZoneValue = cond.geofence_zone ?? { mode: 'inside', shape: 'circle', lat: 51.0, lon: 10.0, radius_m: 1000 }
+    return (
+      <div className="flex-1 min-w-0 w-full">
+        <GeofenceZoneEditor
+          value={gzVal}
+          onChange={(v) => onChange({
+            geofence_zone: v,
+            value: v.shape === 'polygon'
+              ? `${v.mode}:polygon`
+              : `${v.mode}:${v.lat?.toFixed(5)},${v.lon?.toFixed(5)},${v.radius_m}m`,
+          })}
+        />
+      </div>
+    )
+  }
+
+  if (inputType === 'geofence_proximity') {
+    const gpVal: GeofenceProximityValue = cond.geofence_proximity ?? { lat: 51.0, lon: 10.0, radius_m: 1000, mode: 'inside' }
+    return (
+      <div className="flex-1 min-w-0 w-full">
+        <GeofenceProximityEditor
+          value={gpVal}
+          onChange={(v) => onChange({
+            geofence_proximity: v,
+            value: `${v.mode}:${v.lat.toFixed(5)},${v.lon.toFixed(5)},${v.radius_m}m`,
+          })}
+        />
+      </div>
+    )
+  }
+
   // Default: free text
   return (
     <input type="text" value={cond.value ?? ''}
@@ -652,7 +962,7 @@ function ConditionRow({
   // For internal fields (geofence, round-trip), show a simplified row
   if (isInternalField && currentField) {
     return (
-      <div className={currentField.inputType === 'geofence' ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
+      <div className={['geofence', 'geofence_zone', 'geofence_proximity'].includes(currentField.inputType) ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
         <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{currentField.label}</span>
         <ConditionValueEditor fieldDef={currentField} cond={cond} onChange={onUpdate} tags={tags} />
         <button type="button" onClick={onRemove}
@@ -1115,31 +1425,82 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
             <span className="font-medium text-sm text-blue-700 dark:text-blue-300">Geofencing</span>
-            <span className="text-xs text-blue-500">-- ortsbasierte Regeln</span>
+            <span className="text-xs text-blue-500">— ortsbasierte Regeln</span>
           </div>
-          {groups.some(g => g.conditions.some(c => c.field === 'geofence')) ? (
-            <p className="text-xs text-blue-600 dark:text-blue-400">Geofence-Bedingung ist aktiv (in den Gruppen oben).</p>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                const newCond: RuleCondition = {
-                  field: 'geofence',
-                  op: 'eq',
-                  value: '',
-                  geofence: { lat: 51.0, lon: 10.0, radius_m: 1000, mode: 'inside' },
-                }
-                if (groups.length > 0) {
-                  updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
-                } else {
-                  setGroups([{ logic: 'and', conditions: [newCond] }])
-                }
-              }}
-              className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer"
-            >
-              + Geofence hinzufuegen
-            </button>
+          {/* Show status for each active geofence condition type */}
+          {['geofence', 'geofence_zone', 'geofence_proximity'].some(f =>
+            groups.some(g => g.conditions.some(c => c.field === f))
+          ) && (
+            <p className="text-xs text-blue-600 dark:text-blue-400">
+              Geofence-Bedingung ist aktiv (in den Gruppen oben).
+            </p>
           )}
+          {/* Buttons to add each geofence type */}
+          <div className="flex flex-wrap gap-2">
+            {!groups.some(g => g.conditions.some(c => c.field === 'geofence')) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newCond: RuleCondition = {
+                    field: 'geofence',
+                    op: 'eq',
+                    value: '',
+                    geofence: { lat: 51.0, lon: 10.0, radius_m: 1000, mode: 'inside' },
+                  }
+                  if (groups.length > 0) {
+                    updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
+                  } else {
+                    setGroups([{ logic: 'and', conditions: [newCond] }])
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer border border-blue-200 dark:border-blue-700 rounded px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              >
+                + Geofence (Kreis, Legacy)
+              </button>
+            )}
+            {!groups.some(g => g.conditions.some(c => c.field === 'geofence_zone')) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newCond: RuleCondition = {
+                    field: 'geofence_zone',
+                    op: 'eq',
+                    value: '',
+                    geofence_zone: { mode: 'inside', shape: 'circle', lat: 51.0, lon: 10.0, radius_m: 1000 },
+                  }
+                  if (groups.length > 0) {
+                    updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
+                  } else {
+                    setGroups([{ logic: 'and', conditions: [newCond] }])
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer border border-blue-200 dark:border-blue-700 rounded px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              >
+                + In Zone (Kreis/Polygon)
+              </button>
+            )}
+            {!groups.some(g => g.conditions.some(c => c.field === 'geofence_proximity')) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newCond: RuleCondition = {
+                    field: 'geofence_proximity',
+                    op: 'eq',
+                    value: '',
+                    geofence_proximity: { lat: 51.0, lon: 10.0, radius_m: 1000, mode: 'inside' },
+                  }
+                  if (groups.length > 0) {
+                    updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
+                  } else {
+                    setGroups([{ logic: 'and', conditions: [newCond] }])
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer border border-blue-200 dark:border-blue-700 rounded px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              >
+                + Nähe zum Pin
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Round trip block */}

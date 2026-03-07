@@ -20,13 +20,14 @@ type DataImporter interface {
 
 // ImportParams bundles everything an importer needs.
 type ImportParams struct {
-	Source     ExportSource
-	UserID     string
-	DB         *database.DB
-	Storage    *storage.S3Client
-	JobID      string
-	OnProgress func(current, total int, msg string)
-	Options    importer.ImportOptions
+	Source           ExportSource
+	UserID           string
+	DB               *database.DB
+	Storage          *storage.S3Client
+	JobID            string
+	OnProgress       func(current, total int, msg string)
+	OnModuleComplete func(completed, total int, moduleName string)
+	Options          importer.ImportOptions
 }
 
 // ImportResult summarises the outcome of a single module run.
@@ -76,21 +77,38 @@ func (r *ImportRegistry) Detect(src ExportSource) []DetectedModule {
 }
 
 // RunModules executes the requested modules (or all available ones when modules is empty).
-func (r *ImportRegistry) RunModules(ctx context.Context, modules []string, params ImportParams) error {
+// Returns all non-fatal error strings collected across modules.
+func (r *ImportRegistry) RunModules(ctx context.Context, modules []string, params ImportParams) ([]string, error) {
+	// Pre-determine which modules will actually run.
+	var toRun []DataImporter
 	for _, imp := range r.importers {
 		if len(modules) > 0 && !containsStr(modules, imp.Name()) {
 			continue
 		}
 		available, _, _ := imp.Detect(params.Source)
-		if !available {
-			continue
-		}
-		if _, err := imp.Import(ctx, params); err != nil {
-			// Log but continue – individual modules must not abort the whole job.
-			_ = err
+		if available {
+			toRun = append(toRun, imp)
 		}
 	}
-	return nil
+
+	total := len(toRun)
+	var allErrors []string
+
+	for i, imp := range toRun {
+		result, err := imp.Import(ctx, params)
+		if err != nil {
+			allErrors = append(allErrors, imp.Name()+": "+err.Error())
+		}
+		if result != nil {
+			for _, e := range result.Errors {
+				allErrors = append(allErrors, imp.Name()+"/"+e)
+			}
+		}
+		if params.OnModuleComplete != nil {
+			params.OnModuleComplete(i+1, total, imp.Name())
+		}
+	}
+	return allErrors, nil
 }
 
 func containsStr(slice []string, item string) bool {

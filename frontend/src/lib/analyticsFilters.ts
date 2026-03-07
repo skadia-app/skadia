@@ -27,6 +27,12 @@ export interface AnalyticsFilterState {
   hrMax: string
   powerMin: string
   powerMax: string
+  // Tri-state tag filters
+  includeTags: string[]  // tag IDs to include (activity must have ALL)
+  excludeTags: string[]  // tag IDs to exclude (activity must have NONE)
+  // Tri-state gear filters
+  includeGear: string[]  // gear IDs to include
+  excludeGear: string[]  // gear IDs to exclude
 }
 
 const PRESET_KEY = 'skadia-analytics-presets'
@@ -65,6 +71,8 @@ const PARAM_MAP: Record<string, string> = {
   paceMin: 'pace_min', paceMax: 'pace_max',
   countries: 'country', seasons: 'season', weekdays: 'weekday',
   hrMin: 'hr_min', hrMax: 'hr_max', powerMin: 'power_min', powerMax: 'power_max',
+  includeTags: 'include_tags', excludeTags: 'exclude_tags',
+  includeGear: 'include_gear', excludeGear: 'exclude_gear',
 }
 
 export function useAnalyticsFilters() {
@@ -96,6 +104,10 @@ export function useAnalyticsFilters() {
     hrMax: searchParams.get('hr_max') || '',
     powerMin: searchParams.get('power_min') || '',
     powerMax: searchParams.get('power_max') || '',
+    includeTags: searchParams.get('include_tags')?.split(',').filter(Boolean) || [],
+    excludeTags: searchParams.get('exclude_tags')?.split(',').filter(Boolean) || [],
+    includeGear: searchParams.get('include_gear')?.split(',').filter(Boolean) || [],
+    excludeGear: searchParams.get('exclude_gear')?.split(',').filter(Boolean) || [],
   }), [searchParams])
 
   const setFilters = useCallback((updates: Partial<AnalyticsFilterState>) => {

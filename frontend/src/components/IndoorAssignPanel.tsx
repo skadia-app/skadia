@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchActivities } from '@/api/activities'
-import { updateActivity } from '@/api/activities'
-import { createTag, syncTagLocation } from '@/api/tags'
+import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
@@ -52,6 +51,15 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     })
   }, [activities, search, sportFilter])
 
+  // Ausgewählte Items ganz oben anzeigen
+  const sortedFiltered = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const aSelected = selectedIds.has(a.id) ? 0 : 1
+      const bSelected = selectedIds.has(b.id) ? 0 : 1
+      return aSelected - bSelected
+    })
+  }, [filtered, selectedIds])
+
   // Unique sport types for dropdown
   const sportTypes = useMemo(() => {
     const types = new Set(activities.map(a => a.sport_type).filter(Boolean))
@@ -79,14 +87,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     mutationFn: async () => {
       const tag = locationTags.find(t => t.id === selectedTagId)
       if (!tag) throw new Error('Kein Standort ausgewählt')
-      const actIds = Array.from(selectedIds)
-      await Promise.all(actIds.map(async (actId) => {
-        const act = activities.find(a => a.id === actId)
-        const currentTags = act?.tags ?? []
-        if (!currentTags.includes(tag.name)) {
-          await updateActivity(actId, { tags: [...currentTags, tag.name] })
-        }
-      }))
+      await assignActivitiesToTag(tag.id, Array.from(selectedIds))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activities'] })
@@ -115,6 +116,12 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   }
 
   const hasSelection = selectedIds.size > 0
+  const [dragHint, setDragHint] = useState(false)
+
+  function showDragHint() {
+    setDragHint(true)
+    setTimeout(() => setDragHint(false), 2500)
+  }
 
   // actId: das direkt gezogene Item. Ist es selektiert → alle selektierten mitnehmen.
   // Ist es nicht selektiert → nur dieses eine Item.
@@ -166,29 +173,36 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           draggable={hasSelection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onClick={hasSelection ? showDragHint : undefined}
           className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors select-none ${
             hasSelection
               ? 'border-orange-300 dark:border-orange-700 text-accent-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
               : 'border-neutral-200 dark:border-neutral-700 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
           }`}
-          title={hasSelection ? 'Auf die Karte ziehen' : 'Erst Aktivitäten auswählen'}
+          title={hasSelection ? 'Auf Karte ziehen zum Zuweisen' : 'Erst Aktivitäten auswählen'}
         >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-            <circle cx="5" cy="3" r="1.2" />
-            <circle cx="11" cy="3" r="1.2" />
-            <circle cx="5" cy="8" r="1.2" />
-            <circle cx="11" cy="8" r="1.2" />
-            <circle cx="5" cy="13" r="1.2" />
-            <circle cx="11" cy="13" r="1.2" />
+          {/* drag-hand icon */}
+          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M9 3.5a1 1 0 00-2 0V9H5.5a1 1 0 000 2H7v1H5.5a1 1 0 000 2H7v.5a4.5 4.5 0 009 0v-5a1 1 0 00-2 0v2h-.5V9a1 1 0 00-2 0v2H11V3.5z" />
           </svg>
-          <span>Karte</span>
+          <span>Ziehen</span>
         </div>
       </div>
+      {dragHint && (
+        <div className="px-3 py-1.5 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 text-xs text-accent-600 dark:text-orange-400 text-center animate-pulse">
+          Diesen Button auf einen Pin auf der Karte ziehen
+        </div>
+      )}
 
       {/* Drag hint */}
       {!hasSelection && (
-        <p className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500 text-center border-b border-neutral-100 dark:border-neutral-800">
-          Aktivitäten wählen und auf die Karte ziehen
+        <p className="px-3 py-1.5 text-xs text-center border-b border-neutral-100 dark:border-neutral-800">
+          <span className="flex items-center justify-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2a.75.75 0 01.75.75v8.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V2.75A.75.75 0 0110 2z" />
+            </svg>
+            Aktivitäten wählen und auf die Karte ziehen
+          </span>
         </p>
       )}
 
@@ -199,7 +213,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Titel / Beschreibung suchen..."
-          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
+          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         />
         <select
           value={sportFilter}
@@ -233,7 +247,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                 Alle auswählen ({filtered.length})
               </label>
             </div>
-            {filtered.map(act => {
+            {sortedFiltered.map(act => {
               const dateStr = act.started_at
                 ? format(new Date(act.started_at), 'EEE dd.MM.', { locale: de })
                 : ''

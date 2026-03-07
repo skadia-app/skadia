@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import OSMImportModal from '@/components/OSMImportModal'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { CATEGORIES, SPORT_DEFS } from '@/lib/sportTaxonomy'
@@ -16,6 +17,8 @@ import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
 
 function OSMStatusSection() {
+  const [showImportModal, setShowImportModal] = useState(false)
+
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
@@ -57,32 +60,29 @@ function OSMStatusSection() {
         )}
       </div>
 
-      {/* No-data warning */}
-      {!hasData && (
-        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Keine OSM-Daten vorhanden. Import starten mit:{' '}
-          <code className="font-mono">bash scripts/import-osm.sh --region dach</code>
-        </div>
-      )}
-
-      {hasData && (
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Import via <code className="text-xs font-mono">scripts/import-osm.sh --region dach</code>
-        </p>
-      )}
-
-      <button
-        onClick={() => importLifts.mutate()}
-        disabled={importLifts.isPending || !hasData}
-        className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-      >
-        {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
-      </button>
+      {/* Buttons */}
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={() => setShowImportModal(true)}
+          className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors"
+        >
+          Import-Assistent
+        </button>
+        <button
+          onClick={() => importLifts.mutate()}
+          disabled={importLifts.isPending || !hasData}
+          className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+        >
+          {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+        </button>
+      </div>
       {importLifts.isSuccess && (
         <p className="text-xs text-emerald-600 dark:text-emerald-400">
           {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
         </p>
       )}
+
+      {showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
     </div>
   )
 }
@@ -136,9 +136,9 @@ function Stage2EnrichmentSection() {
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
       <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Anreicherung (Stage 2)</h2>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Automatische Analysen</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          ML-Module, die nach dem Upload im Hintergrund ausgeführt werden.
+          Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden.
         </p>
       </div>
 
@@ -167,7 +167,7 @@ function Stage2EnrichmentSection() {
       </div>
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
-        &Auml;nderungen werden bei der n&auml;chsten Aktivit&auml;t oder bei Neuberechnung unter &quot;Enrichment-Einstellungen&quot; angewendet.
+        &Auml;nderungen gelten f&uuml;r neue Aktivit&auml;ten sowie bei manueller Neuberechnung.
       </p>
     </section>
   )
@@ -690,12 +690,32 @@ function SportSettingsSection() {
   )
 }
 
+type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark'
+
+const BASE_STYLE_OPTIONS: { value: BaseStyle; label: string }[] = [
+  { value: 'osm', label: 'OSM (Standard)' },
+  { value: 'topo', label: 'Topografisch' },
+  { value: 'cyclosm', label: 'CyclOSM' },
+  { value: 'satellite', label: 'Satellit' },
+  { value: 'dark', label: 'Dark' },
+]
+
 function HeatmapSettingsSection() {
   const queryClient = useQueryClient()
   const [localInterval, setLocalInterval] = useState<number | null>(null)
   const [localThreshold, setLocalThreshold] = useState<number | null>(null)
   const [localFilterMap, setLocalFilterMap] = useState<boolean | null>(null)
   const [localFilterActivity, setLocalFilterActivity] = useState<boolean | null>(null)
+  const [defaultBaseStyle, setDefaultBaseStyle] = useState<BaseStyle>(() => {
+    try {
+      const s = localStorage.getItem('skadia-map-defaults')
+      if (s) {
+        const p = JSON.parse(s)
+        if (p.defaultBaseStyle) return p.defaultBaseStyle as BaseStyle
+      }
+    } catch { /* ignore */ }
+    return 'osm'
+  })
 
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
@@ -734,6 +754,31 @@ function HeatmapSettingsSection() {
       </div>
 
       <div>
+        <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1">
+          Standard-Kartenstil
+        </label>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+          Wird beim ersten Öffnen verwendet. Während der Sitzung wird der zuletzt verwendete Stil gespeichert.
+        </p>
+        <select
+          value={defaultBaseStyle}
+          onChange={e => {
+            const val = e.target.value as BaseStyle
+            setDefaultBaseStyle(val)
+            try {
+              const stored = JSON.parse(localStorage.getItem('skadia-map-defaults') || '{}')
+              localStorage.setItem('skadia-map-defaults', JSON.stringify({ ...stored, defaultBaseStyle: val }))
+            } catch { /* ignore */ }
+          }}
+          className="w-48 px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+        >
+          {BASE_STYLE_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Heatmap-Sampling-Intervall

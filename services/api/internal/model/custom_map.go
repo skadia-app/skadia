@@ -24,6 +24,7 @@ type CustomMapMarker struct {
 	Lat         float64   `json:"lat"`
 	Lng         float64   `json:"lng"`
 	Color       *string   `json:"color"`
+	ImageURL    *string   `json:"image_url,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -55,4 +56,5 @@ type UpdateMarkerRequest struct {
 	Lat         *float64 `json:"lat"`
 	Lng         *float64 `json:"lng"`
 	Color       *string  `json:"color"`
+	ImageURL    *string  `json:"image_url"`
 }

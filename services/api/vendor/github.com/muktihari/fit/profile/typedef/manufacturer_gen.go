@@ -244,6 +244,12 @@ const (
 	ManufacturerTektroRacingProducts       Manufacturer = 333
 	ManufacturerDaradInnovationCorporation Manufacturer = 334
 	ManufacturerCycloptim                  Manufacturer = 335
+	ManufacturerRunna                      Manufacturer = 337
+	ManufacturerZepp                       Manufacturer = 339
+	ManufacturerPeloton                    Manufacturer = 340
+	ManufacturerCarv                       Manufacturer = 341
+	ManufacturerTissot                     Manufacturer = 342
+	ManufacturerRealVelo                   Manufacturer = 345
 	ManufacturerActigraphcorp              Manufacturer = 5759
 	ManufacturerInvalid                    Manufacturer = 0xFFFF
 )
@@ -714,6 +720,18 @@ func (m Manufacturer) String() string {
 		return "darad_innovation_corporation"
 	case ManufacturerCycloptim:
 		return "cycloptim"
+	case ManufacturerRunna:
+		return "runna"
+	case ManufacturerZepp:
+		return "zepp"
+	case ManufacturerPeloton:
+		return "peloton"
+	case ManufacturerCarv:
+		return "carv"
+	case ManufacturerTissot:
+		return "tissot"
+	case ManufacturerRealVelo:
+		return "real_velo"
 	case ManufacturerActigraphcorp:
 		return "actigraphcorp"
 	default:
@@ -1186,6 +1204,18 @@ func ManufacturerFromString(s string) Manufacturer {
 		return ManufacturerDaradInnovationCorporation
 	case "cycloptim":
 		return ManufacturerCycloptim
+	case "runna":
+		return ManufacturerRunna
+	case "zepp":
+		return ManufacturerZepp
+	case "peloton":
+		return ManufacturerPeloton
+	case "carv":
+		return ManufacturerCarv
+	case "tissot":
+		return ManufacturerTissot
+	case "real_velo":
+		return ManufacturerRealVelo
 	case "actigraphcorp":
 		return ManufacturerActigraphcorp
 	default:
@@ -1427,6 +1457,12 @@ func ListManufacturer() []Manufacturer {
 		ManufacturerTektroRacingProducts,
 		ManufacturerDaradInnovationCorporation,
 		ManufacturerCycloptim,
+		ManufacturerRunna,
+		ManufacturerZepp,
+		ManufacturerPeloton,
+		ManufacturerCarv,
+		ManufacturerTissot,
+		ManufacturerRealVelo,
 		ManufacturerActigraphcorp,
 	}
 }

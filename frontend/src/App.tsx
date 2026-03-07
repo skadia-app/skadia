@@ -96,6 +96,7 @@ export default function App() {
                         <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
                         <Route path="settings/tags" element={<TagsPage />} />
                         <Route path="settings/import" element={<ImportPage />} />
+                        <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
                       </Route>
                     </Route>
                   </Routes>

@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -61,6 +62,14 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 		return nil, fmt.Errorf("get garmin import job: %w", err)
 	}
 
+	var parsedErrors []string
+	if len(moduleResults) > 0 {
+		_ = moduleResults
+	}
+	if len(errors) > 0 {
+		_ = json.Unmarshal(errors, &parsedErrors)
+	}
+
 	result := map[string]interface{}{
 		"id":                id,
 		"user_id":           uid,
@@ -69,6 +78,7 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 		"total_modules":     totalModules,
 		"completed_modules": completedModules,
 		"current_module":    currentModule,
+		"errors":            parsedErrors,
 		"started_at":        startedAt,
 		"completed_at":      completedAt,
 		"created_at":        createdAt,
@@ -90,13 +100,35 @@ func (db *DB) UpdateGarminImportJob(ctx context.Context, jobID string, completed
 	return nil
 }
 
-// CompleteGarminImportJob marks a job as completed.
-func (db *DB) CompleteGarminImportJob(ctx context.Context, jobID string) error {
+// UpdateGarminImportCurrentModule updates only the current_module log string (per-item progress).
+func (db *DB) UpdateGarminImportCurrentModule(ctx context.Context, jobID, currentModule string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE garmin_import_jobs SET current_module = $2 WHERE id = $1`,
+		jobID, currentModule,
+	)
+	return err
+}
+
+// UpdateGarminImportModuleProgress updates module-level completed/total counts.
+func (db *DB) UpdateGarminImportModuleProgress(ctx context.Context, jobID string, completed, total int) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE garmin_import_jobs SET completed_modules = $2, total_modules = $3 WHERE id = $1`,
+		jobID, completed, total,
+	)
+	return err
+}
+
+// CompleteGarminImportJob marks a job as completed, optionally recording non-fatal errors.
+func (db *DB) CompleteGarminImportJob(ctx context.Context, jobID string, errs []string) error {
+	var errJSON []byte
+	if len(errs) > 0 {
+		errJSON, _ = json.Marshal(errs)
+	}
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE garmin_import_jobs
-		 SET status = 'completed', completed_at = now()
+		 SET status = 'completed', completed_at = now(), errors = $2
 		 WHERE id = $1`,
-		jobID,
+		jobID, errJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("complete garmin import job: %w", err)

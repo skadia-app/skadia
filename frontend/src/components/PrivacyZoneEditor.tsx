@@ -45,12 +45,71 @@ function centroid(points: [number, number][]): [number, number] {
   return [sum[0] / points.length, sum[1] / points.length]
 }
 
+/** Haversine distance in metres */
+function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const p1 = (lat1 * Math.PI) / 180
+  const p2 = (lat2 * Math.PI) / 180
+  const dp = ((lat2 - lat1) * Math.PI) / 180
+  const dl = ((lon2 - lon1) * Math.PI) / 180
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** Clamp a point to within radiusM of center */
+function clampToCircle(
+  point: [number, number],
+  center: [number, number],
+  radiusM: number,
+): [number, number] {
+  const [plng, plat] = point
+  const [clng, clat] = center
+  const dx = (plng - clng) * 111320 * Math.cos((clat * Math.PI) / 180)
+  const dy = (plat - clat) * 111320
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist <= radiusM) return point
+  const scale = (radiusM * 0.95) / dist
+  return [
+    clng + (dx * scale) / (111320 * Math.cos((clat * Math.PI) / 180)),
+    clat + (dy * scale) / 111320,
+  ]
+}
+
+/** Ray-casting point-in-polygon */
+function pointInPolygon(pt: [number, number], ring: [number, number][]): boolean {
+  let inside = false
+  const [x, y] = pt
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+/** Convert a circle (center + radius) to a 64-point polygon ring */
+function circleToPolygonPoints(center: [number, number], radiusM: number, steps = 64): [number, number][] {
+  const pts: [number, number][] = []
+  const [lng, lat] = center
+  for (let i = 0; i < steps; i++) {
+    const angle = (i / steps) * 2 * Math.PI
+    const dx = radiusM * Math.cos(angle)
+    const dy = radiusM * Math.sin(angle)
+    const dlat = dy / 111320
+    const dlng = dx / (111320 * Math.cos((lat * Math.PI) / 180))
+    pts.push([lng + dlng, lat + dlat])
+  }
+  return pts
+}
+
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const markerRef = useRef<maplibregl.Marker | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)   // circle center or polygon polygon
+  const pinMarkerRef = useRef<maplibregl.Marker | null>(null) // offset pin (blue)
   // Polygon-Vertex-Marker-Liste
   const polyMarkersRef = useRef<maplibregl.Marker[]>([])
 
@@ -63,6 +122,15 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const [color, setColor] = useState(zone?.color ?? '#F97316')
   const [zoneMode, setZoneMode] = useState<ZoneMode>(initialMode)
   const hasInitialPosition = zone != null
+
+  // Offset-Pin state
+  // When offsetPinEnabled=true: pinLat/pinLng = true home location (stored as lat/lng in DB)
+  //                              zone center/polygon = visual masking boundary
+  // When offsetPinEnabled=false: zone center == pin (legacy behaviour)
+  const [offsetPinEnabled, setOffsetPinEnabled] = useState(false)
+  // Pin position (true location); defaults to zone center when toggled on
+  const [pinLat, setPinLat] = useState(zone?.lat ?? 51.16)
+  const [pinLng, setPinLng] = useState(zone?.lng ?? 10.45)
 
   // Polygon-Punkte: beim Bearbeiten einer Polygon-Zone initial aus GeoJSON laden
   const parseInitialPolygon = (): [number, number][] => {
@@ -86,6 +154,23 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const zoneModeRef = useRef<ZoneMode>(initialMode)
   const polygonClosedRef = useRef(polygonClosed)
   const colorRef = useRef(color)
+  const offsetPinEnabledRef = useRef(false)
+  const pinLatRef = useRef(zone?.lat ?? 51.16)
+  const pinLngRef = useRef(zone?.lng ?? 10.45)
+  const latRef = useRef(zone?.lat ?? 51.16)
+  const lngRef = useRef(zone?.lng ?? 10.45)
+  const radiusRef = useRef(zone?.radius_m ?? 200)
+  const polygonPointsRef = useRef<[number, number][]>(parseInitialPolygon())
+
+  // Keep refs in sync
+  useEffect(() => { colorRef.current = color }, [color])
+  useEffect(() => { offsetPinEnabledRef.current = offsetPinEnabled }, [offsetPinEnabled])
+  useEffect(() => { pinLatRef.current = pinLat }, [pinLat])
+  useEffect(() => { pinLngRef.current = pinLng }, [pinLng])
+  useEffect(() => { latRef.current = lat }, [lat])
+  useEffect(() => { lngRef.current = lng }, [lng])
+  useEffect(() => { radiusRef.current = radius }, [radius])
+  useEffect(() => { polygonPointsRef.current = polygonPoints }, [polygonPoints])
 
   const createMut = useMutation({
     mutationFn: createPrivacyZone,
@@ -122,27 +207,52 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     const trimmed = name.trim()
     if (!trimmed) return
 
+    // When offset pin is enabled: lat/lng in DB = pin (true position)
+    //                             polygon/zone geometry = masking boundary
+    // When offset pin disabled: lat/lng = zone center (legacy)
+    const saveLat = offsetPinEnabled ? pinLat : lat
+    const saveLng = offsetPinEnabled ? pinLng : lng
+
     if (zoneMode === 'circle') {
-      if (zone) {
-        updateMut.mutate({
-          id: zone.id,
-          data: { name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle', polygon: undefined },
-        })
+      // When offset is enabled for a circle, convert to polygon so pin and boundary
+      // can be stored independently (circle uses center for both lat/lng and geometry)
+      if (offsetPinEnabled) {
+        // Convert circle to polygon, stored as polygon type
+        const circPts = circleToPolygonPoints([lng, lat], radius)
+        const polygonGeoJSON = buildPolygonGeoJSON(circPts)
+        if (zone) {
+          updateMut.mutate({
+            id: zone.id,
+            data: { name: trimmed, lat: saveLat, lng: saveLng, radius_m: radius, color, zone_type: 'polygon', polygon: polygonGeoJSON },
+          })
+        } else {
+          createMut.mutate({ name: trimmed, lat: saveLat, lng: saveLng, radius_m: radius, color, zone_type: 'polygon', polygon: polygonGeoJSON })
+        }
       } else {
-        createMut.mutate({ name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle' })
+        if (zone) {
+          updateMut.mutate({
+            id: zone.id,
+            data: { name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle', polygon: undefined },
+          })
+        } else {
+          createMut.mutate({ name: trimmed, lat, lng, radius_m: radius, color, zone_type: 'circle' })
+        }
       }
     } else {
       // Polygon-Modus
       if (polygonPoints.length < 3 || !polygonClosed) return
       const polygonGeoJSON = buildPolygonGeoJSON(polygonPoints)
-      const [cLng, cLat] = centroid(polygonPoints)
+      // If no offset pin, use centroid as the stored lat/lng
+      const [cLng, cLat] = offsetPinEnabled ? [saveLng, saveLat] : (() => { const c = centroid(polygonPoints); return c })()
+      const finalLat = offsetPinEnabled ? saveLat : cLat
+      const finalLng = offsetPinEnabled ? saveLng : cLng
       if (zone) {
         updateMut.mutate({
           id: zone.id,
-          data: { name: trimmed, lat: cLat, lng: cLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON },
+          data: { name: trimmed, lat: finalLat, lng: finalLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON },
         })
       } else {
-        createMut.mutate({ name: trimmed, lat: cLat, lng: cLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON })
+        createMut.mutate({ name: trimmed, lat: finalLat, lng: finalLng, radius_m: 200, color, zone_type: 'polygon', polygon: polygonGeoJSON })
       }
     }
   }
@@ -213,12 +323,84 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         setPolygonPoints(prev => {
           const updated = [...prev]
           updated[idx] = [pos.lng, pos.lat]
+          polygonPointsRef.current = updated
+          // If offset pin is enabled, keep pin inside polygon
+          if (offsetPinEnabledRef.current) {
+            clampPinToPolygon(map, updated)
+          }
           return updated
         })
       })
 
       polyMarkersRef.current.push(marker)
     })
+  }, [])
+
+  /**
+   * Clamp pin to inside polygon (or centroid if outside).
+   * Called when polygon vertices move.
+   */
+  function clampPinToPolygon(map: maplibregl.Map, pts: [number, number][]) {
+    const pin: [number, number] = [pinLngRef.current, pinLatRef.current]
+    if (!pointInPolygon(pin, pts)) {
+      const c = centroid(pts)
+      setPinLat(c[1])
+      setPinLng(c[0])
+      pinLatRef.current = c[1]
+      pinLngRef.current = c[0]
+      pinMarkerRef.current?.setLngLat(c)
+    }
+  }
+
+  /** Create or move the offset pin marker */
+  const syncPinMarker = useCallback((map: maplibregl.Map, lngLat: [number, number]) => {
+    if (pinMarkerRef.current) {
+      pinMarkerRef.current.setLngLat(lngLat)
+      return
+    }
+    const el = document.createElement('div')
+    el.style.cssText = `
+      width:14px;height:14px;border-radius:50%;
+      background:#3B82F6;border:2px solid white;
+      box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:grab;
+      display:flex;align-items:center;justify-content:center;
+    `
+    el.title = 'Genauer Pin (wahre Position)'
+    const marker = new maplibregl.Marker({ element: el, draggable: true })
+      .setLngLat(lngLat)
+      .addTo(map)
+
+    marker.on('dragend', () => {
+      const pos = marker.getLngLat()
+      let newLat = pos.lat
+      let newLng = pos.lng
+
+      // Clamp pin to stay inside zone
+      if (zoneModeRef.current === 'circle') {
+        const clamped = clampToCircle(
+          [newLng, newLat],
+          [lngRef.current, latRef.current],
+          radiusRef.current,
+        )
+        newLng = clamped[0]
+        newLat = clamped[1]
+        marker.setLngLat([newLng, newLat])
+      } else if (zoneModeRef.current === 'polygon' && polygonPointsRef.current.length >= 3) {
+        if (!pointInPolygon([newLng, newLat], polygonPointsRef.current)) {
+          const c = centroid(polygonPointsRef.current)
+          newLng = c[0]
+          newLat = c[1]
+          marker.setLngLat([newLng, newLat])
+        }
+      }
+
+      setPinLat(newLat)
+      setPinLng(newLng)
+      pinLatRef.current = newLat
+      pinLngRef.current = newLng
+    })
+
+    pinMarkerRef.current = marker
   }, [])
 
   // Initialize map
@@ -299,7 +481,22 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           const pos = marker.getLngLat()
           setLat(pos.lat)
           setLng(pos.lng)
-          updateCircle(map, [pos.lng, pos.lat], radius, colorRef.current)
+          latRef.current = pos.lat
+          lngRef.current = pos.lng
+          updateCircle(map, [pos.lng, pos.lat], radiusRef.current, colorRef.current)
+          // Clamp pin if offset enabled
+          if (offsetPinEnabledRef.current) {
+            const clamped = clampToCircle(
+              [pinLngRef.current, pinLatRef.current],
+              [pos.lng, pos.lat],
+              radiusRef.current,
+            )
+            setPinLat(clamped[1])
+            setPinLng(clamped[0])
+            pinLatRef.current = clamped[1]
+            pinLngRef.current = clamped[0]
+            pinMarkerRef.current?.setLngLat(clamped)
+          }
         })
         markerRef.current = marker
       }
@@ -325,6 +522,8 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         const newLng = e.lngLat.lng
         setLat(newLat)
         setLng(newLng)
+        latRef.current = newLat
+        lngRef.current = newLng
 
         if (markerRef.current) {
           markerRef.current.setLngLat([newLng, newLat])
@@ -336,17 +535,38 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             const pos = marker.getLngLat()
             setLat(pos.lat)
             setLng(pos.lng)
-            updateCircle(map, [pos.lng, pos.lat], radius, colorRef.current)
+            latRef.current = pos.lat
+            lngRef.current = pos.lng
+            updateCircle(map, [pos.lng, pos.lat], radiusRef.current, colorRef.current)
+            // Clamp pin
+            if (offsetPinEnabledRef.current) {
+              const clamped = clampToCircle(
+                [pinLngRef.current, pinLatRef.current],
+                [pos.lng, pos.lat],
+                radiusRef.current,
+              )
+              setPinLat(clamped[1])
+              setPinLng(clamped[0])
+              pinLatRef.current = clamped[1]
+              pinLngRef.current = clamped[0]
+              pinMarkerRef.current?.setLngLat(clamped)
+            }
           })
           markerRef.current = marker
         }
-        updateCircle(map, [newLng, newLat], radius, colorRef.current)
+        updateCircle(map, [newLng, newLat], radiusRef.current, colorRef.current)
+
+        // Place pin at same location if offset not yet initialised
+        if (offsetPinEnabledRef.current && !pinMarkerRef.current) {
+          syncPinMarker(map, [newLng, newLat])
+        }
       } else {
         // Polygon-Modus: Punkt nur hinzufügen wenn noch nicht geschlossen
         if (polygonClosedRef.current) return
         const newPt: [number, number] = [e.lngLat.lng, e.lngLat.lat]
         setPolygonPoints(prev => {
           const updated = [...prev, newPt]
+          polygonPointsRef.current = updated
           if (map.isStyleLoaded()) {
             updatePolygonLayer(map, updated, false, colorRef.current)
             updateVertexMarkers(map, updated, colorRef.current)
@@ -367,6 +587,15 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         if (map.isStyleLoaded()) {
           updatePolygonLayer(map, prev, true, colorRef.current)
         }
+        // Place pin at centroid if offset mode is enabled
+        if (offsetPinEnabledRef.current && !pinMarkerRef.current) {
+          const c = centroid(prev)
+          setPinLat(c[1])
+          setPinLng(c[0])
+          pinLatRef.current = c[1]
+          pinLngRef.current = c[0]
+          syncPinMarker(map, c)
+        }
         return prev
       })
     })
@@ -375,6 +604,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     return () => {
       map.remove()
       mapRef.current = null
+      pinMarkerRef.current = null
       polyMarkersRef.current = []
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -449,6 +679,31 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   // polygonClosed-Ref synchron halten
   useEffect(() => { polygonClosedRef.current = polygonClosed }, [polygonClosed])
 
+  // Handle offset-pin toggle
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (offsetPinEnabled) {
+      // Show pin at current zone center
+      const initLat = zoneMode === 'circle' ? lat : (polygonPoints.length >= 3 ? centroid(polygonPoints)[1] : lat)
+      const initLng = zoneMode === 'circle' ? lng : (polygonPoints.length >= 3 ? centroid(polygonPoints)[0] : lng)
+      setPinLat(initLat)
+      setPinLng(initLng)
+      pinLatRef.current = initLat
+      pinLngRef.current = initLng
+      const apply = () => syncPinMarker(map, [initLng, initLat])
+      if (map.isStyleLoaded()) apply()
+      else map.once('style.load', apply)
+    } else {
+      // Remove pin marker
+      if (pinMarkerRef.current) {
+        pinMarkerRef.current.remove()
+        pinMarkerRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offsetPinEnabled])
+
   function handleClosePolygon() {
     if (polygonPoints.length < 3 || polygonClosed) return
     setPolygonClosed(true)
@@ -457,12 +712,24 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     if (map && map.isStyleLoaded()) {
       updatePolygonLayer(map, polygonPoints, true, color)
     }
+    // If offset pin enabled, place pin at centroid
+    if (offsetPinEnabled && !pinMarkerRef.current && map) {
+      const c = centroid(polygonPoints)
+      setPinLat(c[1])
+      setPinLng(c[0])
+      pinLatRef.current = c[1]
+      pinLngRef.current = c[0]
+      const apply = () => syncPinMarker(map, c)
+      if (map.isStyleLoaded()) apply()
+      else map.once('style.load', apply)
+    }
   }
 
   function handleResetPolygon() {
     setPolygonPoints([])
     setPolygonClosed(false)
     polygonClosedRef.current = false
+    polygonPointsRef.current = []
     const map = mapRef.current
     if (map && map.isStyleLoaded()) {
       updatePolygonLayer(map, [], false, color)
@@ -476,6 +743,17 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const canSave =
     name.trim().length > 0 &&
     (zoneMode === 'circle' || (polygonPoints.length >= 3 && polygonClosed))
+
+  // Check if pin is inside zone (for validation hint)
+  const pinInsideZone = (() => {
+    if (!offsetPinEnabled) return true
+    if (zoneMode === 'circle') {
+      return haversineM(pinLat, pinLng, lat, lng) <= radius
+    } else if (polygonPoints.length >= 3) {
+      return pointInPolygon([pinLng, pinLat], polygonPoints)
+    }
+    return true
+  })()
 
   return (
     <div className="space-y-4">
@@ -516,10 +794,10 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           {polygonClosed
-            ? 'Polygon fertig. Vertices lassen sich per Drag-and-Drop verschieben.'
+            ? 'Polygon fertig. Eckpunkte lassen sich per Drag-and-Drop verschieben.'
             : polygonPoints.length < 3
-            ? `Klicke auf die Karte, um Vertices hinzuzufügen (${polygonPoints.length} von mind. 3).`
-            : `${polygonPoints.length} Vertices gesetzt. Klicke auf "Schließen" oder doppelklicke um das Polygon zu schließen.`}
+            ? `Klicke auf die Karte, um Eckpunkte hinzuzufügen (${polygonPoints.length} von mind. 3).`
+            : `${polygonPoints.length} Eckpunkte gesetzt. Klicke auf "Schließen" oder doppelklicke um das Polygon zu schließen.`}
         </p>
       )}
 
@@ -541,7 +819,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             Zuruecksetzen
           </button>
           <span className="ml-auto self-center text-sm text-neutral-400 tabular-nums">
-            {polygonPoints.length} Vertices
+            {polygonPoints.length} Eckpunkte
           </span>
         </div>
       )}
@@ -585,6 +863,47 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         </div>
       )}
 
+      {/* Offset-Pin Toggle */}
+      <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-3 space-y-2">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={offsetPinEnabled}
+            onClick={() => setOffsetPinEnabled(v => !v)}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
+            style={{ backgroundColor: offsetPinEnabled ? '#3B82F6' : '#d4d4d4' }}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${offsetPinEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Versetzter Pin</span>
+        </div>
+        {offsetPinEnabled ? (
+          <div className="space-y-1">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-400 mr-1 relative top-px" />
+              <strong>Pin</strong> = genaue Position (für Regeln). Verschiebe den blauen Punkt auf der Karte.
+            </p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 mr-1 relative top-px" />
+              <strong>Zone</strong> = Maskierungsbereich (sichtbar in Heatmap).
+            </p>
+            {!pinInsideZone && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Pin liegt ausserhalb der Zone — beim Speichern wird er automatisch zur Zone-Mitte zurückgesetzt.
+              </p>
+            )}
+            <p className="text-xs text-neutral-400 tabular-nums">
+              Pin: {pinLat.toFixed(5)}, {pinLng.toFixed(5)}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Aktiviere diese Option, um den genauen Standort (Pin) vom Maskierungsbereich (Zone) zu trennen.
+          </p>
+        )}
+      </div>
+
       {/* Color picker */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
@@ -593,13 +912,12 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         <ColorPicker value={color} onChange={setColor} />
       </div>
 
-      {/* Koordinaten (nur Kreis-Modus) */}
-      {zoneMode === 'circle' && (
+      {/* Koordinaten (nur Kreis-Modus, kein Offset) */}
+      {zoneMode === 'circle' && !offsetPinEnabled && (
         <div className="text-xs text-neutral-400 tabular-nums">
           {lat.toFixed(5)}, {lng.toFixed(5)}
         </div>
       )}
-
 
       {/* Actions */}
       <div className="flex items-center gap-3">

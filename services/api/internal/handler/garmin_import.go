@@ -90,7 +90,6 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		src := garmin.NewDirSource(req.SourcePath)
 		registry := h.buildGarminRegistry()
 
-		moduleIndex := 0
 		params := garmin.ImportParams{
 			Source:  src,
 			UserID:  userID,
@@ -98,8 +97,13 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 			Storage: h.Storage,
 			JobID:   jobID,
 			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateGarminImportJob(bgCtx, jobID, moduleIndex*100+current, total, msg); err != nil {
-					slog.Warn("garmin import: update progress failed", "error", err)
+				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
+					slog.Warn("garmin import: update current module failed", "error", err)
+				}
+			},
+			OnModuleComplete: func(completed, total int, name string) {
+				if err := h.DB.UpdateGarminImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
+					slog.Warn("garmin import: update module progress failed", "error", err)
 				}
 			},
 		}
@@ -107,16 +111,17 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 			params.Options = *req.Options
 		}
 
-		if err := registry.RunModules(bgCtx, req.Modules, params); err != nil {
+		allErrors, err := registry.RunModules(bgCtx, req.Modules, params)
+		if err != nil {
 			slog.Error("garmin import failed", "job_id", jobID, "error", err)
 			_ = h.DB.FailGarminImportJob(bgCtx, jobID, err.Error())
 			return
 		}
 
-		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID); err != nil {
+		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID, allErrors); err != nil {
 			slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
 		}
-		slog.Info("garmin import completed", "job_id", jobID)
+		slog.Info("garmin import completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
@@ -161,7 +166,6 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		moduleIndex := 0
 		params := garmin.ImportParams{
 			Source:  src,
 			UserID:  userID,
@@ -169,21 +173,27 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 			Storage: h.Storage,
 			JobID:   jobID,
 			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateGarminImportJob(bgCtx, jobID, moduleIndex*100+current, total, msg); err != nil {
-					slog.Warn("garmin import (zip): update progress failed", "error", err)
+				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
+					slog.Warn("garmin import (zip): update current module failed", "error", err)
+				}
+			},
+			OnModuleComplete: func(completed, total int, name string) {
+				if err := h.DB.UpdateGarminImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
+					slog.Warn("garmin import (zip): update module progress failed", "error", err)
 				}
 			},
 		}
 
-		if err := registry.RunModules(bgCtx, moduleNames, params); err != nil {
+		allErrors, err := registry.RunModules(bgCtx, moduleNames, params)
+		if err != nil {
 			slog.Error("garmin import (zip) failed", "job_id", jobID, "error", err)
 			_ = h.DB.FailGarminImportJob(bgCtx, jobID, err.Error())
 			return
 		}
-		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID); err != nil {
+		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID, allErrors); err != nil {
 			slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
 		}
-		slog.Info("garmin import (zip) completed", "job_id", jobID)
+		slog.Info("garmin import (zip) completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

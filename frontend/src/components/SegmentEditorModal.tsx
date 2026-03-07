@@ -40,7 +40,7 @@ const SPORT_GROUPS = [
   { value: 'foot', label: 'Laufen/Wandern' },
   { value: 'swim', label: 'Schwimmen' },
   { value: 'ski', label: 'Winter' },
-  { value: 'paddle', label: 'Paddeln' },
+  { value: 'paddle', label: 'Wassersport' },
   { value: 'generic', label: 'Generisch' },
 ]
 
@@ -105,6 +105,33 @@ export default function SegmentEditorModal({
   const [isMountain, setIsMountain] = useState(false)
   const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>('bergauf')
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  function detectClimbDirection(geojsonStr: string): 'bergauf' | 'bergab' | null {
+    try {
+      const geom = JSON.parse(geojsonStr)
+      if (geom.type !== 'LineString' || !geom.coordinates?.length) return null
+      const first = geom.coordinates[0]
+      const last = geom.coordinates[geom.coordinates.length - 1]
+      if (first.length < 3 || last.length < 3) return null
+      const diff = last[2] - first[2]
+      if (Math.abs(diff) < 10) return null
+      return diff > 0 ? 'bergauf' : 'bergab'
+    } catch { return null }
+  }
+
+  function proceedToForm(geo: string) {
+    setGeoJSON(geo)
+    const detected = detectClimbDirection(geo)
+    if (detected) {
+      setIsMountain(true)
+      setClimbDirection(detected)
+    } else if (segType === 'trail') {
+      // Sport-based defaults when elevation detection has no result
+      setIsMountain(true)
+      setClimbDirection(sportGroup === 'foot' ? 'bergauf' : 'bergab')
+    }
+    setPhase('form')
+  }
 
   function getClimbType(): string {
     if (segType === 'lap') return 'standard'
@@ -526,7 +553,7 @@ export default function SegmentEditorModal({
                           className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
                           Zurück bearbeiten
                         </button>
-                        <button onClick={() => { setGeoJSON(extractSubTrack(trackPoints!, startIdx, endIdx)); setPhase('form') }}
+                        <button onClick={() => proceedToForm(extractSubTrack(trackPoints!, startIdx, endIdx))}
                           className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600">
                           Weiter &#x2192;
                         </button>
@@ -582,7 +609,7 @@ export default function SegmentEditorModal({
                     Zurück bearbeiten
                   </button>
                   <button
-                    onClick={() => { setGeoJSON(drawGeoJSON!); setPhase('form') }}
+                    onClick={() => proceedToForm(drawGeoJSON!)}
                     className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                   >
                     Weiter &#x2192;
@@ -616,9 +643,9 @@ export default function SegmentEditorModal({
                         const coords = (trackPoints ?? []).slice(first, last + 1).map(p => [p.lng, p.lat])
                         coords.push(coords[0]) // close loop
                         const finish = trackPoints![lapFinishIdx]
-                        setGeoJSON(JSON.stringify({ type: 'LineString', coordinates: coords }))
+                        const geo = JSON.stringify({ type: 'LineString', coordinates: coords })
                         setLapMeta({ finish_lat: finish.lat, finish_lng: finish.lng })
-                        setPhase('form')
+                        proceedToForm(geo)
                       }}
                       className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                     >

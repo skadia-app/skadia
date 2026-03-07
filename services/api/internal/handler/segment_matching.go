@@ -49,20 +49,37 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 		return
 	}
 
+	// 3. Batch-load endpoints for all non-lap candidates
+	var nonLapVersionIDs []string
+	for _, cand := range candidates {
+		if cand.SegmentType != "lap" {
+			nonLapVersionIDs = append(nonLapVersionIDs, cand.VersionID)
+		}
+	}
+	endpointMap, err := db.GetSegmentEndpointsBatch(matchCtx, nonLapVersionIDs)
+	if err != nil {
+		slog.Error("segment matching: batch endpoint load failed", "error", err)
+		return
+	}
+
 	matchCount := 0
+	matchedSegmentIDs := make(map[string]struct{})
+	var allEfforts []*model.SegmentEffort
 	for _, cand := range candidates {
 		// Lap segments: use crossing detection instead of sub-track matching
 		if cand.SegmentType == "lap" {
-			count := matchLapSegment(matchCtx, db, activityID, userID, sportType, subType, gearID, &cand, gpsStream)
+			lapEfforts, count := matchLapSegment(matchCtx, db, activityID, userID, sportType, subType, gearID, &cand, gpsStream)
+			allEfforts = append(allEfforts, lapEfforts...)
 			matchCount += count
+			if count > 0 {
+				matchedSegmentIDs[cand.SegmentID] = struct{}{}
+			}
 			continue
 		}
 
-		// 3. Get segment endpoints
-		endpoints, err := db.GetSegmentEndpoints(matchCtx, cand.VersionID)
-		if err != nil || endpoints == nil {
-			slog.Warn("segment matching: get endpoints failed",
-				"segment_id", cand.SegmentID, "error", err)
+		// Look up endpoints from batch result
+		endpoints := endpointMap[cand.VersionID]
+		if endpoints == nil {
 			continue
 		}
 
@@ -123,17 +140,8 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				AvgPowerW:        avgPower,
 			}
 
-			if err := db.InsertSegmentEffort(matchCtx, effort); err != nil {
-				slog.Error("segment matching: insert effort failed",
-					"activity_id", activityID, "segment_id", cand.SegmentID, "error", err)
-				continue
-			}
-
-			if err := db.UpdateSegmentEffortRanks(matchCtx, cand.SegmentID); err != nil {
-				slog.Warn("segment matching: update ranks failed",
-					"segment_id", cand.SegmentID, "error", err)
-			}
-
+			allEfforts = append(allEfforts, effort)
+			matchedSegmentIDs[cand.SegmentID] = struct{}{}
 			matchCount++
 			slog.Info("segment matched",
 				"activity_id", activityID,
@@ -141,6 +149,22 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				"hausdorff_m", *distance,
 				"elapsed_s", elapsedS,
 				"is_reverse", trav.isReverse)
+		}
+	}
+
+	// Batch-insert all collected efforts
+	if len(allEfforts) > 0 {
+		if err := db.InsertSegmentEffortsBatch(matchCtx, allEfforts); err != nil {
+			slog.Error("segment matching: batch insert failed", "error", err)
+			return
+		}
+	}
+
+	// Update ranks once per matched segment (not per effort)
+	for segID := range matchedSegmentIDs {
+		if err := db.UpdateSegmentEffortRanks(matchCtx, segID); err != nil {
+			slog.Warn("segment matching: update ranks failed",
+				"segment_id", segID, "error", err)
 		}
 	}
 
@@ -310,27 +334,27 @@ func matchLapSegment(
 	gearID *string,
 	cand *database.CandidateSegment,
 	gpsStream []database.GPSStreamPoint,
-) int {
+) ([]*model.SegmentEffort, int) {
 	// Extract finish_point from segment_type_meta
 	finishLat, finishLng, ok := extractFinishPoint(cand.TypeMeta)
 	if !ok {
 		slog.Warn("lap segment missing finish_point in type_meta", "segment_id", cand.SegmentID)
-		return 0
+		return nil, 0
 	}
 
 	// Find all indices near finish point
 	nearFinish := findProximityIndices(gpsStream, finishLat, finishLng, lapFinishProximityM)
 	if len(nearFinish) < 2 {
-		return 0
+		return nil, 0
 	}
 
 	// Group into crossing events (separated by at least lapMinGapM of GPS distance)
 	crossings := groupLapCrossings(gpsStream, nearFinish, lapMinGapM)
 	if len(crossings) < 2 {
-		return 0
+		return nil, 0
 	}
 
-	count := 0
+	var efforts []*model.SegmentEffort
 	for i := 1; i < len(crossings); i++ {
 		startIdx := crossings[i-1]
 		endIdx := crossings[i]
@@ -365,19 +389,15 @@ func matchLapSegment(
 			AvgHeartRate:     avgHR,
 			AvgPowerW:        avgPower,
 		}
-		if err := db.InsertSegmentEffort(ctx, effort); err != nil {
-			slog.Error("lap matching: insert effort failed", "error", err)
-			continue
-		}
-		count++
+		efforts = append(efforts, effort)
 	}
 
+	count := len(efforts)
 	if count > 0 {
-		_ = db.UpdateSegmentEffortRanks(ctx, cand.SegmentID)
 		slog.Info("lap segment matched", "activity_id", activityID,
 			"segment_id", cand.SegmentID, "laps", count)
 	}
-	return count
+	return efforts, count
 }
 
 // extractFinishPoint reads finish_lat and finish_lng from segment_type_meta.

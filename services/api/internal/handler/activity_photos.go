@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bep/imagemeta"
 	"github.com/go-chi/chi/v5"
-	"github.com/rwcarlsen/goexif/exif"
 	"golang.org/x/image/draw"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -79,7 +79,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
 	// EXIF-Daten extrahieren (GPS + Zeitstempel)
-	takenAt, lat, lng, locationSource := extractExifData(data)
+	takenAt, lat, lng, locationSource := extractExifData(data, ct)
 
 	// Falls kein EXIF-GPS: Track-Interpolation versuchen
 	if lat == nil && takenAt != nil && activityID != "" {
@@ -99,8 +99,13 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	// S3-Pfade
 	ext := ".jpg"
-	if strings.Contains(ct, "png") {
+	switch {
+	case strings.Contains(ct, "png"):
 		ext = ".png"
+	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
+		ext = ".heic"
+	case strings.Contains(ct, "avif"):
+		ext = ".avif"
 	}
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
@@ -249,21 +254,45 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
-// extractExifData versucht GPS-Koordinaten und Aufnahmezeit aus JPEG-EXIF zu lesen.
-// Gibt nil-Werte zurueck wenn kein EXIF vorhanden oder nicht parsebar.
-func extractExifData(data []byte) (takenAt *time.Time, lat *float64, lng *float64, locationSource *string) {
-	x, err := exif.Decode(bytes.NewReader(data))
+// extractExifData versucht GPS-Koordinaten und Aufnahmezeit aus EXIF-Metadaten zu lesen.
+// Unterstuetzt JPEG, PNG, TIFF und WebP. Gibt nil-Werte zurueck wenn kein EXIF vorhanden.
+func extractExifData(data []byte, contentType string) (takenAt *time.Time, lat *float64, lng *float64, locationSource *string) {
+	format := imagemeta.JPEG
+	switch {
+	case strings.Contains(contentType, "image/png"):
+		format = imagemeta.PNG
+	case strings.Contains(contentType, "image/tiff"):
+		format = imagemeta.TIFF
+	case strings.Contains(contentType, "image/webp"):
+		format = imagemeta.WebP
+	case strings.Contains(contentType, "image/heic"),
+		strings.Contains(contentType, "image/heif"):
+		format = imagemeta.HEIF
+	case strings.Contains(contentType, "image/avif"):
+		format = imagemeta.AVIF
+	}
+
+	var tags imagemeta.Tags
+	_, err := imagemeta.Decode(imagemeta.Options{
+		R:           bytes.NewReader(data),
+		ImageFormat: format,
+		Sources:     imagemeta.EXIF,
+		HandleTag: func(info imagemeta.TagInfo) error {
+			tags.Add(info)
+			return nil
+		},
+	})
 	if err != nil {
 		return nil, nil, nil, nil
 	}
 
-	// Aufnahmezeitpunkt
-	if tm, err := x.DateTime(); err == nil {
+	// Aufnahmezeit aus DateTimeOriginal / DateTime
+	if tm, err := tags.GetDateTime(); err == nil && !tm.IsZero() {
 		takenAt = &tm
 	}
 
-	// GPS-Koordinaten (Fallback: nur wenn beide vorhanden)
-	if la, lo, err := x.LatLong(); err == nil {
+	// GPS-Koordinaten
+	if la, lo, err := tags.GetLatLong(); err == nil && (la != 0 || lo != 0) {
 		ls := "exif"
 		lat = &la
 		lng = &lo

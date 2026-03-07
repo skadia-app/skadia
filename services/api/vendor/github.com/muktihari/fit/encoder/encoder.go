@@ -47,10 +47,8 @@ type Encoder struct {
 	n                 int64       // Total bytes written to w, will keep counting for every Encode invocation.
 	lastFileHeaderPos int64       // The byte position of the last header.
 	crc16             hash.Hash16 // Calculate the CRC-16 checksum for ensuring header and message integrity.
-
-	options           options          // Encoder's options.
-	protocolValidator *proto.Validator // Validates message's properties should match the targeted protocol version requirements.
-	localMesgNumLRU   *lru             // LRU cache for writing local message definition
+	options           options     // Encoder's options.
+	localMesgNumLRU   *lru        // LRU cache for writing local message definition
 
 	dataSize uint32 // Data size of messages in bytes for a single FIT file.
 
@@ -62,8 +60,6 @@ type Encoder struct {
 	// The first timestamp value is retrieved from the first message containing a valid timestamp field,
 	// and will change every rollover event occurrence.
 	timestampReference uint32
-
-	mesgDef proto.MessageDefinition // Temporary message definition to reduce alloc.
 
 	// Dynamic-sized buffer for encoding, starting at 1536 bytes (see PR #415 and #416 for details).
 	// It starts small but grows as needed and may only grow when using Message's MarshalAppend.
@@ -176,14 +172,9 @@ func WithWriteBufferSize(size int) Option {
 // Encoder to do so using WithWriteBufferSize(0).
 func New(w io.Writer, opts ...Option) *Encoder {
 	e := &Encoder{
-		crc16:             crc16.New(),
-		protocolValidator: new(proto.Validator),
-		localMesgNumLRU:   new(lru),
-		buf:               make([]byte, 0, 1536),
-		mesgDef: proto.MessageDefinition{
-			FieldDefinitions:          make([]proto.FieldDefinition, 0, 255),
-			DeveloperFieldDefinitions: make([]proto.DeveloperFieldDefinition, 0, 255),
-		},
+		crc16:           crc16.New(),
+		localMesgNumLRU: new(lru),
+		buf:             make([]byte, 0, 1536),
 	}
 	e.Reset(w, opts...)
 	return e
@@ -196,16 +187,21 @@ func (e *Encoder) Reset(w io.Writer, opts ...Option) {
 	e.n = 0
 	e.lastFileHeaderPos = 0
 
+	oldmv := e.options.messageValidator
 	e.options = defaultOptions()
 	for i := range opts {
 		opts[i](&e.options)
 	}
 
-	e.w = newWriteBuffer(w, e.options.writeBufferSize)
-
 	if e.options.messageValidator == nil {
-		e.options.messageValidator = NewMessageValidator()
+		if _, ok := oldmv.(*messageValidator); ok {
+			e.options.messageValidator = oldmv // Reuse
+		} else {
+			e.options.messageValidator = new(messageValidator)
+		}
 	}
+
+	e.w = newWriteBuffer(w, e.options.writeBufferSize)
 
 	e.reset()
 
@@ -237,7 +233,7 @@ func (e *Encoder) reset() {
 // Encode chooses which strategy to use for encoding the data based on given writer.
 func (e *Encoder) Encode(fit *proto.FIT) (err error) {
 	e.selectProtocolVersion(&fit.FileHeader)
-	if err = e.validateMessages(fit.Messages); err != nil {
+	if err = e.validate(fit); err != nil {
 		return err
 	}
 	switch e.w.(type) {
@@ -264,25 +260,24 @@ func (e *Encoder) selectProtocolVersion(fileHeader *proto.FileHeader) {
 	} else if fileHeader.ProtocolVersion == 0 { // Default when not specified in FileHeader.
 		fileHeader.ProtocolVersion = proto.V1
 	}
-	e.protocolValidator.ProtocolVersion = fileHeader.ProtocolVersion
 }
 
-func (e *Encoder) validateMessages(messages []proto.Message) (err error) {
-	if len(messages) == 0 {
+func (e *Encoder) validate(fit *proto.FIT) (err error) {
+	if len(fit.Messages) == 0 {
 		return errEmptyMessages
 	}
 
-	for i := range messages {
-		mesg := &messages[i]
-		mesg.Header = proto.MesgNormalHeaderMask
-		if err = e.protocolValidator.ValidateMessage(mesg); err != nil {
+	for i := range fit.Messages {
+		mesg := &fit.Messages[i]
+		if err = proto.Validator.ValidateMessage(mesg, fit.FileHeader.ProtocolVersion); err != nil {
 			return fmt.Errorf("protocol validation: message index: %d, num: %d (%s): %w",
 				i, mesg.Num, mesg.Num.String(), err)
 		}
 	}
 
-	for i := range messages {
-		mesg := &messages[i] // Must use pointer reference since message validator may update the message.
+	for i := range fit.Messages {
+		mesg := &fit.Messages[i] // Must use pointer reference since message validator may update the message.
+		mesg.Header = proto.MesgNormalHeaderMask
 		if err = e.options.messageValidator.Validate(mesg); err != nil {
 			e.options.messageValidator.Reset()
 			return fmt.Errorf("message validation: message index: %d, num: %d (%s): %w",
@@ -455,8 +450,7 @@ func (e *Encoder) encodeMessage(mesg *proto.Message) (err error) {
 		e.compressTimestampIntoHeader(mesg)
 	}
 
-	mesgDef := e.newMessageDefinition(mesg)
-	b, _ := mesgDef.MarshalAppend(e.buf[:0])
+	b := e.marshalMessageDefinition(mesg)
 	localMesgNum, isNewMesgDef := e.localMesgNumLRU.Put(b) // This might alloc memory since we need to copy the item.
 
 	b[0] |= localMesgNum // Update the message definition header.
@@ -478,7 +472,7 @@ func (e *Encoder) encodeMessage(mesg *proto.Message) (err error) {
 	}
 
 	// At this point, e.buf may grow. Re-assign e.buf in case slice has grown.
-	e.buf, err = mesg.MarshalAppend(e.buf[:0], mesgDef.Architecture)
+	e.buf, err = mesg.MarshalAppend(e.buf[:0], e.options.endianness)
 	if err != nil {
 		return fmt.Errorf("marshal message: %w", err)
 	}
@@ -514,38 +508,43 @@ func (e *Encoder) compressTimestampIntoHeader(mesg *proto.Message) {
 	mesg.RemoveFieldByNum(proto.FieldNumTimestamp)
 }
 
-func (e *Encoder) newMessageDefinition(mesg *proto.Message) *proto.MessageDefinition {
-	e.mesgDef.Header = proto.MesgDefinitionMask
-	e.mesgDef.Reserved = 0
-	e.mesgDef.Architecture = e.options.endianness
-	e.mesgDef.MesgNum = mesg.Num
-	e.mesgDef.FieldDefinitions = e.mesgDef.FieldDefinitions[:0]
-	e.mesgDef.DeveloperFieldDefinitions = e.mesgDef.DeveloperFieldDefinitions[:0]
+func (e *Encoder) marshalMessageDefinition(mesg *proto.Message) []byte {
+	b := append(e.buf[:0],
+		proto.MesgDefinitionMask, // header
+		0,                        // reserved
+		e.options.endianness,     // architecture
+	)
 
+	if e.options.endianness == proto.LittleEndian {
+		b = binary.LittleEndian.AppendUint16(b, uint16(mesg.Num))
+	} else {
+		b = binary.BigEndian.AppendUint16(b, uint16(mesg.Num))
+	}
+
+	b = append(b, byte(len(mesg.Fields)))
 	for i := range mesg.Fields {
-		e.mesgDef.FieldDefinitions = append(e.mesgDef.FieldDefinitions,
-			proto.FieldDefinition{
-				Num:      mesg.Fields[i].Num,
-				Size:     byte(mesg.Fields[i].Value.Size()),
-				BaseType: mesg.Fields[i].BaseType,
-			})
+		b = append(b,
+			mesg.Fields[i].Num,
+			byte(mesg.Fields[i].Value.Size()),
+			byte(mesg.Fields[i].BaseType),
+		)
 	}
 
 	if len(mesg.DeveloperFields) == 0 {
-		return &e.mesgDef
+		return b
 	}
 
-	e.mesgDef.Header |= proto.DevDataMask
+	b[0] |= proto.DevDataMask
+	b = append(b, byte(len(mesg.DeveloperFields)))
 	for i := range mesg.DeveloperFields {
-		e.mesgDef.DeveloperFieldDefinitions = append(e.mesgDef.DeveloperFieldDefinitions,
-			proto.DeveloperFieldDefinition{
-				Num:                mesg.DeveloperFields[i].Num,
-				Size:               byte(mesg.DeveloperFields[i].Value.Size()),
-				DeveloperDataIndex: mesg.DeveloperFields[i].DeveloperDataIndex,
-			})
+		b = append(b,
+			mesg.DeveloperFields[i].Num,
+			byte(mesg.DeveloperFields[i].Value.Size()),
+			mesg.DeveloperFields[i].DeveloperDataIndex,
+		)
 	}
 
-	return &e.mesgDef
+	return b
 }
 
 func (e *Encoder) encodeCRC() error {
@@ -562,7 +561,7 @@ func (e *Encoder) encodeCRC() error {
 // EncodeWithContext is similar to Encode but with respect to context propagation.
 func (e *Encoder) EncodeWithContext(ctx context.Context, fit *proto.FIT) (err error) {
 	e.selectProtocolVersion(&fit.FileHeader)
-	if err = e.validateMessages(fit.Messages); err != nil {
+	if err = e.validate(fit); err != nil {
 		return err
 	}
 	switch e.w.(type) {

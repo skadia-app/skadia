@@ -1,5 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { DayPicker } from 'react-day-picker'
+import 'react-day-picker/style.css'
+import type { DateRange } from 'react-day-picker'
+import { de } from 'date-fns/locale'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS, filterToExistingSports } from '@/lib/sportOptions'
@@ -7,6 +11,10 @@ import { CATEGORIES } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
 import { fetchSportTypeStats } from '@/api/stats'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import TagFilterInput from '@/components/TagFilterInput'
+import GearFilterInput from '@/components/GearFilterInput'
+import type { TagFilter } from '@/components/TagFilterInput'
+import type { GearFilter } from '@/components/GearFilterInput'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
@@ -29,6 +37,9 @@ interface Props {
 export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks' }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const datePickerRef = useRef<HTMLDivElement>(null)
 
   const { hideUnused } = useGlobalSportSettings()
   const { data: statsData } = useQuery({
@@ -47,6 +58,17 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
     return SPORT_OPTIONS
   }, [hideUnused, existingSportTypes])
   const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
+
+  // Close date picker on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
+        setDatePickerOpen(false)
+      }
+    }
+    if (datePickerOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [datePickerOpen])
 
   const allSelected = visibleKeys.every(k => filters.sportTypes.has(k))
 
@@ -109,8 +131,31 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
   }
 
   return (
-    <div className={`absolute top-4 right-4 z-10 w-64${forceDark ? ' dark' : ''}`}>
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
+    <div className={`absolute top-4 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
+      {/* DayPicker-Popup – links vom Panel, außerhalb overflow-hidden */}
+      {datePickerOpen && (
+        <div className="absolute top-0 right-full mr-2 z-50 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl overflow-hidden">
+          <DayPicker
+            mode="range"
+            numberOfMonths={2}
+            selected={{
+              from: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
+              to: filters.dateTo ? new Date(filters.dateTo) : undefined,
+            }}
+            onSelect={(range: DateRange | undefined) => {
+              onChange({
+                ...filters,
+                dateFrom: range?.from ? range.from.toISOString().split('T')[0] : '',
+                dateTo: range?.to ? range.to.toISOString().split('T')[0] : '',
+              })
+              if (range?.from && range?.to) setDatePickerOpen(false)
+            }}
+            locale={de}
+            className="p-3 text-sm"
+          />
+        </div>
+      )}
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden max-h-[calc(100vh-6rem)] flex flex-col">
         {/* Header */}
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -127,7 +172,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
         </button>
 
         {!collapsed && (
-          <div className="px-4 pb-4 space-y-4 border-t border-neutral-100 dark:border-neutral-800">
+          <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-4 border-t border-neutral-100 dark:border-neutral-800">
             {/* Sport type checkboxes */}
             <div className="pt-3">
               <div className="flex items-center justify-between mb-2">
@@ -209,6 +254,22 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
               </div>
             </div>
 
+            {/* Tag filter */}
+            <div>
+              <TagFilterInput
+                value={filters.tagFilters ?? []}
+                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
+              />
+            </div>
+
+            {/* Gear filter */}
+            <div>
+              <GearFilterInput
+                value={filters.gearFilters ?? []}
+                onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
+              />
+            </div>
+
             {/* Date range */}
             <div>
               <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
@@ -218,16 +279,34 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   value={filters.dateFrom}
                   onChange={(e) => onChange({ ...filters, dateFrom: e.target.value })}
                   className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-                  placeholder="Von"
                 />
                 <input
                   type="date"
                   value={filters.dateTo}
                   onChange={(e) => onChange({ ...filters, dateTo: e.target.value })}
                   className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-                  placeholder="Bis"
                 />
               </div>
+              <button
+                onClick={() => setDatePickerOpen(!datePickerOpen)}
+                className={`mt-2 w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg border cursor-pointer transition-colors ${
+                  datePickerOpen
+                    ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20 text-accent-DEFAULT'
+                    : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-neutral-300 dark:hover:border-neutral-600'
+                }`}
+              >
+                <span>Zeitraum wählen...</span>
+                {(filters.dateFrom || filters.dateTo) && (
+                  <span
+                    onClick={e => {
+                      e.stopPropagation()
+                      onChange({ ...filters, dateFrom: '', dateTo: '' })
+                      setDatePickerOpen(false)
+                    }}
+                    className="text-neutral-400 hover:text-red-500 cursor-pointer ml-1"
+                  >&#x2715;</span>
+                )}
+              </button>
             </div>
 
             {/* Opacity slider */}
@@ -299,21 +378,70 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
 
                   {filters.colorConfig.mode === 'per-type' && (
                     <div className="space-y-1">
-                      {CATEGORIES.map(({ key, label, color }) => (
-                        <div key={key} className="flex items-center gap-2">
-                          <span className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{label}</span>
-                          <ColorPicker
-                            value={filters.colorConfig.colors[key] ?? color}
-                            onChange={(c) => onChange({
-                              ...filters,
-                              colorConfig: {
-                                ...filters.colorConfig,
-                                colors: { ...filters.colorConfig.colors, [key]: c },
-                              },
-                            })}
-                          />
-                        </div>
-                      ))}
+                      {visibleOptions.map(opt => {
+                        const key = opt.subType ? `${opt.value}:${opt.subType}` : opt.value
+                        const isActive = opt.children
+                          ? opt.children.some(c => filters.sportTypes.has(getKey(c)))
+                          : filters.sportTypes.has(key)
+
+                        if (!isActive) return null
+
+                        const hasChildren = !!opt.children && opt.children.length > 0
+                        const isExpanded = expandedColorGroups.has(opt.value)
+                        // Resolve category color for group options
+                        const catColor = opt.groupKey
+                          ? CATEGORIES.find(c => c.key === opt.groupKey)?.color ?? '#888'
+                          : DEFAULT_SPORT_COLORS[opt.value] ?? '#888'
+
+                        return (
+                          <div key={opt.value}>
+                            <div className="flex items-center gap-1.5">
+                              <ColorPicker
+                                value={filters.colorConfig.colors[opt.groupKey ?? opt.value] ?? catColor}
+                                onChange={hex => {
+                                  const colorKey = opt.groupKey ?? opt.value
+                                  const next = { ...filters, colorConfig: { ...filters.colorConfig, colors: { ...filters.colorConfig.colors, [colorKey]: hex } } }
+                                  onChange(next)
+                                }}
+                              />
+                              <span className="flex-1 text-xs text-neutral-700 dark:text-neutral-300 truncate">{opt.label}</span>
+                              {hasChildren && (
+                                <button
+                                  onClick={() => setExpandedColorGroups(prev => {
+                                    const next = new Set(prev)
+                                    next.has(opt.value) ? next.delete(opt.value) : next.add(opt.value)
+                                    return next
+                                  })}
+                                  className="p-0.5 text-neutral-400 hover:text-neutral-600 cursor-pointer"
+                                >
+                                  <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                            {hasChildren && isExpanded && (
+                              <div className="ml-4 mt-1 space-y-1">
+                                {opt.children!.filter(c => filters.sportTypes.has(getKey(c))).map(child => {
+                                  const childKey = getKey(child)
+                                  return (
+                                    <div key={childKey} className="flex items-center gap-1.5">
+                                      <ColorPicker
+                                        value={filters.colorConfig.colors[childKey] ?? filters.colorConfig.colors[child.value] ?? DEFAULT_SPORT_COLORS[child.value] ?? '#888'}
+                                        onChange={hex => {
+                                          const next = { ...filters, colorConfig: { ...filters.colorConfig, colors: { ...filters.colorConfig.colors, [childKey]: hex } } }
+                                          onChange(next)
+                                        }}
+                                      />
+                                      <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{child.label}</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                       <div className="flex gap-2 mt-1">
                         <button
                           onClick={() => {
@@ -354,7 +482,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
             </div>
 
             {/* Reset */}
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316') && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0) && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -364,6 +492,8 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   colorConfig: { mode: 'uniform', uniformColor: '#F97316', colors: { ...DEFAULT_SPORT_COLORS } },
                   showLocationTags: true,
                   heatmapColor: '#F97316',
+                  tagFilters: [],
+                  gearFilters: [],
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >

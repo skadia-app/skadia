@@ -22,6 +22,7 @@ func (h *Handler) buildStravaRegistry() *strava.ImportRegistry {
 	r.Register(&strava.GearImporter{})
 	r.Register(&strava.ActivitiesImporter{})
 	r.Register(&strava.PrivacyZonesImporter{})
+	r.Register(&strava.MediaImporter{})
 	return r
 }
 
@@ -88,7 +89,6 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		src := strava.NewDirSource(req.SourcePath)
 		registry := h.buildStravaRegistry()
 
-		moduleIndex := 0
 		params := strava.ImportParams{
 			Source:  src,
 			UserID:  userID,
@@ -96,8 +96,13 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 			Storage: h.Storage,
 			JobID:   jobID,
 			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateStravaImportJob(bgCtx, jobID, moduleIndex*100+current, total, msg); err != nil {
-					slog.Warn("strava import: update progress failed", "error", err)
+				if err := h.DB.UpdateStravaImportCurrentModule(bgCtx, jobID, msg); err != nil {
+					slog.Warn("strava import: update current module failed", "error", err)
+				}
+			},
+			OnModuleComplete: func(completed, total int, name string) {
+				if err := h.DB.UpdateStravaImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
+					slog.Warn("strava import: update module progress failed", "error", err)
 				}
 			},
 		}
@@ -105,16 +110,17 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 			params.Options = *req.Options
 		}
 
-		if err := registry.RunModules(bgCtx, req.Modules, params); err != nil {
+		allErrors, err := registry.RunModules(bgCtx, req.Modules, params)
+		if err != nil {
 			slog.Error("strava import failed", "job_id", jobID, "error", err)
 			_ = h.DB.FailStravaImportJob(bgCtx, jobID, err.Error())
 			return
 		}
 
-		if err := h.DB.CompleteStravaImportJob(bgCtx, jobID); err != nil {
+		if err := h.DB.CompleteStravaImportJob(bgCtx, jobID, allErrors); err != nil {
 			slog.Warn("strava import: complete job failed", "job_id", jobID, "error", err)
 		}
-		slog.Info("strava import completed", "job_id", jobID)
+		slog.Info("strava import completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
@@ -159,7 +165,6 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		moduleIndex := 0
 		params := strava.ImportParams{
 			Source:  src,
 			UserID:  userID,
@@ -167,21 +172,27 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 			Storage: h.Storage,
 			JobID:   jobID,
 			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateStravaImportJob(bgCtx, jobID, moduleIndex*100+current, total, msg); err != nil {
-					slog.Warn("strava import (zip): update progress failed", "error", err)
+				if err := h.DB.UpdateStravaImportCurrentModule(bgCtx, jobID, msg); err != nil {
+					slog.Warn("strava import (zip): update current module failed", "error", err)
+				}
+			},
+			OnModuleComplete: func(completed, total int, name string) {
+				if err := h.DB.UpdateStravaImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
+					slog.Warn("strava import (zip): update module progress failed", "error", err)
 				}
 			},
 		}
 
-		if err := registry.RunModules(bgCtx, moduleNames, params); err != nil {
+		allErrors, err := registry.RunModules(bgCtx, moduleNames, params)
+		if err != nil {
 			slog.Error("strava import (zip) failed", "job_id", jobID, "error", err)
 			_ = h.DB.FailStravaImportJob(bgCtx, jobID, err.Error())
 			return
 		}
-		if err := h.DB.CompleteStravaImportJob(bgCtx, jobID); err != nil {
+		if err := h.DB.CompleteStravaImportJob(bgCtx, jobID, allErrors); err != nil {
 			slog.Warn("strava import (zip): complete job failed", "job_id", jobID, "error", err)
 		}
-		slog.Info("strava import (zip) completed", "job_id", jobID)
+		slog.Info("strava import (zip) completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

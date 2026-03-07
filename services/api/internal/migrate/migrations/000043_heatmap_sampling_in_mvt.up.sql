@@ -54,13 +54,13 @@ BEGIN
             END AS geom_3857
             FROM (
                 SELECT (ds).path AS path,
-                       ST_Transform((ds).geom, 3857) AS geom,
+                       (ds).geom AS geom,
                        ST_Length((ds).geom::geography) AS len_m
-                FROM (SELECT ST_DumpSegments(hl.geom) AS ds) raw
+                FROM (SELECT ST_DumpSegments(hl.geom_3857) AS ds) raw
             ) seg
             WHERE seg.len_m <= threshold_m
         ) simplified
-        WHERE hl.geom && ST_Transform(bounds, 4326)
+        WHERE hl.geom_3857 && bounds
           AND simplified.geom_3857 IS NOT NULL
           AND (sport_filter    IS NULL OR hl.sport_type = ANY(string_to_array(sport_filter, ',')))
           AND (sub_type_filter IS NULL OR hl.sub_type   = ANY(string_to_array(sub_type_filter, ',')))

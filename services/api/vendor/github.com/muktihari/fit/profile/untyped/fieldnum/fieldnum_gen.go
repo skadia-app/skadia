@@ -505,7 +505,7 @@ const (
 	JumpSpeed                                         = 7   // [ Jump ] [Type: Uint16, Base: uint16, Scale: 1000, Offset: 0, Units: m/s];
 	JumpEnhancedSpeed                                 = 8   // [ Jump ] [Type: Uint32, Base: uint32, Scale: 1000, Offset: 0, Units: m/s];
 	LapMessageIndex                                   = 254 // [ Lap ] [Type: MessageIndex, Base: uint16];
-	LapTimestamp                                      = 253 // [ Lap ] [Type: DateTime, Base: uint32, Units: s]; Lap end time.
+	LapTimestamp                                      = 253 // [ Lap ] [Type: DateTime, Base: uint32, Units: s];
 	LapEvent                                          = 0   // [ Lap ] [Type: Event, Base: enum];
 	LapEventType                                      = 1   // [ Lap ] [Type: EventType, Base: enum];
 	LapStartTime                                      = 2   // [ Lap ] [Type: DateTime, Base: uint32];
@@ -868,7 +868,7 @@ const (
 	SegmentIdDeleteStatus                             = 7   // [ SegmentId ] [Type: SegmentDeleteStatus, Base: enum]; Indicates if any segments should be deleted
 	SegmentIdSelectionType                            = 8   // [ SegmentId ] [Type: SegmentSelectionType, Base: enum]; Indicates how the segment was selected to be sent to the device
 	SegmentLapMessageIndex                            = 254 // [ SegmentLap ] [Type: MessageIndex, Base: uint16];
-	SegmentLapTimestamp                               = 253 // [ SegmentLap ] [Type: DateTime, Base: uint32, Units: s]; Lap end time.
+	SegmentLapTimestamp                               = 253 // [ SegmentLap ] [Type: DateTime, Base: uint32, Units: s];
 	SegmentLapEvent                                   = 0   // [ SegmentLap ] [Type: Event, Base: enum];
 	SegmentLapEventType                               = 1   // [ SegmentLap ] [Type: EventType, Base: enum];
 	SegmentLapStartTime                               = 2   // [ SegmentLap ] [Type: DateTime, Base: uint32];
@@ -977,7 +977,7 @@ const (
 	SegmentPointLeaderTime                            = 5   // [ SegmentPoint ] [Type: Uint32, Base: uint32, Array: [N], Scale: 1000, Offset: 0, Units: s]; Accumualted time each leader board member required to reach the described point. This value is zero for all leader board members at the starting point of the segment.
 	SegmentPointEnhancedAltitude                      = 6   // [ SegmentPoint ] [Type: Uint32, Base: uint32, Scale: 5, Offset: 500, Units: m]; Accumulated altitude along the segment at the described point
 	SessionMessageIndex                               = 254 // [ Session ] [Type: MessageIndex, Base: uint16]; Selected bit is set for the current session.
-	SessionTimestamp                                  = 253 // [ Session ] [Type: DateTime, Base: uint32, Units: s]; Sesson end time.
+	SessionTimestamp                                  = 253 // [ Session ] [Type: DateTime, Base: uint32, Units: s];
 	SessionEvent                                      = 0   // [ Session ] [Type: Event, Base: enum]; session
 	SessionEventType                                  = 1   // [ Session ] [Type: EventType, Base: enum]; stop
 	SessionStartTime                                  = 2   // [ Session ] [Type: DateTime, Base: uint32];
@@ -1125,6 +1125,7 @@ const (
 	SessionWorkoutRpe                                 = 193 // [ Session ] [Type: Uint8, Base: uint8]; Common Borg CR10 / 0-10 RPE scale, multiplied 10x.. Aggregate score for all workouts in a single session.
 	SessionAvgSpo2                                    = 194 // [ Session ] [Type: Uint8, Base: uint8, Units: percent]; Average SPO2 for the monitoring session
 	SessionAvgStress                                  = 195 // [ Session ] [Type: Uint8, Base: uint8, Units: percent]; Average stress for the monitoring session
+	SessionMetabolicCalories                          = 196 // [ Session ] [Type: Uint16, Base: uint16, Units: kcal];
 	SessionSdrrHrv                                    = 197 // [ Session ] [Type: Uint8, Base: uint8, Units: mS]; Standard deviation of R-R interval (SDRR) - Heart rate variability measure most useful for wellness users.
 	SessionRmssdHrv                                   = 198 // [ Session ] [Type: Uint8, Base: uint8, Units: mS]; Root mean square successive difference (RMSSD) - Heart rate variability measure most useful for athletes
 	SessionTotalFractionalAscent                      = 199 // [ Session ] [Type: Uint8, Base: uint8, Scale: 100, Offset: 0, Units: m]; fractional part of total_ascent
@@ -1164,6 +1165,11 @@ const (
 	SleepAssessmentAwakeningsCount                    = 11  // [ SleepAssessment ] [Type: Uint8, Base: uint8]; The number of awakenings during sleep.
 	SleepAssessmentInterruptionsScore                 = 14  // [ SleepAssessment ] [Type: Uint8, Base: uint8]; Score that evaluates the sleep interruptions. If valid: 0 (worst) to 100 (best). If unknown: FIT_UINT8_INVALID.
 	SleepAssessmentAverageStressDuringSleep           = 15  // [ SleepAssessment ] [Type: Uint16, Base: uint16, Scale: 100, Offset: 0]; Excludes stress during awake periods in the sleep window
+	SleepDisruptionOvernightSeverityTimestamp         = 253 // [ SleepDisruptionOvernightSeverity ] [Type: DateTime, Base: uint32];
+	SleepDisruptionOvernightSeveritySeverity          = 0   // [ SleepDisruptionOvernightSeverity ] [Type: SleepDisruptionSeverity, Base: enum];
+	SleepDisruptionSeverityPeriodMessageIndex         = 254 // [ SleepDisruptionSeverityPeriod ] [Type: MessageIndex, Base: uint16];
+	SleepDisruptionSeverityPeriodTimestamp            = 253 // [ SleepDisruptionSeverityPeriod ] [Type: DateTime, Base: uint32];
+	SleepDisruptionSeverityPeriodSeverity             = 0   // [ SleepDisruptionSeverityPeriod ] [Type: SleepDisruptionSeverity, Base: enum];
 	SleepLevelTimestamp                               = 253 // [ SleepLevel ] [Type: DateTime, Base: uint32, Units: s];
 	SleepLevelSleepLevel                              = 0   // [ SleepLevel ] [Type: SleepLevel, Base: enum];
 	SoftwareMessageIndex                              = 254 // [ Software ] [Type: MessageIndex, Base: uint16];

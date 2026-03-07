@@ -28,3 +28,13 @@ body {
 .animate-slide-in-right {
   animation: slide-in-right 0.2s ease-out;
 }
+
+/* react-day-picker dark mode support */
+.rdp-root {
+  --rdp-accent-color: var(--color-accent-DEFAULT, #F97316);
+}
+.dark .rdp-root {
+  --rdp-accent-color: var(--color-accent-DEFAULT, #F97316);
+  --rdp-background-color: theme(colors.neutral.900);
+  color: theme(colors.neutral.100);
+}

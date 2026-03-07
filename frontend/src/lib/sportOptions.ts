@@ -131,8 +131,26 @@ export function generateActivityFilterOptions(): SportOption[] {
   return options
 }
 
+// ── Unified filter option generator ─────────────────────────────────────────
+
+export type FilterMode = 'map' | 'activity' | 'analytics'
+
+/**
+ * Unified sport filter option generator.
+ *
+ * - 'map': GPS-relevant categories (run/bike/winter/water/climb/outdoor) +
+ *          a combined "Indoor & Sonstiges" group for fitness + other.
+ * - 'activity' | 'analytics': All 8 categories as expandable groups.
+ */
+export function generateFilterOptions(mode: FilterMode): SportOption[] {
+  if (mode === 'map') {
+    return generateMapFilterOptions()
+  }
+  return generateActivityFilterOptions()
+}
+
 // Backwards-compatible static options (uses map filter as default)
-export const SPORT_OPTIONS: SportOption[] = generateMapFilterOptions()
+export const SPORT_OPTIONS: SportOption[] = generateFilterOptions('map')
 
 /**
  * Flat list of all selectable leaf keys across an option tree.

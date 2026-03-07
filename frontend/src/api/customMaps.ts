@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, apiUpload } from './client'
 
 export interface CustomMap {
   id: string
@@ -22,6 +22,7 @@ export interface CustomMapMarker {
   lat: number
   lng: number
   color?: string
+  image_url?: string
   created_at: string
   updated_at: string
 }
@@ -59,9 +60,15 @@ export async function createCustomMapMarker(
 export async function updateCustomMapMarker(
   mapID: string,
   markerID: string,
-  req: Partial<{ name: string; description: string; lat: number; lng: number; color: string }>,
+  req: Partial<{ name: string; description: string; lat: number; lng: number; color: string; image_url: string }>,
 ): Promise<CustomMapMarker> {
   return apiClient<CustomMapMarker>(`/custom-maps/${mapID}/markers/${markerID}`, { method: 'PUT', body: req })
+}
+
+export async function uploadMarkerImage(mapId: string, markerId: string, file: File): Promise<CustomMapMarker> {
+  const formData = new FormData()
+  formData.append('image', file)
+  return apiUpload<CustomMapMarker>(`/custom-maps/${mapId}/markers/${markerId}/image`, formData)
 }
 
 export async function deleteCustomMapMarker(mapID: string, markerID: string): Promise<void> {

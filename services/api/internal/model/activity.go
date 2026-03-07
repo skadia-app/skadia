@@ -238,14 +238,18 @@ type ActivityList struct {
 
 // ActivityFilters holds filter parameters for the ListActivities query.
 type ActivityFilters struct {
-	SportTypes []string
-	SubTypes   []string
-	DateFrom   string
-	DateTo     string
-	IsIndoor   *bool
-	HasGPS     *bool
-	GearID     string
-	Search     string
+	SportTypes  []string
+	SubTypes    []string
+	DateFrom    string
+	DateTo      string
+	IsIndoor    *bool
+	HasGPS      *bool
+	GearID      string
+	Search      string
+	IncludeTags []string
+	ExcludeTags []string
+	IncludeGear []string
+	ExcludeGear []string
 }
 
 // StreamResponse is the API response for the streams endpoint.
@@ -651,8 +655,23 @@ type Tag struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	// Optional geo-coordinates — when set, the tag acts as a "location tag"
 	// that appears as a pin on the map.
-	Lat *float64 `json:"lat,omitempty"`
-	Lng *float64 `json:"lng,omitempty"`
+	Lat           *float64  `json:"lat,omitempty"`
+	Lng           *float64  `json:"lng,omitempty"`
+	CoverImageURL *string   `json:"cover_image_url,omitempty"`
+	Zone          *TagZone  `json:"zone,omitempty"`
+}
+
+// TagZone represents an optional geographic zone attached to a location tag.
+// zone_type is "circle" (center + radius_m) or "polygon" (polygon GeoJSON).
+type TagZone struct {
+	ID        string      `json:"id"`
+	TagID     string      `json:"tag_id"`
+	ZoneType  string      `json:"zone_type"` // "circle" | "polygon"
+	Center    *[2]float64 `json:"center,omitempty"` // [lng, lat]
+	RadiusM   *float64    `json:"radius_m,omitempty"`
+	Polygon   *string     `json:"polygon,omitempty"` // GeoJSON Polygon string
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 // EnrichmentSettings holds user preferences for activity enrichment.

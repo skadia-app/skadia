@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -13,66 +14,141 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segmentType, name, bbox string) ([]model.Segment, error) {
-	query := `
-		SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
-		       s.allowed_sport_types, s.allowed_sub_types,
-		       s.segment_type, s.segment_type_meta,
-		       s.source_activity_id, s.osm_lift_id,
-		       s.distance_m, s.elevation_gain_m,
-		       s.effort_count, s.athlete_count,
-		       COALESCE((
-		           SELECT COUNT(*)::int FROM segment_efforts se
-		           JOIN activities a ON se.activity_id = a.id
-		           WHERE se.segment_id = s.id AND a.user_id = $1
-		       ), 0) AS ridden_count,
-		       EXISTS(
-		           SELECT 1 FROM segment_favorites sf
-		           WHERE sf.segment_id = s.id AND sf.user_id = $1
-		       ) AS is_favorite,
-		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson,
-		       s.terrain_type, s.climb_type
-		FROM segments s
-		LEFT JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = s.id
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
-		WHERE (s.visibility = 'public' OR s.created_by = $1)`
-
-	args := []any{userID}
+func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
+	args := []any{p.UserID}
 	argIdx := 2
 
-	if sportGroup != "" {
-		query += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
-		args = append(args, sportGroup)
+	// --- CTE: user_efforts ---
+	cte := `
+WITH user_efforts AS (
+    SELECT se.segment_id, COUNT(*)::int AS ridden_count
+    FROM segment_efforts se
+    JOIN activities a ON se.activity_id = a.id
+    WHERE a.user_id = $1
+    GROUP BY se.segment_id
+),
+user_favs AS (
+    SELECT segment_id FROM segment_favorites WHERE user_id = $1
+)`
+
+	// --- SELECT ---
+	selectCols := `
+SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
+       s.allowed_sport_types, s.allowed_sub_types,
+       s.segment_type, s.segment_type_meta,
+       s.source_activity_id, s.osm_lift_id,
+       s.distance_m, s.elevation_gain_m,
+       s.effort_count, s.athlete_count,
+       COALESCE(ue.ridden_count, 0) AS ridden_count,
+       (uf.segment_id IS NOT NULL) AS is_favorite,
+       s.visibility, s.route_hash, s.created_at,`
+
+	if p.IncludeGeoJSON {
+		selectCols += `
+       ST_AsGeoJSON(sv.track) AS track_geojson,`
+	} else {
+		selectCols += `
+       NULL::text AS track_geojson,`
+	}
+	selectCols += `
+       s.terrain_type, s.climb_type`
+
+	// --- FROM + JOINs ---
+	from := `
+FROM segments s
+LEFT JOIN user_efforts ue ON ue.segment_id = s.id
+LEFT JOIN user_favs uf ON uf.segment_id = s.id`
+
+	if p.IncludeGeoJSON {
+		from += `
+LEFT JOIN LATERAL (
+    SELECT track FROM segment_versions
+    WHERE segment_id = s.id
+    ORDER BY version_number DESC
+    LIMIT 1
+) sv ON true`
+	}
+
+	// --- WHERE ---
+	where := `
+WHERE (s.visibility = 'public' OR s.created_by = $1)`
+
+	if p.SportGroup != "" {
+		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
+		args = append(args, p.SportGroup)
 		argIdx++
 	}
-	if segmentType != "" {
-		query += fmt.Sprintf(" AND s.segment_type = $%d", argIdx)
-		args = append(args, segmentType)
+	if p.SegmentTypes != "" {
+		types := strings.Split(p.SegmentTypes, ",")
+		placeholders := make([]string, len(types))
+		for i, t := range types {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, strings.TrimSpace(t))
+			argIdx++
+		}
+		where += " AND s.segment_type IN (" + strings.Join(placeholders, ", ") + ")"
+	} else if p.SegmentType != "" {
+		where += fmt.Sprintf(" AND s.segment_type = $%d", argIdx)
+		args = append(args, p.SegmentType)
 		argIdx++
 	}
-	if name != "" {
-		query += fmt.Sprintf(" AND s.name ILIKE $%d", argIdx)
-		args = append(args, "%"+name+"%")
+	if p.Name != "" {
+		where += fmt.Sprintf(" AND s.name ILIKE $%d", argIdx)
+		args = append(args, "%"+p.Name+"%")
 		argIdx++
 	}
-	if bbox != "" {
-		parts := strings.Split(bbox, ",")
+	if p.BBox != "" {
+		parts := strings.Split(p.BBox, ",")
 		if len(parts) == 4 {
-			query += fmt.Sprintf(
-				` AND sv.track IS NOT NULL AND ST_Intersects(sv.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
-				argIdx, argIdx+1, argIdx+2, argIdx+3,
-			)
+			if p.IncludeGeoJSON {
+				where += fmt.Sprintf(
+					` AND sv.track IS NOT NULL AND ST_Intersects(sv.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+					argIdx, argIdx+1, argIdx+2, argIdx+3,
+				)
+			} else {
+				// Ohne sv brauchen wir einen eigenen LATERAL fuer BBox
+				from += fmt.Sprintf(`
+LEFT JOIN LATERAL (
+    SELECT track FROM segment_versions
+    WHERE segment_id = s.id
+    ORDER BY version_number DESC
+    LIMIT 1
+) sv_bbox ON true`)
+				where += fmt.Sprintf(
+					` AND sv_bbox.track IS NOT NULL AND ST_Intersects(sv_bbox.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+					argIdx, argIdx+1, argIdx+2, argIdx+3,
+				)
+			}
 			args = append(args, parts[0], parts[1], parts[2], parts[3])
 			argIdx += 4
 		}
 	}
+	if p.OnlyRidden {
+		where += " AND COALESCE(ue.ridden_count, 0) > 0"
+	}
 
-	query += " ORDER BY s.created_at DESC LIMIT 200"
+	// --- Cursor ---
+	if p.Cursor != "" {
+		cursorTS, cursorID, err := decodeCursor(p.Cursor)
+		if err == nil {
+			where += fmt.Sprintf(" AND (s.created_at, s.id) < ($%d, $%d)", argIdx, argIdx+1)
+			args = append(args, cursorTS, cursorID)
+			argIdx += 2
+		}
+	}
+
+	// --- ORDER + LIMIT ---
+	orderLimit := "\nORDER BY s.created_at DESC, s.id DESC"
+	limit := p.Limit
+	if limit == 0 {
+		limit = 50 // default
+	}
+	if limit > 0 {
+		// limit+1 fuer has_more Erkennung
+		orderLimit += fmt.Sprintf(" LIMIT %d", limit+1)
+	}
+
+	query := cte + selectCols + from + where + orderLimit
 
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -103,7 +179,21 @@ func (db *DB) ListSegments(ctx context.Context, userID string, sportGroup, segme
 	if segments == nil {
 		segments = []model.Segment{}
 	}
-	return segments, nil
+
+	// has_more + cursor berechnen
+	hasMore := limit > 0 && len(segments) > limit
+	var nextCursor string
+	if hasMore {
+		segments = segments[:limit] // ueberzaehliges Element abschneiden
+		last := segments[len(segments)-1]
+		nextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
+
+	return &model.ListSegmentsResult{
+		Segments:   segments,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
 }
 
 func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.SegmentCreate) (*model.Segment, error) {
@@ -557,7 +647,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 50)`,
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
 		activityID, userID, sportGroup)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
@@ -606,6 +696,40 @@ func (db *DB) GetSegmentEndpoints(ctx context.Context, versionID string) (*Segme
 		return nil, fmt.Errorf("get segment endpoints: %w", err)
 	}
 	return &ep, nil
+}
+
+// GetSegmentEndpointsBatch returns endpoints for multiple segment versions in a single query.
+func (db *DB) GetSegmentEndpointsBatch(ctx context.Context, versionIDs []string) (map[string]*SegmentEndpoints, error) {
+	if len(versionIDs) == 0 {
+		return map[string]*SegmentEndpoints{}, nil
+	}
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id,
+		       ST_Y(ST_StartPoint(track)), ST_X(ST_StartPoint(track)),
+		       ST_Y(ST_EndPoint(track)), ST_X(ST_EndPoint(track)),
+		       ST_Length(track::geography)
+		FROM segment_versions
+		WHERE id = ANY($1) AND track IS NOT NULL`, versionIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get segment endpoints batch: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*SegmentEndpoints, len(versionIDs))
+	for rows.Next() {
+		var id string
+		var ep SegmentEndpoints
+		if err := rows.Scan(&id, &ep.StartLat, &ep.StartLng, &ep.EndLat, &ep.EndLng, &ep.LengthM); err != nil {
+			return nil, fmt.Errorf("get segment endpoints batch scan: %w", err)
+		}
+		result[id] = &ep
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get segment endpoints batch rows: %w", err)
+	}
+	return result, nil
 }
 
 // GPSStreamPoint is a lightweight GPS point with timestamp for matching.
@@ -896,7 +1020,7 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 		WHERE a.user_id = $1
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 50)`,
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
 		userID, segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
@@ -912,6 +1036,46 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+// InsertSegmentEffortsBatch inserts multiple segment efforts in a single multi-row INSERT.
+func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.SegmentEffort) error {
+	if len(efforts) == 0 {
+		return nil
+	}
+
+	const cols = 13
+	valueParts := make([]string, 0, len(efforts))
+	args := make([]any, 0, len(efforts)*cols)
+
+	for i, e := range efforts {
+		base := i * cols
+		valueParts = append(valueParts, fmt.Sprintf(
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
+			base+8, base+9, base+10, base+11, base+12, base+13,
+		))
+		args = append(args,
+			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
+			e.StartedAt, e.ElapsedTimeS, e.IsReverse,
+			e.SportType, e.SubType, e.GearID,
+			e.AvgSpeedMs, e.AvgHeartRate, e.AvgPowerW,
+		)
+	}
+
+	query := `INSERT INTO segment_efforts
+		(segment_id, segment_version_id, activity_id, user_id,
+		 started_at, elapsed_time_s, is_reverse,
+		 sport_type, sub_type, gear_id,
+		 avg_speed_ms, avg_heart_rate, avg_power_w)
+		VALUES ` + strings.Join(valueParts, ", ") + `
+		ON CONFLICT DO NOTHING`
+
+	_, err := db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("batch insert segment efforts: %w", err)
+	}
+	return nil
 }
 
 // IsSegmentFavoriteByUser checks if a segment is favorited by a user.
@@ -941,7 +1105,8 @@ func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID strin
 }
 
 // GetSegmentPerformances retrieves all segment efforts for a specific segment from a given user.
-func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string) ([]model.SegmentPerformance, error) {
+// isReverse: nil = all directions, false = forward only, true = reverse only.
+func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string, isReverse *bool) ([]model.SegmentPerformance, error) {
 	query := `
 	SELECT
 		se.id,
@@ -951,16 +1116,23 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		a.started_at,
 		a.sport_type,
 		a.title,
+		se.is_reverse,
 		a.gear_id,
 		g.name AS gear_name,
 		g.type AS gear_type
 	FROM segment_efforts se
 	JOIN activities a ON se.activity_id = a.id
 	LEFT JOIN gear g ON a.gear_id = g.id
-	WHERE se.segment_id = $1 AND a.user_id = $2
-	ORDER BY a.started_at DESC`
+	WHERE se.segment_id = $1 AND a.user_id = $2`
 
-	rows, err := db.Pool.Query(ctx, query, segmentID, userID)
+	args := []any{segmentID, userID}
+	if isReverse != nil {
+		args = append(args, *isReverse)
+		query += fmt.Sprintf(" AND se.is_reverse = $%d", len(args))
+	}
+	query += " ORDER BY a.started_at DESC"
+
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get segment performances: %w", err)
 	}
@@ -970,8 +1142,8 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	for rows.Next() {
 		var perf model.SegmentPerformance
 		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
-			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.GearID,
-			&perf.GearName, &perf.GearType); err != nil {
+			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.IsReverse,
+			&perf.GearID, &perf.GearName, &perf.GearType); err != nil {
 			return nil, fmt.Errorf("scan performance: %w", err)
 		}
 		performances = append(performances, perf)
@@ -982,4 +1154,25 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	}
 
 	return performances, rows.Err()
+}
+
+func encodeCursor(t time.Time, id string) string {
+	raw := t.Format(time.RFC3339Nano) + "|" + id
+	return base64.StdEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeCursor(cursor string) (time.Time, string, error) {
+	raw, err := base64.StdEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	parts := strings.SplitN(string(raw), "|", 2)
+	if len(parts) != 2 {
+		return time.Time{}, "", fmt.Errorf("invalid cursor format")
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	return t, parts[1], nil
 }

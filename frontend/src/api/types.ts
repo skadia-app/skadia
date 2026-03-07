@@ -404,6 +404,24 @@ export interface RuleCondition {
     radius_m: number
     mode: 'inside' | 'outside'
   }
+  // Zone-based geofence (field === 'geofence_zone')
+  geofence_zone?: {
+    mode: 'inside' | 'outside'
+    shape: 'circle' | 'polygon'
+    // circle fields
+    lat?: number
+    lon?: number
+    radius_m?: number
+    // polygon field (GeoJSON Polygon JSON string)
+    polygon?: string
+  }
+  // Proximity-to-pin geofence (field === 'geofence_proximity')
+  geofence_proximity?: {
+    lat: number
+    lon: number
+    radius_m: number
+    mode: 'inside' | 'outside'
+  }
 }
 
 export interface RuleAction {

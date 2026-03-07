@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
 import ImportHub from '@/components/ImportHub'
+import ActiveJobsIndicator from '@/components/ActiveJobsIndicator'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -42,6 +43,8 @@ export default function Layout() {
           </nav>
 
           <ImportHub />
+
+          <ActiveJobsIndicator />
 
           <button
             onClick={toggle}

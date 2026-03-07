@@ -1,4 +1,23 @@
-import { apiClient } from './client'
+import { apiClient, apiUpload } from './client'
+
+// ---------------------------------------------------------------------------
+// Tag Zone types
+// ---------------------------------------------------------------------------
+
+/** A geographic zone attached to a location tag. */
+export interface TagZone {
+  id: string
+  tag_id: string
+  /** 'circle' uses center + radius_m; 'polygon' uses polygon GeoJSON */
+  zone_type: 'circle' | 'polygon'
+  /** [lng, lat] — present for circle zones */
+  center?: [number, number] | null
+  radius_m?: number | null
+  /** GeoJSON Polygon string — present for polygon zones */
+  polygon?: string | null
+  created_at: string
+  updated_at: string
+}
 
 export interface TagCondition {
   field: string
@@ -36,9 +55,13 @@ export interface Tag {
   conditions_logic: 'and' | 'or'
   activity_count: number
   created_at: string
+  // Optional cover image URL for the location tag popup.
+  cover_image_url?: string | null
   // Optional geo-coordinates — when set, the tag acts as a "location tag".
   lat?: number | null
   lng?: number | null
+  // Optional zone attached to this location tag (included by ListTags).
+  zone?: TagZone | null
 }
 
 /**
@@ -135,6 +158,14 @@ export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> 
   return apiClient<TagActivity[]>(`/tags/${tagId}/activities`)
 }
 
+export async function assignActivitiesToTag(tagId: string, activityIds: string[]): Promise<void> {
+  await apiClient<void>(`/tags/${tagId}/assign-activities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activity_ids: activityIds }),
+  })
+}
+
 /**
  * Sync location_lat/location_lng on all activities linked to tagId.
  * The tag must have lat/lng set. Fire-and-forget safe.
@@ -149,10 +180,63 @@ export async function syncTagLocation(tagId: string): Promise<{ updated_count: n
  * sourceId is deleted afterwards.
  * Returns the surviving (target) tag.
  */
+export async function uploadTagCoverImage(tagId: string, file: File): Promise<{ cover_image_url: string }> {
+  const formData = new FormData()
+  formData.append('image', file)
+  return apiUpload<{ cover_image_url: string }>(`/tags/${tagId}/cover-image`, formData)
+}
+
+export async function setTagCoverImageFromPhoto(tagId: string, photoUrl: string): Promise<{ cover_image_url: string }> {
+  return apiClient<{ cover_image_url: string }>(`/tags/${tagId}/cover-image`, {
+    method: 'POST',
+    body: { activity_photo_url: photoUrl },
+  })
+}
+
+export async function clearTagCoverImage(tagId: string): Promise<Tag> {
+  const tag = await apiClient<Tag>(`/tags/${tagId}`, {
+    method: 'PATCH',
+    body: { cover_image_url: null },
+  })
+  return normaliseTag(tag)
+}
+
 export async function mergeTags(targetId: string, sourceId: string): Promise<Tag> {
   const tag = await apiClient<Tag>(`/tags/${targetId}/merge`, {
     method: 'POST',
     body: { source_tag_id: sourceId },
   })
   return normaliseTag(tag)
+}
+
+export async function unassignActivitiesFromTag(tagId: string, activityIds: string[]): Promise<void> {
+  await apiClient<void>(`/tags/${tagId}/activities`, {
+    method: 'DELETE',
+    body: { activity_ids: activityIds },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Tag Zone API
+// ---------------------------------------------------------------------------
+
+export async function fetchTagZone(tagId: string): Promise<TagZone | null> {
+  try {
+    return await apiClient<TagZone>(`/tag-zones/${tagId}`)
+  } catch (err: unknown) {
+    // 404 means no zone exists — treat as null
+    if (err instanceof Error && err.message.includes('404')) return null
+    throw err
+  }
+}
+
+export async function upsertTagZone(tagId: string, zone: Omit<TagZone, 'id' | 'tag_id' | 'created_at' | 'updated_at'>): Promise<TagZone> {
+  return apiClient<TagZone>(`/tag-zones/${tagId}`, {
+    method: 'PUT',
+    body: zone,
+  })
+}
+
+export async function deleteTagZone(tagId: string): Promise<void> {
+  await apiClient<void>(`/tag-zones/${tagId}`, { method: 'DELETE' })
 }

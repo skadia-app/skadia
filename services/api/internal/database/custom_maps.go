@@ -79,7 +79,7 @@ func (db *DB) DeleteCustomMap(ctx context.Context, id, userID string) error {
 
 func (db *DB) ListCustomMapMarkers(ctx context.Context, mapID, userID string) ([]model.CustomMapMarker, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, map_id, user_id, name, description, lat, lng, color, created_at, updated_at
+		SELECT id, map_id, user_id, name, description, lat, lng, color, image_url, created_at, updated_at
 		FROM custom_map_markers
 		WHERE map_id = $1 AND user_id = $2
 		ORDER BY created_at
@@ -92,7 +92,7 @@ func (db *DB) ListCustomMapMarkers(ctx context.Context, mapID, userID string) ([
 	for rows.Next() {
 		var mk model.CustomMapMarker
 		if err := rows.Scan(&mk.ID, &mk.MapID, &mk.UserID, &mk.Name, &mk.Description,
-			&mk.Lat, &mk.Lng, &mk.Color, &mk.CreatedAt, &mk.UpdatedAt); err != nil {
+			&mk.Lat, &mk.Lng, &mk.Color, &mk.ImageURL, &mk.CreatedAt, &mk.UpdatedAt); err != nil {
 			return nil, err
 		}
 		markers = append(markers, mk)
@@ -105,10 +105,10 @@ func (db *DB) CreateCustomMapMarker(ctx context.Context, mapID, userID string, r
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO custom_map_markers (map_id, user_id, name, description, lat, lng, color)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, map_id, user_id, name, description, lat, lng, color, created_at, updated_at
+		RETURNING id, map_id, user_id, name, description, lat, lng, color, image_url, created_at, updated_at
 	`, mapID, userID, req.Name, req.Description, req.Lat, req.Lng, req.Color).Scan(
 		&mk.ID, &mk.MapID, &mk.UserID, &mk.Name, &mk.Description,
-		&mk.Lat, &mk.Lng, &mk.Color, &mk.CreatedAt, &mk.UpdatedAt,
+		&mk.Lat, &mk.Lng, &mk.Color, &mk.ImageURL, &mk.CreatedAt, &mk.UpdatedAt,
 	)
 	return mk, err
 }
@@ -122,12 +122,13 @@ func (db *DB) UpdateCustomMapMarker(ctx context.Context, id, mapID, userID strin
 		    lat         = COALESCE($6, lat),
 		    lng         = COALESCE($7, lng),
 		    color       = COALESCE($8, color),
+		    image_url   = COALESCE($9, image_url),
 		    updated_at  = NOW()
 		WHERE id = $1 AND map_id = $2 AND user_id = $3
-		RETURNING id, map_id, user_id, name, description, lat, lng, color, created_at, updated_at
-	`, id, mapID, userID, req.Name, req.Description, req.Lat, req.Lng, req.Color).Scan(
+		RETURNING id, map_id, user_id, name, description, lat, lng, color, image_url, created_at, updated_at
+	`, id, mapID, userID, req.Name, req.Description, req.Lat, req.Lng, req.Color, req.ImageURL).Scan(
 		&mk.ID, &mk.MapID, &mk.UserID, &mk.Name, &mk.Description,
-		&mk.Lat, &mk.Lng, &mk.Color, &mk.CreatedAt, &mk.UpdatedAt,
+		&mk.Lat, &mk.Lng, &mk.Color, &mk.ImageURL, &mk.CreatedAt, &mk.UpdatedAt,
 	)
 	return mk, err
 }

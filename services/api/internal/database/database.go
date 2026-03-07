@@ -393,6 +393,26 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []inte
 		conds = append(conds, fmt.Sprintf("(title ILIKE '%%' || $%d || '%%' OR title_auto ILIKE '%%' || $%d || '%%')", idx, idx))
 		args = append(args, filters.Search)
 	}
+	if len(filters.IncludeTags) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("id IN (SELECT activity_id FROM activity_tags WHERE tag_id = ANY($%d))", idx))
+		args = append(args, filters.IncludeTags)
+	}
+	if len(filters.ExcludeTags) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("id NOT IN (SELECT activity_id FROM activity_tags WHERE tag_id = ANY($%d))", idx))
+		args = append(args, filters.ExcludeTags)
+	}
+	if len(filters.IncludeGear) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("gear_id = ANY($%d)", idx))
+		args = append(args, filters.IncludeGear)
+	}
+	if len(filters.ExcludeGear) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf("(gear_id IS NULL OR gear_id != ALL($%d))", idx))
+		args = append(args, filters.ExcludeGear)
+	}
 
 	if len(conds) == 0 {
 		return "", nil
@@ -1485,8 +1505,8 @@ func (db *DB) InsertHeatmapLine(ctx context.Context, userID, activityID, sportTy
 		  GROUP BY grp
 		  HAVING COUNT(*) >= 2
 		)
-		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
-		SELECT $1, $2, $3, $5, geom, $4::date
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, geom_3857, activity_date)
+		SELECT $1, $2, $3, $5, geom, ST_Transform(geom, 3857), $4::date
 		FROM line_groups
 		WHERE geom IS NOT NULL`,
 		userID, activityID, sportType, startedAt, subType,
@@ -1551,8 +1571,8 @@ func (db *DB) BackfillHeatmap(ctx context.Context, userID string) (int, error) {
 		  GROUP BY activity_id, user_id, sport_type, sub_type, started_at, grp
 		  HAVING COUNT(*) >= 2
 		)
-		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, activity_date)
-		SELECT user_id, activity_id, sport_type, sub_type, geom, started_at::date
+		INSERT INTO heatmap_lines (user_id, activity_id, sport_type, sub_type, geom, geom_3857, activity_date)
+		SELECT user_id, activity_id, sport_type, sub_type, geom, ST_Transform(geom, 3857), started_at::date
 		FROM line_groups
 		WHERE geom IS NOT NULL`,
 		userID,
@@ -1916,7 +1936,11 @@ func (db *DB) ComputeTrackPublic(ctx context.Context, activityID, userID string)
 				t.track_full,
 				COALESCE(
 					(SELECT ST_Union(
-						ST_Buffer(z.center::geography, z.radius_m)::geometry
+						CASE
+							WHEN z.zone_type = 'polygon' AND z.polygon IS NOT NULL
+								THEN z.polygon
+							ELSE ST_Buffer(z.center::geography, z.radius_m)::geometry
+						END
 					)
 					FROM user_privacy_zones z
 					WHERE z.user_id = $2 AND z.is_active = true),
@@ -1945,7 +1969,11 @@ func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error 
 				activity_tracks.track_full,
 				COALESCE(
 					(SELECT ST_Union(
-						ST_Buffer(z.center::geography, z.radius_m)::geometry
+						CASE
+							WHEN z.zone_type = 'polygon' AND z.polygon IS NOT NULL
+								THEN z.polygon
+							ELSE ST_Buffer(z.center::geography, z.radius_m)::geometry
+						END
 					)
 					FROM user_privacy_zones z
 					WHERE z.user_id = $1 AND z.is_active = true),
@@ -2024,7 +2052,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng
+			lat, lng, cover_image_url
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -2043,7 +2071,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng,
+			&t.Lat, &t.Lng, &t.CoverImageURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2052,6 +2080,20 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 	if tags == nil {
 		tags = []model.Tag{}
 	}
+
+	// Enrich with zone data in a single query.
+	zones, err := db.getTagZonesByUserID(ctx, userID)
+	if err != nil {
+		// Non-fatal: log and continue without zone data
+		slog.Warn("list tags: failed to load zones", "error", err)
+	} else {
+		for i := range tags {
+			if z, ok := zones[tags[i].ID]; ok {
+				tags[i].Zone = z
+			}
+		}
+	}
+
 	return tags, nil
 }
 
@@ -2061,7 +2103,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng
+			lat, lng, cover_image_url
 		FROM tags
 		WHERE id = $1 AND user_id = $2`, tagID, userID,
 	).Scan(
@@ -2069,7 +2111,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng,
+		&t.Lat, &t.Lng, &t.CoverImageURL,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -2111,13 +2153,13 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng`,
+			lat, lng, cover_image_url`,
 		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng)
+		&t.Lat, &t.Lng, &t.CoverImageURL)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -2129,7 +2171,7 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 //   - locationPresent=false → lat/lng columns not touched
 //   - locationPresent=true, lat/lng=nil → SET lat=NULL, lng=NULL
 //   - locationPresent=true, lat/lng=non-nil → SET lat=*lat, lng=*lng
-func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
+func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool, coverImageURL *string) (*model.Tag, error) {
 	var sets []string
 	var args []any
 	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
@@ -2184,10 +2226,15 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		args = append(args, lng)
 		argIdx++
 	}
+	if coverImageURL != nil {
+		sets = append(sets, fmt.Sprintf("cover_image_url = $%d", argIdx))
+		args = append(args, *coverImageURL)
+		argIdx++
+	}
 
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng`
+		lat, lng, cover_image_url`
 
 	scanTag := func(row interface{ Scan(...any) error }) (*model.Tag, error) {
 		var t model.Tag
@@ -2196,7 +2243,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng,
+			&t.Lat, &t.Lng, &t.CoverImageURL,
 		)
 		return &t, err
 	}
@@ -2252,7 +2299,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
 			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
-			t.lat, t.lng
+			t.lat, t.lng, t.cover_image_url
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -2272,7 +2319,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng,
+			&t.Lat, &t.Lng, &t.CoverImageURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2484,7 +2531,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	// 5. Return the surviving target tag (with refreshed activity_count).
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng`
+		lat, lng, cover_image_url`
 	var t model.Tag
 	err = tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1`, tagCols),
@@ -2494,7 +2541,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng,
+		&t.Lat, &t.Lng, &t.CoverImageURL,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get merged tag: %w", err)
@@ -3069,6 +3116,61 @@ func (db *DB) GetTagIDsByNamesAndCategory(ctx context.Context, userID, category 
 	}
 
 	return result, nil
+}
+
+// AssignActivitiesToTag links multiple activities to a tag (manual assignment).
+// Inserts into activity_tags junction table and syncs activities.tags TEXT[] cache.
+func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	// Resolve tag name for updating the denormalized TEXT[] cache.
+	var tagName string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`, tagID, userID,
+	).Scan(&tagName); err != nil {
+		return fmt.Errorf("assign activities to tag: resolve tag name: %w", err)
+	}
+	for _, actID := range activityIDs {
+		if err := db.LinkActivityTag(ctx, actID, tagID, "manual"); err != nil {
+			return fmt.Errorf("assign activities to tag: link %s: %w", actID, err)
+		}
+		// Keep denormalized TEXT[] cache in sync.
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE activities SET tags = array_append(tags, $2), updated_at = NOW()
+			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(tags))`,
+			actID, tagName, userID)
+	}
+	return nil
+}
+
+// UnassignActivitiesFromTag removes multiple activities from a tag.
+// Deletes from activity_tags junction table and syncs activities.tags TEXT[] cache.
+func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	// Resolve tag name for updating the denormalized TEXT[] cache.
+	var tagName string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`, tagID, userID,
+	).Scan(&tagName); err != nil {
+		return fmt.Errorf("unassign activities from tag: resolve tag name: %w", err)
+	}
+	for _, actID := range activityIDs {
+		_, err := db.Pool.Exec(ctx,
+			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
+			actID, tagID)
+		if err != nil {
+			return fmt.Errorf("unassign activities from tag: delete %s: %w", actID, err)
+		}
+		// Keep denormalized TEXT[] cache in sync.
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE activities SET tags = array_remove(tags, $2), updated_at = NOW()
+			 WHERE id = $1 AND user_id = $3`,
+			actID, tagName, userID)
+	}
+	return nil
 }
 
 // LinkActivityTag links a tag to an activity with the given assignment type.

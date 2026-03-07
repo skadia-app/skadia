@@ -39,6 +39,9 @@ import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
 import type { GeoTag, ActivityStop } from '@/api/types'
 import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
+import TrimDialog from '@/components/TrimDialog'
+import SplitDialog from '@/components/SplitDialog'
+import MergeDialog from '@/components/MergeDialog'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -115,6 +118,7 @@ export default function ActivityDetailPage() {
     enabled: activity != null && !activity.has_gps,
   })
   const locationTagsForActivity = allTagsForLocation.filter(t => t.lat != null && t.lng != null)
+  const assignedLocationTag = locationTagsForActivity.find(t => (activity?.tags ?? []).includes(t.name)) ?? null
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -240,6 +244,9 @@ export default function ActivityDetailPage() {
         onMaximize={() => setMapFullscreen(true)}
         geoTags={geoTags}
         stops={stops}
+        locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
+          ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
+          : undefined}
       />
 
       {/* Map fullscreen overlay */}
@@ -473,6 +480,9 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const [exportOpen, setExportOpen] = useState(false)
   const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
+  const [trimDialogOpen, setTrimDialogOpen] = useState(false)
+  const [splitDialogOpen, setSplitDialogOpen] = useState(false)
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -646,6 +656,40 @@ function ActivityHeader({ activity }: { activity: Activity }) {
       >
         &#9998; Bearbeiten
       </Link>
+
+      {/* Non-destructive edit operations */}
+      <button
+        onClick={() => setTrimDialogOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+        title="Anfang oder Ende der Aktivitat abschneiden"
+      >
+        &#9986; Trimmen
+      </button>
+      <button
+        onClick={() => setSplitDialogOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+        title="Aktivitat an einem Zeitpunkt aufteilen"
+      >
+        &#10178; Aufteilen
+      </button>
+      <button
+        onClick={() => setMergeDialogOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+        title="Felder aus einer anderen Aktivitat ubernehmen"
+      >
+        &#10240; Fusionieren
+      </button>
+
+      {/* Trim / Split / Merge dialogs */}
+      {trimDialogOpen && (
+        <TrimDialog activity={activity} onClose={() => setTrimDialogOpen(false)} />
+      )}
+      {splitDialogOpen && (
+        <SplitDialog activity={activity} onClose={() => setSplitDialogOpen(false)} />
+      )}
+      {mergeDialogOpen && (
+        <MergeDialog activity={activity} onClose={() => setMergeDialogOpen(false)} />
+      )}
 
       {/* Export Dropdown */}
       <div className="relative mt-1">
@@ -915,12 +959,12 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
       {tags.map((tag, i) => (
         <span
           key={tag}
-          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
+          className={`group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
         >
           {tag}
           <button
             onClick={() => removeMut.mutate(tag)}
-            className="text-xs opacity-50 hover:opacity-100 ml-1 cursor-pointer"
+            className="text-xs opacity-0 group-hover:opacity-100 ml-1 cursor-pointer transition-opacity"
             title={`Tag "${tag}" entfernen`}
           >
             &times;
@@ -993,7 +1037,7 @@ function splitAtGaps(coords: [number, number][], thresholdM: number): [number, n
   return segments.length > 0 ? segments : [coords]
 }
 
-function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops }: {
+function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: {
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
@@ -1002,10 +1046,13 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
   onMaximize: () => void
   geoTags?: GeoTag[]
   stops?: ActivityStop[]
+  locationPin?: { lat: number; lng: number; name: string; color: string }
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
+  const locationPinMapContainerRef = useRef<HTMLDivElement>(null)
+  const locationPinMapRef = useRef<maplibregl.Map | null>(null)
 
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
@@ -1231,6 +1278,40 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
     return () => { map.remove() }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
+  useEffect(() => {
+    if (!locationPinMapContainerRef.current || !locationPin) return
+
+    const map = new maplibregl.Map({
+      container: locationPinMapContainerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          },
+        },
+        layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 }],
+      },
+      center: [locationPin.lng, locationPin.lat],
+      zoom: 15,
+      attributionControl: {},
+    })
+
+    const el = document.createElement('div')
+    el.style.cssText = `width:18px;height:18px;border-radius:50%;background:${locationPin.color};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);`
+    new maplibregl.Marker({ element: el })
+      .setLngLat([locationPin.lng, locationPin.lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML(`<strong>${locationPin.name}</strong>`))
+      .addTo(map)
+
+    locationPinMapRef.current = map
+    return () => { map.remove() }
+  }, [locationPin?.lat, locationPin?.lng, locationPin?.name, locationPin?.color]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Hover-Marker: Index bezieht sich auf das volle streams-Array,
   // nicht auf das gefilterte coordinates-Array (Index-Mismatch vermeiden)
   useEffect(() => {
@@ -1312,6 +1393,19 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
   }, [zoomRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasGps) {
+    if (locationPin) {
+      return (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden h-48 relative">
+          <div ref={locationPinMapContainerRef} className="w-full h-full" />
+          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-900/90 rounded-full px-2.5 py-1 text-xs font-medium shadow-sm pointer-events-none">
+            <svg className="w-3 h-3 shrink-0" style={{ color: locationPin.color }} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 15.957 17 13.514 17 10c0-3.866-3.582-7-8-7S2 6.134 2 10c0 3.514 1.698 5.957 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.757.433 5.766 5.766 0 00.282.14l.018.008.006.003zM10 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" clipRule="evenodd" />
+            </svg>
+            <span className="text-neutral-700 dark:text-neutral-300">{locationPin.name}</span>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
         <span className="text-sm text-neutral-400">Keine GPS-Daten</span>

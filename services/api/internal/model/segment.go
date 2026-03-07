@@ -100,6 +100,7 @@ type SegmentPerformance struct {
 	StartedAt       time.Time `json:"started_at"`
 	SportType       string    `json:"sport_type"`
 	Title           string    `json:"title"`
+	IsReverse       bool      `json:"is_reverse"`
 	GearID          *string   `json:"gear_id,omitempty"`
 	GearName        *string   `json:"gear_name,omitempty"`
 	GearType        *string   `json:"gear_type,omitempty"`
@@ -122,4 +123,25 @@ type DetectedLap struct {
 	TotalDescentM *float64  `json:"total_descent_m,omitempty"`
 	StartLat      *float64  `json:"start_lat,omitempty"`
 	StartLng      *float64  `json:"start_lng,omitempty"`
+}
+
+// ListSegmentsParams buendelt alle Filter- und Paginationsparameter.
+type ListSegmentsParams struct {
+	UserID         string
+	SportGroup     string
+	SegmentType    string
+	SegmentTypes   string
+	Name           string
+	BBox           string
+	OnlyRidden     bool
+	IncludeGeoJSON bool
+	Cursor         string // base64(created_at|id)
+	Limit          int    // 0 = kein Limit
+}
+
+// ListSegmentsResult enthaelt die paginierte Segment-Liste.
+type ListSegmentsResult struct {
+	Segments   []Segment `json:"segments"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+	HasMore    bool      `json:"has_more"`
 }

@@ -137,6 +137,13 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	h.recomputeJob.startedAt = time.Now()
 	h.recomputeJob.mu.Unlock()
 
+	// Job in DB anlegen für persistente Sichtbarkeit über Browser-Reload.
+	dbJobID, dbJobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", nil, nil, len(ids))
+	if dbJobErr != nil {
+		slog.Warn("reprocess-all: failed to insert job", "error", dbJobErr)
+		dbJobID = ""
+	}
+
 	// Launch background goroutine. Uses a detached context so it survives
 	// after the HTTP response is sent.
 	go func() {
@@ -149,11 +156,26 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 			} else {
 				h.recomputeJob.processed.Add(1)
 			}
+
+			// Fortschritt alle 20 Aktivitäten in DB schreiben.
+			if dbJobID != "" {
+				processed := h.recomputeJob.processed.Load()
+				if processed%20 == 0 {
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, int(processed))
+				}
+			}
 		}
 
 		h.recomputeJob.mu.Lock()
 		h.recomputeJob.running = false
 		h.recomputeJob.mu.Unlock()
+
+		if dbJobID != "" {
+			hasFailed := h.recomputeJob.errors.Load() > 0
+			if err := h.DB.CompleteBackgroundJob(ctx, dbJobID, hasFailed); err != nil {
+				slog.Warn("reprocess-all: complete job failed", "error", err)
+			}
+		}
 
 		slog.Info("reprocess-all: finished",
 			"job_id", jobID,

@@ -1,8 +1,16 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useAnalyticsFilters, getPresets, savePreset, deletePreset } from '@/lib/analyticsFilters'
 import type { AnalyticsFilterState, FilterPreset } from '@/lib/analyticsFilters'
-import { CATEGORIES, SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { CATEGORIES } from '@/lib/sportTaxonomy'
+import { generateFilterOptions, filterToExistingSports } from '@/lib/sportOptions'
+import { fetchSportTypeStats } from '@/api/stats'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import TagFilterInput from '@/components/TagFilterInput'
+import type { TagFilter } from '@/components/TagFilterInput'
+import GearFilterInput from '@/components/GearFilterInput'
+import type { GearFilter } from '@/components/GearFilterInput'
 
 const tabs = [
   { to: '/analytics/training', label: 'Training' },
@@ -41,10 +49,16 @@ function activeFilterCount(filters: AnalyticsFilterState): number {
   if (filters.seasons.length > 0) count++
   if (filters.weekdays.length > 0) count++
   if (filters.tags.length > 0) count++
+  if (filters.includeTags.length > 0) count++
+  if (filters.excludeTags.length > 0) count++
+  if (filters.includeGear.length > 0) count++
+  if (filters.excludeGear.length > 0) count++
   return count
 }
 
 // ── Sport Type Selector ───────────────────────────────────────────────────────
+
+const ANALYTICS_SPORT_OPTIONS = generateFilterOptions('analytics')
 
 interface SportTypeSelectorProps {
   selected: string[]
@@ -53,6 +67,22 @@ interface SportTypeSelectorProps {
 
 function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const { hideUnused } = useGlobalSportSettings()
+  const { data: statsData } = useQuery({
+    queryKey: ['sport-type-stats'],
+    queryFn: fetchSportTypeStats,
+    enabled: hideUnused,
+  })
+  const existingSportTypes = useMemo<Set<string>>(() => {
+    if (!statsData) return new Set()
+    return new Set(statsData.map((s) => s.sport_type))
+  }, [statsData])
+  const visibleOptions = useMemo(() => {
+    if (hideUnused && existingSportTypes.size > 0) {
+      return filterToExistingSports(ANALYTICS_SPORT_OPTIONS, existingSportTypes)
+    }
+    return ANALYTICS_SPORT_OPTIONS
+  }, [hideUnused, existingSportTypes])
 
   const toggleSport = (sportType: string) => {
     if (selected.includes(sportType)) {
@@ -62,47 +92,49 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
     }
   }
 
-  const toggleCategory = (catKey: string) => {
-    const catSports = SPORT_DEFS.filter(d => d.categoryKey === catKey).map(d => d.sportType)
-    const allSelected = catSports.every(s => selected.includes(s))
+  const toggleCategory = (catKey: string, childValues: string[]) => {
+    const allSelected = childValues.every(s => selected.includes(s))
     if (allSelected) {
-      onChange(selected.filter(s => !catSports.includes(s)))
+      onChange(selected.filter(s => !childValues.includes(s)))
     } else {
-      const toAdd = catSports.filter(s => !selected.includes(s))
+      const toAdd = childValues.filter(s => !selected.includes(s))
       onChange([...selected, ...toAdd])
     }
   }
 
   return (
     <div className="space-y-1">
-      {CATEGORIES.map(cat => {
-        const catSports = SPORT_DEFS.filter(d => d.categoryKey === cat.key)
-        const selectedInCat = catSports.filter(d => selected.includes(d.sportType)).length
-        const isExpanded = expanded === cat.key
+      {visibleOptions.map(opt => {
+        const cat = CATEGORIES.find(c => c.key === opt.value)
+        const childValues = opt.children
+          ? opt.children.map(c => c.value)
+          : [opt.value]
+        const selectedInGroup = childValues.filter(s => selected.includes(s)).length
+        const isExpanded = expanded === opt.value
 
         return (
-          <div key={cat.key} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
+          <div key={opt.value} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
             <div className="flex items-center gap-1">
               <button
-                onClick={() => toggleCategory(cat.key)}
+                onClick={() => toggleCategory(opt.value, childValues)}
                 className={`flex-1 text-left px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  selectedInCat > 0
+                  selectedInGroup > 0
                     ? 'text-neutral-900 dark:text-neutral-100'
                     : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
                 }`}
               >
                 <span
                   className="inline-block w-2 h-2 rounded-full mr-1.5"
-                  style={{ backgroundColor: selectedInCat > 0 ? cat.color : '#9ca3af' }}
+                  style={{ backgroundColor: selectedInGroup > 0 ? (cat?.color ?? '#9ca3af') : '#9ca3af' }}
                 />
-                {cat.label}
-                {selectedInCat > 0 && (
-                  <span className="ml-1.5 text-xs opacity-60">({selectedInCat})</span>
+                {opt.label}
+                {selectedInGroup > 0 && (
+                  <span className="ml-1.5 text-xs opacity-60">({selectedInGroup})</span>
                 )}
               </button>
-              {catSports.length > 1 && (
+              {opt.children && opt.children.length > 1 && (
                 <button
-                  onClick={() => setExpanded(isExpanded ? null : cat.key)}
+                  onClick={() => setExpanded(isExpanded ? null : opt.value)}
                   className="px-2 py-1.5 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                   title="Einzelne Sportarten"
                 >
@@ -110,20 +142,20 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
                 </button>
               )}
             </div>
-            {isExpanded && (
+            {isExpanded && opt.children && (
               <div className="px-2.5 pb-1.5 flex flex-wrap gap-1">
-                {catSports.map(sport => (
+                {opt.children.map(child => (
                   <button
-                    key={sport.sportType}
-                    onClick={() => toggleSport(sport.sportType)}
+                    key={child.value}
+                    onClick={() => toggleSport(child.value)}
                     className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                      selected.includes(sport.sportType)
+                      selected.includes(child.value)
                         ? 'border-transparent text-white font-medium'
                         : 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-600'
                     }`}
-                    style={selected.includes(sport.sportType) ? { backgroundColor: cat.color } : undefined}
+                    style={selected.includes(child.value) ? { backgroundColor: cat?.color ?? '#9ca3af' } : undefined}
                   >
-                    {sport.label}
+                    {child.label}
                   </button>
                 ))}
               </div>
@@ -165,6 +197,32 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
   const [presets, setPresets] = useState<FilterPreset[]>(getPresets)
   const [presetName, setPresetName] = useState('')
   const [showSavePreset, setShowSavePreset] = useState(false)
+
+  // Local state for tri-state tag/gear filters (name+color are resolved by the child components)
+  const [tagFilters, setTagFilters] = useState<TagFilter[]>(() => [
+    ...filters.includeTags.map(id => ({ id, name: id, color: '#9ca3af', state: 'include' as const })),
+    ...filters.excludeTags.map(id => ({ id, name: id, color: '#9ca3af', state: 'exclude' as const })),
+  ])
+  const [gearFilters, setGearFilters] = useState<GearFilter[]>(() => [
+    ...filters.includeGear.map(id => ({ id, name: id, type: '', state: 'include' as const })),
+    ...filters.excludeGear.map(id => ({ id, name: id, type: '', state: 'exclude' as const })),
+  ])
+
+  function handleTagFiltersChange(newFilters: TagFilter[]) {
+    setTagFilters(newFilters)
+    onFilterChange({
+      includeTags: newFilters.filter(f => f.state === 'include').map(f => f.id),
+      excludeTags: newFilters.filter(f => f.state === 'exclude').map(f => f.id),
+    })
+  }
+
+  function handleGearFiltersChange(newFilters: GearFilter[]) {
+    setGearFilters(newFilters)
+    onFilterChange({
+      includeGear: newFilters.filter(f => f.state === 'include').map(f => f.id),
+      excludeGear: newFilters.filter(f => f.state === 'exclude').map(f => f.id),
+    })
+  }
 
   const handleSavePreset = () => {
     if (!presetName.trim()) return
@@ -457,6 +515,18 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
         />
       </div>
 
+      {/* Tag Filter */}
+      <TagFilterInput
+        value={tagFilters}
+        onChange={handleTagFiltersChange}
+      />
+
+      {/* Gear Filter */}
+      <GearFilterInput
+        value={gearFilters}
+        onChange={handleGearFiltersChange}
+      />
+
       {/* Save preset */}
       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
         {showSavePreset ? (
@@ -517,6 +587,8 @@ export default function AnalyticsPage() {
       paceMin: '', paceMax: '',
       countries: [], seasons: [], weekdays: [],
       hrMin: '', hrMax: '', powerMin: '', powerMax: '',
+      includeTags: [], excludeTags: [],
+      includeGear: [], excludeGear: [],
     })
   }
 

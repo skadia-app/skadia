@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SportOption } from '@/lib/sportOptions'
 import { generateActivityFilterOptions, getOptionKey, getAllSportKeys, filterToExistingSports } from '@/lib/sportOptions'
-import { fetchGear } from '@/api/gear'
 import { fetchSportTypeStats } from '@/api/stats'
 import { sportLabel } from '@/lib/utils'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import TagFilterInput from '@/components/TagFilterInput'
+import GearFilterInput from '@/components/GearFilterInput'
+import type { TagFilter } from '@/components/TagFilterInput'
+import type { GearFilter } from '@/components/GearFilterInput'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
@@ -17,6 +20,8 @@ export interface ActivityFilterState {
   isIndoor: boolean | null
   hasGPS: boolean | null
   gearId: string
+  tagFilters: TagFilter[]
+  gearFilters: GearFilter[]
   search: string
 }
 
@@ -27,6 +32,8 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   isIndoor: null,
   hasGPS: null,
   gearId: '',
+  tagFilters: [],
+  gearFilters: [],
   search: '',
 }
 
@@ -42,6 +49,14 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.hasGPS !== null) p.set('gps', String(f.hasGPS))
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
+  const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
+  const excludeTags = f.tagFilters.filter(tf => tf.state === 'exclude').map(tf => tf.id)
+  const includeGear = f.gearFilters.filter(gf => gf.state === 'include').map(gf => gf.id)
+  const excludeGear = f.gearFilters.filter(gf => gf.state === 'exclude').map(gf => gf.id)
+  if (includeTags.length) p.set('include_tags', includeTags.join(','))
+  if (excludeTags.length) p.set('exclude_tags', excludeTags.join(','))
+  if (includeGear.length) p.set('include_gear', includeGear.join(','))
+  if (excludeGear.length) p.set('exclude_gear', excludeGear.join(','))
   return p
 }
 
@@ -58,23 +73,34 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (gps !== null) f.hasGPS = gps === 'true'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
+  // tagFilters and gearFilters require full objects and cannot be restored from URL IDs alone
+  f.tagFilters = []
+  f.gearFilters = []
   return f
 }
 
 /** Convert ActivityFilterState to API query params */
 export function filtersToApiParams(f: ActivityFilterState) {
-  if (f.sportTypes.size === 0 || f.sportTypes.size === ALL_SPORT_KEYS.length) {
-    return { sportTypes: undefined, dateFrom: f.dateFrom, dateTo: f.dateTo, isIndoor: f.isIndoor, hasGPS: f.hasGPS, gearId: f.gearId, search: f.search }
-  }
-  return {
-    sportTypes: [...f.sportTypes],
+  const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
+  const excludeTags = f.tagFilters.filter(tf => tf.state === 'exclude').map(tf => tf.id)
+  const includeGear = f.gearFilters.filter(gf => gf.state === 'include').map(gf => gf.id)
+  const excludeGear = f.gearFilters.filter(gf => gf.state === 'exclude').map(gf => gf.id)
+  const base = {
     dateFrom: f.dateFrom,
     dateTo: f.dateTo,
     isIndoor: f.isIndoor,
     hasGPS: f.hasGPS,
     gearId: f.gearId,
     search: f.search,
+    includeTags: includeTags.length ? includeTags : undefined,
+    excludeTags: excludeTags.length ? excludeTags : undefined,
+    includeGear: includeGear.length ? includeGear : undefined,
+    excludeGear: excludeGear.length ? excludeGear : undefined,
   }
+  if (f.sportTypes.size === 0 || f.sportTypes.size === ALL_SPORT_KEYS.length) {
+    return { sportTypes: undefined, ...base }
+  }
+  return { sportTypes: [...f.sportTypes], ...base }
 }
 
 interface Props {
@@ -106,11 +132,6 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   }, [hideUnused, existingSportTypes])
   const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
 
-  const { data: gearList } = useQuery({
-    queryKey: ['gear'],
-    queryFn: () => fetchGear(),
-  })
-
   // Close popover on outside click
   useEffect(() => {
     if (!open) return
@@ -134,6 +155,8 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.isIndoor !== null) n++
     if (f.hasGPS !== null) n++
     if (f.gearId) n++
+    if (f.tagFilters.length) n++
+    if (f.gearFilters.length) n++
     return n
   }
 
@@ -223,8 +246,19 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
   }
   if (filters.gearId) {
-    const gear = gearList?.find(g => g.id === filters.gearId)
-    chips.push({ label: gear?.name ?? 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
+    chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
+  }
+  if (filters.tagFilters.length) {
+    chips.push({
+      label: `${filters.tagFilters.length} Tag${filters.tagFilters.length > 1 ? 's' : ''}`,
+      onRemove: () => onChange({ ...filters, tagFilters: [] }),
+    })
+  }
+  if (filters.gearFilters.length) {
+    chips.push({
+      label: `${filters.gearFilters.length} Ausrüstung`,
+      onRemove: () => onChange({ ...filters, gearFilters: [] }),
+    })
   }
 
   return (
@@ -339,6 +373,14 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
+            {/* Tags */}
+            <div>
+              <TagFilterInput
+                value={filters.tagFilters}
+                onChange={(v: TagFilter[]) => onChange({ ...filters, tagFilters: v })}
+              />
+            </div>
+
             {/* Zeitraum */}
             <div>
               <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
@@ -412,22 +454,13 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
-            {/* Gear */}
-            {gearList && gearList.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Ausrüstung</div>
-                <select
-                  value={filters.gearId}
-                  onChange={e => onChange({ ...filters, gearId: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
-                >
-                  <option value="">Alle</option>
-                  {gearList.map(g => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Gear (tri-state filter) */}
+            <div>
+              <GearFilterInput
+                value={filters.gearFilters}
+                onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
+              />
+            </div>
 
             {/* Reset */}
             {activeCount > 0 && (

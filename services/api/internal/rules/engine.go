@@ -70,6 +70,12 @@ func evalCondition(c Condition, activity map[string]any) bool {
 	if c.Field == "geofence" {
 		return evalGeofence(c, activity)
 	}
+	if c.Field == "geofence_zone" {
+		return evalGeofenceZone(c, activity)
+	}
+	if c.Field == "geofence_proximity" {
+		return evalGeofenceProximity(c, activity)
+	}
 	if c.Field == "avg_pace_min_km" || c.Field == "min_pace_min_km" || c.Field == "max_pace_min_km" {
 		return evalPace(c, activity)
 	}
@@ -152,6 +158,109 @@ func evalGeofence(c Condition, activity map[string]any) bool {
 	inside := dist <= radiusM
 	if mode == "outside" {
 		return !inside
+	}
+	return inside
+}
+
+// evalGeofenceZone checks whether the activity start point is inside (or outside)
+// a drawn zone. The condition value must be a map with:
+//
+//	mode        "inside" | "outside"
+//	shape       "circle" | "polygon"
+//	lat, lon    float64 — center (circle only)
+//	radius_m    float64 — radius in metres (circle only)
+//	polygon     string  — GeoJSON Polygon string (polygon only)
+//
+// For polygon shapes a ray-casting point-in-polygon algorithm is used (no PostGIS
+// dependency). The polygon coordinates are expected as [lng, lat] pairs (GeoJSON).
+func evalGeofenceZone(c Condition, activity map[string]any) bool {
+	params, ok := toStringMap(c.Value)
+	if !ok {
+		return false
+	}
+	mode, _ := params["mode"].(string)
+	shape, _ := params["shape"].(string)
+	startLat, latOK := activity["start_lat"]
+	startLon, lonOK := activity["start_lon"]
+	if !latOK || !lonOK || startLat == nil || startLon == nil {
+		return false
+	}
+	sLat := toFloat(startLat)
+	sLon := toFloat(startLon)
+
+	var inside bool
+	switch shape {
+	case "polygon":
+		polyStr, _ := params["polygon"].(string)
+		if polyStr == "" {
+			return false
+		}
+		inside = pointInGeoJSONPolygon(sLat, sLon, polyStr)
+	default: // "circle" and legacy default
+		lat := toFloat(params["lat"])
+		lon := toFloat(params["lon"])
+		radiusM := toFloat(params["radius_m"])
+		inside = haversineM(sLat, sLon, lat, lon) <= radiusM
+	}
+
+	if mode == "outside" {
+		return !inside
+	}
+	return inside
+}
+
+// evalGeofenceProximity checks whether the activity start point is within (or
+// outside) a given radius of a pin point. Identical to the legacy evalGeofence
+// but registered under a separate field name so both can coexist.
+// Condition value must be a map with: lat, lon (float64), radius_m (float64),
+// mode ("inside" | "outside").
+func evalGeofenceProximity(c Condition, activity map[string]any) bool {
+	params, ok := toStringMap(c.Value)
+	if !ok {
+		return false
+	}
+	lat := toFloat(params["lat"])
+	lon := toFloat(params["lon"])
+	radiusM := toFloat(params["radius_m"])
+	mode, _ := params["mode"].(string)
+	startLat, latOK := activity["start_lat"]
+	startLon, lonOK := activity["start_lon"]
+	if !latOK || !lonOK || startLat == nil || startLon == nil {
+		return false
+	}
+	dist := haversineM(toFloat(startLat), toFloat(startLon), lat, lon)
+	inside := dist <= radiusM
+	if mode == "outside" {
+		return !inside
+	}
+	return inside
+}
+
+// pointInGeoJSONPolygon performs a ray-casting point-in-polygon test against
+// the first (outer) ring of a GeoJSON Polygon. The polygon coordinates are in
+// [longitude, latitude] order as per the GeoJSON spec. We treat them as (x, y)
+// for the 2-D test which is accurate enough for the small areas used in
+// geofencing (error is negligible compared to the zone sizes involved).
+func pointInGeoJSONPolygon(lat, lon float64, geoJSONStr string) bool {
+	var poly struct {
+		Coordinates [][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(geoJSONStr), &poly); err != nil || len(poly.Coordinates) == 0 {
+		return false
+	}
+	ring := poly.Coordinates[0]
+	// Ray-casting: count crossings of a horizontal ray from (lon, lat)
+	x, y := lon, lat
+	inside := false
+	n := len(ring)
+	j := n - 1
+	for i := 0; i < n; i++ {
+		xi, yi := ring[i][0], ring[i][1]
+		xj, yj := ring[j][0], ring[j][1]
+		if (yi > y) != (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi {
+			inside = !inside
+		}
+		j = i
 	}
 	return inside
 }

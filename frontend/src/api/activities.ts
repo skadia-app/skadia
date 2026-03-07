@@ -140,6 +140,39 @@ export async function fetchActivityClimbPro(id: string): Promise<ClimbProEvent[]
   return apiClient<ClimbProEvent[]>(`/activities/${id}/climb-pro`)
 }
 
+// ── Non-destructive edit operations ───────────────────────────────────────────
+
+export interface TrimRequest {
+  trim_start?: string // RFC3339
+  trim_end?: string   // RFC3339
+}
+
+export async function trimActivity(id: string, req: TrimRequest): Promise<Activity> {
+  return apiClient<Activity>(`/activities/${id}/trim`, { method: 'POST', body: req })
+}
+
+export interface SplitRequest {
+  split_at: string // RFC3339
+}
+
+export interface SplitResponse {
+  activity_id: string
+  new_activity_id: string
+}
+
+export async function splitActivity(id: string, req: SplitRequest): Promise<SplitResponse> {
+  return apiClient<SplitResponse>(`/activities/${id}/split`, { method: 'POST', body: req })
+}
+
+export interface MergeRequest {
+  source_id: string
+  fields: string[]
+}
+
+export async function mergeActivities(id: string, req: MergeRequest): Promise<Activity> {
+  return apiClient<Activity>(`/activities/${id}/merge`, { method: 'POST', body: req })
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 /** Delete a single activity. */

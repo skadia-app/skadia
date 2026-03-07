@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient, apiUpload } from '@/api/client'
 import {
@@ -10,7 +10,10 @@ import {
   type ConflictStrategy,
   type FusionQueueEntry,
 } from '@/api/importWizard'
+import { fetchImportQueueCount } from '@/api/importQueue'
 import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
+
+const ImportQueueTab = lazy(() => import('@/components/ImportQueueTab'))
 
 // ---------------------------------------------------------------------------
 // Types
@@ -495,13 +498,40 @@ function ImportPhase({
 
           {/* Completion summary */}
           {job?.status === 'completed' && (
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
-              <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                Import abgeschlossen — {job.completed_modules} Module verarbeitet.
+            <div className={`rounded-lg p-3 border ${
+              job.errors && job.errors.length > 0
+                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            }`}>
+              <p className={`text-sm font-medium ${
+                job.errors && job.errors.length > 0
+                  ? 'text-yellow-800 dark:text-yellow-300'
+                  : 'text-green-800 dark:text-green-300'
+              }`}>
+                Import abgeschlossen — {job.completed_modules}/{job.total_modules} Kategorien verarbeitet.
+                {job.errors && job.errors.length > 0 && ` (${job.errors.length} Fehler)`}
               </p>
-              <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+              <p className={`text-xs mt-1 ${
+                job.errors && job.errors.length > 0
+                  ? 'text-yellow-700 dark:text-yellow-400'
+                  : 'text-green-700 dark:text-green-400'
+              }`}>
                 Die importierten Aktivitäten sind nun in der Aktivitätenliste sichtbar.
               </p>
+              {job.errors && job.errors.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-xs text-yellow-700 dark:text-yellow-400 cursor-pointer hover:underline">
+                    Fehler anzeigen
+                  </summary>
+                  <ul className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                    {job.errors.map((err, i) => (
+                      <li key={i} className="text-xs text-yellow-700 dark:text-yellow-400 font-mono break-all">
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
 
@@ -948,19 +978,24 @@ function ImportPanel({
 // Main page with tabs
 // ---------------------------------------------------------------------------
 
-type TabId = 'garmin' | 'strava'
+type TabId = 'garmin' | 'strava' | 'queue'
 
 export default function ImportPage() {
   const initialTab = (() => {
     const tab = new URLSearchParams(window.location.search).get('tab')
-    return tab === 'strava' ? 'strava' : 'garmin'
+    if (tab === 'strava') return 'strava'
+    if (tab === 'queue') return 'queue'
+    return 'garmin'
   })()
   const [activeTab, setActiveTab] = useState<TabId>(initialTab as TabId)
 
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'garmin', label: 'Garmin' },
-    { id: 'strava', label: 'Strava' },
-  ]
+  // Queue count for badge
+  const { data: queueCount = 0 } = useQuery({
+    queryKey: ['import-queue-count'],
+    queryFn: fetchImportQueueCount,
+    staleTime: 30_000,
+    retry: false,
+  })
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 py-6 px-4">
@@ -975,17 +1010,28 @@ export default function ImportPage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
-        {tabs.map(tab => (
+        {(['garmin', 'strava', 'queue'] as TabId[]).map(tabId => (
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === tab.id
+            key={tabId}
+            onClick={() => setActiveTab(tabId)}
+            className={`relative px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === tabId
                 ? 'border-accent-DEFAULT text-accent-DEFAULT'
                 : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
             }`}
           >
-            {tab.label}
+            {tabId === 'garmin' && 'Garmin'}
+            {tabId === 'strava' && 'Strava'}
+            {tabId === 'queue' && (
+              <span className="flex items-center gap-1.5">
+                Warteschlange
+                {queueCount > 0 && (
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-bold leading-none">
+                    {queueCount > 9 ? '9+' : queueCount}
+                  </span>
+                )}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1017,6 +1063,14 @@ export default function ImportPage() {
           pollFn={getStravaImportJob}
           uploadZipFn={uploadStravaZIP}
         />
+      )}
+
+      {activeTab === 'queue' && (
+        <Suspense fallback={
+          <div className="flex items-center justify-center py-12 text-neutral-400 text-sm">Lade…</div>
+        }>
+          <ImportQueueTab />
+        </Suspense>
       )}
     </div>
   )

@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
+import { apiClient } from '@/api/client'
 
 interface SegmentPerformanceChartProps {
-  segmentId: number
+  segmentId: string
 }
 
 function formatTime(s: number): string {
@@ -21,7 +22,7 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
   const { data } = useQuery({
     queryKey: ['segment-performances', segmentId],
     queryFn: () =>
-      fetch(`/api/v1/segments/${segmentId}/performances`).then(r => r.json()),
+      apiClient<{ performances: any[] }>(`/segments/${segmentId}/performances`),
   })
 
   const performances: any[] = data?.performances ?? []
@@ -58,20 +59,32 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
       chartInstance.current = echarts.init(chartRef.current, null, { renderer: 'canvas' })
     }
 
+    const timeData = sorted.map((p: any) => [new Date(p.started_at).getTime(), p.elapsed_time_s])
+    const minTime = timeData.length > 0 ? Math.min(...timeData.map(d => d[0])) : 0
+    const maxTime = timeData.length > 0 ? Math.max(...timeData.map(d => d[0])) : 0
+
     const option: echarts.EChartsOption = {
       tooltip: {
         trigger: 'item',
         formatter: (params: any) => {
           if (params.seriesIndex !== 0) return ''
-          const perf = sorted[params.dataIndex]
-          return `${new Date(perf.started_at).toLocaleDateString('de-DE')}<br/><b>${formatTime(perf.elapsed_time_s)}</b><br/>${perf.title}`
+          const ts = params.data[0]
+          const time = params.data[1]
+          const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
+          const dateStr = new Date(ts).toLocaleDateString('de-DE')
+          return `${dateStr}<br/><b>${formatTime(time)}</b>${perf ? '<br/>' + perf.title : ''}`
         },
       },
       grid: { left: 60, right: 20, top: 20, bottom: 50 },
       xAxis: {
-        type: 'category',
-        data: sorted.map((p: any) => new Date(p.started_at).toLocaleDateString('de-DE')),
-        axisLabel: { rotate: 30, fontSize: 10 },
+        type: 'time',
+        min: minTime,
+        max: maxTime,
+        axisLabel: {
+          formatter: (v: number) => new Date(v).toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
+          fontSize: 10,
+          rotate: 30,
+        },
       },
       yAxis: {
         type: 'value',
@@ -81,16 +94,16 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
       series: [
         {
           type: 'scatter',
-          data: sorted.map((p: any) => p.elapsed_time_s),
+          data: timeData,
           symbolSize: 10,
           itemStyle: {
             color: (params: any) =>
-              sorted[params.dataIndex].elapsed_time_s === bestTime ? '#FFD700' : '#888',
+              params.data[1] === bestTime ? '#FFD700' : '#888',
           },
         },
         {
           type: 'line',
-          data: sorted.map(() => Math.round(avgTime)),
+          data: [[minTime, Math.round(avgTime)], [maxTime, Math.round(avgTime)]],
           lineStyle: { type: 'dashed', color: '#aaa', width: 1 },
           symbol: 'none',
           tooltip: { show: false },
@@ -103,8 +116,9 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
     chartInstance.current.off('click')
     chartInstance.current.on('click', (params: any) => {
       if (params.seriesIndex === 0) {
-        const perf = sorted[params.dataIndex]
-        navigate(`/activities/${perf.activity_id}`)
+        const ts = params.data[0]
+        const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
+        if (perf) navigate(`/activities/${perf.activity_id}`)
       }
     })
 

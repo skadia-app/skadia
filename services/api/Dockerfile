@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -8,9 +8,11 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /api ./cmd/api
 
-FROM alpine:3.21
+FROM debian:trixie-slim
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates tzdata osm2pgsql \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /api /api
 COPY internal/migrate/migrations /migrations

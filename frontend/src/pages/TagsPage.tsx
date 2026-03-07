@@ -1,8 +1,12 @@
-import { useRef, useEffect, useState } from 'react'
+import { Fragment, useRef, useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { fetchTags, createTag, updateTag, deleteTag, mergeTags } from '@/api/tags'
-import type { Tag } from '@/api/tags'
+import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone } from '@/api/tags'
+import type { Tag, TagActivity } from '@/api/tags'
+import ZoneEditor from '@/components/ZoneEditor'
+import type { ZoneData } from '@/components/ZoneEditor'
+import { format } from 'date-fns'
+import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ColorPicker from '@/components/ColorPicker'
@@ -101,6 +105,16 @@ function LocationPinMiniMap({
 // Main TagForm component
 // ---------------------------------------------------------------------------
 
+// Location type for tag: pin=simple pin, circle=zone with radius, polygon=zone with polygon
+type LocationType = 'pin' | 'circle' | 'polygon'
+
+function deriveInitialLocationType(tag?: Tag): LocationType {
+  if (!tag?.lat) return 'pin'
+  if (tag.zone?.zone_type === 'circle') return 'circle'
+  if (tag.zone?.zone_type === 'polygon') return 'polygon'
+  return 'pin'
+}
+
 function TagForm({
   tag,
   onSave,
@@ -122,12 +136,27 @@ function TagForm({
   const [isLocationTag, setIsLocationTag] = useState(() => tag?.lat != null)
   const [locationLat, setLocationLat] = useState<string>(() => tag?.lat?.toString() ?? '')
   const [locationLng, setLocationLng] = useState<string>(() => tag?.lng?.toString() ?? '')
+  // Location type: pin (simple pin), circle (zone with radius), polygon (zone with polygon)
+  const [locationType, setLocationType] = useState<LocationType>(() => deriveInitialLocationType(tag))
+  // Current zone value as entered in ZoneEditor
+  const [zoneData, setZoneData] = useState<ZoneData>(() => {
+    if (tag?.zone?.zone_type === 'circle' && tag.zone.center && tag.zone.radius_m != null) {
+      return { mode: 'circle', center: tag.zone.center, radiusM: tag.zone.radius_m }
+    }
+    if (tag?.zone?.zone_type === 'polygon' && tag.zone.polygon) {
+      const poly = typeof tag.zone.polygon === 'string' ? JSON.parse(tag.zone.polygon) : tag.zone.polygon
+      return { mode: 'polygon', polygon: poly }
+    }
+    const lat = tag?.lat ? parseFloat(String(tag.lat)) : 51.16
+    const lng = tag?.lng ? parseFloat(String(tag.lng)) : 10.45
+    return { mode: locationType === 'polygon' ? 'polygon' : 'circle', center: [lng, lat], radiusM: 500 }
+  })
 
   const createMut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const lat = isLocationTag && locationLat ? parseFloat(locationLat) : undefined
       const lng = isLocationTag && locationLng ? parseFloat(locationLng) : undefined
-      return createTag({
+      const newTag = await createTag({
         name: name.trim(),
         color,
         text_color: textColor,
@@ -135,15 +164,25 @@ function TagForm({
         lat: isLocationTag ? (lat ?? null) : undefined,
         lng: isLocationTag ? (lng ?? null) : undefined,
       })
+      // Save zone if applicable
+      if (isLocationTag && locationType !== 'pin' && zoneData) {
+        await upsertTagZone(newTag.id, {
+          zone_type: zoneData.mode,
+          center: zoneData.mode === 'circle' ? zoneData.center : undefined,
+          radius_m: zoneData.mode === 'circle' ? zoneData.radiusM : undefined,
+          polygon: zoneData.mode === 'polygon' && zoneData.polygon ? JSON.stringify(zoneData.polygon) : undefined,
+        })
+      }
+      return newTag
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }); onSave() },
   })
 
   const updateMut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const lat = isLocationTag && locationLat ? parseFloat(locationLat) : null
       const lng = isLocationTag && locationLng ? parseFloat(locationLng) : null
-      return updateTag(tag!.id, {
+      const updatedTag = await updateTag(tag!.id, {
         name: name.trim(),
         color,
         text_color: textColor,
@@ -151,6 +190,19 @@ function TagForm({
         lat: isLocationTag ? lat : null,
         lng: isLocationTag ? lng : null,
       })
+      // Upsert or delete zone based on type selection
+      if (isLocationTag && locationType !== 'pin' && zoneData) {
+        await upsertTagZone(tag!.id, {
+          zone_type: zoneData.mode,
+          center: zoneData.mode === 'circle' ? zoneData.center : undefined,
+          radius_m: zoneData.mode === 'circle' ? zoneData.radiusM : undefined,
+          polygon: zoneData.mode === 'polygon' && zoneData.polygon ? JSON.stringify(zoneData.polygon) : undefined,
+        })
+      } else if (tag?.zone && (locationType === 'pin' || !isLocationTag)) {
+        // User switched to pin or removed location — delete any existing zone
+        try { await deleteTagZone(tag!.id) } catch { /* ignore if no zone */ }
+      }
+      return updatedTag
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }); onSave() },
   })
@@ -286,7 +338,8 @@ function TagForm({
         </button>
 
         {isLocationTag && (
-          <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
+          <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 space-y-4">
+            {/* Koordinaten-Eingabe + Karte */}
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Klicke auf die Karte oder ziehe den Pin, um den Standort zu setzen.
             </p>
@@ -326,6 +379,84 @@ function TagForm({
                 />
               </div>
             </div>
+
+            {/* Standort-Typ: Pin / Radius / Polygon */}
+            <div>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-2">
+                Standort-Typ
+              </label>
+              <div className="flex items-center gap-2">
+                {/* Pin */}
+                <button
+                  type="button"
+                  onClick={() => setLocationType('pin')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    locationType === 'pin'
+                      ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                      : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-accent-400'
+                  }`}
+                  title="Einfacher Pin ohne Zone"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 15.957 17 13.514 17 10c0-3.866-3.582-7-8-7S2 6.134 2 10c0 3.514 1.698 5.957 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.757.433 5.766 5.766 0 00.282.14l.018.008.006.003zM10 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" clipRule="evenodd" />
+                  </svg>
+                  Pin
+                </button>
+
+                {/* Radius */}
+                <button
+                  type="button"
+                  onClick={() => setLocationType('circle')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    locationType === 'circle'
+                      ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                      : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-accent-400'
+                  }`}
+                  title="Kreisförmige Zone mit Radius"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
+                  </svg>
+                  Radius
+                </button>
+
+                {/* Polygon */}
+                <button
+                  type="button"
+                  onClick={() => setLocationType('polygon')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    locationType === 'polygon'
+                      ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                      : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-accent-400'
+                  }`}
+                  title="Freihand-Polygon als Zone"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M3 3a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 12.846 4.632 14 6 14h11a1 1 0 100-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H3z" clipRule="evenodd" />
+                  </svg>
+                  Polygon
+                </button>
+              </div>
+            </div>
+
+            {/* ZoneEditor erscheint nur wenn Radius oder Polygon gewählt */}
+            {(locationType === 'circle' || locationType === 'polygon') && (
+              <div className="border-t border-neutral-200 dark:border-neutral-800 pt-3">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+                  {locationType === 'circle'
+                    ? 'Ziehe den Pin und stelle den Radius ein.'
+                    : 'Klicke "Polygon zeichnen" und setze Punkte auf der Karte.'}
+                </p>
+                <ZoneEditor
+                  value={{
+                    ...zoneData,
+                    mode: locationType === 'polygon' ? 'polygon' : 'circle',
+                  }}
+                  onChange={setZoneData}
+                  enableHoles
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -346,6 +477,84 @@ function TagForm({
 }
 
 // ---------------------------------------------------------------------------
+// TagActivitiesPanel
+// ---------------------------------------------------------------------------
+
+function TagActivitiesPanel({ tag, onClose }: { tag: Tag; onClose: () => void }) {
+  const queryClient = useQueryClient()
+
+  const { data: activities, isLoading } = useQuery({
+    queryKey: ['tag-activities', tag.id],
+    queryFn: () => fetchTagActivities(tag.id),
+  })
+
+  const unassignMut = useMutation({
+    mutationFn: (activityId: string) => unassignActivitiesFromTag(tag.id, [activityId]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tag-activities', tag.id] })
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+    },
+  })
+
+  return (
+    <tr>
+      <td colSpan={4} className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/40 border-b border-neutral-100 dark:border-neutral-800">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Zugewiesene Aktivitäten
+          </span>
+          <button
+            onClick={onClose}
+            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+          >
+            Schliessen
+          </button>
+        </div>
+
+        {isLoading ? (
+          <p className="text-xs text-neutral-400">Lade...</p>
+        ) : !activities || activities.length === 0 ? (
+          <p className="text-xs text-neutral-400">Keine Aktivitäten zugewiesen.</p>
+        ) : (
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {activities.map((act: TagActivity) => (
+              <div
+                key={act.id}
+                className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800/50 group"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link
+                    to={`/activities/${act.id}`}
+                    className="text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT truncate"
+                  >
+                    {act.title || act.title_auto || act.sport_type}
+                  </Link>
+                  {act.started_at && (
+                    <span className="text-xs text-neutral-400 flex-shrink-0">
+                      {format(new Date(act.started_at), 'dd.MM.yyyy', { locale: de })}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => unassignMut.mutate(act.id)}
+                  disabled={unassignMut.isPending}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all cursor-pointer flex-shrink-0"
+                  title="Vom Tag entfernen"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -354,6 +563,8 @@ export default function TagsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  const [expandedActivitiesId, setExpandedActivitiesId] = useState<string | null>(null)
 
   // --- Merge state ---
   const [mergeSourceId, setMergeSourceId] = useState<string>('')
@@ -447,7 +658,8 @@ export default function TagsPage() {
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
               {allTags.map((tag) => (
-                <tr key={tag.id} className="group even:bg-neutral-50/50 dark:even:bg-neutral-800/20">
+                <Fragment key={tag.id}>
+                <tr className="group even:bg-neutral-50/50 dark:even:bg-neutral-800/20">
                   <td className="px-4 py-3">
                     {editingId === tag.id ? (
                       <TagForm
@@ -486,8 +698,22 @@ export default function TagsPage() {
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
                     {editingId === tag.id ? null : (tag.category || '\u2014')}
                   </td>
-                  <td className="px-4 py-3 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
-                    {editingId === tag.id ? null : tag.activity_count}
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {editingId === tag.id ? null : (
+                      tag.activity_count > 0 ? (
+                        <button
+                          onClick={() => setExpandedActivitiesId(
+                            expandedActivitiesId === tag.id ? null : tag.id
+                          )}
+                          className="text-sm text-accent-DEFAULT hover:underline cursor-pointer tabular-nums"
+                          title="Aktivitäten anzeigen / verwalten"
+                        >
+                          {tag.activity_count}
+                        </button>
+                      ) : (
+                        <span className="text-neutral-700 dark:text-neutral-300">{tag.activity_count}</span>
+                      )
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {editingId !== tag.id && (
@@ -536,6 +762,13 @@ export default function TagsPage() {
                     )}
                   </td>
                 </tr>
+                {expandedActivitiesId === tag.id && (
+                  <TagActivitiesPanel
+                    tag={tag}
+                    onClose={() => setExpandedActivitiesId(null)}
+                  />
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
