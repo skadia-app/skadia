@@ -562,11 +562,13 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 		INSERT INTO segment_efforts (
 			segment_id, segment_version_id, activity_id, user_id,
 			started_at, elapsed_time_s, is_reverse, sport_type, sub_type,
-			gear_id, avg_power_w, avg_heart_rate, avg_speed_ms
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			gear_id, avg_power_w, avg_heart_rate, avg_speed_ms,
+			distance_m, elevation_gain_m
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		effort.SegmentID, effort.SegmentVersionID, effort.ActivityID, effort.UserID,
 		effort.StartedAt, effort.ElapsedTimeS, effort.IsReverse, effort.SportType, effort.SubType,
 		effort.GearID, effort.AvgPowerW, effort.AvgHeartRate, effort.AvgSpeedMs,
+		effort.DistanceM, effort.ElevationGainM,
 	)
 	if err != nil {
 		return fmt.Errorf("insert segment effort: %w", err)
@@ -826,6 +828,26 @@ func (db *DB) GetSegmentEffortMetrics(ctx context.Context, activityID string, st
 	return &m, nil
 }
 
+// GetSubTrackElevationGain computes the total elevation gain (sum of positive
+// altitude differences) from activity_streams for a given time range.
+func (db *DB) GetSubTrackElevationGain(ctx context.Context, activityID string, startTime, endTime time.Time) (*float64, error) {
+	var gain *float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT SUM(CASE WHEN d > 0 THEN d ELSE 0 END) AS elevation_gain
+		FROM (
+			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY "time") AS d
+			FROM activity_streams
+			WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3
+			  AND altitude_m IS NOT NULL
+		) sub`,
+		activityID, startTime, endTime,
+	).Scan(&gain)
+	if err != nil {
+		return nil, fmt.Errorf("get sub-track elevation gain: %w", err)
+	}
+	return gain, nil
+}
+
 // DeleteSegmentEffortsByActivity removes all segment efforts for a given activity.
 func (db *DB) DeleteSegmentEffortsByActivity(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx,
@@ -1044,22 +1066,23 @@ func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.Se
 		return nil
 	}
 
-	const cols = 13
+	const cols = 15
 	valueParts := make([]string, 0, len(efforts))
 	args := make([]any, 0, len(efforts)*cols)
 
 	for i, e := range efforts {
 		base := i * cols
 		valueParts = append(valueParts, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
-			base+8, base+9, base+10, base+11, base+12, base+13,
+			base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
 		))
 		args = append(args,
 			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
 			e.StartedAt, e.ElapsedTimeS, e.IsReverse,
 			e.SportType, e.SubType, e.GearID,
 			e.AvgSpeedMs, e.AvgHeartRate, e.AvgPowerW,
+			e.DistanceM, e.ElevationGainM,
 		)
 	}
 
@@ -1067,7 +1090,8 @@ func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.Se
 		(segment_id, segment_version_id, activity_id, user_id,
 		 started_at, elapsed_time_s, is_reverse,
 		 sport_type, sub_type, gear_id,
-		 avg_speed_ms, avg_heart_rate, avg_power_w)
+		 avg_speed_ms, avg_heart_rate, avg_power_w,
+		 distance_m, elevation_gain_m)
 		VALUES ` + strings.Join(valueParts, ", ") + `
 		ON CONFLICT DO NOTHING`
 

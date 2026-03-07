@@ -79,6 +79,8 @@ type SegmentEffort struct {
 	AvgPowerW        *float64  `json:"avg_power_w,omitempty"`
 	AvgHeartRate     *float64  `json:"avg_heart_rate,omitempty"`
 	AvgSpeedMs       *float64  `json:"avg_speed_ms,omitempty"`
+	DistanceM        *float64  `json:"distance_m,omitempty"`
+	ElevationGainM   *float64  `json:"elevation_gain_m,omitempty"`
 	RankOverall      *int      `json:"rank_overall,omitempty"`
 	IsPersonalBest   bool      `json:"is_personal_best"`
 	IsSegmentRecord  bool      `json:"is_segment_record"`

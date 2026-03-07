@@ -124,6 +124,19 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				avgPower = metrics.AvgPowerW
 			}
 
+			// 9. Compute distance and elevation gain for this effort
+			distM := estimateSubTrackLength(subTrack)
+			var distPtr *float64
+			if distM > 0 {
+				distPtr = &distM
+			}
+			var elevGain *float64
+			if eg, err := db.GetSubTrackElevationGain(matchCtx, activityID, startTime, endTime); err != nil {
+				slog.Warn("elevation gain query failed", "activity_id", activityID, "segment_id", cand.SegmentID, "err", err)
+			} else {
+				elevGain = eg
+			}
+
 			effort := &model.SegmentEffort{
 				SegmentID:        cand.SegmentID,
 				SegmentVersionID: cand.VersionID,
@@ -138,6 +151,8 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				AvgSpeedMs:       avgSpeed,
 				AvgHeartRate:     avgHR,
 				AvgPowerW:        avgPower,
+				DistanceM:        distPtr,
+				ElevationGainM:   elevGain,
 			}
 
 			allEfforts = append(allEfforts, effort)
@@ -374,6 +389,19 @@ func matchLapSegment(
 			avgPower = metrics.AvgPowerW
 		}
 
+		// Compute distance and elevation gain for this lap effort
+		distM := estimateSubTrackLength(subTrack)
+		var distPtr *float64
+		if distM > 0 {
+			distPtr = &distM
+		}
+		var elevGain *float64
+		if eg, err := db.GetSubTrackElevationGain(ctx, activityID, startTime, endTime); err != nil {
+			slog.Warn("elevation gain query failed", "activity_id", activityID, "segment_id", cand.SegmentID, "err", err)
+		} else {
+			elevGain = eg
+		}
+
 		effort := &model.SegmentEffort{
 			SegmentID:        cand.SegmentID,
 			SegmentVersionID: cand.VersionID,
@@ -388,6 +416,8 @@ func matchLapSegment(
 			AvgSpeedMs:       avgSpeed,
 			AvgHeartRate:     avgHR,
 			AvgPowerW:        avgPower,
+			DistanceM:        distPtr,
+			ElevationGainM:   elevGain,
 		}
 		efforts = append(efforts, effort)
 	}
