@@ -293,7 +293,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		go func() {
 			bgCtx := context.Background()
-			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr)
+			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr, activity.StartedAt)
 
 			// Lap detection (after segment matching, same goroutine)
 			if h.DB.IsLapDetectionEnabled(bgCtx, userID) {

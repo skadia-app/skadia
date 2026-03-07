@@ -21,14 +21,14 @@ const (
 // Uses sub-track extraction: finds traversals through segments by detecting
 // entry/exit points near segment start/end, then verifies with Hausdorff distance.
 // It runs as a background goroutine after activity upload (non-blocking).
-func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string) {
+func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) {
 	slog.Info("segment matching started", "activity_id", activityID, "sport_type", sportType)
 
 	matchCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	// 1. Spatial pre-filter: only segments within 50m of activity track
-	candidates, err := db.GetSpatialCandidateSegments(matchCtx, activityID, userID, sportType)
+	candidates, err := db.GetSpatialCandidateSegments(matchCtx, activityID, userID, sportType, activityDate)
 	if err != nil {
 		slog.Error("segment matching: spatial pre-filter failed", "error", err)
 		return

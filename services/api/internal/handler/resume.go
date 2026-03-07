@@ -109,7 +109,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 				if act.SubType != nil {
 					subType = *act.SubType
 				}
-				MatchActivitySegments(ctx, h.DB, actID, job.UserID, act.SportType, subType, act.GearID)
+				MatchActivitySegments(ctx, h.DB, actID, job.UserID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				if i%10 == 0 || i == len(ids)-1 {
 					if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, i+1); err != nil {

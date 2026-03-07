@@ -151,7 +151,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		}
 		go func() {
 			bgCtx := context.Background()
-			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr)
+			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, data.SportType, data.SubType, gearIDPtr, activity.StartedAt)
 			if h.DB.IsLapDetectionEnabled(bgCtx, userID) {
 				gpsStream, err := h.DB.GetActivityGPSStream(bgCtx, activity.ID)
 				if err == nil && len(gpsStream) >= 20 {

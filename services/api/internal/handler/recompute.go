@@ -442,11 +442,15 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 		// Re-run segment matching synchronously (includes lap detection)
 		var gearIDPtr *string
+		var activityStartedAt time.Time
 		activity, aErr := h.DB.GetActivity(ctx, activityID)
-		if aErr == nil && activity != nil && activity.GearID != nil {
-			gearIDPtr = activity.GearID
+		if aErr == nil && activity != nil {
+			if activity.GearID != nil {
+				gearIDPtr = activity.GearID
+			}
+			activityStartedAt = activity.StartedAt
 		}
-		MatchActivitySegments(ctx, h.DB, activityID, userID, data.SportType, data.SubType, gearIDPtr)
+		MatchActivitySegments(ctx, h.DB, activityID, userID, data.SportType, data.SubType, gearIDPtr, activityStartedAt)
 
 		// Lap detection
 		if h.DB.IsLapDetectionEnabled(ctx, userID) {

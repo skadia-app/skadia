@@ -121,7 +121,7 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 				subType = *act.SubType
 			}
 			MatchActivitySegments(ctx, h.DB, actID, uID,
-				act.SportType, subType, act.GearID)
+				act.SportType, subType, act.GearID, act.StartedAt)
 		}
 		slog.Info("segment backfill: done", "segment_id", segID)
 	}(segment.ID, userID)
@@ -315,7 +315,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 				if act.SubType != nil {
 					subType = *act.SubType
 				}
-				MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID)
+				MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
 				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {

@@ -644,7 +644,7 @@ type CandidateSegment struct {
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
 // filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
-func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string) ([]CandidateSegment, error) {
+func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time) ([]CandidateSegment, error) {
 	sportGroup := sportGroupFromSportType(sportType)
 
 	rows, err := db.Pool.Query(ctx, `
@@ -652,10 +652,15 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		       s.segment_type, COALESCE(sv.segment_type_meta, '{}')
 		FROM segments s
 		JOIN LATERAL (
-			SELECT id, track, segment_type_meta FROM segment_versions
-			WHERE segment_id = s.id
-			ORDER BY version_number DESC
-			LIMIT 1
+			SELECT id, track, segment_type_meta FROM (
+				(SELECT id, track, segment_type_meta FROM segment_versions
+				 WHERE segment_id = s.id AND valid_from <= $4
+				 ORDER BY valid_from DESC, version_number DESC LIMIT 1)
+				UNION ALL
+				(SELECT id, track, segment_type_meta FROM segment_versions
+				 WHERE segment_id = s.id
+				 ORDER BY version_number ASC LIMIT 1)
+			) versioned LIMIT 1
 		) sv ON true
 		JOIN activity_tracks at ON at.activity_id = $1
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
@@ -663,7 +668,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activityID, userID, sportGroup)
+		activityID, userID, sportGroup, activityDate)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
