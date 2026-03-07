@@ -190,6 +190,10 @@ func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteSegment(r.Context(), userID, id); err != nil {
+		if strings.Contains(err.Error(), "cannot be deleted") {
+			writeError(w, http.StatusForbidden, "Forbidden", err.Error(), r.URL.Path)
+			return
+		}
 		if err.Error() == "segment not found or not owned by user" {
 			writeError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
 			return

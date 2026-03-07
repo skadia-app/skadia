@@ -432,6 +432,19 @@ func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) err
 }
 
 func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string) error {
+	// Prüfe ob es ein OSM-importiertes Lift-Segment ist
+	var segType string
+	var osmLiftID *int64
+	err := db.Pool.QueryRow(ctx,
+		`SELECT segment_type, osm_lift_id FROM segments WHERE id = $1 AND created_by = $2`,
+		segmentID, userID).Scan(&segType, &osmLiftID)
+	if err != nil {
+		return fmt.Errorf("segment not found or not owned by user")
+	}
+	if segType == "lift" && osmLiftID != nil {
+		return fmt.Errorf("OSM-imported lift segments cannot be deleted")
+	}
+
 	tag, err := db.Pool.Exec(ctx,
 		`DELETE FROM segments WHERE id = $1 AND created_by = $2`,
 		segmentID, userID)
