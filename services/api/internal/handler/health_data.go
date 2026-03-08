@@ -179,8 +179,8 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	default:
-		// Not yet implemented type — accept gracefully
-		writeJSON(w, http.StatusOK, map[string]string{
+		// Not yet implemented type — accept gracefully with 202 Accepted
+		writeJSON(w, http.StatusAccepted, map[string]string{
 			"status": "accepted",
 			"note":   "type '" + req.Type + "' not yet implemented",
 		})
