@@ -161,8 +161,7 @@ export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> 
 export async function assignActivitiesToTag(tagId: string, activityIds: string[]): Promise<void> {
   await apiClient<void>(`/tags/${tagId}/assign-activities`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activity_ids: activityIds }),
+    body: { activity_ids: activityIds },
   })
 }
 

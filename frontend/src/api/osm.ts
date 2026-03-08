@@ -28,7 +28,6 @@ export async function fetchOSMRegions(): Promise<OSMRegionsResponse> {
 export async function startOSMImport(req: StartOSMImportRequest): Promise<StartOSMImportResponse> {
   return apiClient<StartOSMImportResponse>('/admin/osm-import/start', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    body: req,
   })
 }

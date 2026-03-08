@@ -96,7 +96,9 @@ const AccentColorContext = createContext<AccentColorContextValue>({
 export function AccentColorProvider({ children }: { children: React.ReactNode }) {
   const [accent, setAccentState] = useState<AccentEntry>(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? findEntry(stored) : ACCENT_PALETTE[0]
+    return stored
+      ? (ACCENT_PALETTE.find(e => e.shade500.toLowerCase() === stored.toLowerCase()) ?? deriveAccentEntry(stored))
+      : ACCENT_PALETTE[0]
   })
 
   useEffect(() => {

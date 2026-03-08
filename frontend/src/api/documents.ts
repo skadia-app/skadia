@@ -29,7 +29,7 @@ export async function rejectGear(gearId: string): Promise<void> {
 
 export async function updateAndConfirmGear(gearId: string, data: Record<string, unknown>): Promise<void> {
   await apiClient('/gear/' + gearId, {
-    method: 'PATCH',
+    method: 'PUT',
     body: data,
   })
   await confirmGear(gearId)

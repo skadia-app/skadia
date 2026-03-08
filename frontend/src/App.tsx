@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { apiClient } from '@/api/client'
 import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
 import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
@@ -53,17 +54,12 @@ function ImportRedirect() {
       navigate('/')
       return
     }
-    fetch('/api/v1/import/from-url', {
+    apiClient<{ activity?: { id: string } }>('/import/from-url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: { url },
     })
-      .then(async r => {
-        if (!r.ok) throw new Error(await r.text())
-        return r.json()
-      })
-      .then((result: { activity?: { id: string } }) => {
-        if (result.activity?.id) {
+      .then((result) => {
+        if (result?.activity?.id) {
           navigate(`/activities/${result.activity.id}`)
         } else {
           navigate('/')
