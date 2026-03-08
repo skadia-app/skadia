@@ -9,6 +9,7 @@ import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
+import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { useTheme } from '@/lib/theme'
 import { useAuthImage } from '@/hooks/useAuthImage'
 import { useModal } from '@/lib/modal'
@@ -25,92 +26,7 @@ import { fetchExplorationCoverage, type ExplorationCoverage } from '@/api/explor
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
-type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
 type ViewMode = 'tracks' | 'heatmap' | 'exploration'
-
-type RasterStyleDef = { label: string; type: 'raster'; tiles: string[]; attribution: string }
-type VectorStyleDef = { label: string; type: 'vector'; styleUrl: string }
-type StyleDef = RasterStyleDef | VectorStyleDef
-
-const BASE_STYLES: Record<BaseStyle, StyleDef> = {
-  osm: {
-    label: 'OSM',
-    type: 'raster',
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  },
-  topo: {
-    label: 'Topo',
-    type: 'raster',
-    tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-  },
-  cyclosm: {
-    label: 'CyclOSM',
-    type: 'raster',
-    tiles: [
-      'https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
-      'https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
-      'https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
-    ],
-    attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
-  },
-  satellite: {
-    label: 'Satellit',
-    type: 'raster',
-    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    attribution: '&copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
-  },
-  dark: {
-    label: 'Dark',
-    type: 'raster',
-    tiles: [
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    ],
-    attribution: '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  },
-  local: {
-    label: 'Lokal (Offline)',
-    type: 'vector',
-    styleUrl: '/tiles/style.json',
-  },
-}
-
-function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification | string {
-  const def = BASE_STYLES[base]
-  if (def.type === 'vector') {
-    // Vector/Style: MapLibre lädt den kompletten Style-JSON via setStyle(url)
-    return def.styleUrl
-  }
-  const { tiles, attribution } = def
-  return {
-    version: 8,
-    sources: {
-      basemap: {
-        type: 'raster',
-        tiles,
-        tileSize: 256,
-        attribution,
-        // maxzoom tells MapLibre the highest zoom tiles are actually available at.
-        // Without this, MapLibre requests tiles at zoom 20+ (which don't exist →
-        // blank tiles). With it, MapLibre overzooms zoom-19 tiles at higher zoom
-        // levels instead of showing white.
-        maxzoom: 19,
-      },
-    },
-    layers: [
-      {
-        id: 'basemap-tiles',
-        type: 'raster',
-        source: 'basemap',
-        minzoom: 0,
-        // No maxzoom on layer — allows overzoomed rendering beyond zoom 19.
-      },
-    ],
-  }
-}
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -759,7 +675,7 @@ export default function MapPage() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: buildMapStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle()),
+      style: buildRasterStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle()),
       center: savedViewport ? savedViewport.center : [10.45, 51.16],
       zoom: savedViewport ? savedViewport.zoom : 6,
       attributionControl: { compact: false },
@@ -827,7 +743,7 @@ export default function MapPage() {
     const center = map.getCenter()
     const zoom = map.getZoom()
 
-    map.setStyle(buildMapStyle(baseStyle))
+    map.setStyle(buildRasterStyle(baseStyle))
 
     // Kameraposition nach Stilwechsel wiederherstellen
     map.once('style.load', () => {
