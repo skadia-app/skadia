@@ -16,6 +16,14 @@ func (w *wrappedWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Flush delegates to the underlying ResponseWriter if it supports flushing.
+// Required for SSE streaming (e.g. chat endpoint).
+func (w *wrappedWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
