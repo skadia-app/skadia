@@ -273,6 +273,9 @@ function LLMRoleCard({ role, config, onSave }: {
                 {testResult.latency_ms ? ` (${testResult.latency_ms}ms)` : ''}
               </span>
             )}
+            {testResult?.warning && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠ {testResult.warning}</p>
+            )}
           </div>
         </div>
       )}

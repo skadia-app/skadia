@@ -36,5 +36,6 @@ type OllamaModel struct {
 type LLMTestResult struct {
 	Success   bool   `json:"success"`
 	Message   string `json:"message"`
+	Warning   string `json:"warning,omitempty"`
 	LatencyMs int64  `json:"latency_ms,omitempty"`
 }

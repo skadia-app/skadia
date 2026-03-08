@@ -141,6 +141,11 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 		"localhost", "host.containers.internal",
 		"127.0.0.1", "host.containers.internal",
 	).Replace(req.APIBase)
+	if testAPIBase != req.APIBase {
+		result.Warning = "localhost wurde für den Test zu host.containers.internal übersetzt. " +
+			"Die gespeicherte URL bleibt unverändert und wird von LiteLLM/ML-Service so nicht erreichbar sein. " +
+			"Bitte die URL auf http://host.containers.internal:PORT/v1 korrigieren."
+	}
 
 	switch req.BackendType {
 	case "ollama":
