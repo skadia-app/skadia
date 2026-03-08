@@ -421,10 +421,11 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 
 			// Store stress snapshot from wellness monitoring.
 			if stressLevel != nil {
+				stressF := float64(*stressLevel)
 				ss := &model.HealthStressSnapshot{
 					UserID:        params.UserID,
 					MeasuredAtUTC: measuredAt,
-					StressLevel:   stressLevel,
+					StressLevel:   &stressF,
 					SourceType:    "garmin",
 				}
 				if err := params.DB.UpsertHealthStressSnapshot(ctx, ss); err != nil {
@@ -435,10 +436,11 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 
 			// Store SpO2 snapshot from wellness monitoring.
 			if spo2 != nil {
+				spo2F := float64(*spo2)
 				sp := &model.HealthSpO2Snapshot{
 					UserID:        params.UserID,
 					MeasuredAtUTC: measuredAt,
-					SpO2Pct:       spo2,
+					SpO2Pct:       &spo2F,
 					SourceType:    "garmin",
 				}
 				if err := params.DB.UpsertHealthSpO2Snapshot(ctx, sp); err != nil {
