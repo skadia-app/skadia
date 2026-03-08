@@ -44,6 +44,7 @@ import TrimDialog from '@/components/TrimDialog'
 import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
+import { MultisportMap } from '@/components/activity/MultisportMap'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -182,19 +183,54 @@ export default function ActivityDetailPage() {
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
 
-      {/* Stats */}
-      <StatsGrid activity={activity} />
+      {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
+      {activity.sport_type !== 'multisport' && <StatsGrid activity={activity} />}
 
-      {/* Multisport child activities */}
-      {activity.sport_type === 'multisport' && childActivities && childActivities.length > 0 && (
-        <MultisportSectionWithUngroup
-          activity={activity}
-          children={childActivities}
-          onUngrouped={() => {
-            queryClient.invalidateQueries({ queryKey: ['activities'] })
-            queryClient.invalidateQueries({ queryKey: ['activity', id] })
-          }}
-        />
+      {/* Multisport parent — combined view */}
+      {activity.sport_type === 'multisport' && (
+        <div className="space-y-4">
+          {/* Combined map */}
+          <MultisportMap
+            activityId={activity.id}
+            className="h-80 w-full rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800"
+          />
+
+          {/* Aggregated totals */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdauer</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {formatDuration(activity.elapsed_time_s ?? 0)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdistanz</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {formatDistance(activity.distance_m)}
+              </div>
+            </div>
+            {(activity.elevation_gain_m ?? 0) > 0 && (
+              <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Höhenmeter</div>
+                <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                  {Math.round(activity.elevation_gain_m ?? 0)} m
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Discipline list + ungroup */}
+          {childActivities && childActivities.length > 0 && (
+            <MultisportSectionWithUngroup
+              activity={activity}
+              children={childActivities}
+              onUngrouped={() => {
+                queryClient.invalidateQueries({ queryKey: ['activities'] })
+                queryClient.invalidateQueries({ queryKey: ['activity', id] })
+              }}
+            />
+          )}
+        </div>
       )}
 
       {/* Erweiterte Metriken */}

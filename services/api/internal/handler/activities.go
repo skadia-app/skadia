@@ -884,6 +884,65 @@ func computeHRZones(streams []model.StreamPoint, maxHR int) []model.TimeInZone {
 	return result
 }
 
+// GetCombinedTrack returns a GeoJSON FeatureCollection with one Feature per child activity track.
+// GET /api/v1/activities/{id}/combined-track
+func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	activityID := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	activity, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil || activity == nil || activity.UserID != userID || activity.SportType != "multisport" {
+		writeError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
+		return
+	}
+
+	children, err := h.DB.GetChildActivities(ctx, activityID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	type Feature struct {
+		Type       string          `json:"type"`
+		Geometry   json.RawMessage `json:"geometry"`
+		Properties map[string]any  `json:"properties"`
+	}
+
+	var features []Feature
+	for i, child := range children {
+		var geojson json.RawMessage
+		err := h.DB.Pool.QueryRow(ctx,
+			`SELECT ST_AsGeoJSON(track_simplified) FROM activity_tracks WHERE activity_id = $1`,
+			child.ID).Scan(&geojson)
+		if err != nil || len(geojson) == 0 {
+			continue
+		}
+		title := ""
+		if child.Title != nil {
+			title = *child.Title
+		}
+		features = append(features, Feature{
+			Type:     "Feature",
+			Geometry: geojson,
+			Properties: map[string]any{
+				"activity_id": child.ID,
+				"sport_type":  child.SportType,
+				"title":       title,
+				"child_index": i,
+			},
+		})
+	}
+
+	if features == nil {
+		features = []Feature{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"type":     "FeatureCollection",
+		"features": features,
+	})
+}
+
 // GroupActivities creates a multisport parent activity and links the given activities to it.
 // POST /api/v1/activities/group
 // Body: { "activity_ids": ["uuid1", "uuid2", ...], "title": "Mein Triathlon" }

@@ -197,6 +197,7 @@ func main() {
 			r.Get("/activities/{id}/fusion-candidates", h.GetFusionCandidates)
 			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)
 			r.Get("/activities/{id}/children", h.GetChildActivities)
+			r.Get("/activities/{id}/combined-track", h.GetCombinedTrack)
 			r.Delete("/activities/{id}/group", h.UngroupActivities)
 			r.Get("/stats/pmc", h.GetPMC)
 			r.Get("/stats/power-curve", h.GetPowerCurve)
