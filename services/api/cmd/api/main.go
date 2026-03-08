@@ -385,6 +385,9 @@ func main() {
 				r.Get("/overview", h.GetHealthOverview)
 			})
 
+			// Import from external URL (skadia:// deep-link handler)
+			r.Post("/import/from-url", h.ImportFromURL)
+
 			// Garmin Import
 			r.Post("/import/garmin/detect", h.DetectGarminModules)
 			r.Post("/import/garmin/scan", h.ScanGarminExport)
