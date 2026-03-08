@@ -173,6 +173,237 @@ function Stage2EnrichmentSection() {
   )
 }
 
+// -----------------------------------------------------------------------
+// ML-Service Section
+// -----------------------------------------------------------------------
+
+const NIGHTLY_JOBS = [
+  {
+    key: 'nightly_feature_engineering',
+    label: 'Feature Engineering',
+    description: 'NeuroKit2 HRV-Metriken + TSFEL-Features',
+  },
+  {
+    key: 'nightly_tsfm_analysis',
+    label: 'TSFM-Analyse',
+    description: 'TSPulse Anomalie-Erkennung + TTM Prognosen',
+  },
+  {
+    key: 'nightly_changepoint_detection',
+    label: 'Changepoint-Erkennung',
+    description: 'ruptures PELT Changepoints in Trainingsdaten',
+  },
+] as const
+
+type NightlyJobKey = typeof NIGHTLY_JOBS[number]['key']
+
+function MLServiceSection() {
+  const { data: mlStatus } = useQuery({
+    queryKey: ['ml-status'],
+    queryFn: () =>
+      apiFetch('/api/v1/ml/status').then(r => r.json()) as Promise<{ available: boolean }>,
+    refetchInterval: 30_000,
+  })
+
+  const { data: mlSettings, refetch: refetchML } = useQuery({
+    queryKey: ['ml-system-settings'],
+    queryFn: () =>
+      apiFetch('/api/v1/settings/ml').then(r => r.json()) as Promise<
+        Record<NightlyJobKey, { enabled: boolean; time: string; description: string }>
+      >,
+  })
+
+  async function toggleJob(key: NightlyJobKey, enabled: boolean) {
+    const current = mlSettings?.[key] ?? { enabled: false, time: '02:00', description: '' }
+    await apiFetch(`/api/v1/settings/ml/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...current, enabled }),
+    })
+    refetchML()
+  }
+
+  const isAvailable = mlStatus?.available ?? false
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">ML-Service</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Status des ML-Dienstes und n&auml;chtliche Analysejobs.
+          </p>
+        </div>
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
+            isAvailable
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+              : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
+          }`}
+        >
+          <span
+            className={`h-2 w-2 rounded-full ${isAvailable ? 'bg-emerald-500' : 'bg-neutral-400'}`}
+          />
+          {isAvailable ? 'Erreichbar' : 'Nicht erreichbar'}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+          N&auml;chtliche Jobs
+        </p>
+        {NIGHTLY_JOBS.map(({ key, label, description }) => {
+          const enabled = mlSettings?.[key]?.enabled ?? false
+          const time = mlSettings?.[key]?.time ?? '—'
+          return (
+            <div key={key} className="flex items-center justify-between gap-4 py-1">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">
+                  — {description}
+                </span>
+                <span className="text-xs text-neutral-400 ml-2">({time} Uhr)</span>
+              </div>
+              <button
+                onClick={() => toggleJob(key, !enabled)}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4',
+                }}
+                role="switch"
+                aria-checked={enabled}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+// -----------------------------------------------------------------------
+// Notification Settings Section
+// -----------------------------------------------------------------------
+
+const NOTIFICATION_TOGGLES = [
+  { key: 'notify_enrichment', label: 'Enrichment abgeschlossen', description: 'Nach jeder Stage-2-Analyse' },
+  { key: 'notify_anomaly', label: 'Anomalie erkannt', description: 'Bei ungewöhnlichen Trainingswerten' },
+  { key: 'notify_gear', label: 'Ausrüstungs-Alerts', description: 'Wartungshinweise und Verschleiß' },
+  { key: 'notify_chat', label: 'Assistent-Antworten', description: 'Wenn der KI-Assistent antwortet' },
+] as const
+
+type NotifyKey = typeof NOTIFICATION_TOGGLES[number]['key']
+
+function NotificationSettingsSection() {
+  const { data: userSettings, refetch: refetchUser } = useQuery({
+    queryKey: ['ml-user-settings'],
+    queryFn: () =>
+      apiFetch('/api/v1/settings/ml/user').then(r => r.json()) as Promise<
+        Record<NotifyKey, boolean>
+      >,
+  })
+
+  const { data: devices, refetch: refetchDevices } = useQuery({
+    queryKey: ['devices'],
+    queryFn: () => apiFetch('/api/v1/devices').then(r => r.json()) as Promise<
+      { id: string; platform: string; device_name?: string | null; created_at: string }[]
+    >,
+  })
+
+  async function toggleNotify(key: NotifyKey, value: boolean) {
+    await apiFetch(`/api/v1/settings/ml/user/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(value),
+    })
+    refetchUser()
+  }
+
+  async function removeDevice(id: string) {
+    await apiFetch(`/api/v1/devices/${id}`, { method: 'DELETE' })
+    refetchDevices()
+  }
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Benachrichtigungen</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Welche Ereignisse sollen als Benachrichtigung erscheinen.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {NOTIFICATION_TOGGLES.map(({ key, label, description }) => {
+          const enabled = userSettings?.[key] ?? false
+          return (
+            <div key={key} className="flex items-center justify-between gap-4 py-1">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+              </div>
+              <button
+                onClick={() => toggleNotify(key, !enabled)}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4',
+                }}
+                role="switch"
+                aria-checked={enabled}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Registered devices */}
+      {devices && devices.length > 0 && (
+        <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800/60 space-y-2">
+          <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+            Registrierte Ger&auml;te
+          </p>
+          <div className="space-y-1.5">
+            {devices.map(device => (
+              <div
+                key={device.id}
+                className="flex items-center justify-between gap-3 py-1.5 px-3 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm">{device.platform === 'ios' ? '🍎' : '🤖'}</span>
+                  <span className="text-sm text-neutral-800 dark:text-neutral-200 truncate">
+                    {device.device_name ?? (device.platform === 'ios' ? 'iPhone/iPad' : 'Android-Gerät')}
+                  </span>
+                  <span className="text-xs text-neutral-400 flex-shrink-0">
+                    {new Date(device.created_at).toLocaleDateString('de-DE')}
+                  </span>
+                </div>
+                <button
+                  onClick={() => removeDevice(device.id)}
+                  className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                >
+                  Entfernen
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
@@ -410,6 +641,12 @@ export default function SettingsPage() {
 
       {/* Enrichment Stage 2 — ML-Module */}
       <Stage2EnrichmentSection />
+
+      {/* ML-Service — nightly jobs */}
+      <MLServiceSection />
+
+      {/* Benachrichtigungen */}
+      <NotificationSettingsSection />
 
       {/* Automatisierung */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
