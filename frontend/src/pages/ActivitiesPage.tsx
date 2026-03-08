@@ -7,6 +7,7 @@ import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
 import { apiDownload } from '@/api/client'
+import { apiFetch } from '@/lib/auth'
 import {
   formatDuration, formatDistance,
   formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
@@ -450,6 +451,7 @@ function ActivityContextMenu({
 
 export default function ActivitiesPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   // ── Seitenposition: aus URL (page) + sessionStorage (cursors) wiederherstellen ──
@@ -488,6 +490,7 @@ export default function ActivitiesPage() {
   const [deleteTitle, setDeleteTitle] = useState<string | null>(null)
   const [zipLoading, setZipLoading] = useState(false)
   const [openTabsItems, setOpenTabsItems] = useState<{ id: string; title: string | null }[] | null>(null)
+  const [groupModalIds, setGroupModalIds] = useState<string[] | null>(null)
 
   // Filter state (persisted in URL)
   const [filters, setFiltersRaw] = useState<ActivityFilterState>(() => paramsToFilters(searchParams))
@@ -866,6 +869,17 @@ export default function ActivitiesPage() {
       {openTabsItems && (
         <OpenTabsDialog items={openTabsItems} onClose={() => setOpenTabsItems(null)} />
       )}
+      {groupModalIds && (
+        <GroupModal
+          activityIds={groupModalIds}
+          onClose={() => setGroupModalIds(null)}
+          onGrouped={(parentId) => {
+            clearSelection()
+            queryClient.invalidateQueries({ queryKey: ['activities'] })
+            navigate(`/activities/${parentId}`)
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -1085,6 +1099,12 @@ export default function ActivitiesPage() {
             onDownload={handleZipDownload}
           />
           <button
+            onClick={() => setGroupModalIds([...selectedIds])}
+            className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            Gruppieren
+          </button>
+          <button
             onClick={() => setRecomputeIds([...selectedIds])}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
@@ -1275,5 +1295,92 @@ function ActivityRow({
         </button>
       </td>
     </tr>
+  )
+}
+
+// ── GroupModal ────────────────────────────────────────────────────────────────
+function GroupModal({
+  activityIds,
+  onClose,
+  onGrouped,
+}: {
+  activityIds: string[]
+  onClose: () => void
+  onGrouped: (parentId: string) => void
+}) {
+  const [title, setTitle] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleCreate() {
+    setLoading(true)
+    setError(null)
+    try {
+      const resp = await apiFetch('/api/v1/activities/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activity_ids: activityIds, title: title.trim() || 'Multisport' }),
+      })
+      if (!resp.ok) {
+        const text = await resp.text()
+        setError(`Fehler ${resp.status}: ${text}`)
+        return
+      }
+      const parent = await resp.json() as { id: string }
+      onGrouped(parent.id)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+          Als Multisport gruppieren
+        </h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          {activityIds.length} Aktivitäten werden zu einer Multisport-Gruppe zusammengefasst.
+          Die Originalaktivitäten bleiben vollständig erhalten.
+        </p>
+        <div>
+          <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+            Gruppenname (optional)
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Multisport"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
+            onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+            autoFocus
+          />
+        </div>
+        {error && (
+          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        )}
+        <div className="flex gap-2 justify-end pt-1">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={loading}
+            className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {loading ? 'Erstelle...' : 'Gruppe erstellen'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

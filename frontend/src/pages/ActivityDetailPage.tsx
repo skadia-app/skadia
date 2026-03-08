@@ -187,7 +187,14 @@ export default function ActivityDetailPage() {
 
       {/* Multisport child activities */}
       {activity.sport_type === 'multisport' && childActivities && childActivities.length > 0 && (
-        <MultisportSection children={childActivities} />
+        <MultisportSectionWithUngroup
+          activity={activity}
+          children={childActivities}
+          onUngrouped={() => {
+            queryClient.invalidateQueries({ queryKey: ['activities'] })
+            queryClient.invalidateQueries({ queryKey: ['activity', id] })
+          }}
+        />
       )}
 
       {/* Erweiterte Metriken */}
@@ -1733,6 +1740,76 @@ function ZoneDistributionChart({ distribution }: { distribution: ZoneDistributio
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── MultisportSectionWithUngroup ──────────────────────────────────────────────
+function MultisportSectionWithUngroup({
+  activity,
+  children,
+  onUngrouped,
+}: {
+  activity: Activity
+  children: Activity[]
+  onUngrouped: () => void
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleUngroup() {
+    setLoading(true)
+    setError(null)
+    try {
+      const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
+      if (!resp.ok) {
+        const text = await resp.text()
+        setError(`Fehler ${resp.status}: ${text}`)
+        setLoading(false)
+        return
+      }
+      onUngrouped()
+    } catch (e) {
+      setError(String(e))
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+          Multisport-Disziplinen
+        </h3>
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            className="text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
+          >
+            Gruppe auflösen
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-neutral-500">Wirklich auflösen?</span>
+            <button
+              onClick={() => setConfirming(false)}
+              className="text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
+            >
+              Nein
+            </button>
+            <button
+              onClick={handleUngroup}
+              disabled={loading}
+              className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50 cursor-pointer"
+            >
+              {loading ? 'Wird aufgelöst...' : 'Ja, auflösen'}
+            </button>
+          </div>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <MultisportSection children={children} />
     </div>
   )
 }
