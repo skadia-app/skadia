@@ -49,5 +49,8 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/insights/correlations", h.GetInsightsCorrelations)
 	r.Post("/insights/refresh", h.RefreshInsights)
 
+	// Route similarity
+	r.Get("/similar-routes", h.GetSimilarRoutes)
+
 	return r
 }
