@@ -49,9 +49,9 @@ export const BASE_STYLES: Record<BaseStyle, StyleDef> = {
     label: 'Dunkel',
     type: 'raster',
     tiles: [
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     ],
     attribution: '&copy; CARTO &copy; OpenStreetMap',
     maxzoom: 19,

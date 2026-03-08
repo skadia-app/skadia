@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -152,21 +153,32 @@ func loadGPSStream(ctx context.Context, pool *pgxpool.Pool, activityID string) (
 }
 
 func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID string, points []StreamPoint) error {
+	const upsertSQL = `
+		INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m, speed_ms, distance_m)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (activity_id, time) DO UPDATE
+		SET lat = EXCLUDED.lat, lng = EXCLUDED.lng,
+			altitude_m = COALESCE(EXCLUDED.altitude_m, activity_streams.altitude_m),
+			speed_ms = COALESCE(EXCLUDED.speed_ms, activity_streams.speed_ms),
+			distance_m = COALESCE(EXCLUDED.distance_m, activity_streams.distance_m)`
+
+	batch := &pgx.Batch{}
 	for _, p := range points {
 		if p.Lat == nil || p.Lng == nil {
 			continue
 		}
-		_, err := pool.Exec(ctx, `
-			INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m, speed_ms, distance_m)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (activity_id, time) DO UPDATE
-			SET lat = EXCLUDED.lat, lng = EXCLUDED.lng,
-				altitude_m = COALESCE(EXCLUDED.altitude_m, activity_streams.altitude_m),
-				speed_ms = COALESCE(EXCLUDED.speed_ms, activity_streams.speed_ms),
-				distance_m = COALESCE(EXCLUDED.distance_m, activity_streams.distance_m)
-		`, targetID, p.Time, p.Lat, p.Lng, p.AltitudeM, p.SpeedMS, p.DistanceM)
-		if err != nil {
-			return fmt.Errorf("upsert stream point: %w", err)
+		batch.Queue(upsertSQL, targetID, p.Time, p.Lat, p.Lng, p.AltitudeM, p.SpeedMS, p.DistanceM)
+	}
+	if batch.Len() > 0 {
+		br := pool.SendBatch(ctx, batch)
+		for i := 0; i < batch.Len(); i++ {
+			if _, err := br.Exec(); err != nil {
+				br.Close()
+				return fmt.Errorf("upsert stream point batch: %w", err)
+			}
+		}
+		if err := br.Close(); err != nil {
+			return fmt.Errorf("batch close: %w", err)
 		}
 	}
 

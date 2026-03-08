@@ -61,14 +61,16 @@ export function getActivities() {
 export function useEnrichmentProgress<T>(
   selector: (activities: Map<string, EnrichmentActivityProgress>) => T
 ): T {
-  const [value, setValue] = React.useState(() => selector(_activities))
+  const selectorRef = React.useRef(selector)
+  selectorRef.current = selector
+  const [value, setValue] = React.useState(() => selector(new Map(_activities)))
   React.useEffect(() => {
-    const fn = () => setValue(selector(_activities))
+    // Pass a new Map snapshot so React always sees a new reference and re-renders.
+    const fn = () => setValue(selectorRef.current(new Map(_activities)))
     _listeners.add(fn)
     return () => {
       _listeners.delete(fn)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   return value
 }

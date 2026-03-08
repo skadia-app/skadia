@@ -285,6 +285,19 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			tagBase = data.Tags
 		}
 		fields["tags"] = appendTagIfMissing(tagBase, "Wettkampf")
+		// Ensure the "Wettkampf" tag exists in the tags table and is linked in activity_tags
+		// so that analytics filters (which join activity_tags) can find this activity.
+		// Stage2 has no race module, so we do the full upsert here.
+		var raceTagID string
+		row := db.Pool.QueryRow(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
+			VALUES ($1, 'Wettkampf', '#DC2626', '#FFFFFF', true, 'activity')
+			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			RETURNING id
+		`, userID)
+		if err := row.Scan(&raceTagID); err == nil {
+			db.LinkActivityTag(ctx, activityID, raceTagID, "auto")
+		}
 	}
 
 	// Autotag evaluation: collect enrichment context and evaluate all autotag rules

@@ -69,7 +69,7 @@ const FIELDS: Array<{
   {
     key: 'speed',
     label: 'Geschwindigkeit',
-    hasKey: null,
+    hasKey: 'has_gps' as keyof FusionCandidate, // Speed availability proxied via GPS presence
     allowFuse: false,
     getDisplay: () => 'Speed',
   },
