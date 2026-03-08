@@ -25,12 +25,6 @@ type FusionMergeRequest struct {
 	GearSource      *string           `json:"gear_source,omitempty"`
 }
 
-// GPSFusionConfig steuert die GPS-Track-Fusion (Task 2b).
-type GPSFusionConfig struct {
-	PrimarySource string `json:"primary_source"`
-	ExtendTrack   bool   `json:"extend_track"`
-}
-
 // validStreamFields mappt logische Feld-Namen auf activity_streams-Spaltennamen.
 var validStreamFields = map[string]string{
 	"hr":          "heart_rate",
@@ -248,9 +242,3 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 	return err
 }
 
-// fuseGPSTracks — wird von Task 2b implementiert (fusion/stitcher.go + fusion_merge_gps.go).
-// Stub für die Compilation:
-func (h *Handler) fuseGPSTracks(ctx context.Context, targetID string, sourceIDs []string, config *GPSFusionConfig) error {
-	// TODO: Implementiert in fusion_merge_gps.go (Task 2b)
-	return fmt.Errorf("GPS track fusion not yet implemented")
-}
