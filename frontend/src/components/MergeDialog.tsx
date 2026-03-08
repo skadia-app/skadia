@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { fetchActivities } from '@/api/activities'
@@ -8,23 +8,47 @@ import { formatDuration, formatDistance } from '@/lib/utils'
 import { useAccentColor } from '@/lib/accentColor'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { MergeComparisonTable } from '@/components/MergeComparisonTable'
 
 interface MergeDialogProps {
   activity: Activity
   onClose: () => void
 }
 
-const MERGEABLE_FIELDS = [
-  { id: 'hr', label: 'Herzfrequenz' },
-  { id: 'power', label: 'Leistung' },
-  { id: 'cadence', label: 'Kadenz' },
-  { id: 'temperature', label: 'Temperatur' },
-  { id: 'title', label: 'Titel' },
-  { id: 'tags', label: 'Tags' },
-  { id: 'gear', label: 'Ausrustung' },
-] as const
+type FieldID = 'hr' | 'power' | 'cadence' | 'temperature' | 'title' | 'tags' | 'gear'
 
-type FieldID = typeof MERGEABLE_FIELDS[number]['id']
+const FIELD_MAP: Record<FieldID, keyof Activity> = {
+  hr: 'avg_heart_rate',
+  power: 'avg_power_w',
+  cadence: 'avg_cadence',
+  temperature: 'avg_temperature_c',
+  title: 'title',
+  tags: 'tags',
+  gear: 'gear_id',
+}
+
+const ALL_FIELD_KEYS: FieldID[] = ['hr', 'power', 'cadence', 'temperature', 'title', 'tags', 'gear']
+
+function calculateOverlap(target: Activity, source: Activity): string {
+  if (!target.started_at || !target.ended_at || !source.started_at || !source.ended_at) {
+    return ''
+  }
+  const tStart = new Date(target.started_at).getTime()
+  const tEnd = new Date(target.ended_at).getTime()
+  const sStart = new Date(source.started_at).getTime()
+  const sEnd = new Date(source.ended_at).getTime()
+
+  const overlapStart = Math.max(tStart, sStart)
+  const overlapEnd = Math.min(tEnd, sEnd)
+
+  if (overlapStart >= overlapEnd) return 'Keine Zeitüberlappung'
+
+  const overlapMs = overlapEnd - overlapStart
+  const targetDuration = tEnd - tStart
+  const pct = ((overlapMs / targetDuration) * 100).toFixed(1)
+  const mins = Math.round(overlapMs / 60000)
+  return `Zeitüberlappung: ${pct}% (${mins} min)`
+}
 
 export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
   const queryClient = useQueryClient()
@@ -33,7 +57,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
 
   const [search, setSearch] = useState('')
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
-  const [selectedFields, setSelectedFields] = useState<Set<FieldID>>(new Set(['hr', 'power', 'cadence', 'temperature']))
+  const [selectedFields, setSelectedFields] = useState<FieldID[]>(['hr', 'power', 'cadence', 'temperature'])
 
   // Fetch recent activities as candidates
   const { data: activitiesData } = useQuery({
@@ -45,15 +69,30 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
   // Exclude the current activity from candidates
   const candidates = (activitiesData?.activities ?? []).filter(a => a.id !== activity.id)
 
-  const toggleField = (field: FieldID) => {
+  const sourceActivity = selectedSourceId ? candidates.find(a => a.id === selectedSourceId) ?? null : null
+
+  // Smart-defaults: auto-select fields where source has data and target does not
+  useEffect(() => {
+    if (!sourceActivity) return
+    const autoSelect = ALL_FIELD_KEYS.filter(key => {
+      const field = FIELD_MAP[key]
+      const targetVal = activity[field]
+      const sourceVal = sourceActivity[field]
+      const hasTarget = targetVal !== null && targetVal !== undefined && targetVal !== '' && !(Array.isArray(targetVal) && targetVal.length === 0)
+      const hasSource = sourceVal !== null && sourceVal !== undefined && sourceVal !== '' && !(Array.isArray(sourceVal) && sourceVal.length === 0)
+      return !hasTarget && hasSource
+    })
+    setSelectedFields(autoSelect)
+  }, [sourceActivity?.id])
+
+  const toggleField = (field: string) => {
     setSelectedFields(prev => {
-      const next = new Set(prev)
-      if (next.has(field)) {
-        next.delete(field)
+      const fid = field as FieldID
+      if (prev.includes(fid)) {
+        return prev.filter(f => f !== fid)
       } else {
-        next.add(field)
+        return [...prev, fid]
       }
-      return next
     })
   }
 
@@ -63,13 +102,13 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
         method: 'POST',
         body: {
           source_id: selectedSourceId,
-          fields: [...selectedFields],
+          fields: selectedFields,
         },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-      addToast({ type: 'success', title: 'Aktivitaten fusioniert', message: 'Ausgewahlte Felder wurden ubernommen.' })
+      addToast({ type: 'success', title: 'Aktivitäten fusioniert', message: 'Ausgewählte Felder wurden übernommen.' })
       onClose()
     },
     onError: (err) => {
@@ -77,7 +116,8 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
     },
   })
 
-  const isValid = selectedSourceId !== null && selectedFields.size > 0
+  const overlapInfo = sourceActivity ? calculateOverlap(activity, sourceActivity) : ''
+  const isValid = selectedSourceId !== null && selectedFields.length > 0
 
   return (
     <div
@@ -87,90 +127,97 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
       <div
-        className="relative bg-white dark:bg-neutral-950 rounded-lg shadow-lg p-6 max-w-md w-[90vw] max-h-[90vh] overflow-auto"
+        className="relative bg-white dark:bg-neutral-950 rounded-lg shadow-lg p-6 max-w-4xl w-[90vw] max-h-[90vh] overflow-auto"
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="merge-dialog-title"
       >
         <h2 id="merge-dialog-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-          Aktivitaten fusionieren
+          Aktivitäten fusionieren
         </h2>
         <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-          Felder aus einer Quell-Aktivitat in diese Aktivitat ubernehmen.
+          Felder aus einer Quell-Aktivität in diese Aktivität übernehmen.
         </p>
 
-        {/* Source activity search */}
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Quell-Aktivitat suchen
-          </label>
-          <input
-            type="text"
-            placeholder="Titel suchen…"
-            value={search}
-            onChange={e => {
-              setSearch(e.target.value)
-              setSelectedSourceId(null)
-            }}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-md dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-offset-0 text-sm"
-            style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
-          />
-        </div>
+        <div className={`mt-4 ${sourceActivity ? 'grid grid-cols-2 gap-6' : ''}`}>
+          {/* Left column: source search */}
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+              Quell-Aktivität suchen
+            </label>
+            <input
+              type="text"
+              placeholder="Titel suchen…"
+              value={search}
+              onChange={e => {
+                setSearch(e.target.value)
+                setSelectedSourceId(null)
+              }}
+              className="w-full px-3 py-2 border border-neutral-300 rounded-md dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-offset-0 text-sm"
+              style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
+            />
 
-        {/* Activity list */}
-        <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 divide-y divide-neutral-100 dark:divide-neutral-800">
-          {candidates.length === 0 && (
-            <p className="p-3 text-sm text-neutral-400 dark:text-neutral-500 text-center">Keine Aktivitaten gefunden</p>
-          )}
-          {candidates.map(a => (
-            <button
-              key={a.id}
-              onClick={() => setSelectedSourceId(a.id)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                selectedSourceId === a.id
-                  ? 'text-white'
-                  : 'text-neutral-900 dark:text-neutral-50 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-              }`}
-              style={selectedSourceId === a.id ? { backgroundColor: accent.shade500 } : undefined}
-            >
-              <div className="font-medium truncate">{a.title ?? a.sport_type}</div>
-              <div className={`text-xs mt-0.5 ${selectedSourceId === a.id ? 'text-white/70' : 'text-neutral-400 dark:text-neutral-500'}`}>
-                {format(new Date(a.started_at), 'dd.MM.yyyy', { locale: de })}
-                {a.elapsed_time_s ? ` · ${formatDuration(a.elapsed_time_s)}` : ''}
-                {a.distance_m ? ` · ${formatDistance(a.distance_m)}` : ''}
-              </div>
-            </button>
-          ))}
-        </div>
+            {/* Activity list */}
+            <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 divide-y divide-neutral-100 dark:divide-neutral-800">
+              {candidates.length === 0 && (
+                <p className="p-3 text-sm text-neutral-400 dark:text-neutral-500 text-center">Keine Aktivitäten gefunden</p>
+              )}
+              {candidates.map(a => (
+                <button
+                  key={a.id}
+                  onClick={() => setSelectedSourceId(a.id)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                    selectedSourceId === a.id
+                      ? 'text-white'
+                      : 'text-neutral-900 dark:text-neutral-50 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                  }`}
+                  style={selectedSourceId === a.id ? { backgroundColor: accent.shade500 } : undefined}
+                >
+                  <div className="font-medium truncate">{a.title ?? a.sport_type}</div>
+                  <div className={`text-xs mt-0.5 ${selectedSourceId === a.id ? 'text-white/70' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                    {format(new Date(a.started_at), 'dd.MM.yyyy', { locale: de })}
+                    {a.elapsed_time_s ? ` · ${formatDuration(a.elapsed_time_s)}` : ''}
+                    {a.distance_m ? ` · ${formatDistance(a.distance_m)}` : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
 
-        {/* Fields to merge */}
-        <div className="mt-4">
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-            Zu ubernehmende Felder
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {MERGEABLE_FIELDS.map(field => (
-              <label key={field.id} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedFields.has(field.id)}
-                  onChange={() => toggleField(field.id)}
-                  className="rounded"
-                  style={{ accentColor: accent.shade500 }}
-                />
-                <span className="text-sm text-neutral-700 dark:text-neutral-300">{field.label}</span>
-              </label>
-            ))}
+            {/* Overlap info */}
+            {overlapInfo && (
+              <p className={`mt-2 text-xs font-medium ${
+                overlapInfo.startsWith('Keine')
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}>
+                {overlapInfo}
+              </p>
+            )}
+
+            {/* Warning */}
+            {selectedSourceId && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                Die Quell-Aktivität wird als Fusionsquelle markiert und aus der normalen Liste ausgeblendet.
+              </p>
+            )}
           </div>
-        </div>
 
-        {/* Warning */}
-        {selectedSourceId && (
-          <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-            Die Quell-Aktivitat wird als Fusionsquelle markiert und aus der normalen Liste ausgeblendet.
-          </p>
-        )}
+          {/* Right column: comparison table (only when a source is selected) */}
+          {sourceActivity && (
+            <div>
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                Felder vergleichen &amp; auswählen
+              </p>
+              <MergeComparisonTable
+                target={activity}
+                source={sourceActivity}
+                selectedFields={selectedFields}
+                onToggleField={toggleField}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="mt-6 flex gap-2 justify-end">
           <button
