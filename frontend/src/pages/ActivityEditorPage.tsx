@@ -206,6 +206,7 @@ export default function ActivityEditorPage() {
   const [detectedGPSOutliers, setDetectedGPSOutliers] = useState<string[]>([])
   const [isDetectingGPS, setIsDetectingGPS] = useState(false)
   const [isSavingGPS, setIsSavingGPS] = useState(false)
+  const [gpsMethod, setGpsMethod] = useState<'interpolate' | 'remove'>('interpolate')
 
   // ── Track / Trim State ─────────────────────────────────────────────────────
   const [trimStart, setTrimStart] = useState(0)
@@ -240,14 +241,28 @@ export default function ActivityEditorPage() {
     }
   }, [streams])
 
-  // GPS-Outlier-Timestamps → Koordinaten
+  // Saved GPS outlier timestamps from sidecar
+  const savedGPSOutlierTimestamps = useMemo(() =>
+    sidecar?.edits
+      .filter(e => e.type === 'gps_outlier_smooth')
+      .flatMap(e => e.timestamps ?? []) ?? [],
+    [sidecar],
+  )
+
+  // GPS-Outlier-Timestamps → Koordinaten (from detection or saved sidecar)
+  const displayGPSOutlierTimestamps = useMemo(() =>
+    detectedGPSOutliers.length > 0
+      ? detectedGPSOutliers
+      : savedGPSOutlierTimestamps,
+    [detectedGPSOutliers, savedGPSOutlierTimestamps],
+  )
   const outlierPoints = useMemo(() => {
-    if (!detectedGPSOutliers.length || !trackGeoJSON) return []
-    const tsSet = new Set(detectedGPSOutliers)
+    if (!displayGPSOutlierTimestamps.length || !trackGeoJSON) return []
+    const tsSet = new Set(displayGPSOutlierTimestamps)
     return streams
       .filter(s => s.lat != null && s.lng != null && tsSet.has(new Date(s.time).toISOString()))
       .map(s => ({ lat: s.lat!, lng: s.lng!, time: s.time }))
-  }, [detectedGPSOutliers, streams, trackGeoJSON])
+  }, [displayGPSOutlierTimestamps, streams, trackGeoJSON])
 
   // trimEnd auf letzen Index setzen wenn Track das erste Mal geladen wird
   const didInitTrim = useRef(false)
@@ -345,8 +360,12 @@ export default function ActivityEditorPage() {
     setIsApplying(true)
     try {
       await applyEdits(id)
+      setDetectedSpikes([])
+      setDetectedGPSOutliers([])
+      setShowPreview(false)
       queryClient.invalidateQueries({ queryKey: ['activity', id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', id] })
+      await refetchSidecar()
       showStatus('Edits angewendet und Metriken neu berechnet.', 5000)
     } catch {
       showStatus('Anwenden fehlgeschlagen.')
@@ -459,7 +478,7 @@ export default function ActivityEditorPage() {
           ...(sidecar?.edits.filter(e => e.type !== 'gps_outlier_smooth') ?? []),
           {
             type: 'gps_outlier_smooth',
-            method: 'interpolate',
+            method: gpsMethod,
             timestamps: detectedGPSOutliers,
           },
         ],
@@ -702,19 +721,31 @@ export default function ActivityEditorPage() {
             </button>
 
             {detectedGPSOutliers.length > 0 && (
-              <button
-                onClick={handleSaveGPSOutliers}
-                disabled={isSavingGPS}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-                           border border-blue-300 dark:border-blue-700
-                           text-blue-700 dark:text-blue-400
-                           hover:bg-blue-50 dark:hover:bg-blue-900/20
-                           disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-colors"
-              >
-                <CheckCircleIcon className="w-4 h-4" />
-                {isSavingGPS ? 'Speichere...' : `GPS korrigieren (${detectedGPSOutliers.length})`}
-              </button>
+              <>
+                <select
+                  value={gpsMethod}
+                  onChange={(e) => setGpsMethod(e.target.value as 'interpolate' | 'remove')}
+                  className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
+                             text-sm text-neutral-700 dark:text-neutral-300 px-3 py-2
+                             focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="interpolate">Interpolieren</option>
+                  <option value="remove">Entfernen</option>
+                </select>
+                <button
+                  onClick={handleSaveGPSOutliers}
+                  disabled={isSavingGPS}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                             border border-blue-300 dark:border-blue-700
+                             text-blue-700 dark:text-blue-400
+                             hover:bg-blue-50 dark:hover:bg-blue-900/20
+                             disabled:opacity-50 disabled:cursor-not-allowed
+                             transition-colors"
+                >
+                  <CheckCircleIcon className="w-4 h-4" />
+                  {isSavingGPS ? 'Speichere...' : `GPS korrigieren (${detectedGPSOutliers.length})`}
+                </button>
+              </>
             )}
           </>
 
@@ -783,8 +814,10 @@ function editLabel(edit: Edit): string {
   switch (edit.type) {
     case 'hr_spike_smooth':
       return `HR-Spikes glatten: ${edit.timestamps?.length ?? 0} Punkte (${edit.method ?? 'interpolate'})`
-    case 'gps_outlier_smooth':
-      return `GPS-Ausreißer korrigieren: ${edit.timestamps?.length ?? 0} Punkte (${edit.method ?? 'interpolate'})`
+    case 'gps_outlier_smooth': {
+      const methodLabel = edit.method === 'remove' ? 'Entfernen' : 'Interpolieren'
+      return `GPS-Ausreißer korrigieren: ${edit.timestamps?.length ?? 0} Punkte (${methodLabel})`
+    }
     case 'trim_start':
       return `Anfang trimmen ab ${edit.timestamp ?? '?'}`
     case 'trim_end':

@@ -37,6 +37,12 @@ const sections = [
     description: 'Aus Rechnungen erkannte Ausrüstung überprüfen und bestätigen',
     icon: DocumentIcon,
   },
+  {
+    to: '/workshop/peaks',
+    title: 'Gipfelsammlung',
+    description: 'Alle besuchten Gipfel mit Statistiken und Kartenansicht',
+    icon: PeakIcon,
+  },
 ]
 
 export default function WorkshopPage() {
@@ -114,6 +120,14 @@ function ReprocessIcon() {
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21.5 2v6h-6M2.5 22v-6h6" />
       <path d="M2.5 11.5a10 10 0 0118.4-4.5M21.5 12.5a10 10 0 01-18.4 4.5" />
+    </svg>
+  )
+}
+
+function PeakIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 20l6.5-11L13 15l4-6 4 11H3z" />
     </svg>
   )
 }

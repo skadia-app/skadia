@@ -39,6 +39,22 @@ export async function fetchSurfaces(activityId: string): Promise<ActivitySurface
   return apiClient<ActivitySurface[]>(`/activities/${activityId}/surfaces`)
 }
 
+export interface EnrichmentModuleStatus {
+  name: string
+  status: 'completed' | 'error' | 'no_data' | 'pending'
+  error?: string
+  count: number
+}
+
+export interface EnrichmentStatusResponse {
+  enrichment_status: string
+  modules: EnrichmentModuleStatus[]
+}
+
+export async function fetchEnrichmentStatus(activityId: string): Promise<EnrichmentStatusResponse> {
+  return apiClient<EnrichmentStatusResponse>(`/activities/${activityId}/enrichment-status`)
+}
+
 export async function fetchVisitedPOIs(): Promise<GeoJSON.FeatureCollection> {
   const res = await apiFetch('/api/v1/geo/visited-pois')
   if (!res.ok) throw new Error(`fetchVisitedPOIs: ${res.status}`)

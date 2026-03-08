@@ -7,8 +7,22 @@ interface Props {
   onClose: () => void
 }
 
-const SAC_SCALES = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6']
-const MTB_SCALES = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5']
+const SAC_SCALES = [
+  { value: 'T1', label: 'T1 — Wandern' },
+  { value: 'T2', label: 'T2 — Bergwandern' },
+  { value: 'T3', label: 'T3 — Anspruchsvolles Bergwandern' },
+  { value: 'T4', label: 'T4 — Alpinwandern' },
+  { value: 'T5', label: 'T5 — Anspruchsvolles Alpinwandern' },
+  { value: 'T6', label: 'T6 — Schwieriges Alpinwandern' },
+]
+const MTB_SCALES = [
+  { value: 'S0', label: 'S0 — Leicht' },
+  { value: 'S1', label: 'S1 — Leicht technisch' },
+  { value: 'S2', label: 'S2 — Technisch' },
+  { value: 'S3', label: 'S3 — Schwer technisch' },
+  { value: 'S4', label: 'S4 — Sehr schwer' },
+  { value: 'S5', label: 'S5 — Extrem' },
+]
 
 export default function SegmentEditModal({ segment, onClose }: Props) {
   const qc = useQueryClient()
@@ -83,9 +97,9 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
               className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
             >
               <option value="">Farbe — keine</option>
-              <option value="blue">Blau</option>
-              <option value="red">Rot</option>
-              <option value="black">Schwarz</option>
+              <option value="blue">Blau (leicht)</option>
+              <option value="red">Rot (mittel)</option>
+              <option value="black">Schwarz (schwer)</option>
             </select>
             <select
               value={sacScale}
@@ -93,7 +107,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
               className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
             >
               <option value="">SAC-Skala — keine</option>
-              {SAC_SCALES.map(s => <option key={s} value={s}>{s}</option>)}
+              {SAC_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
             <select
               value={mtbScale}
@@ -101,7 +115,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
               className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
             >
               <option value="">MTB-Skala — keine</option>
-              {MTB_SCALES.map(s => <option key={s} value={s}>{s}</option>)}
+              {MTB_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
         )}

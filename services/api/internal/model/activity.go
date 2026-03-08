@@ -992,6 +992,14 @@ type ActivitySurface struct {
 	Percentage  float64 `json:"percentage"`
 }
 
+// EnrichmentModuleStatus represents the status of a single Stage-2 enrichment module.
+type EnrichmentModuleStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "completed", "error", "no_data", "pending"
+	Error  string `json:"error,omitempty"`
+	Count  int    `json:"count"`
+}
+
 // BikeSetupUpdate is the request body for updating a bike setup.
 type BikeSetupUpdate struct {
 	Name            *string         `json:"name,omitempty"`

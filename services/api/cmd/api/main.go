@@ -213,6 +213,7 @@ func main() {
 			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
 
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
+			r.Get("/activities/{id}/enrichment-status", h.GetEnrichmentStatus)
 
 			r.Get("/tags", h.ListTags)
 			r.Post("/tags", h.CreateTag)
@@ -315,6 +316,12 @@ func main() {
 
 			// Geo
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
+
+			// Entdeckungskarte
+			r.Get("/exploration/coverage", h.GetExplorationCoverage)
+
+			// Peaks Collection
+			r.Get("/peaks/collection", h.GetPeakCollection)
 
 			// Segments
 			r.Get("/segments", h.ListSegments)

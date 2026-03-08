@@ -19,13 +19,14 @@ import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
 import { updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
+import { fetchExplorationCoverage, type ExplorationCoverage } from '@/api/exploration'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
-type ViewMode = 'tracks' | 'heatmap'
+type ViewMode = 'tracks' | 'heatmap' | 'exploration'
 
 type RasterStyleDef = { label: string; type: 'raster'; tiles: string[]; attribution: string }
 type VectorStyleDef = { label: string; type: 'vector'; styleUrl: string }
@@ -554,6 +555,15 @@ export default function MapPage() {
   })
   const [segmentFilters, setSegmentFilters] = useState<SegmentsOverlayFilters>(DEFAULT_SEGMENT_FILTERS)
 
+  // Entdeckungskarte
+  const explorationDataRef = useRef<ExplorationCoverage | null>(null)
+  const { data: explorationData } = useQuery({
+    queryKey: ['exploration-coverage'],
+    queryFn: () => fetchExplorationCoverage(),
+    enabled: viewMode === 'exploration',
+    staleTime: 5 * 60 * 1000, // 5 min cache
+  })
+
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
   const snapMarkerRef = useRef<{ marker: maplibregl.Marker; el: HTMLElement } | null>(null)
@@ -764,7 +774,14 @@ export default function MapPage() {
     map.on('style.load', () => {
       map.resize()
       removeOverlayLayers(map)
-      addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current)
+      removeExplorationLayers(map)
+      if (viewModeRef.current === 'exploration') {
+        if (explorationDataRef.current?.explored_area) {
+          addExplorationLayers(map, explorationDataRef.current.explored_area)
+        }
+      } else {
+        addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current)
+      }
       setStyleVersion(v => v + 1)
     })
 
@@ -832,11 +849,25 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     removeOverlayLayers(map)
-    if (filters.sportTypes.size > 0) {
+    removeExplorationLayers(map)
+    if (viewMode === 'exploration') {
+      // Exploration mode: unexplored overlay (no heatmap tiles needed)
+    } else if (filters.sportTypes.size > 0) {
       addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM])
+
+  // ── Exploration Overlay Layer ─────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    explorationDataRef.current = explorationData ?? null
+    removeExplorationLayers(map)
+    if (viewMode === 'exploration' && explorationData?.explored_area) {
+      addExplorationLayers(map, explorationData.explored_area)
+    }
+  }, [viewMode, explorationData])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -1892,7 +1923,33 @@ export default function MapPage() {
           >
             Heatmap
           </button>
+          <button
+            onClick={() => {
+              setViewMode('exploration')
+              // Automatisch gesetzten Dark-Stil zuruecksetzen
+              if (autoSwitchedToDark.current) {
+                autoSwitchedToDark.current = false
+                setBaseStyle(styleBeforeAutoSwitch.current)
+              }
+            }}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+              viewMode === 'exploration'
+                ? 'bg-accent-DEFAULT text-white'
+                : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            Entdeckung
+          </button>
         </div>
+
+        {/* Exploration stats badge */}
+        {viewMode === 'exploration' && explorationData && (
+          <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+              {explorationData.area_km2.toFixed(1)} km² erkundet
+            </span>
+          </div>
+        )}
 
         {/* Toggle buttons for custom maps + photos + segments + indoor */}
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
@@ -2563,6 +2620,64 @@ function removeOverlayLayers(map: maplibregl.Map) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
   if (map.getSource('heatmap')) map.removeSource('heatmap')
+}
+
+const EXPLORATION_LAYER_IDS = ['exploration-overlay'] as const
+
+function removeExplorationLayers(map: maplibregl.Map) {
+  for (const id of EXPLORATION_LAYER_IDS) {
+    if (map.getLayer(id)) map.removeLayer(id)
+  }
+  if (map.getSource('exploration')) map.removeSource('exploration')
+}
+
+/**
+ * Add exploration overlay: a world-covering polygon with explored area
+ * cut out as holes → unexplored regions appear as semi-transparent dark overlay.
+ */
+function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
+  // World-covering polygon (outer ring, counter-clockwise)
+  const worldRing: GeoJSON.Position[] = [
+    [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85],
+  ]
+
+  // Extract holes from the explored area geometry
+  const holes: GeoJSON.Position[][] = []
+  if (exploredGeometry.type === 'Polygon' && exploredGeometry.coordinates.length > 0) {
+    // The exterior ring of the explored polygon becomes a hole in the overlay
+    holes.push(exploredGeometry.coordinates[0])
+  } else if (exploredGeometry.type === 'MultiPolygon') {
+    // Each polygon's exterior ring becomes a hole
+    for (const poly of exploredGeometry.coordinates) {
+      if (poly.length > 0) {
+        holes.push(poly[0])
+      }
+    }
+  }
+
+  const unexploredPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'Polygon',
+      coordinates: [worldRing, ...holes],
+    },
+  }
+
+  map.addSource('exploration', {
+    type: 'geojson',
+    data: unexploredPolygon,
+  })
+
+  map.addLayer({
+    id: 'exploration-overlay',
+    type: 'fill',
+    source: 'exploration',
+    paint: {
+      'fill-color': '#1a1a2e',
+      'fill-opacity': 0.6,
+    },
+  })
 }
 
 function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {

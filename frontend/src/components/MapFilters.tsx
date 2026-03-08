@@ -31,7 +31,7 @@ interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
   forceDark?: boolean
-  viewMode?: 'tracks' | 'heatmap'
+  viewMode?: 'tracks' | 'heatmap' | 'exploration'
 }
 
 export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks' }: Props) {

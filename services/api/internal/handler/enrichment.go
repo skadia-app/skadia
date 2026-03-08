@@ -314,6 +314,52 @@ func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, surfaces)
 }
 
+// GetEnrichmentStatus returns per-module enrichment status for an activity.
+func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	activityID := chi.URLParam(r, "id")
+	if activityID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		return
+	}
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get enrichment status: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	modules, err := h.DB.GetEnrichmentModuleStatus(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get enrichment status failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get enrichment status", r.URL.Path)
+		return
+	}
+
+	// If enrichment_status is pending/processing, mark all no_data modules as pending
+	if activity.EnrichmentStatus == "pending" || activity.EnrichmentStatus == "processing" {
+		for i := range modules {
+			if modules[i].Status == "no_data" {
+				modules[i].Status = "pending"
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enrichment_status": activity.EnrichmentStatus,
+		"modules":           modules,
+	})
+}
+
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

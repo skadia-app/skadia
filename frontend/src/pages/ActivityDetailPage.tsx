@@ -33,6 +33,7 @@ import ClimbsSection from '@/components/ClimbsSection'
 import IntervalSection from '@/components/IntervalSection'
 import StopsSection from '@/components/StopsSection'
 import SurfacesSection from '@/components/SurfacesSection'
+import EnrichmentStatusSection from '@/components/EnrichmentStatusSection'
 import ActivitySegments from '@/components/ActivitySegments'
 import DetectedLapsTable from '@/components/DetectedLapsTable'
 import LiftSection from '@/components/LiftSection'
@@ -396,6 +397,9 @@ export default function ActivityDetailPage() {
 
       {/* Untergrund */}
       <SurfacesSection activityId={activity.id} />
+
+      {/* Enrichment-Modul-Status */}
+      <EnrichmentStatusSection activityId={activity.id} enrichmentStatus={activity.enrichment_status} />
 
       {/* Erkannte Runden */}
       <DetectedLapsTable activityId={activity.id} />

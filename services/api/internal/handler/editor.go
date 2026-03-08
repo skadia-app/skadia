@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -312,7 +313,8 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// ApplyActivityEdits applies the saved edits and triggers a recompute.
+// ApplyActivityEdits applies the saved edits (HR spike smooth, GPS outlier smooth,
+// trim) to the activity streams and triggers a recompute.
 //
 // POST /api/v1/activities/{id}/edits/apply
 func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
@@ -335,11 +337,34 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Trigger a full recompute — reprocessActivity already handles all recalculation
+	// 1. Load the sidecar from S3
+	key := editorKey(userID, activityID)
+	data, _, sidecarErr := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
+	var sidecar editor.EditSidecar
+	hasSidecar := false
+	if sidecarErr == nil {
+		if err := json.Unmarshal(data, &sidecar); err != nil {
+			slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
+			return
+		}
+		hasSidecar = len(sidecar.Edits) > 0
+	}
+
+	// 2. Trigger a full recompute from original file (re-parse, re-insert streams)
 	if err := h.reprocessActivity(r.Context(), activityID, userID, nil); err != nil {
 		slog.Error("editor: apply recompute failed", "id", activityID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Recompute Error", err.Error(), r.URL.Path)
 		return
+	}
+
+	// 3. Apply sidecar edits to the freshly inserted streams
+	if hasSidecar {
+		if err := h.applySidecarEdits(r.Context(), activityID, userID, &sidecar); err != nil {
+			slog.Error("editor: apply sidecar edits failed", "id", activityID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Apply Error", err.Error(), r.URL.Path)
+			return
+		}
 	}
 
 	// Mark edits as applied
@@ -359,4 +384,195 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// applySidecarEdits reads the activity streams, applies edits from the sidecar,
+// writes modified streams back to DB, and recalculates affected metrics.
+func (h *Handler) applySidecarEdits(ctx context.Context, activityID, userID string, sidecar *editor.EditSidecar) error {
+	// Load current streams
+	streams, err := h.DB.GetStreams(ctx, activityID)
+	if err != nil {
+		return fmt.Errorf("load streams: %w", err)
+	}
+	if len(streams) == 0 {
+		return nil
+	}
+
+	// Convert to editor.StreamPoint for the apply functions
+	editorPoints := make([]editor.StreamPoint, len(streams))
+	for i, s := range streams {
+		editorPoints[i] = editor.StreamPoint{
+			Time:      s.Time,
+			HeartRate: s.HeartRate,
+			Lat:       s.Lat,
+			Lng:       s.Lng,
+		}
+	}
+
+	// Build a sidecar with only smoothing edits (not trim/crop which change
+	// slice boundaries and are handled differently)
+	hasGPS := false
+	hasHR := false
+	smoothEdits := make([]editor.Edit, 0, len(sidecar.Edits))
+	for _, edit := range sidecar.Edits {
+		switch edit.Type {
+		case editor.EditTypeGPSOutlierSmooth:
+			hasGPS = true
+			smoothEdits = append(smoothEdits, edit)
+		case "hr_spike_smooth":
+			hasHR = true
+			smoothEdits = append(smoothEdits, edit)
+		}
+	}
+
+	if !hasGPS && !hasHR {
+		return nil
+	}
+
+	// Apply only smoothing edits (preserves slice length for 1:1 index mapping)
+	smoothSidecar := &editor.EditSidecar{Edits: smoothEdits}
+	modified := editor.ApplyEdits(editorPoints, smoothSidecar)
+
+	// Apply GPS outlier corrections to DB
+	if hasGPS {
+		if err := h.applyGPSEditsToStreams(ctx, activityID, editorPoints, modified); err != nil {
+			return fmt.Errorf("apply GPS edits: %w", err)
+		}
+	}
+
+	// Apply HR spike corrections to DB
+	if hasHR {
+		if err := h.applyHREditsToStreams(ctx, activityID, editorPoints, modified); err != nil {
+			return fmt.Errorf("apply HR edits: %w", err)
+		}
+	}
+
+	// Recalculate distance, speed, and other metrics from the modified streams
+	if hasGPS || hasHR {
+		if err := h.recalcActivityMetricsFromStreams(ctx, activityID, userID); err != nil {
+			return fmt.Errorf("recalc metrics: %w", err)
+		}
+	}
+
+	// Rebuild heatmap lines if GPS was modified
+	if hasGPS {
+		if err := h.rebuildHeatmapForActivity(ctx, activityID, userID); err != nil {
+			slog.Error("editor: rebuild heatmap failed", "id", activityID, "error", err)
+		}
+	}
+
+	return nil
+}
+
+// applyGPSEditsToStreams writes interpolated or nulled GPS coordinates back to the DB.
+func (h *Handler) applyGPSEditsToStreams(ctx context.Context, activityID string, original, modified []editor.StreamPoint) error {
+	for i := range modified {
+		if i >= len(original) {
+			break
+		}
+		// Only update points that were changed
+		origLat := original[i].Lat
+		modLat := modified[i].Lat
+		origLng := original[i].Lng
+		modLng := modified[i].Lng
+
+		latChanged := (origLat == nil) != (modLat == nil) || (origLat != nil && modLat != nil && *origLat != *modLat)
+		lngChanged := (origLng == nil) != (modLng == nil) || (origLng != nil && modLng != nil && *origLng != *modLng)
+
+		if !latChanged && !lngChanged {
+			continue
+		}
+
+		_, err := h.DB.Pool.Exec(ctx,
+			`UPDATE activity_streams SET lat = $1, lng = $2 WHERE activity_id = $3 AND time = $4`,
+			modLat, modLng, activityID, modified[i].Time,
+		)
+		if err != nil {
+			return fmt.Errorf("update GPS at %v: %w", modified[i].Time, err)
+		}
+	}
+	return nil
+}
+
+// applyHREditsToStreams writes smoothed or nulled HR values back to the DB.
+func (h *Handler) applyHREditsToStreams(ctx context.Context, activityID string, original, modified []editor.StreamPoint) error {
+	for i := range modified {
+		if i >= len(original) {
+			break
+		}
+		origHR := original[i].HeartRate
+		modHR := modified[i].HeartRate
+
+		hrChanged := (origHR == nil) != (modHR == nil) || (origHR != nil && modHR != nil && *origHR != *modHR)
+		if !hrChanged {
+			continue
+		}
+
+		_, err := h.DB.Pool.Exec(ctx,
+			`UPDATE activity_streams SET heart_rate = $1 WHERE activity_id = $2 AND time = $3`,
+			modHR, activityID, modified[i].Time,
+		)
+		if err != nil {
+			return fmt.Errorf("update HR at %v: %w", modified[i].Time, err)
+		}
+	}
+	return nil
+}
+
+// recalcActivityMetricsFromStreams reloads streams from DB and recalculates
+// distance, speed, max_speed, avg_hr, max_hr for the activity.
+func (h *Handler) recalcActivityMetricsFromStreams(ctx context.Context, activityID, userID string) error {
+	points, err := h.DB.GetStreamPoints(ctx, activityID)
+	if err != nil {
+		return fmt.Errorf("get stream points: %w", err)
+	}
+	if len(points) == 0 {
+		return nil
+	}
+
+	metrics := editor.MetricsFromStreams(points)
+
+	// Build update fields
+	fields := map[string]any{
+		"distance_m":   metrics.DistanceM,
+		"avg_speed_ms": metrics.AvgSpeedMS,
+		"max_speed_ms": metrics.MaxSpeedMS,
+	}
+	if metrics.AvgHR != nil {
+		fields["avg_heart_rate"] = int(*metrics.AvgHR)
+	}
+	if metrics.MaxHR != nil {
+		fields["max_heart_rate"] = *metrics.MaxHR
+	}
+
+	return h.DB.UpdateEnrichmentFields(ctx, activityID, fields)
+}
+
+// rebuildHeatmapForActivity deletes and re-creates heatmap_lines and heatmap_points
+// for an activity after GPS edits were applied.
+func (h *Handler) rebuildHeatmapForActivity(ctx context.Context, activityID, userID string) error {
+	activity, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil || activity == nil {
+		return fmt.Errorf("load activity for heatmap rebuild: %w", err)
+	}
+
+	// Delete existing heatmap data
+	if err := h.DB.DeleteHeatmapLines(ctx, activityID); err != nil {
+		return fmt.Errorf("delete heatmap lines: %w", err)
+	}
+	if err := h.DB.DeleteHeatmapPoints(ctx, activityID); err != nil {
+		return fmt.Errorf("delete heatmap points: %w", err)
+	}
+
+	// Re-insert heatmap line + points (uses activity_tracks rebuilt during recompute)
+	subTypePtr := activity.SubType
+	if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt); err != nil {
+		return fmt.Errorf("insert heatmap line: %w", err)
+	}
+	interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
+	if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt, interval); err != nil {
+		return fmt.Errorf("insert heatmap points: %w", err)
+	}
+
+	return nil
 }

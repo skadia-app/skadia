@@ -1175,6 +1175,14 @@ export default function ActivitiesPage() {
           >
             Alle öffnen
           </button>
+          {selectedIds.size >= 2 && selectedIds.size <= 3 && (
+            <button
+              onClick={() => navigate(`/activities/compare?ids=${[...selectedIds].join(',')}`)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-50 dark:hover:bg-accent-900/20 cursor-pointer font-medium"
+            >
+              Vergleichen
+            </button>
+          )}
           <ZipDropdown
             ids={[...selectedIds]}
             loading={zipLoading}

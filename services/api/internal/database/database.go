@@ -2857,6 +2857,93 @@ func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]mod
 	return surfaces, rows.Err()
 }
 
+// GetEnrichmentModuleStatus returns per-module enrichment status for an activity.
+// It checks enrichment_errors for failures and various data tables for presence.
+func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) ([]model.EnrichmentModuleStatus, error) {
+	// 1) Fetch errors from enrichment_errors
+	errorRows, err := db.Pool.Query(ctx,
+		`SELECT module, error_message FROM enrichment_errors WHERE activity_id = $1`,
+		activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get enrichment errors: %w", err)
+	}
+	defer errorRows.Close()
+
+	errors := map[string]string{}
+	for errorRows.Next() {
+		var module, msg string
+		if err := errorRows.Scan(&module, &msg); err != nil {
+			return nil, fmt.Errorf("scan enrichment error: %w", err)
+		}
+		errors[module] = msg
+	}
+
+	// 2) Check data presence in one query
+	var peakCount, settlementCount, waterCount, forestCount, borderCount int
+	var stopCount, surfaceCount, climbCount, liftCount, intervalCount int
+	var hasCommuteClusters, hasGastronomy bool
+	err = db.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'peak'),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('still_water', 'flowing_water')),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'forest'),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'border'),
+			(SELECT count(*) FROM activity_stops WHERE activity_id = $1),
+			(SELECT count(*) FROM activity_surfaces WHERE activity_id = $1),
+			(SELECT count(*) FROM activity_climbs WHERE activity_id = $1),
+			(SELECT count(*) FROM activity_lift_candidates WHERE activity_id = $1),
+			(SELECT count(*) FROM activity_intervals WHERE activity_id = $1),
+			EXISTS(SELECT 1 FROM commute_clusters WHERE user_id = (SELECT user_id FROM activities WHERE id = $1)),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy') > 0
+	`, activityID).Scan(
+		&peakCount, &settlementCount, &waterCount, &forestCount, &borderCount,
+		&stopCount, &surfaceCount, &climbCount, &liftCount, &intervalCount,
+		&hasCommuteClusters, &hasGastronomy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get enrichment data presence: %w", err)
+	}
+
+	modules := []struct {
+		name     string
+		hasData  bool
+		count    int
+	}{
+		{"peaks", peakCount > 0, peakCount},
+		{"lifts", liftCount > 0, liftCount},
+		{"settlements", settlementCount > 0, settlementCount},
+		{"commute", hasCommuteClusters, 0},
+		{"borders", borderCount > 0, borderCount},
+		{"water", waterCount > 0, waterCount},
+		{"forests", forestCount > 0, forestCount},
+		{"surfaces", surfaceCount > 0, surfaceCount},
+		{"stops", stopCount > 0 || hasGastronomy, stopCount},
+		{"intervals", intervalCount > 0, intervalCount},
+		{"ascents", climbCount > 0, climbCount},
+		{"embeddings", false, 0}, // skeleton — not yet implemented
+	}
+
+	result := make([]model.EnrichmentModuleStatus, 0, len(modules))
+	for _, m := range modules {
+		ms := model.EnrichmentModuleStatus{
+			Name:  m.name,
+			Count: m.count,
+		}
+		if errMsg, ok := errors[m.name]; ok {
+			ms.Status = "error"
+			ms.Error = errMsg
+		} else if m.hasData {
+			ms.Status = "completed"
+		} else {
+			ms.Status = "no_data"
+		}
+		result = append(result, ms)
+	}
+
+	return result, nil
+}
+
 // DeleteActivityGeoTags removes all geo tags for an activity (Stage 2 data).
 func (db *DB) DeleteActivityGeoTags(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_geo_tags WHERE activity_id = $1`, activityID)

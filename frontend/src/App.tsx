@@ -30,6 +30,7 @@ const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
 const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
+const PeakCollectionPage = lazy(() => import('@/pages/PeakCollectionPage'))
 const ActivityEditorPage = lazy(() => import('@/pages/ActivityEditorPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const TrainingTab = lazy(() => import('@/pages/analytics/TrainingTab'))
@@ -39,6 +40,7 @@ const InsightsTab = lazy(() => import('@/pages/analytics/InsightsTab'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
+const ActivityComparisonPage = lazy(() => import('@/pages/ActivityComparisonPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -106,6 +108,7 @@ export default function App() {
                         <Route index element={<Navigate to="/dashboard" replace />} />
                         <Route path="dashboard" element={<DashboardPage />} />
                         <Route path="activities" element={<ActivitiesPage />} />
+                        <Route path="activities/compare" element={<ActivityComparisonPage />} />
                         <Route path="activities/:id" element={<ActivityDetailPage />} />
                         <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
                         <Route path="map" element={<MapPage />} />
@@ -131,6 +134,7 @@ export default function App() {
                         <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
                         <Route path="workshop/rules" element={<AutomationRulesPage />} />
                         <Route path="workshop/document-review" element={<DocumentReviewPage />} />
+                        <Route path="workshop/peaks" element={<PeakCollectionPage />} />
                         <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
                         <Route path="settings/tags" element={<TagsPage />} />
                         <Route path="settings/import" element={<ImportPage />} />
