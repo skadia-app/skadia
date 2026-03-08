@@ -452,7 +452,7 @@ export default function SettingsPage() {
       <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit">
         {[
           { id: 'general' as const, label: 'Allgemein' },
-          { id: 'ai' as const, label: 'KI & Modelle' },
+          { id: 'ai' as const, label: 'KI & ML' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -468,7 +468,12 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {activeTab === 'ai' && <LLMSettingsPage />}
+      {activeTab === 'ai' && <>
+        <LLMSettingsPage />
+        <Stage2EnrichmentSection />
+        <MLServiceSection />
+        <NotificationSettingsSection />
+      </>}
 
       {activeTab === 'general' && <>
       <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
@@ -639,14 +644,6 @@ export default function SettingsPage() {
         </Link>
       </section>
 
-      {/* Enrichment Stage 2 — ML-Module */}
-      <Stage2EnrichmentSection />
-
-      {/* ML-Service — nightly jobs */}
-      <MLServiceSection />
-
-      {/* Benachrichtigungen */}
-      <NotificationSettingsSection />
 
       {/* Automatisierung */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">

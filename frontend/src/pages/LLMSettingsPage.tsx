@@ -186,6 +186,11 @@ function LLMRoleCard({ role, config, onSave }: {
                            bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono
                            text-neutral-900 dark:text-neutral-100 focus:outline-none"
               />
+              {apiBase.includes('localhost') && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  ⚠ Container können <code>localhost</code> nicht erreichen. Für lokale Dienste bitte <code>host.containers.internal</code> verwenden, z.B. <code>http://host.containers.internal:8181/v1</code>
+                </p>
+              )}
             </div>
           )}
 
