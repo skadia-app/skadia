@@ -206,21 +206,21 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	fileCT := header.Header.Get("Content-Type")
-	if fileCT == "" {
-		fileCT = "image/jpeg"
-	}
-	if !strings.HasPrefix(fileCT, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
-		return
-	}
-
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read marker image data failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
+
+	// Validate image type by inspecting the actual file bytes (magic bytes),
+	// not the client-supplied Content-Type header which can be spoofed.
+	detectedCT, errMsg := validateImageBytes(data)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
+		return
+	}
+	fileCT := detectedCT
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext == "" {

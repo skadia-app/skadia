@@ -251,21 +251,21 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	fileCT := header.Header.Get("Content-Type")
-	if fileCT == "" {
-		fileCT = "image/jpeg"
-	}
-	if !strings.HasPrefix(fileCT, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
-		return
-	}
-
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read cover image data failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
+
+	// Validate image type by inspecting the actual file bytes (magic bytes),
+	// not the client-supplied Content-Type header which can be spoofed.
+	detectedCT, errMsg := validateImageBytes(data)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
+		return
+	}
+	fileCT := detectedCT
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext == "" {
@@ -455,7 +455,7 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 	lng := *tag.Lng
 	updated := 0
 	for _, actID := range activityIDs {
-		_, err := h.DB.UpdateActivity(r.Context(), actID, &model.ActivityUpdate{
+		_, err := h.DB.UpdateActivity(r.Context(), actID, userID, &model.ActivityUpdate{
 			LocationLat: &lat,
 			LocationLng: &lng,
 		})

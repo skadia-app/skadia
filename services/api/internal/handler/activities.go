@@ -190,7 +190,7 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activity, err := h.DB.UpdateActivity(r.Context(), id, &update)
+	activity, err := h.DB.UpdateActivity(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update activity failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)

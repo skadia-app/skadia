@@ -649,11 +649,11 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	return result, nil
 }
 
-func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.ActivityUpdate) (*model.Activity, error) {
+func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *model.ActivityUpdate) (*model.Activity, error) {
 	var sets []string
 	var args []any
-	argIdx := 2
-	args = append(args, id)
+	argIdx := 3
+	args = append(args, id, userID)
 
 	if update.Title != nil {
 		sets = append(sets, fmt.Sprintf("title = $%d, title_is_manual = true", argIdx))
@@ -746,7 +746,7 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 
 	sets = append(sets, "updated_at = NOW()")
 
-	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update activity: %w", err)

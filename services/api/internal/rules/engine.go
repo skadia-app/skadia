@@ -28,6 +28,12 @@ type ActivityChange struct {
 	Value any
 }
 
+// EvaluateGroups evaluates a slice of ConditionGroups against an activity map.
+// Each group is evaluated independently by evalGroup (which respects the
+// group's own "logic" field for AND/OR within the group). Multiple groups are
+// always combined with AND: all groups must match for the overall result to be
+// true. OR logic between groups is not supported; use a single group with
+// logic="or" if you need any-condition semantics.
 func EvaluateGroups(groups []ConditionGroup, activity map[string]any) bool {
 	for _, g := range groups {
 		if !evalGroup(g, activity) {
