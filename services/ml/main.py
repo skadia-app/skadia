@@ -15,12 +15,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _nc: nats.NATS | None = None
-_subscriptions: list = []
+_consumer_tasks: list = []
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _nc, _subscriptions
+    global _nc, _consumer_tasks
 
     # Startup
     logger.info("ML service starting up")
@@ -51,16 +51,16 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Connected to NATS at %s", nats_url)
 
-    # Start JetStream consumers
-    _subscriptions = await start_consumers(_nc)
+    # Start JetStream pull consumers (returns asyncio.Task list)
+    _consumer_tasks = await start_consumers(_nc)
 
     yield
 
-    # Shutdown
+    # Shutdown — cancel pull consumer tasks (no unsubscribe needed for pull)
     logger.info("ML service shutting down")
 
-    for sub in _subscriptions:
-        await sub.unsubscribe()
+    for task in _consumer_tasks:
+        task.cancel()
 
     if _nc and not _nc.is_closed:
         await _nc.close()

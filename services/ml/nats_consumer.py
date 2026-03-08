@@ -373,81 +373,69 @@ async def _upsert_analytics_cache(conn, user_id: str, cache_key: str, result) ->
     )
 
 
-async def start_consumers(nc: nats.NATS) -> list:
-    """Start JetStream consumers for all three priority queues."""
+async def _ensure_stream(js, name: str, subjects: list[str]) -> None:
+    """Create a JetStream stream if it doesn't exist."""
+    try:
+        await js.find_stream_name_by_subject(subjects[0])
+    except nats.js.errors.NotFoundError:
+        await js.add_stream(name=name, subjects=subjects, retention="workqueue")
+
+
+async def _pull_loop(sub, handler, name: str) -> None:
+    """Generic pull-consumer loop: fetch one message at a time, dispatch to handler.
+
+    Pull consumers don't bind exclusively to a subscription, so they survive
+    service restarts without "consumer is already bound" errors.
+    """
+    logger.info("Pull consumer %s started", name)
+    while True:
+        try:
+            msgs = await sub.fetch(batch=1, timeout=5)
+            for msg in msgs:
+                await _global_semaphore.acquire()
+                task = asyncio.create_task(handler(msg))
+                task.add_done_callback(lambda _: _global_semaphore.release())
+        except nats.errors.TimeoutError:
+            pass  # No messages available — poll again
+        except Exception as e:
+            logger.error("Pull consumer %s fetch error: %s", name, e)
+            await asyncio.sleep(1)
+
+
+async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
+    """Start JetStream pull consumers for all queues.
+
+    Returns a list of asyncio.Tasks (one per consumer loop) that can be
+    cancelled on shutdown. Uses pull-based consumers instead of push-based
+    to avoid "consumer is already bound" errors on restart.
+    """
     js = nc.jetstream()
+    tasks: list[asyncio.Task] = []
 
-    # Ensure the stream exists
-    try:
-        await js.find_stream_name_by_subject("skadia.stage2.>")
-    except nats.js.errors.NotFoundError:
-        await js.add_stream(
-            name="stage2",
-            subjects=["skadia.stage2.>"],
-            retention="workqueue",
+    # --- Stage 2 enrichment (3 priority queues) ---
+    await _ensure_stream(js, "stage2", ["skadia.stage2.>"])
+
+    for subject, durable, steps, name in [
+        ("skadia.stage2.high", "ml-stage2-high", HIGH_PRIORITY_STEPS, "stage2-high"),
+        ("skadia.stage2.normal", "ml-stage2-normal", NORMAL_PRIORITY_STEPS, "stage2-normal"),
+        ("skadia.stage2.low", "ml-stage2-low", LOW_PRIORITY_STEPS, "stage2-low"),
+    ]:
+        sub = await js.pull_subscribe(
+            subject,
+            durable=durable,
+            config=ConsumerConfig(
+                deliver_policy=DeliverPolicy.ALL,
+                ack_policy=AckPolicy.EXPLICIT,
+                max_deliver=MAX_RETRIES + 1,
+            ),
         )
+        handler = lambda msg, s=steps: _process_message(msg, s, nc)
+        tasks.append(asyncio.create_task(_pull_loop(sub, handler, name)))
 
-    subscriptions = []
+    # --- Document processing ---
+    await _ensure_stream(js, "document", ["skadia.document.>"])
 
-    # High priority consumer
-    sub_high = await js.subscribe(
-        "skadia.stage2.high",
-        durable="ml-stage2-high",
-        config=ConsumerConfig(
-            deliver_policy=DeliverPolicy.ALL,
-            ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
-        ),
-    )
-    subscriptions.append(sub_high)
-
-    # Normal priority consumer
-    sub_normal = await js.subscribe(
-        "skadia.stage2.normal",
-        durable="ml-stage2-normal",
-        config=ConsumerConfig(
-            deliver_policy=DeliverPolicy.ALL,
-            ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
-        ),
-    )
-    subscriptions.append(sub_normal)
-
-    # Low priority consumer
-    sub_low = await js.subscribe(
-        "skadia.stage2.low",
-        durable="ml-stage2-low",
-        config=ConsumerConfig(
-            deliver_policy=DeliverPolicy.ALL,
-            ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
-        ),
-    )
-    subscriptions.append(sub_low)
-
-    # Start message processing loops
-    async def _consume(sub, steps, name):
-        logger.info("Consumer %s started", name)
-        async for msg in sub.messages:
-            await _global_semaphore.acquire()
-            task = asyncio.create_task(_process_message(msg, steps, nc))
-            task.add_done_callback(lambda _: _global_semaphore.release())
-
-    asyncio.create_task(_consume(sub_high, HIGH_PRIORITY_STEPS, "high"))
-    asyncio.create_task(_consume(sub_normal, NORMAL_PRIORITY_STEPS, "normal"))
-    asyncio.create_task(_consume(sub_low, LOW_PRIORITY_STEPS, "low"))
-
-    # Document processing stream + consumer
-    try:
-        await js.find_stream_name_by_subject("skadia.document.>")
-    except nats.js.errors.NotFoundError:
-        await js.add_stream(
-            name="document",
-            subjects=["skadia.document.>"],
-            retention="workqueue",
-        )
-
-    sub_doc = await js.subscribe(
+    sub_doc = await js.pull_subscribe(
         "skadia.document.uploaded",
         durable="ml-document-processor",
         config=ConsumerConfig(
@@ -457,47 +445,26 @@ async def start_consumers(nc: nats.NATS) -> list:
             ack_wait=120,
         ),
     )
-    subscriptions.append(sub_doc)
+    tasks.append(asyncio.create_task(
+        _pull_loop(sub_doc, lambda msg: _process_document_message(msg, nc), "document")
+    ))
 
-    async def _consume_documents(sub):
-        logger.info("Consumer document-processor started")
-        async for msg in sub.messages:
-            await _global_semaphore.acquire()
-            task = asyncio.create_task(_process_document_message(msg, nc))
-            task.add_done_callback(lambda _: _global_semaphore.release())
+    # --- Analytics invalidation ---
+    await _ensure_stream(js, "analytics", ["skadia.analytics.>"])
 
-    asyncio.create_task(_consume_documents(sub_doc))
-
-    # Analytics invalidation stream + consumer
-    try:
-        await js.find_stream_name_by_subject("skadia.analytics.>")
-    except nats.js.errors.NotFoundError:
-        await js.add_stream(
-            name="analytics",
-            subjects=["skadia.analytics.>"],
-            retention="workqueue",
-        )
-
-    sub_analytics = await js.subscribe(
+    sub_analytics = await js.pull_subscribe(
         "skadia.analytics.invalidate",
         durable="ml-analytics-invalidate",
         config=ConsumerConfig(
             deliver_policy=DeliverPolicy.ALL,
             ack_policy=AckPolicy.EXPLICIT,
             max_deliver=MAX_RETRIES + 1,
-            ack_wait=300,  # Analytics kann länger dauern (5 min)
+            ack_wait=300,
         ),
     )
-    subscriptions.append(sub_analytics)
+    tasks.append(asyncio.create_task(
+        _pull_loop(sub_analytics, lambda msg: _process_analytics_message(msg, nc), "analytics")
+    ))
 
-    async def _consume_analytics(sub):
-        logger.info("Consumer analytics-invalidate started")
-        async for msg in sub.messages:
-            await _global_semaphore.acquire()
-            task = asyncio.create_task(_process_analytics_message(msg, nc))
-            task.add_done_callback(lambda _: _global_semaphore.release())
-
-    asyncio.create_task(_consume_analytics(sub_analytics))
-
-    logger.info("All NATS consumers started")
-    return subscriptions
+    logger.info("All NATS pull consumers started (%d tasks)", len(tasks))
+    return tasks
