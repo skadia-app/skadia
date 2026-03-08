@@ -1,0 +1,197 @@
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import * as echarts from 'echarts/core'
+import type { EChartsCoreOption } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import {
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { fetchHealthStress } from '@/api/analytics'
+
+echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
+
+type TimePreset = '7d' | '30d' | '90d' | '1y' | 'all'
+
+const presetLabels: Record<TimePreset, string> = {
+  '7d': '7T',
+  '30d': '30T',
+  '90d': '90T',
+  '1y': '1J',
+  'all': 'Alle',
+}
+
+function getDateRange(preset: TimePreset): { from: string; to: string } {
+  const to = new Date()
+  const from = new Date()
+  switch (preset) {
+    case '7d': from.setDate(from.getDate() - 7); break
+    case '30d': from.setDate(from.getDate() - 30); break
+    case '90d': from.setDate(from.getDate() - 90); break
+    case '1y': from.setFullYear(from.getFullYear() - 1); break
+    case 'all': return { from: '0001-01-01', to: to.toISOString().split('T')[0] }
+  }
+  return {
+    from: from.toISOString().split('T')[0],
+    to: to.toISOString().split('T')[0],
+  }
+}
+
+export default function StressChart() {
+  const [preset, setPreset] = useState<TimePreset>('30d')
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  const { from, to } = useMemo(() => getDateRange(preset), [preset])
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['health', 'stress', from, to],
+    queryFn: () => fetchHealthStress(from, to),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    if (chartRef.current) chartRef.current.dispose()
+    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
+    chartRef.current = chart
+
+    const observer = new ResizeObserver(() => chart.resize())
+    observer.observe(containerRef.current)
+
+    return () => {
+      observer.disconnect()
+      chart.dispose()
+      chartRef.current = null
+    }
+  }, [data])
+
+  useEffect(() => {
+    if (!chartRef.current || !data || data.length === 0) return
+
+    // Aggregate by date (take daily average)
+    const byDate = new Map<string, { sum: number; count: number }>()
+    for (const entry of data) {
+      if (entry.stress_level == null) continue
+      const date = entry.measured_at_utc.split('T')[0]
+      const existing = byDate.get(date)
+      if (existing) {
+        existing.sum += entry.stress_level
+        existing.count++
+      } else {
+        byDate.set(date, { sum: entry.stress_level, count: 1 })
+      }
+    }
+
+    const dates = Array.from(byDate.keys()).sort()
+    const values = dates.map(d => {
+      const e = byDate.get(d)!
+      return Math.round(e.sum / e.count)
+    })
+
+    const option: EChartsCoreOption = {
+      backgroundColor: 'transparent',
+      grid: { left: 52, right: 20, top: 20, bottom: 40 },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(17,24,39,0.92)',
+        borderColor: '#374151',
+        textStyle: { color: '#f3f4f6', fontSize: 12 },
+        formatter: (params: unknown) => {
+          const items = params as Array<{ value: number; axisValueLabel: string }>
+          if (!Array.isArray(items) || items.length === 0) return ''
+          const val = items[0].value
+          let level = 'Niedrig'
+          if (val >= 75) level = 'Sehr hoch'
+          else if (val >= 50) level = 'Hoch'
+          else if (val >= 25) level = 'Mittel'
+          return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
+            <div><strong style="color:#f9fafb">${val}</strong> <span style="color:#9ca3af">(${level})</span></div>`
+        },
+      },
+      xAxis: {
+        type: 'category',
+        data: dates,
+        axisLabel: { fontSize: 10, color: '#6b7280' },
+        splitLine: { show: false },
+        axisLine: { lineStyle: { color: '#374151' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        axisLabel: { fontSize: 10, color: '#6b7280' },
+        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+      },
+      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+      series: [
+        {
+          type: 'line',
+          data: values,
+          showSymbol: false,
+          smooth: 0.3,
+          lineStyle: { width: 2, color: '#f97316' },
+          itemStyle: { color: '#f97316' },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(249,115,22,0.25)' },
+              { offset: 1, color: 'rgba(249,115,22,0.02)' },
+            ]),
+          },
+        },
+      ],
+    }
+
+    chartRef.current.setOption(option, { notMerge: true })
+  }, [data])
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+          Stress-Verlauf
+        </h2>
+        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+          {(Object.keys(presetLabels) as TimePreset[]).map(p => (
+            <button
+              key={p}
+              onClick={() => setPreset(p)}
+              className={
+                p === preset
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+              }
+            >
+              {presetLabels[p]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
+            Lade Stressdaten...
+          </div>
+        ) : isError ? (
+          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
+            Fehler beim Laden der Stressdaten
+          </div>
+        ) : !data || data.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
+            <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span className="text-sm">Keine Stressdaten vorhanden</span>
+          </div>
+        ) : (
+          <div ref={containerRef} className="h-[280px] w-full" />
+        )}
+      </div>
+    </div>
+  )
+}

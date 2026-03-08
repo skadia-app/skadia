@@ -59,6 +59,7 @@ export interface Activity {
   end_city?: string | null
   start_state?: string | null
   start_country?: string | null
+  start_country_code?: string | null
   weather_temp_c?: number | null
   weather_condition?: string | null
   weather_humidity?: number | null

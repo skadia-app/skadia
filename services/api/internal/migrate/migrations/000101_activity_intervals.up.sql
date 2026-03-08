@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS activity_intervals (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_activity_intervals_activity ON activity_intervals(activity_id);
+CREATE INDEX IF NOT EXISTS idx_activity_intervals_activity ON activity_intervals(activity_id);

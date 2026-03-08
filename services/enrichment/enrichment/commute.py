@@ -120,11 +120,41 @@ async def enrich_commute(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         )
 
         if is_commute:
+            # Ensure "Pendeln" auto-tag exists for this user
+            tag_row = await conn.fetchrow(
+                """
+                INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
+                VALUES ($1, 'Pendeln', '#6B7280', '#FFFFFF', true, 'activity')
+                ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+                RETURNING id
+                """,
+                user_id,
+            )
+            tag_id = tag_row["id"]
+
+            # Assign tag to activity (junction table)
             await conn.execute(
-                "UPDATE activities SET is_commute = true WHERE id = $1",
+                """
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+                VALUES ($1, $2, 'auto')
+                ON CONFLICT (activity_id, tag_id) DO NOTHING
+                """,
+                activity_id,
+                tag_id,
+            )
+
+            # Sync denormalized activities.tags TEXT[] cache
+            await conn.execute(
+                """
+                UPDATE activities
+                SET tags = array_append(tags, 'Pendeln'),
+                    updated_at = NOW()
+                WHERE id = $1 AND NOT ('Pendeln' = ANY(COALESCE(tags, '{}')))
+                """,
                 activity_id,
             )
-            logger.info("Activity %s marked as commute", activity_id)
+
+            logger.info("Activity %s tagged as Pendeln", activity_id)
 
         return is_commute
 

@@ -294,6 +294,42 @@ export interface CorrelationInsight {
   explanation: string | null
 }
 
+// === Health Data Types (from /health/* endpoints) ===
+
+export interface HealthStressEntry {
+  user_id: string
+  measured_at_utc: string
+  stress_level: number | null
+  source_type: string
+  created_at: string
+}
+
+export interface HealthSpO2Entry {
+  user_id: string
+  measured_at_utc: string
+  spo2_pct: number | null
+  source_type: string
+  created_at: string
+}
+
+export interface HealthBloodPressureEntry {
+  user_id: string
+  measured_at_utc: string
+  systolic: number | null
+  diastolic: number | null
+  pulse: number | null
+  source_type: string
+  created_at: string
+}
+
+export interface HealthFitnessAgeEntry {
+  user_id: string
+  calendar_date: string
+  fitness_age: number | null
+  source_type: string
+  created_at: string
+}
+
 // === API Functions ===
 
 export async function fetchAnalyticsPMC(params: string): Promise<PMCExtended> {
@@ -410,4 +446,26 @@ export async function fetchSleepAnalysis(params: string): Promise<SleepAnalysis>
 
 export async function fetchWeightAnalysis(params: string): Promise<WeightAnalysis> {
   return apiClient(`/analytics/weight?${params}`)
+}
+
+// === Health Data Fetch Functions (from /health/* endpoints) ===
+
+export async function fetchHealthStress(from: string, to: string): Promise<HealthStressEntry[]> {
+  const params = new URLSearchParams({ from, to }).toString()
+  return apiClient(`/health/stress?${params}`)
+}
+
+export async function fetchHealthSpO2(from: string, to: string): Promise<HealthSpO2Entry[]> {
+  const params = new URLSearchParams({ from, to }).toString()
+  return apiClient(`/health/spo2?${params}`)
+}
+
+export async function fetchHealthBloodPressure(from: string, to: string): Promise<HealthBloodPressureEntry[]> {
+  const params = new URLSearchParams({ from, to }).toString()
+  return apiClient(`/health/blood-pressure?${params}`)
+}
+
+export async function fetchHealthFitnessAge(from: string, to: string): Promise<HealthFitnessAgeEntry[]> {
+  const params = new URLSearchParams({ from, to }).toString()
+  return apiClient(`/health/fitness-age?${params}`)
 }

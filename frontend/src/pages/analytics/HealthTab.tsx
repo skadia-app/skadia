@@ -4,6 +4,11 @@ import HRVAnalysisChart from '@/components/analytics/health/HRVAnalysis'
 import SleepAnalysisChart from '@/components/analytics/health/SleepAnalysis'
 import WeightChart from '@/components/analytics/health/WeightChart'
 import HealthMetricsGrid from '@/components/analytics/health/HealthMetricsGrid'
+import StressChart from '@/components/analytics/health/StressChart'
+import SpO2Chart from '@/components/analytics/health/SpO2Chart'
+import BloodPressureChart from '@/components/analytics/health/BloodPressureChart'
+import FitnessAgeChart from '@/components/analytics/health/FitnessAgeChart'
+import HRVCorrelationChart from '@/components/analytics/health/HRVCorrelationChart'
 
 // ── Recovery Score colours ────────────────────────────────────────────────────
 
@@ -182,6 +187,21 @@ export default function HealthTab() {
 
       {/* Weight — full width */}
       <WeightChart />
+
+      {/* Stress — full width */}
+      <StressChart />
+
+      {/* SpO2 — full width */}
+      <SpO2Chart />
+
+      {/* Blood Pressure — full width */}
+      <BloodPressureChart />
+
+      {/* Fitness Age — full width */}
+      <FitnessAgeChart />
+
+      {/* HRV Correlation — full width */}
+      <HRVCorrelationChart />
 
       {/* Health Metrics Grid — full width */}
       <HealthMetricsGrid />

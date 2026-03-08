@@ -173,9 +173,11 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		idx++
 	}
 	if f.IsCommute != nil {
-		conditions = append(conditions, "a.is_commute = $"+strconv.Itoa(idx))
-		args = append(args, *f.IsCommute)
-		idx++
+		if *f.IsCommute {
+			conditions = append(conditions, "a.id IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_auto = true)")
+		} else {
+			conditions = append(conditions, "a.id NOT IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_auto = true)")
+		}
 	}
 	if f.IsRace != nil {
 		conditions = append(conditions, "a.is_race = $"+strconv.Itoa(idx))
