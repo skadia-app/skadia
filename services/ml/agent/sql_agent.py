@@ -1,9 +1,22 @@
-"""SQL Agent — generates and executes read-only SQL queries."""
+"""SQL Agent — generates and executes read-only SQL queries.
+
+Uses skadia_readonly PostgreSQL role with explicit table whitelist + RLS.
+"""
 import logging
 import re
 from uuid import UUID
 
+import sqlglot
+import sqlglot.expressions as exp
+
 logger = logging.getLogger(__name__)
+
+# Blocklist patterns (case-insensitive)
+_BLOCKLIST = re.compile(
+    r"\b(pg_catalog|pg_stat|pg_read_file|lo_import|information_schema|"
+    r"COPY|DO\s+\$|pg_sleep|set\s+role|set\s+session)\b",
+    re.IGNORECASE,
+)
 
 TABLE_WHITELIST = {
     "activities", "activity_streams", "activity_laps", "activity_splits",
@@ -32,32 +45,37 @@ IMPORTANT: Always filter by user_id. Never query across users.
 
 
 def validate_sql(sql: str) -> tuple[bool, str]:
-    """Validate SQL query for safety."""
-    sql_upper = sql.upper().strip()
+    """Validate SQL query for safety. Returns (is_valid, error_message).
 
-    if not sql_upper.startswith("SELECT"):
-        return False, "Only SELECT queries allowed"
+    Uses sqlglot AST parsing to catch DML/DDL/system-table access at the
+    syntax-tree level, which is more robust than regex-only approaches.
+    """
+    # Quick blocklist check before parsing
+    if _BLOCKLIST.search(sql):
+        return False, "Zugriff auf Systemtabellen/-funktionen nicht erlaubt (nur SELECT erlaubt)"
 
-    forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE",
-                 "GRANT", "REVOKE", "COPY", "EXECUTE", "CALL"]
-    for word in forbidden:
-        if re.search(rf'\b{word}\b', sql_upper):
-            return False, f"Forbidden keyword: {word}"
+    # Multi-statement check — strip trailing semicolons then look for interior ones
+    stripped = sql.strip().rstrip(";")
+    if ";" in stripped:
+        return False, "Nur einzelne Abfragen erlaubt (kein Semikolon)"
 
-    if re.search(r'\bpg_\w+', sql, re.IGNORECASE):
-        return False, "System functions not allowed"
+    try:
+        statements = sqlglot.parse(sql, dialect="postgres")
+    except sqlglot.errors.ParseError as e:
+        return False, f"SQL-Syntax-Fehler: {e}"
 
-    blocked_functions = [
-        r'\bcurrent_setting\b', r'\bset_config\b', r'\blo_import\b', r'\blo_export\b',
-        r'\bpg_read_file\b', r'\bpg_write_file\b', r'\binformation_schema\b',
-    ]
-    for pattern in blocked_functions:
-        if re.search(pattern, sql, re.IGNORECASE):
-            return False, f"Blocked function/schema: {pattern}"
+    if len(statements) != 1:
+        return False, "Nur einzelne Abfragen erlaubt"
 
-    sql_no_strings = re.sub(r"'[^']*'", "", sql)
-    if sql_no_strings.count(";") > 1:
-        return False, "Multiple statements not allowed"
+    stmt = statements[0]
+    if not isinstance(stmt, exp.Select):
+        return False, "Nur SELECT-Abfragen erlaubt"
+
+    # Check for DML/DDL nodes embedded anywhere in the AST
+    for node in stmt.walk():
+        if isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Drop,
+                             exp.Alter, exp.Create, exp.Command)):
+            return False, f"Verbotene Operation: {type(node).__name__}"
 
     return True, ""
 
