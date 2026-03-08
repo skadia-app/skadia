@@ -10,7 +10,7 @@
 #   LLAMA_MMPROJ  - Pfad zum Vision-Encoder (mmproj), leer = kein VLM
 #                   Default: data/models/mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf
 #   LLAMA_PORT    - Server-Port (Default: 8181)
-#   LLAMA_CTX     - Context Size (Default: 8192, mind. 128K fuer Thinking-Mode)
+#   LLAMA_CTX     - Context Size (Default: 16384, mind. 128K fuer Thinking-Mode)
 #
 # Modelle (HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive):
 #   LLM:    Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf  (~5.3 GB)
@@ -27,7 +27,7 @@ LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
 LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}"
 LLAMA_MMPROJ="${LLAMA_MMPROJ:-data/models/mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf}"
 LLAMA_PORT="${LLAMA_PORT:-8181}"
-LLAMA_CTX="${LLAMA_CTX:-8192}"
+LLAMA_CTX="${LLAMA_CTX:-16384}"
 
 # Vulkan Device 0 = AMD Vega 56
 export GGML_VULKAN_DEVICE=0
@@ -68,5 +68,7 @@ exec "$LLAMA_SERVER" \
     $MMPROJ_ARG \
     --host 0.0.0.0 \
     --port "$LLAMA_PORT" \
+    --jinja \
+    --reasoning-format deepseek \
     -ngl 99 \
     --ctx-size "$LLAMA_CTX"
