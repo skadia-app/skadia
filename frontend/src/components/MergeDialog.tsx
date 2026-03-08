@@ -15,19 +15,22 @@ interface MergeDialogProps {
   onClose: () => void
 }
 
-type FieldID = 'hr' | 'power' | 'cadence' | 'temperature' | 'title' | 'tags' | 'gear'
+type FieldID = 'hr' | 'power' | 'cadence' | 'temperature' | 'gps' | 'altitude' | 'speed' | 'title' | 'tags' | 'gear'
 
 const FIELD_MAP: Record<FieldID, keyof Activity> = {
   hr: 'avg_heart_rate',
   power: 'avg_power_w',
   cadence: 'avg_cadence',
   temperature: 'avg_temperature_c',
+  gps: 'distance_m',
+  altitude: 'elevation_gain_m',
+  speed: 'avg_speed_ms',
   title: 'title',
   tags: 'tags',
   gear: 'gear_id',
 }
 
-const ALL_FIELD_KEYS: FieldID[] = ['hr', 'power', 'cadence', 'temperature', 'title', 'tags', 'gear']
+const ALL_FIELD_KEYS: FieldID[] = ['hr', 'power', 'cadence', 'temperature', 'gps', 'altitude', 'speed', 'title', 'tags', 'gear']
 
 function calculateOverlap(target: Activity, source: Activity): string {
   if (!target.started_at || !target.ended_at || !source.started_at || !source.ended_at) {
@@ -199,6 +202,12 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
             {selectedSourceId && (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                 Die Quell-Aktivität wird als Fusionsquelle markiert und aus der normalen Liste ausgeblendet.
+              </p>
+            )}
+            {selectedFields.includes('gps') && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                GPS-Merge überschreibt die Koordinaten im Überlappungszeitraum.
+                Track und Heatmap werden automatisch neu berechnet.
               </p>
             )}
           </div>

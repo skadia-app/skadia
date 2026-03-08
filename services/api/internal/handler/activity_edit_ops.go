@@ -479,7 +479,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 		fieldSet[f] = true
 	}
 
-	// Merge stream columns (hr, power, cadence, temperature).
+	// Merge stream columns (hr, power, cadence, temperature, gps, altitude, speed).
 	streamFields := []string{}
 	if fieldSet["hr"] {
 		streamFields = append(streamFields, "hr")
@@ -493,12 +493,32 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	if fieldSet["temperature"] {
 		streamFields = append(streamFields, "temperature")
 	}
+	if fieldSet["gps"] {
+		streamFields = append(streamFields, "lat", "lng")
+	}
+	if fieldSet["altitude"] {
+		streamFields = append(streamFields, "altitude")
+	}
+	if fieldSet["speed"] {
+		streamFields = append(streamFields, "speed")
+	}
 
 	if len(streamFields) > 0 {
 		if err := h.mergeStreamFields(r.Context(), targetID, req.SourceID, streamFields); err != nil {
 			slog.Error("merge: stream fields failed", "target", targetID, "source", req.SourceID, "error", err)
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge stream fields", r.URL.Path)
 			return
+		}
+	}
+
+	// Rebuild track and heatmap after GPS merge.
+	if fieldSet["gps"] {
+		ctx := r.Context()
+		if err := h.DB.RebuildActivityTrack(ctx, targetID); err != nil {
+			slog.Warn("merge: track rebuild failed", "id", targetID, "err", err)
+		}
+		if err := h.DB.RebuildHeatmapData(ctx, targetID); err != nil {
+			slog.Warn("merge: heatmap rebuild failed", "id", targetID, "err", err)
 		}
 	}
 
@@ -582,6 +602,14 @@ func (h *Handler) mergeStreamFields(ctx context.Context, targetID, sourceID stri
 			col = "cadence"
 		case "temperature":
 			col = "temperature_c"
+		case "lat":
+			col = "lat"
+		case "lng":
+			col = "lng"
+		case "altitude":
+			col = "altitude_m"
+		case "speed":
+			col = "speed_ms"
 		default:
 			continue
 		}
