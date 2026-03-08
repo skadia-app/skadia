@@ -180,9 +180,11 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		}
 	}
 	if f.IsRace != nil {
-		conditions = append(conditions, "a.is_race = $"+strconv.Itoa(idx))
-		args = append(args, *f.IsRace)
-		idx++
+		if *f.IsRace {
+			conditions = append(conditions, "a.id IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_auto = true)")
+		} else {
+			conditions = append(conditions, "a.id NOT IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_auto = true)")
+		}
 	}
 	if f.PaceMinSecKm != nil {
 		// Pace sec/km → avg_speed_ms: pace(sec/km) = 1000/speed(m/s)
