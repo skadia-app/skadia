@@ -10,6 +10,7 @@ const navItems = [
   { to: '/map', label: 'Karte' },
   { to: '/calendar', label: 'Kalender' },
   { to: '/analytics', label: 'Analyse' },
+  { to: '/chat', label: 'Assistent' },
   { to: '/segments', label: 'Segmente' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },
