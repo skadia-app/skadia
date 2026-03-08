@@ -437,6 +437,9 @@ func main() {
 			// ML Status
 			r.Get("/ml/status", analyticsHandler.GetMLStatus)
 
+			// ML Callback (internal — called by remote ML service)
+			r.Post("/internal/ml-callback", h.HandleMLCallback)
+
 			// Mobile: Device Registration (FCM/APNs)
 			r.Post("/devices/register", h.RegisterDevice)
 			r.Get("/devices", h.ListDevices)
