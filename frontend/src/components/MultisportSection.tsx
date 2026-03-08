@@ -12,9 +12,6 @@ export default function MultisportSection({ children }: Props) {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
-        Multisport-Disziplinen
-      </h3>
       {children.map((child, i) => (
         <Link
           key={child.id}

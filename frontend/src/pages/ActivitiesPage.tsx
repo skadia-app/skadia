@@ -312,6 +312,7 @@ interface ContextMenuState {
   y: number
   activityId: string
   activityTitle?: string | null
+  sportType?: string
 }
 
 interface ContextMenuProps {
@@ -324,6 +325,7 @@ interface ContextMenuProps {
   onZip: (ids: string[], format: ExportFormat) => void
   onOpenTabs: (items: OpenTabsItem[]) => void
   onGroup: (ids: string[]) => void
+  onUngroup: (id: string) => void
 }
 
 function ActivityContextMenu({
@@ -336,6 +338,7 @@ function ActivityContextMenu({
   onZip,
   onOpenTabs,
   onGroup,
+  onUngroup,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -446,15 +449,17 @@ function ActivityContextMenu({
         </svg>
         Neu berechnen
       </button>
-      <button
-        onClick={() => { onGroup([state.activityId]); onClose() }}
-        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-      >
-        <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-        Als Multisport gruppieren
-      </button>
+      {state.sportType === 'multisport' && (
+        <button
+          onClick={() => { onUngroup(state.activityId); onClose() }}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Multisport-Gruppe auflösen
+        </button>
+      )}
       <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
       <button
         onClick={() => { onDelete([state.activityId], state.activityTitle); onClose() }}
@@ -865,6 +870,10 @@ export default function ActivitiesPage() {
           onZip={handleZipDownload}
           onOpenTabs={(items) => setOpenTabsItems(items)}
           onGroup={(ids) => setGroupModalIds(ids)}
+          onUngroup={async (id) => {
+            await fetch(`/api/v1/activities/${id}/group`, { method: 'DELETE' })
+            queryClient.invalidateQueries({ queryKey: ['activities'] })
+          }}
         />
       )}
 
@@ -1061,19 +1070,19 @@ export default function ActivitiesPage() {
                   saveLastActivity(id)
                   setLastActivityId(id)
                 }}
-                onContextMenu={(e, id, title) => {
+                onContextMenu={(e, id, title, sportType) => {
                   e.preventDefault()
                   const x = Math.min(e.clientX, window.innerWidth - 220)
                   const y = Math.min(e.clientY, window.innerHeight - 80)
-                  setContextMenu({ x, y, activityId: id, activityTitle: title })
+                  setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
                 }}
                 onToggleSelect={toggleSelect}
-                onThreeDotClick={(e, id, title) => {
+                onThreeDotClick={(e, id, title, sportType) => {
                   e.stopPropagation()
                   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   const x = Math.min(rect.left, window.innerWidth - 220)
                   const y = Math.min(rect.bottom + 4, window.innerHeight - 80)
-                  setContextMenu({ x, y, activityId: id, activityTitle: title })
+                  setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
                 }}
               />
             ))}
@@ -1207,9 +1216,9 @@ interface ActivityRowProps {
   isLastVisited?: boolean
   isSelected: boolean
   onNavigate: (id: string) => void
-  onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined) => void
+  onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined, sportType: string) => void
   onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
-  onThreeDotClick: (e: React.MouseEvent<HTMLButtonElement>, id: string, title: string | null | undefined) => void
+  onThreeDotClick: (e: React.MouseEvent<HTMLButtonElement>, id: string, title: string | null | undefined, sportType: string) => void
 }
 
 function ActivityRow({
@@ -1250,7 +1259,7 @@ function ActivityRow({
   return (
     <tr
       onClick={handleClick}
-      onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto)}
+      onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
       className={rowClass}
     >
       {/* Checkbox */}
@@ -1306,7 +1315,7 @@ function ActivityRow({
       {/* 3-Punkt-Menü */}
       <td className="py-3 pl-0 pr-2 w-8" onClick={e => e.stopPropagation()}>
         <button
-          onClick={e => onThreeDotClick(e, activity.id, activity.title ?? activity.title_auto)}
+          onClick={e => onThreeDotClick(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
           className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Aktivitätsmenü"
         >
