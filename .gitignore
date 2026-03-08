@@ -11,6 +11,11 @@ temp/
 data/tiles/*
 !data/tiles/.gitkeep
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
 # Go binaries
 services/api/api
 services/api/cmd/*/main
