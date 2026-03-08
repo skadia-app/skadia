@@ -1,6 +1,6 @@
 // frontend/src/components/SegmentEditorModal.tsx
 import { useEffect, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore
@@ -54,6 +54,13 @@ const SURFACES = ['Asphalt', 'Schotter', 'Erde', 'Sand', 'Gras', 'Fels', 'Pflast
 export default function SegmentEditorModal({
   mode, trackPoints, sourceActivityId, defaultSportGroup, onSuccess, onClose,
 }: Props) {
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => fetch('/api/v1/me', { credentials: 'include' }).then(r => r.json()) as Promise<{ user_id: string }>,
+    staleTime: Infinity,
+  })
+  const currentUserId = meData?.user_id ?? ''
+
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [heatmapVisible, setHeatmapVisible] = useState(false)
@@ -239,7 +246,7 @@ export default function SegmentEditorModal({
       if (!map.getSource(layerId)) {
         map.addSource(layerId, {
           type: 'vector',
-          tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}`],
+          tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${currentUserId ? `?user_id=${encodeURIComponent(currentUserId)}` : ''}`],
         })
         map.addLayer({
           id: layerId,
@@ -419,7 +426,7 @@ export default function SegmentEditorModal({
                           if (!map.getSource(layerId)) {
                             map.addSource(layerId, {
                               type: 'vector',
-                              tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}`],
+                              tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${currentUserId ? `?user_id=${encodeURIComponent(currentUserId)}` : ''}`],
                             })
                             map.addLayer({
                               id: layerId,

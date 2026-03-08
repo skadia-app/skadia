@@ -172,6 +172,7 @@ function buildTileUrl(
   filters: MapFilterState,
   teleportThresholdM: number, // 0 = kein Filter
   samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
+  userId?: string, // privacy: filter by current user
 ): string {
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
   // (/tiles/...) nicht auflösen → immer absolute URL erzwingen.
@@ -179,6 +180,8 @@ function buildTileUrl(
   const martinBase = import.meta.env.VITE_MARTIN_URL ?? `${window.location.origin}/tiles`
   const base = `${martinBase}/${source}/{z}/{x}/{y}`
   const params = new URLSearchParams()
+
+  if (userId) params.set('user_id', userId)
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
   if (!allSelected && filters.sportTypes.size > 0) {
@@ -666,6 +669,8 @@ export default function MapPage() {
       saveViewport({ ...stored, viewMode })
     }
   }, [viewMode])
+  const currentUserIdRef = useRef(currentUserId)
+  useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
   useEffect(() => { teleportRef.current = teleportThresholdM }, [teleportThresholdM])
   useEffect(() => { samplingRef.current = samplingIntervalM }, [samplingIntervalM])
 
@@ -696,7 +701,7 @@ export default function MapPage() {
           addExplorationLayers(map, explorationDataRef.current.explored_area)
         }
       } else {
-        addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current)
+        addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current, currentUserIdRef.current)
       }
       setStyleVersion(v => v + 1)
     })
@@ -778,7 +783,7 @@ export default function MapPage() {
         addExplorationLayers(map, explorationDataRef.current.explored_area)
       }
     } else if (filters.sportTypes.size > 0) {
-      addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM)
+      addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion])
@@ -2657,6 +2662,7 @@ function addOverlayLayers(
   viewMode: ViewMode,
   teleportThresholdM: number,
   samplingIntervalM?: number,
+  userId?: string,
 ) {
   // Linien-Layer fuer beide Modi.
   // Defensive Bereinigung: Falls addOverlayLayers ohne vorherigem removeOverlayLayers
@@ -2665,7 +2671,7 @@ function addOverlayLayers(
   removeOverlayLayers(map)
   map.addSource('heatmap', {
     type: 'vector',
-    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM)],
+    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)],
     minzoom: 0,
     maxzoom: 14,
   })
