@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_activity_tracks_track_simplified;
