@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 )
 
 // MLCallbackPayload is the payload from the ML service.
@@ -21,7 +20,10 @@ type MLCallbackPayload struct {
 // POST /api/v1/internal/ml-callback
 // Auth: X-ML-Callback-Secret header must match ML_CALLBACK_SECRET env var
 func (h *Handler) HandleMLCallback(w http.ResponseWriter, r *http.Request) {
-	secret := os.Getenv("ML_CALLBACK_SECRET")
+	secret := ""
+	if h.Config != nil {
+		secret = h.Config.MLCallbackSecret
+	}
 	if secret != "" && r.Header.Get("X-ML-Callback-Secret") != secret {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
