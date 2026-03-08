@@ -94,30 +94,48 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
             stream=True,
         )
 
+        # Accumulate tool-call deltas keyed by tc.index.
+        # Streaming splits arguments across many chunks — we must join them
+        # before attempting json.loads().
+        tool_call_accum: dict[int, dict] = {}
+
         async for chunk in response:
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta
+            choice = chunk.choices[0]
+            delta = choice.delta
 
             if delta.tool_calls:
                 for tc in delta.tool_calls:
-                    if tc.function and tc.function.name:
-                        yield _sse("chat.tool_call", req.message_id,
-                                   tool=tc.function.name,
-                                   args=tc.function.arguments or "")
-                        try:
-                            args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                            result = await execute_tool(pool, user_id, tc.function.name, args)
-                            yield _sse("chat.tool_result", req.message_id,
-                                       tool=tc.function.name,
-                                       summary=json.dumps(result, default=str)[:500])
-                        except Exception as e:
-                            yield _sse("chat.tool_result", req.message_id,
-                                       tool=tc.function.name,
-                                       summary=f"Error: {e}")
+                    idx = tc.index
+                    if idx not in tool_call_accum:
+                        tool_call_accum[idx] = {"name": "", "arguments": ""}
+                    if tc.function:
+                        if tc.function.name:
+                            tool_call_accum[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_call_accum[idx]["arguments"] += tc.function.arguments
 
             if delta.content:
                 yield _sse("chat.chunk", req.message_id, delta=delta.content)
+
+            # Execute accumulated tool calls once the LLM signals it is done.
+            if choice.finish_reason == "tool_calls" and tool_call_accum:
+                for entry in tool_call_accum.values():
+                    tool_name = entry["name"]
+                    raw_args = entry["arguments"]
+                    yield _sse("chat.tool_call", req.message_id,
+                               tool=tool_name, args=raw_args)
+                    try:
+                        args = json.loads(raw_args) if raw_args else {}
+                        result = await execute_tool(pool, user_id, tool_name, args)
+                        yield _sse("chat.tool_result", req.message_id,
+                                   tool=tool_name,
+                                   summary=json.dumps(result, default=str)[:500])
+                    except Exception as e:
+                        yield _sse("chat.tool_result", req.message_id,
+                                   tool=tool_name, summary=f"Error: {e}")
+                tool_call_accum.clear()
 
         yield _sse("chat.done", req.message_id, sources=["llm"])
 
