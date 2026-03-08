@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import ToolCallCard from './ToolCallCard'
 
@@ -45,10 +47,16 @@ export default function ChatMessageList({ messages, thinking }: ChatMessageListP
             {msg.toolCalls?.map((tc, i) => (
               <ToolCallCard key={i} toolName={tc.tool} args={tc.args} result={tc.result} />
             ))}
-            <div className="whitespace-pre-wrap">
-              {msg.content}
-              {msg.isStreaming && <span className="inline-block w-1 h-4 bg-current ml-0.5 animate-pulse align-bottom" />}
-            </div>
+            {msg.role === 'assistant' ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                {msg.isStreaming && <span className="inline-block w-1 h-4 bg-current ml-0.5 animate-pulse align-bottom" />}
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap">
+                {msg.content}
+              </div>
+            )}
           </div>
         </div>
       ))}
