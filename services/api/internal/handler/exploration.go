@@ -14,6 +14,10 @@ import (
 // (union of buffered heatmap lines) and the total explored area in km².
 func (h *Handler) GetExplorationCoverage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
 
 	// Optional bbox filter: ?bbox=west,south,east,north
 	var bbox *[4]float64

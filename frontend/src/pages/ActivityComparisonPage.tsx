@@ -127,7 +127,7 @@ const METRIC_ROWS: MetricRow[] = [
     higherIsBetter: false,
   },
   {
-    label: 'Hohenmeter',
+    label: 'Höhenmeter',
     getValue: a => formatElevation(a.elevation_gain_m),
     getRawValue: a => a.elevation_gain_m,
     higherIsBetter: true,
@@ -178,7 +178,7 @@ const METRIC_ROWS: MetricRow[] = [
 const CHART_TABS: { key: ChartTab; label: string; unit: string; streamKey: keyof ProcessedStream }[] = [
   { key: 'speed', label: 'Geschwindigkeit', unit: 'km/h', streamKey: 'speed' },
   { key: 'heartRate', label: 'Herzfrequenz', unit: 'bpm', streamKey: 'heartRate' },
-  { key: 'altitude', label: 'Hohe', unit: 'm', streamKey: 'altitude' },
+  { key: 'altitude', label: 'Höhe', unit: 'm', streamKey: 'altitude' },
   { key: 'power', label: 'Leistung', unit: 'W', streamKey: 'power' },
 ]
 
@@ -219,13 +219,13 @@ export default function ActivityComparisonPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <p className="text-neutral-500 dark:text-neutral-400">
-          Mindestens 2 Aktivitaten zum Vergleichen auswahlen.
+          Mindestens 2 Aktivitäten zum Vergleichen auswahlen.
         </p>
         <button
           onClick={() => navigate('/activities')}
           className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium cursor-pointer"
         >
-          Zur Aktivitatenliste
+          Zur Aktivitätenliste
         </button>
       </div>
     )
@@ -242,7 +242,7 @@ export default function ActivityComparisonPage() {
   if (hasError || activities.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <p className="text-red-500">Fehler beim Laden der Aktivitaten.</p>
+        <p className="text-red-500">Fehler beim Laden der Aktivitäten.</p>
         <button
           onClick={() => navigate('/activities')}
           className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
@@ -279,9 +279,9 @@ export default function ActivityComparisonPage() {
           </svg>
         </button>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Aktivitaten vergleichen
+          Aktivitäten vergleichen
         </h1>
-        <span className="text-sm text-neutral-400">{activities.length} Aktivitaten</span>
+        <span className="text-sm text-neutral-400">{activities.length} Aktivitäten</span>
       </div>
 
       {/* Section A: Metrics Table */}

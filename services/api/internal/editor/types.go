@@ -11,7 +11,10 @@ type EditSidecar struct {
 	Edits      []Edit    `json:"edits"`
 }
 
-const EditTypeGPSOutlierSmooth = "gps_outlier_smooth"
+const (
+	EditTypeGPSOutlierSmooth = "gps_outlier_smooth"
+	EditTypeHRSpikeSmooth    = "hr_spike_smooth"
+)
 
 // Edit represents a single edit operation on an activity track.
 type Edit struct {

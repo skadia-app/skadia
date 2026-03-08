@@ -419,7 +419,7 @@ func (h *Handler) applySidecarEdits(ctx context.Context, activityID, userID stri
 		case editor.EditTypeGPSOutlierSmooth:
 			hasGPS = true
 			smoothEdits = append(smoothEdits, edit)
-		case "hr_spike_smooth":
+		case editor.EditTypeHRSpikeSmooth:
 			hasHR = true
 			smoothEdits = append(smoothEdits, edit)
 		}

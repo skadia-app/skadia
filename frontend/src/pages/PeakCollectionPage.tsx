@@ -137,7 +137,7 @@ export default function PeakCollectionPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="Besuchte Gipfel" value={filteredPeaks.length.toString()} />
         <StatCard
-          label="Hoechster Gipfel"
+          label="Höchster Gipfel"
           value={highestPeak ? `${Math.round(highestPeak.elevation_m ?? 0)} m` : '-'}
           sub={highestPeak?.name}
         />
@@ -154,7 +154,7 @@ export default function PeakCollectionPage() {
       {/* Filters + View Toggle */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
-          <label className="text-sm text-neutral-600 dark:text-neutral-400">Min. Hoehe:</label>
+          <label className="text-sm text-neutral-600 dark:text-neutral-400">Min. Höhe:</label>
           <input
             type="number"
             value={minElevation || ''}
@@ -210,7 +210,7 @@ export default function PeakCollectionPage() {
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
                 <SortableHeader field="name" label="Name" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
-                <SortableHeader field="elevation_m" label="Hoehe" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="elevation_m" label="Höhe" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
                 <SortableHeader field="first_visit" label="Erstbesuch" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
                 <SortableHeader field="last_visit" label="Letzter Besuch" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
                 <SortableHeader field="visit_count" label="Besuche" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
