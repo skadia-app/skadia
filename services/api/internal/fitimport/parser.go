@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/muktihari/fit/decoder"
 	"github.com/muktihari/fit/profile/basetype"
@@ -58,8 +59,26 @@ func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, 
 	var results []*model.ActivityData
 	for i, sessionMsg := range sessionMsgs {
 		session := mesgdef.NewSession(&sessionMsg)
+
+		// Bug 2: Skip the multisport summary session (sport=18). It is a
+		// roll-up of all disciplines and must not be imported as a child activity.
+		if session.Sport == typedef.SportMultisport {
+			continue
+		}
+
 		sessionStart := session.StartTime
-		sessionEnd := session.Timestamp
+
+		// Bug 3: Summary-First format (Garmin firmware ≥2023) writes session
+		// messages BEFORE the records. In that layout session.Timestamp is the
+		// file-creation time, not the session end. Compute the real end time
+		// from StartTime + TotalElapsedTime (Scale 1000 → raw uint32 in ms).
+		// Fall back to session.Timestamp only when the computed value is unusable.
+		sessionEnd := session.StartTime.Add(
+			time.Duration(session.TotalElapsedTime) * time.Millisecond,
+		)
+		if sessionEnd.IsZero() || !sessionEnd.After(sessionStart) {
+			sessionEnd = session.Timestamp
+		}
 
 		// Partition records that fall within this session's time range
 		var sessionRecords []proto.Message
@@ -78,6 +97,14 @@ func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, 
 			slog.Warn("multi-session parse failed for session", "index", i, "err", err)
 			continue
 		}
+
+		// Bug 1: Transition sessions (sport=3, e.g. T1/T2 in triathlon) must be
+		// marked explicitly so the importer can handle them differently from real
+		// sport disciplines (no Geo/ML enrichment needed).
+		if session.Sport == typedef.SportTransition {
+			ad.SportType = "transition"
+		}
+
 		results = append(results, ad)
 	}
 

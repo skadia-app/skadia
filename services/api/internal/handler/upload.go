@@ -110,7 +110,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("insert child activity failed", "session", i, "err", childErr)
 					continue
 				}
-				h.postInsertActivity(r.Context(), userID, childActivity, childData, fileBytes, s3Key, format, filename)
+				// TODO(multisport): Transition sessions (sport_type="transition") need no
+			// Stage-2 Geo/ML enrichment. postInsertActivity already skips Stage-1
+			// implicitly when data.HasGPS is false (transitions have no GPS track).
+			// A future improvement: suppress PublishStage2Ready for transitions so
+			// that the ML service does not queue unnecessary enrichment jobs.
+			h.postInsertActivity(r.Context(), userID, childActivity, childData, fileBytes, s3Key, format, filename)
 			}
 
 			if aggrErr := h.DB.AggregateParentMetrics(r.Context(), parentAct.ID); aggrErr != nil {
