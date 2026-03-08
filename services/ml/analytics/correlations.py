@@ -211,6 +211,147 @@ def _pearsonr(pairs: list) -> tuple:
         return None, n
 
 
+async def compute_correlations_v2(pool, user_id, top_n: int = 20) -> dict:
+    """Pearson + Spearman correlations with lag analysis (1-7 days).
+
+    Returns top-N correlations sorted by absolute value.
+    Stores in analytics_cache under 'correlations_v2'.
+    """
+    import json
+
+    # Fetch time series for key metrics over 180 days
+    async with pool.acquire() as conn:
+        hrv_rows = await conn.fetch(
+            """
+            SELECT measured_at_utc::date AS date, AVG(rmssd_ms) AS value
+            FROM health_hrv_snapshots
+            WHERE user_id = $1 AND measured_at_utc > NOW() - interval '180 days'
+              AND rmssd_ms IS NOT NULL
+            GROUP BY 1 ORDER BY 1
+            """,
+            user_id,
+        )
+        tss_rows = await conn.fetch(
+            """
+            SELECT date, tss AS value FROM pmc_daily
+            WHERE user_id = $1 AND date > CURRENT_DATE - 180 AND tss IS NOT NULL
+            ORDER BY date
+            """,
+            user_id,
+        )
+        atl_rows = await conn.fetch(
+            """
+            SELECT date, atl AS value FROM pmc_daily
+            WHERE user_id = $1 AND date > CURRENT_DATE - 180 AND atl IS NOT NULL
+            ORDER BY date
+            """,
+            user_id,
+        )
+        sleep_rows = await conn.fetch(
+            """
+            SELECT calendar_date AS date, score_overall::float AS value
+            FROM health_sleep
+            WHERE user_id = $1 AND calendar_date > CURRENT_DATE - 180
+              AND score_overall IS NOT NULL
+            ORDER BY calendar_date
+            """,
+            user_id,
+        )
+
+    def rows_to_dict(rows):
+        return {str(r["date"]): float(r["value"]) for r in rows}
+
+    hrv_d = rows_to_dict(hrv_rows)
+    tss_d = rows_to_dict(tss_rows)
+    atl_d = rows_to_dict(atl_rows)
+    sleep_d = rows_to_dict(sleep_rows)
+
+    series = {
+        "hrv_rmssd": hrv_d,
+        "tss": tss_d,
+        "atl": atl_d,
+        "sleep_score": sleep_d,
+    }
+
+    from datetime import date as date_cls, timedelta
+    import math
+
+    # Generate all date keys
+    all_dates = sorted(set().union(*[set(d.keys()) for d in series.values()]))
+
+    correlations = []
+
+    metric_pairs = [
+        ("hrv_rmssd", "tss"),
+        ("hrv_rmssd", "atl"),
+        ("sleep_score", "tss"),
+        ("sleep_score", "hrv_rmssd"),
+    ]
+
+    for lag in range(0, 8):  # lag 0-7 days
+        for feat_a, feat_b in metric_pairs:
+            pairs_p = []  # Pearson
+            pairs_s = []  # Spearman
+            for dt in all_dates:
+                try:
+                    dt_obj = date_cls.fromisoformat(dt)
+                    lagged_dt = (dt_obj + timedelta(days=lag)).isoformat()
+                except Exception:
+                    continue
+                if dt in series[feat_a] and lagged_dt in series[feat_b]:
+                    pairs_p.append((series[feat_a][dt], series[feat_b][lagged_dt]))
+
+            if len(pairs_p) < _MIN_PAIRS:
+                continue
+
+            xs = [p[0] for p in pairs_p]
+            ys = [p[1] for p in pairs_p]
+
+            # Pearson
+            r_pearson, n = _pearsonr(pairs_p)
+            if r_pearson is None:
+                continue
+
+            # Spearman (rank-based Pearson)
+            try:
+                from scipy.stats import spearmanr
+                r_spearman_val, _ = spearmanr(xs, ys)
+                r_spearman = float(r_spearman_val) if not math.isnan(r_spearman_val) else None
+            except Exception:
+                r_spearman = None
+
+            correlations.append({
+                "feature_a": feat_a,
+                "feature_b": feat_b,
+                "lag_days": lag,
+                "r_pearson": round(r_pearson, 3),
+                "r_spearman": round(r_spearman, 3) if r_spearman is not None else None,
+                "abs_r": round(abs(r_pearson), 3),
+                "n": n,
+                "interpretation": _interpret(r_pearson),
+            })
+
+    # Sort by absolute Pearson r, take top_n
+    correlations.sort(key=lambda x: x["abs_r"], reverse=True)
+    top_correlations = correlations[:top_n]
+
+    result = {"correlations": top_correlations, "total_pairs_evaluated": len(correlations)}
+
+    # Store in analytics_cache
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO analytics_cache (user_id, cache_key, data, computed_at)
+            VALUES ($1, 'correlations_v2', $2::jsonb, NOW())
+            ON CONFLICT (user_id, cache_key)
+            DO UPDATE SET data = $2::jsonb, computed_at = NOW()
+            """,
+            user_id, json.dumps(result),
+        )
+
+    return result
+
+
 def _interpret(r: float, inverse: bool = False) -> str:
     """Gibt eine textuelle Interpretation des Pearson-r zurück."""
     abs_r = abs(r)
