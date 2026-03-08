@@ -378,6 +378,12 @@ func main() {
 			r.Put("/tag-zones/{tagId}", h.UpsertTagZone)
 			r.Delete("/tag-zones/{tagId}", h.DeleteTagZone)
 
+			// ML Settings (nightly jobs + user notification prefs)
+			r.Get("/settings/ml", h.GetMLSystemSettings)
+			r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
+			r.Get("/settings/ml/user", h.GetMLUserSettings)
+			r.Put("/settings/ml/user/{key}", h.PutMLUserSetting)
+
 			// LLM Settings (Admin + User)
 			r.Get("/admin/llm-config", h.GetLLMConfig)
 			r.Put("/admin/llm-config/{role}", h.PutLLMConfigRole)
