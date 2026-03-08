@@ -22,9 +22,14 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	validMetrics := map[string]bool{"hrv_rmssd": true, "resting_hr": true, "ctl": true}
 	metric := r.URL.Query().Get("metric")
 	if metric == "" {
 		metric = "hrv_rmssd"
+	}
+	if !validMetrics[metric] {
+		writeError(w, http.StatusBadRequest, "Bad Request", "metric must be one of: hrv_rmssd, resting_hr, ctl", r.URL.Path)
+		return
 	}
 
 	cacheKey := "changepoints." + metric
