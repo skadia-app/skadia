@@ -323,6 +323,7 @@ interface ContextMenuProps {
   onDelete: (ids: string[], title?: string | null) => void
   onZip: (ids: string[], format: ExportFormat) => void
   onOpenTabs: (items: OpenTabsItem[]) => void
+  onGroup: (ids: string[]) => void
 }
 
 function ActivityContextMenu({
@@ -334,6 +335,7 @@ function ActivityContextMenu({
   onDelete,
   onZip,
   onOpenTabs,
+  onGroup,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -382,6 +384,15 @@ function ActivityContextMenu({
           Alle in neuen Tabs öffnen
         </button>
         <ZipSubMenu ids={ids} onZip={onZip} onClose={onClose} zipLoading={zipLoading} />
+        <button
+          onClick={() => { onGroup(ids); onClose() }}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Als Multisport gruppieren
+        </button>
         <button
           onClick={() => { onRecompute(ids); onClose() }}
           className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
@@ -434,6 +445,15 @@ function ActivityContextMenu({
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
         Neu berechnen
+      </button>
+      <button
+        onClick={() => { onGroup([state.activityId]); onClose() }}
+        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+      >
+        <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        Als Multisport gruppieren
       </button>
       <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
       <button
@@ -844,6 +864,7 @@ export default function ActivitiesPage() {
           onDelete={(ids, title) => { setDeleteIds(ids); setDeleteTitle(title ?? null) }}
           onZip={handleZipDownload}
           onOpenTabs={(items) => setOpenTabsItems(items)}
+          onGroup={(ids) => setGroupModalIds(ids)}
         />
       )}
 
