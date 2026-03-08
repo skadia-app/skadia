@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/muktihari/fit/decoder"
@@ -15,6 +16,114 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// ParseMultiSessionFIT parses a FIT file and returns one ActivityData per session.
+// For single-session files (the common case) it returns a slice with exactly one element.
+func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, error) {
+	fit, err := decodeFIT(data)
+	if err != nil && strings.Contains(err.Error(), "invalid basetype") {
+		patched := patchDeprecatedBaseTypes(data)
+		fit, err = decodeFIT(patched)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("decode FIT (multi-session): %w", err)
+	}
+
+	// Collect all session messages
+	var sessionMsgs []proto.Message
+	for i := range fit.Messages {
+		if fit.Messages[i].Num == typedef.MesgNumSession {
+			sessionMsgs = append(sessionMsgs, fit.Messages[i])
+		}
+	}
+
+	if len(sessionMsgs) <= 1 {
+		// Normal single-session path
+		ad, err := buildActivityData(fit, filename)
+		if err != nil {
+			return nil, err
+		}
+		return []*model.ActivityData{ad}, nil
+	}
+
+	// Multi-session: build sub-FITs partitioned by session time range
+	// Collect all record messages with their timestamps
+	var allRecords []proto.Message
+	for i := range fit.Messages {
+		if fit.Messages[i].Num == typedef.MesgNumRecord {
+			allRecords = append(allRecords, fit.Messages[i])
+		}
+	}
+
+	var results []*model.ActivityData
+	for i, sessionMsg := range sessionMsgs {
+		session := mesgdef.NewSession(&sessionMsg)
+		sessionStart := session.StartTime
+		sessionEnd := session.Timestamp
+
+		// Partition records that fall within this session's time range
+		var sessionRecords []proto.Message
+		for _, rm := range allRecords {
+			r := mesgdef.NewRecord(&rm)
+			if !r.Timestamp.IsZero() && !r.Timestamp.Before(sessionStart) && !r.Timestamp.After(sessionEnd) {
+				sessionRecords = append(sessionRecords, rm)
+			}
+		}
+
+		sessionFIT := buildSessionFIT(fit, sessionMsg, sessionRecords)
+		sessionFilename := fmt.Sprintf("%s_session%d", filename, i+1)
+
+		ad, err := buildActivityData(sessionFIT, sessionFilename)
+		if err != nil {
+			slog.Warn("multi-session parse failed for session", "index", i, "err", err)
+			continue
+		}
+		results = append(results, ad)
+	}
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no sessions could be parsed from multi-session FIT")
+	}
+	return results, nil
+}
+
+// buildSessionFIT builds a minimal proto.FIT containing only the messages for a single session.
+func buildSessionFIT(original *proto.FIT, sessionMsg proto.Message, records []proto.Message) *proto.FIT {
+	result := &proto.FIT{
+		FileHeader: original.FileHeader,
+	}
+
+	// Carry over FileId
+	for i := range original.Messages {
+		if original.Messages[i].Num == typedef.MesgNumFileId {
+			result.Messages = append(result.Messages, original.Messages[i])
+			break
+		}
+	}
+
+	// Records for this session
+	result.Messages = append(result.Messages, records...)
+
+	// The session message itself
+	result.Messages = append(result.Messages, sessionMsg)
+
+	// DeviceInfo messages (all — they describe the recording device)
+	for i := range original.Messages {
+		if original.Messages[i].Num == typedef.MesgNumDeviceInfo {
+			result.Messages = append(result.Messages, original.Messages[i])
+		}
+	}
+
+	// UserProfile and ZonesTarget (same for all sessions)
+	for i := range original.Messages {
+		if original.Messages[i].Num == typedef.MesgNumUserProfile ||
+			original.Messages[i].Num == typedef.MesgNumZonesTarget {
+			result.Messages = append(result.Messages, original.Messages[i])
+		}
+	}
+
+	return result
+}
 
 // ParseFIT decodes a FIT file and returns the parsed activity data.
 func ParseFIT(r io.Reader, filename string) (*model.ActivityData, error) {

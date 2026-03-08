@@ -195,6 +195,7 @@ func main() {
 			r.Post("/activities/{id}/fusion", h.SetActivityFusion)
 			r.Get("/activities/{id}/fusion-candidates", h.GetFusionCandidates)
 			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)
+			r.Get("/activities/{id}/children", h.GetChildActivities)
 			r.Get("/stats/pmc", h.GetPMC)
 			r.Get("/stats/power-curve", h.GetPowerCurve)
 
