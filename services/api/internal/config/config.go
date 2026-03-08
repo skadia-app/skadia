@@ -38,6 +38,9 @@ type Config struct {
 	LiteLLMConfigPath  string // writable path to litellm config.yaml
 	LiteLLMInternalURL string // e.g. http://litellm:4000
 	LLMEncryptionKey   string // 32-byte hex for AES-256-GCM API key encryption
+
+	// ML Service
+	MLServiceURL string // e.g. http://ml:8000
 }
 
 func Load() (*Config, error) {
@@ -69,6 +72,8 @@ func Load() (*Config, error) {
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
 		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
+
+		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
 	}
 
 	if cfg.DatabaseURL == "" {
