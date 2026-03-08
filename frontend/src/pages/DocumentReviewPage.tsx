@@ -22,6 +22,8 @@ export default function DocumentReviewPage() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['pending-review-gear'],
     queryFn: fetchPendingReviewGear,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
 
   const confirmMutation = useMutation({

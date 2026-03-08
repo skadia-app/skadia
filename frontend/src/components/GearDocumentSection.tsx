@@ -4,6 +4,7 @@ import {
   fetchGearDocuments, uploadGearDocument, deleteGearDocument,
   downloadGearDocumentBlob,
 } from '@/api/gear'
+import { useToast } from '@/lib/toast'
 import type { GearDocument } from '@/api/types'
 
 interface Props {
@@ -84,16 +85,53 @@ function formatCurrency(amount: number, currency: string): string {
 
 export default function GearDocumentSection({ gearId }: Props) {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [previewDoc, setPreviewDoc] = useState<GearDocument | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [pendingDocIds, setPendingDocIds] = useState<Set<string>>(new Set())
 
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ['gear-documents', gearId],
     queryFn: () => fetchGearDocuments(gearId),
     enabled: !!gearId,
+    // Poll faster while we have pending documents awaiting processing
+    refetchInterval: pendingDocIds.size > 0 ? 3000 : false,
   })
+
+  // Check if any pending documents have finished processing
+  useEffect(() => {
+    if (pendingDocIds.size === 0) return
+    const resolved = new Set<string>()
+    for (const docId of pendingDocIds) {
+      const doc = documents.find(d => d.id === docId)
+      if (!doc) continue
+      if (doc.processing_status === 'processed') {
+        resolved.add(docId)
+        addToast({
+          type: 'success',
+          title: 'Dokument verarbeitet',
+          message: doc.title || doc.original_filename,
+        })
+      } else if (doc.processing_status === 'failed') {
+        resolved.add(docId)
+        addToast({
+          type: 'error',
+          title: 'Dokumentverarbeitung fehlgeschlagen',
+          message: doc.title || doc.original_filename,
+          duration: 0,
+        })
+      }
+    }
+    if (resolved.size > 0) {
+      setPendingDocIds(prev => {
+        const next = new Set(prev)
+        for (const id of resolved) next.delete(id)
+        return next
+      })
+    }
+  }, [documents, pendingDocIds, addToast])
 
   // Filter out pure images (they are shown in GearImagesSection)
   const docs = documents.filter(d => !d.content_type.startsWith('image/') || d.doc_type !== 'photo')
@@ -218,9 +256,12 @@ export default function GearDocumentSection({ gearId }: Props) {
         <UploadDialog
           gearId={gearId}
           onClose={() => setUploadOpen(false)}
-          onSuccess={() => {
+          onSuccess={(newDoc) => {
             queryClient.invalidateQueries({ queryKey: ['gear-documents', gearId] })
             queryClient.invalidateQueries({ queryKey: ['gear-costs', gearId] })
+            if (newDoc?.id && newDoc.processing_status === 'pending') {
+              setPendingDocIds(prev => new Set(prev).add(newDoc.id))
+            }
             setUploadOpen(false)
           }}
         />
@@ -256,7 +297,7 @@ function UploadDialog({
 }: {
   gearId: string
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (doc: GearDocument) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [docType, setDocType] = useState('receipt')
@@ -275,7 +316,7 @@ function UploadDialog({
       document_amount: amount ? parseFloat(amount) : undefined,
       document_currency: currency,
     }),
-    onSuccess,
+    onSuccess: (data) => onSuccess(data),
   })
 
   const handleDrop = useCallback((e: React.DragEvent) => {

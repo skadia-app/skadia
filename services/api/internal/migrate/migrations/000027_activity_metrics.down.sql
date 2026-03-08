@@ -1,0 +1,16 @@
+ALTER TABLE activities
+  DROP COLUMN IF EXISTS total_calories,
+  DROP COLUMN IF EXISTS aerobic_training_effect,
+  DROP COLUMN IF EXISTS anaerobic_training_effect,
+  DROP COLUMN IF EXISTS training_load_peak,
+  DROP COLUMN IF EXISTS avg_spo2_pct,
+  DROP COLUMN IF EXISTS avg_respiration_rate,
+  DROP COLUMN IF EXISTS avg_stress_level,
+  DROP COLUMN IF EXISTS workout_rpe,
+  DROP COLUMN IF EXISTS workout_feel,
+  DROP COLUMN IF EXISTS session_rmssd_ms,
+  DROP COLUMN IF EXISTS avg_core_temperature_c,
+  DROP COLUMN IF EXISTS threshold_power_w,
+  DROP COLUMN IF EXISTS variability_index,
+  DROP COLUMN IF EXISTS efficiency_factor,
+  DROP COLUMN IF EXISTS aerobic_decoupling;

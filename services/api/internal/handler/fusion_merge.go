@@ -2,12 +2,16 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
@@ -23,6 +27,10 @@ type FusionMergeRequest struct {
 	TitleSource     *string           `json:"title_source,omitempty"`
 	TagsMerge       bool              `json:"tags_merge"`
 	GearSource      *string           `json:"gear_source,omitempty"`
+	// FitLevel: wenn true, werden die Original-FIT-Dateien aus S3 geladen,
+	// auf Protokoll-Ebene zusammengeführt und als neue FIT-Datei gespeichert.
+	// Zusätzlich zum normalen DB-Level-Merge.
+	FitLevel bool `json:"fit_level"`
 }
 
 // validStreamFields mappt logische Feld-Namen auf activity_streams-Spaltennamen.
@@ -169,6 +177,17 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// FIT-Level-Merge: Original-FIT-Dateien zusammenführen.
+	if req.FitLevel {
+		if err := h.fitLevelMerge(ctx, userID, targetID, req.Sources, req.FieldMap, activities); err != nil {
+			slog.Error("fusion-merge: FIT-level merge failed", "target", targetID, "error", err)
+			// Non-fatal: DB-level merge was already successful.
+			// Log but don't fail the entire request.
+		} else {
+			slog.Info("fusion-merge: FIT-level merge completed", "target", targetID)
+		}
+	}
+
 	// Quell-Aktivitäten als is_fusion_source markieren.
 	for _, srcID := range req.Sources {
 		if _, err := h.DB.Pool.Exec(ctx,
@@ -240,5 +259,110 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 		  AND s.lng IS NOT NULL`,
 		targetID, sourceID)
 	return err
+}
+
+// fitLevelMerge lädt die Original-FIT-Dateien aus S3, führt sie auf Protokoll-Ebene
+// zusammen und speichert die neue FIT-Datei zurück in S3.
+// Unterstützt aktuell nur einen Source (den ersten in der Liste).
+func (h *Handler) fitLevelMerge(
+	ctx context.Context,
+	userID, targetID string,
+	sourceIDs []string,
+	fieldMap map[string]string,
+	activities map[string]*model.Activity,
+) error {
+	if h.Storage == nil {
+		return fmt.Errorf("S3 storage not configured")
+	}
+	if len(sourceIDs) == 0 {
+		return fmt.Errorf("no sources for FIT-level merge")
+	}
+
+	target := activities[targetID]
+	source := activities[sourceIDs[0]]
+
+	// Beide Aktivitäten müssen FIT-Dateien mit gültigem Hash haben.
+	if target.FileHash == nil || strings.HasSuffix(*target.FileHash, "-missing") {
+		return fmt.Errorf("target activity %s has no original FIT file", targetID)
+	}
+	if source.FileHash == nil || strings.HasSuffix(*source.FileHash, "-missing") {
+		return fmt.Errorf("source activity %s has no original FIT file", sourceIDs[0])
+	}
+
+	// Dateiformat prüfen — FIT-Level-Merge nur für FIT-Dateien möglich.
+	targetExt := "fit"
+	if target.OriginalFileFormat != nil {
+		targetExt = *target.OriginalFileFormat
+	}
+	sourceExt := "fit"
+	if source.OriginalFileFormat != nil {
+		sourceExt = *source.OriginalFileFormat
+	}
+	if targetExt != "fit" || sourceExt != "fit" {
+		return fmt.Errorf("FIT-level merge requires both files to be FIT format (target=%s, source=%s)", targetExt, sourceExt)
+	}
+
+	if len(sourceIDs) > 1 {
+		slog.Warn("fusion-merge: FIT-level merge only supports 1 source, ignoring extra sources",
+			"used", sourceIDs[0], "ignored", sourceIDs[1:])
+	}
+
+	// Original-FIT-Dateien aus S3 laden.
+	const bucket = "skadia-originals"
+	const maxFITSize = 50 * 1024 * 1024 // 50 MB
+	targetKey := fmt.Sprintf("%s/%s.fit", userID, *target.FileHash)
+	sourceKey := fmt.Sprintf("%s/%s.fit", userID, *source.FileHash)
+
+	targetData, _, err := h.Storage.DownloadFromBucket(ctx, bucket, targetKey)
+	if err != nil {
+		return fmt.Errorf("download target FIT from S3: %w", err)
+	}
+	if len(targetData) > maxFITSize {
+		return fmt.Errorf("target FIT file too large: %d bytes (max %d)", len(targetData), maxFITSize)
+	}
+	sourceData, _, err := h.Storage.DownloadFromBucket(ctx, bucket, sourceKey)
+	if err != nil {
+		return fmt.Errorf("download source FIT from S3: %w", err)
+	}
+	if len(sourceData) > maxFITSize {
+		return fmt.Errorf("source FIT file too large: %d bytes (max %d)", len(sourceData), maxFITSize)
+	}
+
+	slog.Info("fusion-merge: FIT-level merge starting",
+		"target", targetID, "target_bytes", len(targetData),
+		"source", sourceIDs[0], "source_bytes", len(sourceData),
+	)
+
+	// FIT-Dateien auf Protokoll-Ebene zusammenführen.
+	result, err := fusion.MergeFITFiles(targetData, sourceData, fieldMap, sourceIDs[0])
+	if err != nil {
+		return fmt.Errorf("FIT-level merge failed: %w", err)
+	}
+
+	// Neuen Hash für die zusammengeführte Datei berechnen.
+	hashBytes := sha256.Sum256(result.Data)
+	newHash := hex.EncodeToString(hashBytes[:])
+
+	// Zusammengeführte FIT-Datei in S3 speichern.
+	mergedKey := fmt.Sprintf("%s/%s.fit", userID, newHash)
+	if err := h.Storage.UploadToBucket(ctx, bucket, mergedKey, result.Data, "application/octet-stream"); err != nil {
+		return fmt.Errorf("upload merged FIT to S3: %w", err)
+	}
+
+	// file_hash der Ziel-Aktivität aktualisieren.
+	if _, err := h.DB.Pool.Exec(ctx,
+		`UPDATE activities SET file_hash = $2, has_edits = true, updated_at = NOW() WHERE id = $1`,
+		targetID, newHash,
+	); err != nil {
+		return fmt.Errorf("update file_hash: %w", err)
+	}
+
+	slog.Info("fusion-merge: FIT-level merge saved",
+		"target", targetID,
+		"records", result.RecordCount,
+		"s3_key", mergedKey,
+	)
+
+	return nil
 }
 
