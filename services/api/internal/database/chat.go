@@ -72,6 +72,7 @@ func (db *DB) DeleteSession(ctx context.Context, sessionID, userID string) error
 }
 
 // CreateMessage persists a chat message and returns the stored record.
+// It also touches the parent session's updated_at timestamp.
 func (db *DB) CreateMessage(ctx context.Context, msg *model.ChatMessage) (*model.ChatMessage, error) {
 	var m model.ChatMessage
 	err := db.Pool.QueryRow(ctx,
@@ -83,6 +84,11 @@ func (db *DB) CreateMessage(ctx context.Context, msg *model.ChatMessage) (*model
 	if err != nil {
 		return nil, fmt.Errorf("create chat message: %w", err)
 	}
+	// Best-effort touch on parent session
+	_, _ = db.Pool.Exec(ctx,
+		`UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1`,
+		msg.SessionID,
+	)
 	return &m, nil
 }
 
