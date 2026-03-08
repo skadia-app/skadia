@@ -1,0 +1,28 @@
+name: health
+description: "HRV, Schlaf, Ruhepuls, Readiness, Body Battery, SpO2"
+schema_excerpt: |
+  health_hrv_snapshots: user_id, measured_at_utc, rmssd_ms REAL, sdrr_ms REAL,
+    weekly_avg REAL, baseline_low REAL, baseline_high REAL, status TEXT
+  health_sleep: user_id, date, total_sleep_s INT, deep_sleep_s INT,
+    light_sleep_s INT, rem_sleep_s INT, awake_s INT, score SMALLINT
+  health_weight_entries: user_id, date, weight_kg REAL, body_fat_pct REAL
+  user_daily_features: user_id, date, feature_key TEXT, value_num REAL, value_json JSONB
+domain_knowledge: |
+  - HRV (RMSSD) in ms: <20 schlecht, 20-40 moderat, 40-60 gut, >60 exzellent
+  - HRV-Trend: 7-Tage-Mittel vs. 90-Tage-Baseline → Erholungstrend
+  - HRV-CV (Variationskoeffizient): 3-5% = gut adaptiert, >10% = akute Müdigkeit
+  - Schlaf-Score: <60 schlecht, 60-80 ok, >80 gut
+  - Ruhepuls steigend = mögliche Überbelastung oder Krankheit
+  - Garmin HRV-Status: balanced, low, unbalanced
+tools:
+  - get_health_status
+  - get_analytics
+few_shot_examples:
+  - q: "Wie ist mein HRV-Trend?"
+    tool: get_health_status
+    args: '{"aspect": "hrv", "days": 30}'
+    answer: "HRV-7d-Mittel: 52ms (gut), Tendenz steigend (+8% vs. Vorwoche). Baseline: 45-58ms."
+  - q: "Bin ich erholt genug für hartes Training?"
+    tool: get_health_status
+    args: '{"aspect": "readiness"}'
+    answer: "Readiness 78/100 (gut). HRV stabil, Schlaf letzte Nacht 7.2h. Grünes Licht."

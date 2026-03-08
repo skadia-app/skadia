@@ -1,0 +1,21 @@
+name: gear
+description: "Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten"
+schema_excerpt: |
+  gear: id UUID, user_id, name TEXT, type TEXT (shoes/bike/...), sub_type TEXT,
+    brand TEXT, model TEXT, total_distance_m REAL, total_time_s BIGINT,
+    total_activities INT, total_elevation_gain_m REAL, purchased_at DATE,
+    status TEXT (active/stored/retired), purchase_price REAL
+  gear_components: id, gear_id, name TEXT, type TEXT, distance_m REAL, installed_at DATE
+domain_knowledge: |
+  - Laufschuhe: Lebensdauer 600-1000 km (je nach Modell/Untergrund)
+  - Fahrradkette: ~3000-5000 km, Kassette: ~10.000 km
+  - Bremsbeläge: ~5000-10.000 km (Scheibenbremse)
+  - Reifen (Rennrad): ~3000-6000 km, MTB: ~2000-4000 km
+  - Status: active = in Gebrauch, stored = eingelagert, retired = ausgemustert
+tools:
+  - get_gear_stats
+few_shot_examples:
+  - q: "Wie viele km haben meine Laufschuhe?"
+    tool: get_gear_stats
+    args: '{}'
+    answer: "3 aktive Laufschuhe: Nike Pegasus 41 (623 km — bald wechseln!), Hoka Mach 6 (234 km), Brooks Ghost 16 (89 km)."

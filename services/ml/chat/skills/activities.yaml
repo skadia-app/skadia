@@ -1,0 +1,34 @@
+name: activities
+description: "Aktivitäten, Trainings, Pace, Distanz, Sport-Typen"
+schema_excerpt: |
+  activities: id UUID, user_id UUID, sport_type TEXT, sub_sport_type TEXT, title TEXT,
+    started_at TIMESTAMPTZ, duration_s REAL, moving_time_s REAL, distance_m REAL,
+    elevation_gain_m REAL, avg_heart_rate SMALLINT, max_heart_rate SMALLINT,
+    avg_speed REAL (m/s), calories INT, start_city TEXT, start_location TEXT
+  activity_laps: activity_id, lap_number, distance_m, duration_s, avg_hr, max_hr
+  activity_splits: activity_id, split_number, distance_m, duration_s, avg_pace_s
+domain_knowledge: |
+  - Pace berechnen: (1000.0 / avg_speed) / 60.0 = min/km
+  - Speed berechnen: avg_speed * 3.6 = km/h
+  - Dauer: duration_s / 3600 = Stunden
+  - Distanz: distance_m / 1000 = km
+  - Sport-Typen: running, cycling, hiking, walking, swimming, trail_running,
+    mountain_biking, alpine_skiing, cross_country_skiing, strength_training,
+    open_water_swimming, mountaineering, gravel_cycling, indoor_cycling
+tools:
+  - query_activities
+  - aggregate_stats
+  - compare_periods
+few_shot_examples:
+  - q: "Wie weit bin ich diese Woche gelaufen?"
+    tool: aggregate_stats
+    args: '{"metric": "total_distance", "sport_type": "running", "days": 7}'
+    answer: "Diese Woche 3 Läufe, 28.4 km gesamt. Längster: 12.1 km am Montag."
+  - q: "Was war mein schnellster 10k?"
+    tool: query_activities
+    args: '{"sport_type": "running", "sort_by": "duration", "limit": 10}'
+    answer: "Dein schnellster Lauf über ~10 km: 48:12 min am 15.01. (Pace 4:49 min/km)."
+  - q: "Wie oft war ich letztes Jahr Rad fahren?"
+    tool: aggregate_stats
+    args: '{"metric": "count", "sport_type": "cycling", "days": 365}'
+    answer: "42 Radtouren in den letzten 12 Monaten, 1.847 km gesamt."

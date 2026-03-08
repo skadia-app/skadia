@@ -1,0 +1,30 @@
+name: geo
+description: "Gipfel, Pässe, Gewässer, Stops, Einkehr, Routen, Höhenmeter"
+schema_excerpt: |
+  activity_geo_tags: activity_id, category TEXT (peak/pass/lake/river/forest/settlement/border),
+    name TEXT, elevation REAL, osm_id BIGINT, lat REAL, lng REAL
+  activity_stops: activity_id, lat, lng, duration_s INT, poi_type TEXT,
+    poi_name TEXT, category TEXT, poi_osm_id BIGINT
+  osm_peaks: name TEXT, elevation REAL, geom GEOMETRY(POINT)
+  osm_passes: name TEXT, elevation REAL, geom GEOMETRY(POINT)
+domain_knowledge: |
+  - "Gipfel bestiegen" = activity_geo_tags WHERE category='peak'
+    Relevante Sportarten: hiking, trail_running, mountaineering, walking
+  - "Pass überquert" = category='pass'
+    Relevante Sportarten: cycling, hiking, motorcycle, driving
+  - "Einkehr/Hütte" = activity_stops WHERE category='gastronomy'
+    poi_type: restaurant, alpine_hut, cafe, pub, fast_food, biergarten
+  - Höhenangaben immer in Metern
+  - Mehrere Sportarten können zum selben Gipfel führen (Bike & Hike!)
+tools:
+  - query_geo_features
+  - search_routes
+few_shot_examples:
+  - q: "Wie viele Gipfel über 2000m habe ich bestiegen?"
+    tool: query_geo_features
+    args: '{"feature_type": "peak", "min_elevation": 2000}'
+    answer: "12 verschiedene Gipfel über 2000m. Höchster: Zugspitze (2962m) am 14.08."
+  - q: "Auf welchen Hütten war ich dieses Jahr?"
+    tool: query_geo_features
+    args: '{"feature_type": "gastronomy", "days": 365}'
+    answer: "5 Hüttenbesuche: Rappenseehütte (2x), Mindelheimer Hütte, ..."

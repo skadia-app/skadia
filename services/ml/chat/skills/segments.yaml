@@ -1,0 +1,21 @@
+name: segments
+description: "Segmente, Bestzeiten, PRs, Leaderboard, Runden"
+schema_excerpt: |
+  segments: id UUID, name TEXT, sport_group TEXT, distance_m REAL,
+    elevation_gain_m REAL, start_point GEOMETRY, end_point GEOMETRY
+  segment_efforts: id, segment_id, activity_id, started_at TIMESTAMPTZ,
+    elapsed_time_s REAL, moving_time_s REAL, avg_hr SMALLINT,
+    distance_m REAL, elevation_gain_m REAL
+  activity_detected_laps: activity_id, lap_number, distance_m, duration_s, avg_hr
+domain_knowledge: |
+  - PR (Personal Record) = schnellste effort pro Segment
+  - segment_efforts.elapsed_time_s ist die Gesamtzeit, moving_time_s ohne Pausen
+  - sport_group: bike, foot, swim, ski, paddle, generic
+  - Segmente können manuell erstellt oder aus OSM-Liften importiert sein
+tools:
+  - query_segments
+few_shot_examples:
+  - q: "Was ist meine Bestzeit auf dem Hausberg-Segment?"
+    tool: query_segments
+    args: '{"query": "Hausberg", "include_efforts": true}'
+    answer: "Hausberg: PR 12:34 min (15.02.2026). Letzter Versuch: 13:12 am 01.03."
