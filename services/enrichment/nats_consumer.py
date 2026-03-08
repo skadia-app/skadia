@@ -23,7 +23,7 @@ from enrichment import (
     enrich_lifts,
     enrich_intervals,
 )
-from enrichment.document_vlm import process_document
+from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
 from analytics import (
     compute_readiness,
     detect_anomalies,
@@ -199,6 +199,53 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
             await msg.ack()
             _metrics["processed_total"] += 1
             logger.info("document processed: %s (success=%s)", doc_id, success)
+
+            # PDF→Markdown Konvertierung (best-effort)
+            if success:
+                extracted_text = data.get("extracted_text", "") or ""
+                if not extracted_text:
+                    try:
+                        pool = await get_pool()
+                        async with pool.acquire() as conn:
+                            extracted_text = (
+                                await conn.fetchval(
+                                    "SELECT extracted_text FROM gear_documents WHERE id = $1",
+                                    doc_id,
+                                )
+                                or ""
+                            )
+                    except Exception as e:
+                        logger.warning("failed to load extracted_text from DB for %s: %s", doc_id, e)
+
+                if extracted_text:
+                    try:
+                        markdown = await convert_to_markdown(extracted_text)
+                        if markdown:
+                            pool = await get_pool()
+                            async with pool.acquire() as conn:
+                                await conn.execute(
+                                    "UPDATE gear_documents SET extracted_markdown = $1 WHERE id = $2",
+                                    markdown,
+                                    doc_id,
+                                )
+                            logger.info("stored extracted_markdown for document %s", doc_id)
+
+                            s3_key = data.get("s3_key", "")
+                            s3_bucket = data.get("s3_bucket", "skadia-media")
+                            if s3_key:
+                                md_key = s3_key.rsplit(".", 1)[0] + ".md"
+                                try:
+                                    await upload_to_s3(
+                                        s3_bucket,
+                                        md_key,
+                                        markdown.encode("utf-8"),
+                                        "text/markdown",
+                                    )
+                                    logger.info("uploaded markdown sidecar: %s", md_key)
+                                except Exception as e:
+                                    logger.warning("failed to upload markdown sidecar %s: %s", md_key, e)
+                    except Exception as e:
+                        logger.warning("markdown conversion failed for document %s: %s", doc_id, e)
 
             # Publish document.processed event
             try:

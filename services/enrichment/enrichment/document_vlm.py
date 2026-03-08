@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Optional
 
+import aioboto3
 import httpx
 from openai import AsyncOpenAI
 
@@ -208,3 +209,49 @@ async def process_document(
         )
 
     return True
+
+
+MARKDOWN_PROMPT = """Konvertiere den folgenden extrahierten Text aus einem PDF-Dokument in sauberes Markdown.
+Behalte die Struktur bei: Überschriften, Tabellen, Listen.
+Wenn es eine Rechnung ist, formatiere Positionen als Markdown-Tabelle.
+Gib NUR das Markdown zurück, keine Erklärungen."""
+
+
+async def convert_to_markdown(text: str) -> Optional[str]:
+    """Konvertiert Rohtext in strukturiertes Markdown via LLM."""
+    if not text or len(text.strip()) < 50:
+        return None
+
+    client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+    try:
+        response = await client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": MARKDOWN_PROMPT + "\n\n" + text[:8000],
+                }
+            ],
+            temperature=0.1,
+            max_tokens=2048,
+        )
+        result = response.choices[0].message.content or ""
+        if len(result.strip()) > 20:
+            return result.strip()
+    except Exception as e:
+        logger.warning("markdown conversion failed: %s", e)
+
+    return None
+
+
+async def upload_to_s3(bucket: str, key: str, data: bytes, content_type: str) -> None:
+    """Lädt Daten in S3/Garage hoch."""
+    session = aioboto3.Session()
+    async with session.client(
+        "s3",
+        endpoint_url=os.getenv("GARAGE_ENDPOINT", "http://garage:3900"),
+        aws_access_key_id=os.getenv("GARAGE_ACCESS_KEY"),
+        aws_secret_access_key=os.getenv("GARAGE_SECRET_KEY"),
+        region_name="garage",
+    ) as s3:
+        await s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)

@@ -8,3 +8,4 @@ shapely==2.1.2
 scikit-learn==1.8.0
 openai==1.109.1
 httpx==0.28.1
+aioboto3==13.3.0
