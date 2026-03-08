@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import OSMImportModal from '@/components/OSMImportModal'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
@@ -473,6 +473,9 @@ export default function SettingsPage() {
       {/* Karte */}
       <HeatmapSettingsSection />
 
+      {/* Lokale Karte (Martin Tile Server) */}
+      <LocalMapSection />
+
       {/* OSM-Geodaten */}
       <section>
         <h2 className="text-base font-semibold mb-3">OSM-Geodaten</h2>
@@ -686,6 +689,136 @@ function SportSettingsSection() {
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+type LocalMapStatus = 'loading' | 'ok' | 'unavailable'
+
+function LocalMapSection() {
+  const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? '/tiles'
+  const styleUrl = `${martinBase}/style.json`
+
+  const [status, setStatus] = useState<LocalMapStatus>('loading')
+  const [sources, setSources] = useState<string[]>([])
+  const [checkKey, setCheckKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setStatus('loading')
+    setSources([])
+    fetch(styleUrl, { signal: AbortSignal.timeout(5000) })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((json: { sources?: Record<string, unknown> }) => {
+        if (cancelled) return
+        setStatus('ok')
+        if (json.sources && typeof json.sources === 'object') {
+          setSources(Object.keys(json.sources))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('unavailable')
+      })
+    return () => { cancelled = true }
+  }, [styleUrl, checkKey])
+
+  const statusBadge =
+    status === 'loading' ? (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        <span className="h-2 w-2 rounded-full bg-neutral-400 animate-pulse" />
+        Prüfe…
+      </span>
+    ) : status === 'ok' ? (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        Verbunden
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        <span className="h-2 w-2 rounded-full bg-amber-500" />
+        Nicht verfügbar
+      </span>
+    )
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Lokale Karte</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Optionaler Martin Tile Server für Offline-Betrieb und lokale Vektorkacheln.
+        </p>
+      </div>
+
+      {/* Status-Zeile */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {statusBadge}
+        <span className="text-xs text-neutral-400 dark:text-neutral-500 font-mono break-all">{styleUrl}</span>
+        {status !== 'loading' && (
+          <button
+            onClick={() => setCheckKey(k => k + 1)}
+            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 underline underline-offset-2"
+          >
+            Erneut prüfen
+          </button>
+        )}
+      </div>
+
+      {/* Info-Box */}
+      <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4 space-y-2">
+        <p className="text-sm text-neutral-700 dark:text-neutral-300 font-medium">Wie funktioniert die lokale Karte?</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+          Der Lokal-Stil wird von einem <strong>Martin Tile Server</strong> bereitgestellt, der als eigener
+          Dienst in der Docker-Infrastruktur läuft. Er serviert Vektorkacheln aus PostGIS direkt
+          und ermöglicht so vollständigen Offline-Betrieb ohne externe Tile-CDNs.
+        </p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+          Die Server-Adresse wird über die Umgebungsvariable <code className="px-1 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 font-mono text-xs">VITE_MARTIN_URL</code> konfiguriert
+          (Standard: <code className="px-1 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 font-mono text-xs">/tiles</code>).
+          Lokale Karten sind in Phase 3 des Entwicklungsplans vorgesehen.
+        </p>
+      </div>
+
+      {/* Verfügbare Tile-Sets (nur wenn verbunden) */}
+      {status === 'ok' && (
+        <div>
+          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+            Verfügbare Tile-Quellen ({sources.length})
+          </p>
+          {sources.length > 0 ? (
+            <ul className="space-y-1">
+              {sources.map(src => (
+                <li key={src} className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                  <code className="font-mono">{src}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-neutral-400">Keine Sources in style.json gefunden.</p>
+          )}
+        </div>
+      )}
+
+      {/* Hinweis auf Standard-Kartenstil */}
+      <div className="flex items-start gap-2 rounded-lg bg-accent-100/40 dark:bg-accent-900/10 border border-accent-200/60 dark:border-accent-800/30 px-3 py-2.5">
+        <svg className="h-4 w-4 text-accent-DEFAULT mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+        </svg>
+        <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+          Den Lokal-Stil als Standardkarte einrichten: Wähle{' '}
+          <strong className="text-neutral-800 dark:text-neutral-200">Lokal (Offline)</strong>{' '}
+          im Dropdown <em>Standard-Kartenstil</em> im Abschnitt{' '}
+          <strong className="text-neutral-800 dark:text-neutral-200">Karte</strong> oben.{' '}
+          {status !== 'ok' && (
+            <span className="text-amber-600 dark:text-amber-400">
+              Der Martin Server muss erreichbar sein, damit der Stil geladen werden kann.
+            </span>
+          )}
+        </p>
+      </div>
     </section>
   )
 }

@@ -761,20 +761,35 @@ export default function MapPage() {
   // ── Overlay bei Filter-/Modus-/Settings-Änderung aktualisieren ──────────
   // showLocationTags absichtlich NICHT in deps — das Flag beeinflusst nur
   // MapLibre-Marker, nicht die Tile-Layer → kein unnötiger Layer-Rebuild.
+  // styleVersion muss in deps: nach setStyle() werden alle Custom-Sources/-Layer
+  // gelöscht; style.load-Handler fügt sie neu hinzu und inkrementiert styleVersion,
+  // damit dieser Effect erneut feuert und den Layer-Zustand sauber herstellt.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     removeOverlayLayers(map)
     removeExplorationLayers(map)
     if (viewMode === 'exploration') {
-      // Exploration mode: unexplored overlay (no heatmap tiles needed)
+      // Exploration-Modus: Entdeckungs-Overlay neu hinzufügen falls Daten vorhanden.
+      // Ohne diesen Re-Add würde jede Filter-Änderung den Overlay dauerhaft entfernen,
+      // weil removeExplorationLayers() oben ihn löscht und der separate Exploration-
+      // Effect (deps: viewMode, explorationData, styleVersion) nicht erneut feuert.
+      if (explorationDataRef.current?.explored_area) {
+        addExplorationLayers(map, explorationDataRef.current.explored_area)
+      }
     } else if (filters.sportTypes.size > 0) {
       addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion])
 
   // ── Exploration Overlay Layer ─────────────────────────────────────────────
+  // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
+  // weil setStyle() alle Custom-Layers löscht. Dieser Effect aktualisiert die Ref
+  // und baut den Layer neu auf. Hinweis: der style.load-Handler liest explorationDataRef
+  // synchron, kann dabei aber eine veraltete (noch nicht durch diesen Effect befüllte)
+  // Ref sehen. styleVersion stellt sicher, dass der Layer spätestens beim nächsten
+  // styleVersion-Trigger korrekt vorhanden ist.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
@@ -783,7 +798,7 @@ export default function MapPage() {
     if (viewMode === 'exploration' && explorationData?.explored_area) {
       addExplorationLayers(map, explorationData.explored_area)
     }
-  }, [viewMode, explorationData])
+  }, [viewMode, explorationData, styleVersion])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -2550,6 +2565,10 @@ function removeExplorationLayers(map: maplibregl.Map) {
 /**
  * Add exploration overlay: a world-covering polygon with explored area
  * cut out as holes → unexplored regions appear as semi-transparent dark overlay.
+ *
+ * Diese Funktion ist self-cleaning: sie ruft intern removeExplorationLayers() auf,
+ * bevor sie Source und Layer hinzufügt. Aufrufer müssen removeExplorationLayers()
+ * nicht vorher aufrufen.
  */
 function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
   // World-covering polygon (outer ring, counter-clockwise)
@@ -2580,6 +2599,9 @@ function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geo
     },
   }
 
+  // Defensive Bereinigung: verhindert "Source already exists"-Fehler bei
+  // doppeltem Aufruf (z.B. durch style.load-Handler + React-Effect gleichzeitig).
+  removeExplorationLayers(map)
   map.addSource('exploration', {
     type: 'geojson',
     data: unexploredPolygon,
@@ -2636,7 +2658,11 @@ function addOverlayLayers(
   teleportThresholdM: number,
   samplingIntervalM?: number,
 ) {
-  // Linien-Layer fuer beide Modi
+  // Linien-Layer fuer beide Modi.
+  // Defensive Bereinigung: Falls addOverlayLayers ohne vorherigem removeOverlayLayers
+  // aufgerufen wird (z.B. Race-Condition zwischen style.load-Handler und Effect),
+  // verhindert removeOverlayLayers() hier einen "Source already exists"-Fehler.
+  removeOverlayLayers(map)
   map.addSource('heatmap', {
     type: 'vector',
     tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM)],
