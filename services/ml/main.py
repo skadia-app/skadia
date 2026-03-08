@@ -80,3 +80,7 @@ async def health():
 @app.get("/metrics")
 async def metrics():
     return get_metrics()
+
+
+from api.features import router as features_router
+app.include_router(features_router)
