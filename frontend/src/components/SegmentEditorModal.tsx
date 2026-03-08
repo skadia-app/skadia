@@ -5,6 +5,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore
 import MapboxDraw from 'maplibre-gl-draw'
+import { apiClient } from '@/api/client'
 import { createSegment } from '@/api/segments'
 import { nearestIndex, extractSubTrack, detectLapCrossings } from './segment-editor/TrackMode'
 import { buildRasterStyle, RASTER_STYLES, type BaseStyle } from '@/lib/mapStyles'
@@ -56,7 +57,7 @@ export default function SegmentEditorModal({
 }: Props) {
   const { data: meData } = useQuery({
     queryKey: ['me'],
-    queryFn: () => fetch('/api/v1/me', { credentials: 'include' }).then(r => r.json()) as Promise<{ user_id: string }>,
+    queryFn: () => apiClient<{ user_id: string }>('/me'),
     staleTime: Infinity,
   })
   const currentUserId = meData?.user_id ?? ''
