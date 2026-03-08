@@ -26,6 +26,8 @@ type HandlerConfig struct {
 	LiteLLMConfigPath  string
 	LiteLLMInternalURL string
 	LLMEncryptionKey   string
+	MLServiceURL       string // e.g. http://ml:8000
+	MLCallbackSecret   string // ML_CALLBACK_SECRET env var
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

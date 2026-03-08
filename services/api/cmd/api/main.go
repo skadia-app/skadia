@@ -124,6 +124,11 @@ func main() {
 	}
 
 	// Handler
+	mlCallbackSecret := os.Getenv("ML_CALLBACK_SECRET")
+	if mlCallbackSecret == "" {
+		slog.Warn("ML_CALLBACK_SECRET not set — ML callback endpoint unauthenticated")
+	}
+
 	h := &handler.Handler{
 		DB:       db,
 		Storage:  s3Client,
@@ -134,6 +139,8 @@ func main() {
 			LiteLLMConfigPath:  cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL: cfg.LiteLLMInternalURL,
 			LLMEncryptionKey:   cfg.LLMEncryptionKey,
+			MLServiceURL:       cfg.MLServiceURL,
+			MLCallbackSecret:   mlCallbackSecret,
 		},
 	}
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
@@ -231,6 +238,10 @@ func main() {
 			r.Post("/tags/{id}/merge", h.MergeTag)
 			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
 			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
+
+			// ML System Settings (admin-only: nightly job toggles etc.)
+			r.Get("/admin/settings/ml", h.GetMLSystemSettings)
+			r.Put("/admin/settings/ml/{key}", h.PutMLSystemSetting)
 
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)
@@ -378,9 +389,7 @@ func main() {
 			r.Put("/tag-zones/{tagId}", h.UpsertTagZone)
 			r.Delete("/tag-zones/{tagId}", h.DeleteTagZone)
 
-			// ML Settings (nightly jobs + user notification prefs)
-			r.Get("/settings/ml", h.GetMLSystemSettings)
-			r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
+			// ML User Settings (per-user preferences)
 			r.Get("/settings/ml/user", h.GetMLUserSettings)
 			r.Put("/settings/ml/user/{key}", h.PutMLUserSetting)
 

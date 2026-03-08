@@ -16,9 +16,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// mlServiceURL is the internal address of the Python ML service.
-const mlServiceURL = "http://ml:8000"
-
 // chatRateLimiter tracks per-user message rates in memory.
 type chatRateLimiter struct {
 	mu     sync.Mutex
@@ -175,6 +172,8 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
 	var req struct {
 		MessageID string `json:"message_id"`
 		Message   string `json:"message"`
@@ -185,6 +184,10 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Message == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "message is required", r.URL.Path)
+		return
+	}
+	if len(req.Message) > 4000 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "message too long (max 4000 chars)", r.URL.Path)
 		return
 	}
 	if req.MessageID == "" {
@@ -242,8 +245,12 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		"history":    historyPayload,
 	})
 
+	mlBaseURL := "http://ml:8000"
+	if h.Config != nil && h.Config.MLServiceURL != "" {
+		mlBaseURL = h.Config.MLServiceURL
+	}
 	mlReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		mlServiceURL+"/ml/chat", strings.NewReader(string(mlPayload)))
+		mlBaseURL+"/ml/chat", strings.NewReader(string(mlPayload)))
 	if err != nil {
 		slog.Error("build ML chat request failed", "error", err)
 		fmt.Fprintf(w, "data: %s\n\n", mustJSON(model.WSChatResponse{
@@ -275,6 +282,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	var sourcesRaw []string
 
 	scanner := bufio.NewScanner(mlResp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
