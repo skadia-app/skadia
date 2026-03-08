@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   fetchInsightsReadiness,
   fetchInsightsWarnings,
@@ -11,11 +12,13 @@ import WarningsPanel from '@/components/analytics/insights/WarningsPanel'
 import FitnessProjection from '@/components/analytics/insights/FitnessProjection'
 import TrainingClusters from '@/components/analytics/insights/TrainingClusters'
 import CorrelationsPanel from '@/components/analytics/insights/CorrelationsPanel'
+import ReadinessV2Card from '@/components/analytics/ReadinessV2Card'
 
 export default function InsightsTab() {
   const { toQueryString } = useAnalyticsFilters()
   const queryParams = toQueryString()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   // Probe queries to determine if any data is available yet
   const { data: readiness, isLoading: readinessLoading } = useQuery({
@@ -164,6 +167,24 @@ export default function InsightsTab() {
           Fehler beim Aktualisieren der Insights.
         </div>
       )}
+
+      {/* Readiness v2 — full width */}
+      <ReadinessV2Card />
+
+      {/* Frag den Assistenten */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => navigate(`/chat?context=readiness&date=${new Date().toISOString().slice(0, 10)}`)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium
+                     hover:bg-accent/90 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          Frag den Assistenten
+        </button>
+      </div>
 
       {/* Row 1: Readiness (left) | Warnings (right) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
