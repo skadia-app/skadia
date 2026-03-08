@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -46,10 +47,27 @@ func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// FusionCandidate beschreibt eine Aktivität die als Fusionsquelle in Frage kommt.
+type FusionCandidate struct {
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	StartedAt      time.Time `json:"started_at"`
+	DistanceM      float64   `json:"distance_m"`
+	SportType      string    `json:"sport_type"`
+	HasHR          bool      `json:"has_hr"`
+	HasPower       bool      `json:"has_power"`
+	HasGPS         bool      `json:"has_gps"`
+	HasTemperature bool      `json:"has_temperature"`
+	HasCadence     bool      `json:"has_cadence"`
+	HasAltitude    bool      `json:"has_altitude"`
+	OverlapPct     float64   `json:"overlap_pct"`
+}
+
 // GetFusionCandidates godoc
 // GET /api/v1/activities/{id}/fusion-candidates
 // Returns activities that are temporally close and share the same sport type,
 // making them potential candidates for stream fusion.
+// Includes stream availability flags and temporal overlap percentage.
 func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -64,44 +82,83 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 		timeWindowMin = settings.FusionTimeWindowMin
 	}
 
-	ids, err := h.DB.FindFusionCandidates(r.Context(), userID, activityID, timeWindowMin)
+	// Ziel-Aktivität laden um started_at + ended_at für Overlap-Berechnung zu bekommen.
+	target, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || target == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	rows, err := h.DB.Pool.Query(r.Context(), `
+		SELECT
+			b.id,
+			COALESCE(b.title, b.title_auto, '') AS title,
+			b.started_at,
+			COALESCE(b.distance_m, 0) AS distance_m,
+			b.sport_type,
+			(b.avg_heart_rate IS NOT NULL)    AS has_hr,
+			(b.avg_power_w IS NOT NULL)       AS has_power,
+			b.has_gps,
+			(b.avg_temperature_c IS NOT NULL) AS has_temperature,
+			(b.avg_cadence IS NOT NULL)       AS has_cadence,
+			(b.elevation_gain_m IS NOT NULL)  AS has_altitude,
+			CASE WHEN b.ended_at IS NOT NULL THEN
+				GREATEST(0.0,
+					EXTRACT(EPOCH FROM (
+						LEAST(b.ended_at, $3::timestamptz) -
+						GREATEST(b.started_at, $2::timestamptz)
+					))
+				) / GREATEST(1.0, EXTRACT(EPOCH FROM (b.ended_at - b.started_at)))
+			ELSE 0.0 END AS overlap_pct
+		FROM activities a
+		JOIN activities b
+			ON b.user_id = a.user_id
+			AND b.id != a.id
+			AND ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= $4
+			AND b.is_fusion_source = FALSE
+		WHERE a.id = $1 AND a.user_id = $5
+		ORDER BY ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at)))
+		LIMIT 10`,
+		activityID,
+		target.StartedAt,
+		func() interface{} {
+			if target.EndedAt != nil {
+				return *target.EndedAt
+			}
+			return target.StartedAt
+		}(),
+		timeWindowMin*60,
+		userID,
+	)
 	if err != nil {
 		slog.Error("find fusion candidates", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to find fusion candidates", r.URL.Path)
 		return
 	}
+	defer rows.Close()
 
-	type candidate struct {
-		ID        string  `json:"id"`
-		Title     string  `json:"title"`
-		StartedAt string  `json:"started_at"`
-		DistanceM float64 `json:"distance_m"`
-		SportType string  `json:"sport_type"`
-	}
-	result := make([]candidate, 0, len(ids))
-	for _, id := range ids {
-		a, err := h.DB.GetActivity(r.Context(), id)
-		if err != nil {
-			slog.Warn("get fusion candidate activity failed", "id", id, "error", err)
+	result := make([]FusionCandidate, 0)
+	for rows.Next() {
+		var c FusionCandidate
+		if err := rows.Scan(
+			&c.ID,
+			&c.Title,
+			&c.StartedAt,
+			&c.DistanceM,
+			&c.SportType,
+			&c.HasHR,
+			&c.HasPower,
+			&c.HasGPS,
+			&c.HasTemperature,
+			&c.HasCadence,
+			&c.HasAltitude,
+			&c.OverlapPct,
+		); err != nil {
+			slog.Warn("scan fusion candidate failed", "error", err)
 			continue
 		}
-		title := ""
-		if a.Title != nil {
-			title = *a.Title
-		} else if a.TitleAuto != nil {
-			title = *a.TitleAuto
-		}
-		dist := 0.0
-		if a.DistanceM != nil {
-			dist = *a.DistanceM
-		}
-		result = append(result, candidate{
-			ID:        a.ID,
-			Title:     title,
-			StartedAt: a.StartedAt.Format("2006-01-02T15:04:05Z"),
-			DistanceM: dist,
-			SportType: a.SportType,
-		})
+		result = append(result, c)
 	}
+
 	writeJSON(w, http.StatusOK, result)
 }
