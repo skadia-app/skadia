@@ -363,5 +363,5 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 		return fmt.Errorf("render template: %w", err)
 	}
 
-	return os.WriteFile(configPath, []byte(buf.String()), 0644)
+	return os.WriteFile(configPath, []byte(buf.String()), 0600)
 }

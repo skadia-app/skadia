@@ -386,20 +386,34 @@ async def _pull_loop(sub, handler, name: str) -> None:
 
     Pull consumers don't bind exclusively to a subscription, so they survive
     service restarts without "consumer is already bound" errors.
+
+    On cancellation (shutdown), the done_callback on each handler task ensures
+    the global semaphore is released even if the task is cancelled mid-flight.
     """
     logger.info("Pull consumer %s started", name)
-    while True:
-        try:
-            msgs = await sub.fetch(batch=1, timeout=5)
-            for msg in msgs:
-                await _global_semaphore.acquire()
-                task = asyncio.create_task(handler(msg))
-                task.add_done_callback(lambda _: _global_semaphore.release())
-        except nats.errors.TimeoutError:
-            pass  # No messages available — poll again
-        except Exception as e:
-            logger.error("Pull consumer %s fetch error: %s", name, e)
-            await asyncio.sleep(1)
+    try:
+        while True:
+            try:
+                msgs = await sub.fetch(batch=1, timeout=5)
+                for msg in msgs:
+                    # Guard: if cancelled between acquire and create_task,
+                    # the finally below won't help — so wrap tightly.
+                    try:
+                        await _global_semaphore.acquire()
+                        task = asyncio.create_task(handler(msg))
+                        task.add_done_callback(lambda _: _global_semaphore.release())
+                    except asyncio.CancelledError:
+                        _global_semaphore.release()
+                        raise
+            except nats.errors.TimeoutError:
+                pass  # No messages available — poll again
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error("Pull consumer %s fetch error: %s", name, e)
+                await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        logger.info("Pull consumer %s shutting down", name)
 
 
 async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:

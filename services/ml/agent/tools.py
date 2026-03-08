@@ -132,12 +132,15 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
 
 async def _query_activities(pool, user_id, sport_type=None, days=30, limit=10, sort_by="date"):
     since = date.today() - timedelta(days=days)
-    sort_col = {
+    _VALID_SORTS = {
         "date": "started_at",
         "distance": "distance_m",
         "duration": "elapsed_time_s",
         "hr": "avg_heart_rate",
-    }.get(sort_by, "started_at")
+    }
+    if sort_by not in _VALID_SORTS:
+        sort_by = "date"
+    sort_col = _VALID_SORTS[sort_by]
 
     # Include start_location from reverse geocoding
     base = (
