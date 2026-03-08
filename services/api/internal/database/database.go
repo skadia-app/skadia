@@ -297,7 +297,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			COALESCE(t.point_count, 0) > 0,
 			a.location_lat, a.location_lng,
 			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
-			a.exclude_lift_subtraction
+			a.exclude_lift_subtraction,
+			COALESCE(a.elevation_source, 'device')
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.id = $1`, id,
@@ -322,6 +323,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.LocationLat, &a.LocationLng,
 		&a.LiftCount, &a.LiftDistanceM, &a.LiftAscentM, &a.LiftDescentM, &a.LiftDurationS,
 		&a.ExcludeLiftSubtraction,
+		&a.ElevationSource,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil

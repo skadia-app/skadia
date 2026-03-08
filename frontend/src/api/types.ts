@@ -96,6 +96,7 @@ export interface Activity {
   lift_descent_m?: number | null
   lift_duration_s?: number | null
   exclude_lift_subtraction?: boolean | null
+  elevation_source?: string | null
 }
 
 export interface ActivitiesResponse {

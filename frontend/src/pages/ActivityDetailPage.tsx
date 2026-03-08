@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -794,12 +794,24 @@ function ActivityHeader({ activity }: { activity: Activity }) {
 function StatsGrid({ activity }: { activity: Activity }) {
   const gain = formatElevationGain(activity.elevation_gain_m)
   const loss = formatElevationLoss(activity.elevation_loss_m)
+  const isDEM = activity.elevation_source === 'dem'
 
-  const stats: { label: string; value: string | null }[] = [
+  const stats: { label: string; value: string | null; badge?: ReactNode }[] = [
     { label: 'Distanz', value: formatDistance(activity.distance_m) },
     { label: 'Dauer', value: formatDuration(activity.elapsed_time_s ?? 0) },
     { label: 'Bewegungszeit', value: activity.moving_time_s ? formatDuration(activity.moving_time_s) : null },
-    { label: 'Anstieg', value: gain },
+    {
+      label: 'Anstieg',
+      value: gain,
+      badge: isDEM ? (
+        <span
+          className="text-xs text-emerald-600 dark:text-emerald-400 ml-1 font-normal"
+          title="Höhe via DEM (Open-Meteo) korrigiert"
+        >
+          DEM
+        </span>
+      ) : undefined,
+    },
     { label: 'Abstieg', value: loss },
     { label: 'Avg HR', value: activity.avg_heart_rate != null ? `${Math.round(activity.avg_heart_rate)} bpm` : null },
     { label: 'Max HR', value: activity.max_heart_rate != null ? `${activity.max_heart_rate} bpm` : null },
@@ -816,10 +828,12 @@ function StatsGrid({ activity }: { activity: Activity }) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-      {visible.map(({ label, value }) => (
+      {visible.map(({ label, value, badge }) => (
         <div key={label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{label}</div>
-          <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">{value}</div>
+          <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+            {value}{badge}
+          </div>
         </div>
       ))}
     </div>

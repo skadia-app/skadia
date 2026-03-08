@@ -210,6 +210,7 @@ type Activity struct {
 	LiftDescentM           *float64 `json:"lift_descent_m,omitempty"`
 	LiftDurationS          *int     `json:"lift_duration_s,omitempty"`
 	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction"`
+	ElevationSource        string   `json:"elevation_source,omitempty" db:"elevation_source"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.

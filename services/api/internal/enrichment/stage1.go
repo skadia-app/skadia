@@ -160,6 +160,38 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["intensity"] = intensityTag
 	}
 
+	// DEM-Höhenkorrektur via Open-Meteo (best-effort, vor Reverse-Geocoding)
+	if data.HasGPS && len(data.Streams) > 0 {
+		// Koordinaten aus Streams extrahieren
+		var demLats, demLngs []float64
+		var demIndices []int
+		for i, s := range data.Streams {
+			if s.Lat != nil && s.Lng != nil {
+				demLats = append(demLats, *s.Lat)
+				demLngs = append(demLngs, *s.Lng)
+				demIndices = append(demIndices, i)
+			}
+		}
+		if len(demLats) > 0 {
+			if demElevs, err := FetchDEMElevations(ctx, demLats, demLngs); err == nil {
+				// Altitude-Pointer-Slice für applyDEMCorrectionToStreams aufbauen
+				altPtrs := make([]*float64, len(data.Streams))
+				for i := range data.Streams {
+					altPtrs[i] = data.Streams[i].AltitudeM
+				}
+				applyDEMCorrectionToStreams(altPtrs, demElevs, demIndices)
+				// Korrigierte Werte zurückschreiben
+				for i := range data.Streams {
+					data.Streams[i].AltitudeM = altPtrs[i]
+				}
+				fields["elevation_source"] = "dem"
+			} else {
+				slog.Warn("DEM elevation fetch failed (non-fatal)", "activity_id", activityID, "err", err)
+				fields["elevation_source"] = "device"
+			}
+		}
+	}
+
 	// Reverse geocoding (PostGIS)
 	if data.StartLat != 0 && data.StartLng != 0 {
 		if geo, err := ReverseGeocode(ctx, db.Pool, data.StartLat, data.StartLng); err == nil && geo != nil {
