@@ -3,10 +3,25 @@ import { useQuery } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchPeakCollection, type PeakVisit } from '@/api/peaks'
+import SummitBadges from '@/components/summit/SummitBadges'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
 type ViewMode = 'list' | 'map'
+
+interface ElevClass {
+  label: string
+  min: number | null
+  max: number | null
+}
+
+const ELEV_CLASSES: ElevClass[] = [
+  { label: 'Alle', min: null, max: null },
+  { label: '1000er', min: 1000, max: 1999 },
+  { label: '2000er', min: 2000, max: 2999 },
+  { label: '3000er', min: 3000, max: 3999 },
+  { label: '4000er+', min: 4000, max: null },
+]
 
 const MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -31,28 +46,38 @@ export default function PeakCollectionPage() {
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [minElevation, setMinElevation] = useState<number>(0)
+  const [elevClass, setElevClass] = useState<ElevClass>(ELEV_CLASSES[0])
+  const [countryFilter, setCountryFilter] = useState('')
   const [yearFilter, setYearFilter] = useState<string>('')
 
-  const { data: peaks, isLoading, error } = useQuery({
-    queryKey: ['peak-collection'],
-    queryFn: fetchPeakCollection,
+  // All peaks (unfiltered) — for badges and for deriving available filter options
+  const { data: allPeaks } = useQuery({
+    queryKey: ['peak-collection-all'],
+    queryFn: () => fetchPeakCollection(),
+    staleTime: 5 * 60 * 1000,
   })
 
-  const filteredPeaks = useMemo(() => {
-    if (!peaks) return []
-    return peaks.filter(p => {
-      if (minElevation > 0 && (p.elevation_m == null || p.elevation_m < minElevation)) return false
-      if (yearFilter) {
-        const year = new Date(p.first_visit).getFullYear().toString()
-        if (year !== yearFilter) return false
-      }
-      return true
-    })
-  }, [peaks, minElevation, yearFilter])
+  // Filtered peaks via server-side query
+  const filterParams = {
+    country: countryFilter || undefined,
+    min_elevation: elevClass.min ?? undefined,
+    max_elevation: elevClass.max ?? undefined,
+    year: yearFilter ? Number(yearFilter) : undefined,
+  }
+  const isFiltered = !!(countryFilter || elevClass.min != null || yearFilter)
+
+  const { data: filteredPeaks, isLoading, error } = useQuery({
+    queryKey: ['peak-collection', countryFilter, elevClass.label, yearFilter],
+    queryFn: () => fetchPeakCollection(filterParams),
+    enabled: isFiltered,
+    staleTime: 2 * 60 * 1000,
+  })
+
+  // If no filters active, use allPeaks to avoid a duplicate request
+  const peaks = isFiltered ? (filteredPeaks ?? []) : (allPeaks ?? [])
 
   const sortedPeaks = useMemo(() => {
-    const sorted = [...filteredPeaks]
+    const sorted = [...peaks]
     sorted.sort((a, b) => {
       let cmp = 0
       switch (sortField) {
@@ -75,23 +100,35 @@ export default function PeakCollectionPage() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [filteredPeaks, sortField, sortDir])
+  }, [peaks, sortField, sortDir])
 
+  // Derive available years and countries from all peaks
   const availableYears = useMemo(() => {
-    if (!peaks) return []
+    if (!allPeaks) return []
     const years = new Set<string>()
-    for (const p of peaks) {
+    for (const p of allPeaks) {
       if (p.first_visit) years.add(new Date(p.first_visit).getFullYear().toString())
     }
     return [...years].sort().reverse()
-  }, [peaks])
+  }, [allPeaks])
+
+  const availableCountries = useMemo(() => {
+    if (!allPeaks) return []
+    const codes = new Set<string>()
+    for (const p of allPeaks) {
+      for (const c of (p.country_codes ?? [])) {
+        if (c) codes.add(c)
+      }
+    }
+    return [...codes].sort()
+  }, [allPeaks])
 
   const highestPeak = useMemo(() => {
-    if (!filteredPeaks.length) return null
-    return filteredPeaks.reduce((best, p) =>
+    if (!peaks.length) return null
+    return peaks.reduce((best, p) =>
       (p.elevation_m ?? 0) > (best.elevation_m ?? 0) ? p : best
     )
-  }, [filteredPeaks])
+  }, [peaks])
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -107,7 +144,7 @@ export default function PeakCollectionPage() {
     return <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
   }
 
-  if (isLoading) {
+  if (isLoading && isFiltered && !peaks.length) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-accent-DEFAULT" />
@@ -135,7 +172,7 @@ export default function PeakCollectionPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Besuchte Gipfel" value={filteredPeaks.length.toString()} />
+        <StatCard label="Besuchte Gipfel" value={peaks.length.toString()} />
         <StatCard
           label="Höchster Gipfel"
           value={highestPeak ? `${Math.round(highestPeak.elevation_m ?? 0)} m` : '-'}
@@ -143,42 +180,72 @@ export default function PeakCollectionPage() {
         />
         <StatCard
           label="Gesamte Besteigungen"
-          value={filteredPeaks.reduce((s, p) => s + p.visit_count, 0).toString()}
+          value={peaks.reduce((s, p) => s + p.visit_count, 0).toString()}
         />
         <StatCard
           label="Ueber 3000 m"
-          value={filteredPeaks.filter(p => (p.elevation_m ?? 0) >= 3000).length.toString()}
+          value={peaks.filter(p => (p.elevation_m ?? 0) >= 3000).length.toString()}
         />
       </div>
 
-      {/* Filters + View Toggle */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-neutral-600 dark:text-neutral-400">Min. Höhe:</label>
-          <input
-            type="number"
-            value={minElevation || ''}
-            onChange={e => setMinElevation(Number(e.target.value) || 0)}
-            placeholder="z.B. 2000"
-            className="w-24 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900
-                       px-2.5 py-1.5 text-sm text-neutral-900 dark:text-neutral-100
-                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40"
-          />
-          <span className="text-sm text-neutral-400">m</span>
+      {/* Badges — always based on all peaks (unfiltered) */}
+      {allPeaks && allPeaks.length > 0 && (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Errungenschaften</h2>
+          <SummitBadges peaks={allPeaks} />
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-neutral-600 dark:text-neutral-400">Jahr:</label>
+      )}
+
+      {/* Filters + View Toggle */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Höhenklassen-Filter */}
+        <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-700">
+          {ELEV_CLASSES.map(cls => (
+            <button
+              key={cls.label}
+              onClick={() => setElevClass(cls)}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                elevClass.label === cls.label
+                  ? 'bg-accent-DEFAULT text-white'
+                  : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+              }`}
+            >
+              {cls.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Länder-Filter */}
+        {availableCountries.length > 1 && (
+          <select
+            value={countryFilter}
+            onChange={e => setCountryFilter(e.target.value)}
+            className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900
+                       px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300
+                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40"
+          >
+            <option value="">Alle Länder</option>
+            {availableCountries.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Jahr-Filter */}
+        {availableYears.length > 0 && (
           <select
             value={yearFilter}
             onChange={e => setYearFilter(e.target.value)}
             className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900
-                       px-2.5 py-1.5 text-sm text-neutral-900 dark:text-neutral-100
+                       px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300
                        focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40"
           >
-            <option value="">Alle</option>
+            <option value="">Alle Jahre</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-        </div>
+        )}
+
+        {/* View toggle */}
         <div className="ml-auto flex rounded-lg border border-neutral-300 dark:border-neutral-700 overflow-hidden">
           <button
             onClick={() => setViewMode('list')}
