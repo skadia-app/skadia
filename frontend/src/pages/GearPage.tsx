@@ -192,7 +192,7 @@ function GearCard({ gear }: { gear: Gear }) {
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitaeten</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitäten</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
               {gear.total_activities}
             </div>

@@ -22,13 +22,13 @@ const sections = [
   {
     to: '/workshop/rules',
     title: 'Automatisierungsregeln',
-    description: 'Regeln fuer automatisches Taggen, Sport-Typ, Sichtbarkeit und mehr',
+    description: 'Regeln für automatisches Taggen, Sport-Typ, Sichtbarkeit und mehr',
     icon: RulesIcon,
   },
   {
     to: '/workshop/reprocess',
     title: 'Neu verarbeiten',
-    description: 'Aktivitaeten erneut durch die Enrichment-Pipeline verarbeiten',
+    description: 'Aktivitäten erneut durch die Enrichment-Pipeline verarbeiten',
     icon: ReprocessIcon,
   },
   {
@@ -61,10 +61,10 @@ export default function WorkshopPage() {
             key={title}
             to={to}
             className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
-                       hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-sm transition-all"
+                       hover:border-accent-400 dark:hover:border-accent-600 hover:shadow-sm transition-all"
           >
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-50 dark:bg-orange-900/20 text-accent-DEFAULT">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-100 dark:bg-accent-100/20 text-accent-DEFAULT">
                 <Icon />
               </div>
               <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">

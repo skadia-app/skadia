@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Map, RefreshCw, Pencil } from 'lucide-react'
 import { fetchSegment, recomputeSegment } from '@/api/segments'
 import { useActiveJobs } from '@/lib/useActiveJobs'
+import { fmtDist } from '@/lib/format'
 import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
 import { SegmentActivityList } from '@/components/SegmentDetail/SegmentActivityList'
 import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerformanceChart'
@@ -21,10 +22,6 @@ const TYPE_LABELS: Record<string, string> = {
   standard: 'Standard', trail: 'Trail', lift: 'Lift', lap: 'Rundkurs',
 }
 
-function fmtDist(m?: number): string {
-  if (m == null || isNaN(m)) return '--'
-  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`
-}
 
 export default function SegmentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -79,18 +76,20 @@ export default function SegmentDetailPage() {
             onChange={(from, to) => setFilters(f => ({ ...f, dateFrom: from, dateTo: to }))}
           />
           <ActivityFilters filters={filters} onChange={setFilters} />
+          {segment.segment_type !== 'lift' && (
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
           >
             <Pencil size={14} /> Bearbeiten
           </button>
+          )}
           <button
             onClick={() => { if (!isRecomputing) recomputeMut.mutate() }}
             disabled={isRecomputing}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
               isRecomputing
-                ? 'border-accent-DEFAULT text-accent-DEFAULT bg-orange-50 dark:bg-orange-900/20'
+                ? 'border-accent-DEFAULT text-accent-DEFAULT bg-accent-100 dark:bg-accent-100/20'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
             title="Matching neu berechnen"

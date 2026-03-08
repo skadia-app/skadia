@@ -1795,7 +1795,7 @@ function GearImagesSection({ gearId }: { gearId: string }) {
 
   const handleDelete = useCallback((docId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirm('Foto wirklich loeschen?')) {
+    if (confirm('Foto wirklich löschen?')) {
       deleteMutation.mutate(docId)
     }
   }, [deleteMutation])
@@ -1805,7 +1805,7 @@ function GearImagesSection({ gearId }: { gearId: string }) {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bilder</h2>
         <label className="px-3 py-1.5 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer">
-          + Foto hinzufuegen
+          + Foto hinzufügen
           <input
             type="file"
             accept="image/*"

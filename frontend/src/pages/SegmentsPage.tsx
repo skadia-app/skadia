@@ -5,6 +5,7 @@ import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment
 import { useModal } from '@/lib/modal'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { fmtDuration, fmtDist } from '@/lib/format'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -42,19 +43,6 @@ const SEGMENT_TYPE_LABELS: Record<string, string> = {
   lift: 'Lift',
 }
 
-function fmtDuration(s: number): string {
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = Math.floor(s % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-  return `${m}:${sec.toString().padStart(2, '0')}`
-}
-
-function fmtDist(m?: number): string {
-  if (m == null || isNaN(m)) return '--'
-  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
-  return `${Math.round(m)} m`
-}
 
 export default function SegmentsPage() {
   const queryClient = useQueryClient()
@@ -89,13 +77,12 @@ export default function SegmentsPage() {
   }, [hideUnused, allGroupsData, usedSportGroups])
 
   // Debounced search
-  const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value)
-    if (searchTimer) clearTimeout(searchTimer)
-    const timer = setTimeout(() => setSearch(value), 300)
-    setSearchTimer(timer)
-  }, [searchTimer])
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => setSearch(value), 300)
+  }, [])
 
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
@@ -215,7 +202,7 @@ export default function SegmentsPage() {
             Auf Karte
           </Link>
           <button onClick={() => setEditorMode('draw')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700 hover:text-accent-600 dark:hover:text-orange-400 transition-colors">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-accent-100 dark:hover:bg-accent-100/20 hover:border-accent-400 dark:hover:border-accent-600 hover:text-accent-600 dark:hover:text-accent-400 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
@@ -333,7 +320,7 @@ export default function SegmentsPage() {
                 <div className={`flex items-center gap-1 flex-shrink-0 ${isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button
                     onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }}
-                    className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                    className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 transition-colors"
                     title="Segment bearbeiten"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -354,7 +341,7 @@ export default function SegmentsPage() {
                   <button
                     onClick={(e) => handleDelete(e, segment.id)}
                     className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    title="Segment loeschen"
+                    title="Segment löschen"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -463,7 +450,7 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
           {isLoading ? (
             <div className="flex items-center justify-center h-32 text-neutral-400">Lade Bestenliste...</div>
           ) : entries.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-neutral-400">Noch keine Eintraege</div>
+            <div className="flex items-center justify-center h-32 text-neutral-400">Noch keine Einträge</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -472,7 +459,7 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
                   <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Athlet</th>
                   <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeit</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Datum</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Ausruestung</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Ausrüstung</th>
                 </tr>
               </thead>
               <tbody>

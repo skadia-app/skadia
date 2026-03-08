@@ -928,7 +928,7 @@ export default function ZoneEditor({
                   text-red-600 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed
                   hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
               >
-                Zuruecksetzen
+                Zurücksetzen
               </button>
             </>
           )}
@@ -984,7 +984,7 @@ export default function ZoneEditor({
                 text-red-600 dark:text-red-400
                 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
             >
-              Zuruecksetzen
+              Zurücksetzen
             </button>
           )}
 

@@ -373,7 +373,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
                 </svg>
-                {editingMarker.image_url ? 'Bild ersetzen' : 'Bild hinzufuegen'}
+                {editingMarker.image_url ? 'Bild ersetzen' : 'Bild hinzufügen'}
               </label>
 
               <div className="flex gap-2 pt-1">
@@ -406,7 +406,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                     setEditingMarker(null)
                   }}
                   className="text-xs px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer"
-                  title="Marker loeschen"
+                  title="Marker löschen"
                 >
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM12.5 3.75a1.25 1.25 0 00-1.25-1.25h-2.5a1.25 1.25 0 00-1.25 1.25v.19c1.474-.085 2.963-.085 4.437 0v-.19z" clipRule="evenodd" />

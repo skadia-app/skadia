@@ -816,7 +816,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             disabled={polygonPoints.length === 0}
             className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
           >
-            Zuruecksetzen
+            Zurücksetzen
           </button>
           <span className="ml-auto self-center text-sm text-neutral-400 tabular-nums">
             {polygonPoints.length} Eckpunkte

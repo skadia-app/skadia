@@ -882,16 +882,16 @@ export default function TagsPage() {
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDeleteConfirmId(null)}>
             <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 p-6 shadow-xl max-w-sm w-full mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Tag loeschen</h3>
+              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Tag löschen</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 Soll der Tag{' '}
                 <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: tagToDelete.color || '#f3f4f6', color: tagToDelete.text_color || '#374151' }}>
                   {tagToDelete.name}
                 </span>
-                {' '}wirklich geloescht werden?
+                {' '}wirklich gelöscht werden?
                 {tagToDelete.activity_count > 0 && (
                   <span className="block mt-2 text-amber-600 dark:text-amber-400">
-                    Der Tag ist {tagToDelete.activity_count} Aktivitaet{tagToDelete.activity_count !== 1 ? 'en' : ''} zugeordnet.
+                    Der Tag ist {tagToDelete.activity_count} Aktivität{tagToDelete.activity_count !== 1 ? 'en' : ''} zugeordnet.
                   </span>
                 )}
               </p>
@@ -907,7 +907,7 @@ export default function TagsPage() {
                   disabled={deleteMut.isPending}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
                 >
-                  {deleteMut.isPending ? 'Wird geloescht...' : 'Loeschen'}
+                  {deleteMut.isPending ? 'Wird gelöscht...' : 'Löschen'}
                 </button>
               </div>
             </div>
