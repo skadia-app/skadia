@@ -43,6 +43,7 @@ import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
 import TrimDialog from '@/components/TrimDialog'
 import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
+import MultisportSection from '@/components/MultisportSection'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -108,6 +109,17 @@ export default function ActivityDetailPage() {
     enabled: !!id,
   })
 
+  // Load child activities for multisport parent
+  const { data: childActivities } = useQuery<Activity[]>({
+    queryKey: ['activity-children', id],
+    queryFn: async () => {
+      const resp = await apiFetch(`/api/v1/activities/${id}/children`)
+      const json = await resp.json()
+      return (json as { children: Activity[] }).children ?? []
+    },
+    enabled: !!id && activity?.sport_type === 'multisport',
+  })
+
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
@@ -137,12 +149,22 @@ export default function ActivityDetailPage() {
   return (
     <div className="space-y-6">
       {/* Back link */}
-      <Link
-        to="/activities"
-        className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
-      >
-        <span>&#8592;</span> Alle Aktivitäten
-      </Link>
+      <div className="flex items-center gap-4 flex-wrap">
+        <Link
+          to="/activities"
+          className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
+        >
+          <span>&#8592;</span> Alle Aktivitäten
+        </Link>
+        {activity.parent_id && (
+          <Link
+            to={`/activities/${activity.parent_id}`}
+            className="inline-flex items-center gap-1 text-sm text-accent-DEFAULT hover:text-accent-600 transition-colors"
+          >
+            <span>&#8599;</span> Multisport-Aktivität
+          </Link>
+        )}
+      </div>
 
       {/* Header */}
       <ActivityHeader activity={activity} />
@@ -162,6 +184,11 @@ export default function ActivityDetailPage() {
 
       {/* Stats */}
       <StatsGrid activity={activity} />
+
+      {/* Multisport child activities */}
+      {activity.sport_type === 'multisport' && childActivities && childActivities.length > 0 && (
+        <MultisportSection children={childActivities} />
+      )}
 
       {/* Erweiterte Metriken */}
       {(activity.variability_index != null || activity.efficiency_factor != null || activity.aerobic_decoupling != null || activity.workout_rpe != null || activity.aerobic_training_effect != null) && (

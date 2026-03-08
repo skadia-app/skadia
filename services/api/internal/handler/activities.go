@@ -127,6 +127,40 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, activity)
 }
 
+// GetChildActivities returns all child activities for a multisport parent.
+// GET /api/v1/activities/{id}/children
+func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	// Verify ownership
+	parent, err := h.DB.GetActivity(r.Context(), id)
+	if err != nil {
+		slog.Error("get child activities: get parent failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load parent activity", r.URL.Path)
+		return
+	}
+	if parent == nil || parent.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	children, err := h.DB.GetChildActivities(r.Context(), id)
+	if err != nil {
+		slog.Error("get child activities failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
+		return
+	}
+	if children == nil {
+		children = []model.Activity{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"children": children})
+}
+
 func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
