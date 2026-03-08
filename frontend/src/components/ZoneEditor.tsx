@@ -791,7 +791,9 @@ export default function ZoneEditor({
       holeMarkersRef.current.forEach(g => g.forEach(m => m.remove()))
       holeMarkersRef.current = []
     }
-    map?.getCanvas().style.cursor = _pencilCursorCSS
+    if (map) {
+      map.getCanvas().style.cursor = _pencilCursorCSS
+    }
   }
 
   function handleStartHole() {
