@@ -159,7 +159,11 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	case "llama_server", "openai", "anthropic":
 		// OpenAI-compatible test: GET /v1/models
 		client := &http.Client{Timeout: 10 * time.Second}
-		testReq, _ := http.NewRequest("GET", testAPIBase+"/models", nil)
+		testReq, err := http.NewRequest("GET", testAPIBase+"/models", nil)
+		if err != nil {
+			result.Message = "Ungueltige URL: " + err.Error()
+			break
+		}
 		if req.APIKey != nil {
 			testReq.Header.Set("Authorization", "Bearer "+*req.APIKey)
 		}
