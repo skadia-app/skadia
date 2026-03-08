@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -508,6 +508,29 @@ export default function ActivitiesPage() {
   // Multi-Select-State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
+
+  // Multisport-Expand-State
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [childrenMap, setChildrenMap] = useState<Record<string, Activity[]>>({})
+
+  const toggleExpand = async (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+    if (!childrenMap[id]) {
+      const resp = await apiFetch(`/api/v1/activities/${id}/children`)
+      if (resp.ok) {
+        const data = await resp.json() as Activity[]
+        setChildrenMap(prev => ({ ...prev, [id]: data }))
+      }
+    }
+  }
 
   // Modal-States
   const [recomputeIds, setRecomputeIds] = useState<string[] | null>(null)
@@ -1059,32 +1082,61 @@ export default function ActivitiesPage() {
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
             {activities.map((activity, idx) => (
-              <ActivityRow
-                key={activity.id}
-                activity={activity}
-                idx={idx}
-                highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)}
-                isLastVisited={activity.id === lastActivityId}
-                isSelected={selectedIds.has(activity.id)}
-                onNavigate={(id) => {
-                  saveLastActivity(id)
-                  setLastActivityId(id)
-                }}
-                onContextMenu={(e, id, title, sportType) => {
-                  e.preventDefault()
-                  const x = Math.min(e.clientX, window.innerWidth - 220)
-                  const y = Math.min(e.clientY, window.innerHeight - 80)
-                  setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
-                }}
-                onToggleSelect={toggleSelect}
-                onThreeDotClick={(e, id, title, sportType) => {
-                  e.stopPropagation()
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                  const x = Math.min(rect.left, window.innerWidth - 220)
-                  const y = Math.min(rect.bottom + 4, window.innerHeight - 80)
-                  setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
-                }}
-              />
+              <React.Fragment key={activity.id}>
+                <ActivityRow
+                  activity={activity}
+                  idx={idx}
+                  highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)}
+                  isLastVisited={activity.id === lastActivityId}
+                  isSelected={selectedIds.has(activity.id)}
+                  isMultisport={activity.sport_type === 'multisport'}
+                  isExpanded={expandedIds.has(activity.id)}
+                  onExpand={toggleExpand}
+                  onNavigate={(id) => {
+                    saveLastActivity(id)
+                    setLastActivityId(id)
+                  }}
+                  onContextMenu={(e, id, title, sportType) => {
+                    e.preventDefault()
+                    const x = Math.min(e.clientX, window.innerWidth - 220)
+                    const y = Math.min(e.clientY, window.innerHeight - 80)
+                    setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
+                  }}
+                  onToggleSelect={toggleSelect}
+                  onThreeDotClick={(e, id, title, sportType) => {
+                    e.stopPropagation()
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    const x = Math.min(rect.left, window.innerWidth - 220)
+                    const y = Math.min(rect.bottom + 4, window.innerHeight - 80)
+                    setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
+                  }}
+                />
+                {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
+                  (childrenMap[activity.id] ?? []).map(child => (
+                    <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30">
+                      <td className="py-1.5 pl-3 pr-2 w-8">
+                        <div className="w-4 h-4 border-l-2 border-b-2 border-neutral-300 dark:border-neutral-600 ml-2" />
+                      </td>
+                      <td colSpan={6} className="py-1.5 pr-2">
+                        <a
+                          href={`/activities/${child.id}`}
+                          className="flex items-center gap-2 hover:underline text-sm text-neutral-700 dark:text-neutral-300 no-underline"
+                          onClick={e => { e.stopPropagation(); saveLastActivity(child.id); setLastActivityId(child.id) }}
+                        >
+                          <SportIcon sport={child.sport_type} subType={child.sub_type} className="w-4 h-4 shrink-0" />
+                          <span className="font-medium">{child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}</span>
+                          <span className="text-neutral-400 text-xs ml-auto flex items-center gap-1">
+                            {child.elapsed_time_s != null && <span>{formatDuration(child.elapsed_time_s)}</span>}
+                            {child.elapsed_time_s != null && child.distance_m != null && <span>·</span>}
+                            {child.distance_m != null && <span>{formatDistance(child.distance_m)}</span>}
+                          </span>
+                        </a>
+                      </td>
+                      <td className="w-8" />
+                    </tr>
+                  ))
+                }
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1215,6 +1267,9 @@ interface ActivityRowProps {
   highlighted?: boolean
   isLastVisited?: boolean
   isSelected: boolean
+  isMultisport?: boolean
+  isExpanded?: boolean
+  onExpand?: (id: string) => void
   onNavigate: (id: string) => void
   onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined, sportType: string) => void
   onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
@@ -1227,6 +1282,9 @@ function ActivityRow({
   highlighted,
   isLastVisited,
   isSelected,
+  isMultisport,
+  isExpanded,
+  onExpand,
   onNavigate,
   onContextMenu,
   onToggleSelect,
@@ -1262,15 +1320,28 @@ function ActivityRow({
       onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
       className={rowClass}
     >
-      {/* Checkbox */}
+      {/* Checkbox + optional Multisport-Chevron */}
       <td className="py-3 pl-3 pr-2 w-8" onClick={e => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
-          className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
-          aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
+            className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+            aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
+          />
+          {isMultisport && (
+            <button
+              onClick={e => { e.stopPropagation(); onExpand?.(activity.id) }}
+              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              title="Disziplinen anzeigen"
+            >
+              <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
       </td>
       <td className={`px-4 py-3 ${titleClass}`}>
         {activity.title ?? activity.title_auto ?? (
