@@ -3,6 +3,11 @@ import { RefreshCw, Check, X } from 'lucide-react'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import type { ActiveJob } from '@/lib/useActiveJobs'
 import { useJobStream } from '@/lib/useJobStream'
+import {
+  useEnrichmentProgress,
+  ENRICHMENT_MODULES,
+  type EnrichmentActivityProgress,
+} from '@/lib/useEnrichmentProgress'
 
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMImport = job.job_type === 'osm_import'
@@ -125,11 +130,84 @@ function JobRow({ job }: { job: ActiveJob }) {
   )
 }
 
+function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
+  const doneCount = Object.values(entry.modules).filter((s) => s === 'done').length
+  const errorCount = Object.values(entry.modules).filter((s) => s === 'error').length
+  const total = ENRICHMENT_MODULES.length
+  const pct = Math.round(((doneCount + errorCount) / total) * 100)
+  const currentModule = ENRICHMENT_MODULES.find((m) => entry.modules[m] === 'running')
+  const allDone = doneCount + errorCount === total
+
+  return (
+    <div className="flex items-center gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+      <div className="flex-shrink-0">
+        {allDone ? (
+          errorCount > 0 ? (
+            <X size={13} className="text-amber-500" />
+          ) : (
+            <Check size={13} className="text-green-500" />
+          )
+        ) : (
+          <RefreshCw size={13} className="animate-spin text-accent-DEFAULT" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
+          Enrichment #{entry.activityId.slice(0, 8)}
+        </p>
+        <div className="flex flex-wrap gap-0.5 mt-1">
+          {ENRICHMENT_MODULES.map((m) => {
+            const s = entry.modules[m]
+            return (
+              <span
+                key={m}
+                className={`inline-block w-2 h-2 rounded-full ${
+                  s === 'done'
+                    ? 'bg-green-500'
+                    : s === 'running'
+                    ? 'bg-accent-DEFAULT animate-pulse'
+                    : s === 'error'
+                    ? 'bg-red-500'
+                    : 'bg-neutral-300 dark:bg-neutral-600'
+                }`}
+                title={`${m}: ${s}`}
+              />
+            )
+          })}
+        </div>
+        <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+          {allDone
+            ? errorCount > 0
+              ? `Fertig (${errorCount} Fehler)`
+              : 'Abgeschlossen'
+            : currentModule
+            ? `${doneCount}/${total} — ${currentModule}`
+            : `${doneCount}/${total} Module`}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function ActiveJobsIndicator() {
   useJobStream()
   const { jobs, isAnyActive } = useActiveJobs()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  const enrichmentMap = useEnrichmentProgress((activities) => activities)
+  const enrichmentEntries = Array.from(enrichmentMap.values())
+  const hasEnrichment = enrichmentEntries.length > 0
+  const runningEnrichmentCount = enrichmentEntries.filter((e) => {
+    const vals = Object.values(e.modules)
+    return vals.some((s) => s === 'running' || s === 'pending') && vals.some((s) => s !== 'pending')
+  }).length
 
   // Schließen bei Klick außerhalb
   useEffect(() => {
@@ -142,9 +220,10 @@ export default function ActiveJobsIndicator() {
   }, [open])
 
   // Nicht rendern wenn keine Jobs vorhanden (auch keine kürzlich abgeschlossenen)
-  if (!isAnyActive && jobs.length === 0) return null
+  if (!isAnyActive && jobs.length === 0 && !hasEnrichment) return null
 
-  const runningCount = jobs.filter(j => j.status === 'running').length
+  const runningJobCount = jobs.filter(j => j.status === 'running').length
+  const totalRunning = runningJobCount + runningEnrichmentCount
 
   return (
     <div ref={ref} className="relative">
@@ -156,14 +235,14 @@ export default function ActiveJobsIndicator() {
         <RefreshCw
           size={14}
           className={
-            isAnyActive
+            isAnyActive || runningEnrichmentCount > 0
               ? 'animate-spin text-accent-DEFAULT'
               : 'text-neutral-400'
           }
         />
-        {runningCount > 0 && (
+        {totalRunning > 0 && (
           <span className="text-accent-DEFAULT font-medium tabular-nums">
-            {runningCount}
+            {totalRunning}
           </span>
         )}
       </button>
@@ -174,11 +253,15 @@ export default function ActiveJobsIndicator() {
             Berechnungen
           </p>
 
+          {enrichmentEntries.map((entry) => (
+            <EnrichmentRow key={entry.activityId} entry={entry} />
+          ))}
+
           {jobs.map(job => (
             <JobRow key={job.id} job={job} />
           ))}
 
-          {jobs.length === 0 && (
+          {jobs.length === 0 && !hasEnrichment && (
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
               Keine laufenden Berechnungen
             </p>

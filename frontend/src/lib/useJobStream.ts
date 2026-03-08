@@ -1,9 +1,16 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { updateModule, clearCompleted } from '@/lib/useEnrichmentProgress'
 
 export function useJobStream() {
   const qc = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
+
+  // Abgelaufene Enrichment-Einträge alle 15 Sekunden aufräumen
+  useEffect(() => {
+    const timer = setInterval(() => clearCompleted(), 15_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const connect = useCallback(() => {
     if (esRef.current) return
@@ -17,6 +24,10 @@ export function useJobStream() {
       qc.invalidateQueries({ queryKey: ['active-jobs'] })
       if (data.status === 'done') {
         qc.invalidateQueries({ queryKey: ['activity', data.activity_id] })
+      }
+      // Per-Modul-Fortschritt für Stage-2-Enrichment tracken
+      if (data.stage && data.activity_id) {
+        updateModule(data.activity_id, data.stage, data.status)
       }
     })
 
