@@ -58,25 +58,40 @@ func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
-	period := r.URL.Query().Get("period")
-	if period == "" {
-		period = "ytd"
-	}
+	q := r.URL.Query()
+	period := q.Get("period")
+	fromStr := q.Get("from")
+	toStr := q.Get("to")
+	sportType := q.Get("sport_type")
 
-	var from time.Time
 	now := time.Now()
-	switch period {
-	case "ytd":
-		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
-	case "90d":
-		from = now.AddDate(0, 0, -90)
-	case "all":
-		from = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	default:
-		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	var fromTime, toTime time.Time
+
+	if fromStr != "" && toStr != "" {
+		var err error
+		fromTime, err = time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Bad Request", "invalid from date", r.URL.Path)
+			return
+		}
+		toTime, err = time.Parse("2006-01-02", toStr)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Bad Request", "invalid to date", r.URL.Path)
+			return
+		}
+	} else {
+		toTime = now
+		switch period {
+		case "90d":
+			fromTime = now.AddDate(0, 0, -90)
+		case "all":
+			fromTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		default: // ytd
+			fromTime = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		}
 	}
 
-	powerStreams, err := h.DB.GetPowerStreamsForPeriod(r.Context(), userID, from, now)
+	powerStreams, err := h.DB.GetPowerStreamsForPeriod(r.Context(), userID, fromTime, toTime, sportType)
 	if err != nil {
 		slog.Error("get power streams for period failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load power data", r.URL.Path)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 // GetTimeInZones returns the pre-computed zone distribution for an activity.
@@ -55,17 +56,34 @@ func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, zones []mo
 
 // GetPowerStreamsForPeriod loads power streams for all activities in a date range.
 // Returns a map of activityID to ordered power values (one per stream point).
-func (db *DB) GetPowerStreamsForPeriod(ctx context.Context, userID string, from, to time.Time) (map[string][]int16, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT a.id, s.power_w
-		 FROM activities a
-		 JOIN activity_streams s ON s.activity_id = a.id
-		 WHERE a.user_id = $1
-		   AND a.started_at >= $2 AND a.started_at <= $3
-		   AND s.power_w IS NOT NULL AND s.power_w > 0
-		 ORDER BY a.id, s.time`,
-		userID, from, to,
-	)
+// sportType is optional; pass an empty string to include all sport types.
+func (db *DB) GetPowerStreamsForPeriod(ctx context.Context, userID string, from, to time.Time, sportType string) (map[string][]int16, error) {
+	var rows pgx.Rows
+	var err error
+	if sportType != "" {
+		rows, err = db.Pool.Query(ctx,
+			`SELECT a.id, s.power_w
+			 FROM activities a
+			 JOIN activity_streams s ON s.activity_id = a.id
+			 WHERE a.user_id = $1
+			   AND a.started_at >= $2 AND a.started_at <= $3
+			   AND a.sport_type = $4
+			   AND s.power_w IS NOT NULL AND s.power_w > 0
+			 ORDER BY a.id, s.time`,
+			userID, from, to, sportType,
+		)
+	} else {
+		rows, err = db.Pool.Query(ctx,
+			`SELECT a.id, s.power_w
+			 FROM activities a
+			 JOIN activity_streams s ON s.activity_id = a.id
+			 WHERE a.user_id = $1
+			   AND a.started_at >= $2 AND a.started_at <= $3
+			   AND s.power_w IS NOT NULL AND s.power_w > 0
+			 ORDER BY a.id, s.time`,
+			userID, from, to,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get power streams: %w", err)
 	}
