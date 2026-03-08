@@ -10,7 +10,7 @@ DROP POLICY IF EXISTS user_isolation_direct ON user_daily_features;
 DROP POLICY IF EXISTS user_isolation_direct ON tags;
 DROP POLICY IF EXISTS user_isolation_direct ON segment_efforts;
 DROP POLICY IF EXISTS user_isolation_direct ON activity_photos;
-DROP POLICY IF EXISTS user_isolation_via_activity ON activity_streams;
+-- activity_streams excluded from RLS (compressed hypertable)
 DROP POLICY IF EXISTS user_isolation_via_activity ON activity_laps;
 DROP POLICY IF EXISTS user_isolation_via_activity ON activity_geo_tags;
 DROP POLICY IF EXISTS user_isolation_via_activity ON activity_stops;
@@ -22,7 +22,7 @@ DROP POLICY IF EXISTS user_isolation_via_activity ON activity_splits;
 
 -- Disable RLS on all tables
 ALTER TABLE activities DISABLE ROW LEVEL SECURITY;
-ALTER TABLE activity_streams DISABLE ROW LEVEL SECURITY;
+-- activity_streams excluded from RLS (compressed hypertable)
 ALTER TABLE activity_laps DISABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_geo_tags DISABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_stops DISABLE ROW LEVEL SECURITY;
