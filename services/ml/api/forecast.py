@@ -3,8 +3,9 @@
 Supports forecasting and anomaly detection on time-series metrics
 like CTL, ATL, HRV, resting HR from pmc_daily and health tables.
 """
+import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -123,7 +124,7 @@ async def predict(req: ForecastRequest):
     last_date = date.fromisoformat(dates[-1])
     forecast_list = []
     for i, val in enumerate(forecast_values):
-        d = last_date + __import__("datetime").timedelta(days=i + 1)
+        d = last_date + timedelta(days=i + 1)
         forecast_list.append({"date": d.isoformat(), "value": round(float(val), 2)})
 
     # Determine trend
@@ -154,10 +155,13 @@ async def _predict_chronos(values: np.ndarray, horizon: int) -> np.ndarray:
     if pipeline is None:
         raise HTTPException(status_code=501, detail="Chronos-2 model not available")
 
-    context = torch.tensor(values, dtype=torch.float32)
-    forecast = pipeline.predict(context, prediction_length=horizon)
-    # forecast shape: (1, num_samples, horizon) — take median
-    return np.median(forecast[0].numpy(), axis=0)
+    def _run():
+        context = torch.tensor(values, dtype=torch.float32)
+        forecast = pipeline.predict(context, prediction_length=horizon)
+        # forecast shape: (1, num_samples, horizon) — take median
+        return np.median(forecast[0].numpy(), axis=0)
+
+    return await asyncio.to_thread(_run)
 
 
 async def _predict_ttm(values: np.ndarray, horizon: int) -> np.ndarray:
@@ -171,13 +175,20 @@ async def _predict_ttm(values: np.ndarray, horizon: int) -> np.ndarray:
     if len(values) > 512:
         values = values[-512:]
 
-    tensor = torch.tensor(values, dtype=torch.float32).reshape(1, 512, 1)
-    with torch.no_grad():
-        out = model(tensor)
+    # Defensive: pad with last value if somehow < 512 after MIN_POINTS check
+    if len(values) < 512:
+        pad_count = 512 - len(values)
+        values = np.concatenate([np.full(pad_count, values[-1], dtype=values.dtype), values])
 
-    # TTM outputs 96 steps; truncate to requested horizon
-    prediction = out.prediction_outputs.squeeze().numpy()
-    return prediction[:min(horizon, len(prediction))]
+    def _run():
+        tensor = torch.tensor(values, dtype=torch.float32).reshape(1, 512, 1)
+        with torch.no_grad():
+            out = model(tensor)
+        # TTM outputs 96 steps; truncate to requested horizon
+        prediction = out.prediction_outputs.squeeze().numpy()
+        return prediction[:min(horizon, len(prediction))]
+
+    return await asyncio.to_thread(_run)
 
 
 @router.post("/anomalies", response_model=AnomalyResponse)

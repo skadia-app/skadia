@@ -634,12 +634,23 @@ async def _get_health_status(pool, user_id, aspect="all", days=30):
     if aspect in ("hrv", "all"):
         rows = await pool.fetch(
             "SELECT measured_at_utc::date AS date, rmssd_ms, sdrr_ms, "
-            "weekly_avg, baseline_low, baseline_high, status "
+            "extra_data "
             "FROM health_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
             "ORDER BY measured_at_utc",
             user_id, since,
         )
-        hrv_data = [dict(r) for r in rows]
+        hrv_data = []
+        for r in rows:
+            entry = {"date": r["date"], "rmssd_ms": r["rmssd_ms"], "sdrr_ms": r["sdrr_ms"]}
+            # HRV status fields (weekly_avg, baseline, status) live in extra_data JSONB
+            extra = r["extra_data"]
+            if extra:
+                if isinstance(extra, str):
+                    extra = json.loads(extra)
+                for key in ("weekly_avg", "baseline_low", "baseline_high", "status"):
+                    if key in extra:
+                        entry[key] = extra[key]
+            hrv_data.append(entry)
         result["hrv"] = {
             "data": hrv_data,
             "latest": hrv_data[-1] if hrv_data else None,
@@ -648,8 +659,10 @@ async def _get_health_status(pool, user_id, aspect="all", days=30):
 
     if aspect in ("sleep", "all"):
         rows = await pool.fetch(
-            "SELECT date, total_sleep_s, deep_sleep_s, light_sleep_s, rem_sleep_s, awake_s, score "
-            "FROM health_sleep WHERE user_id = $1 AND date >= $2 ORDER BY date",
+            "SELECT calendar_date AS date, "
+            "(COALESCE(deep_seconds, 0) + COALESCE(light_seconds, 0) + COALESCE(rem_seconds, 0)) AS total_sleep_s, "
+            "deep_seconds, light_seconds, rem_seconds, awake_seconds, score_overall AS score "
+            "FROM health_sleep WHERE user_id = $1 AND calendar_date >= $2 ORDER BY calendar_date",
             user_id, since,
         )
         sleep_data = [dict(r) for r in rows]
@@ -666,21 +679,26 @@ async def _get_health_status(pool, user_id, aspect="all", days=30):
             "ORDER BY computed_at DESC LIMIT 1",
             user_id,
         )
-        result["readiness"] = json.loads(row["data"]) if row else None
+        if row and row["data"]:
+            result["readiness"] = json.loads(row["data"]) if isinstance(row["data"], str) else row["data"]
+        else:
+            result["readiness"] = None
 
     if aspect in ("weight", "all"):
         rows = await pool.fetch(
-            "SELECT date, weight_kg, body_fat_pct "
-            "FROM health_weight_entries WHERE user_id = $1 AND date >= $2 ORDER BY date",
+            "SELECT measured_at_utc::date AS date, "
+            "ROUND((weight_g / 1000.0)::numeric, 1) AS weight_kg, body_fat_pct "
+            "FROM health_weight_entries WHERE user_id = $1 AND measured_at_utc >= $2 "
+            "ORDER BY measured_at_utc",
             user_id, since,
         )
         result["weight"] = [dict(r) for r in rows]
 
     if aspect in ("resting_hr", "all"):
         rows = await pool.fetch(
-            "SELECT measured_at_utc::date AS date, resting_hr_bpm "
-            "FROM health_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
-            "AND resting_hr_bpm IS NOT NULL ORDER BY measured_at_utc",
+            "SELECT calendar_date AS date, resting_heart_rate AS resting_hr_bpm "
+            "FROM health_daily_summary WHERE user_id = $1 AND calendar_date >= $2 "
+            "AND resting_heart_rate IS NOT NULL ORDER BY calendar_date",
             user_id, since,
         )
         result["resting_hr"] = [dict(r) for r in rows]
@@ -915,34 +933,36 @@ async def _query_data(pool, user_id, table, days=30, limit=30, activity_id=None)
             "user_col": "user_id",
         },
         "health_snapshots": {
-            "cols": "measured_at_utc::date AS date, rmssd_ms, sdrr_ms, status",
+            "cols": "measured_at_utc::date AS date, rmssd_ms, sdrr_ms, extra_data",
             "date_col": "measured_at_utc",
             "user_col": "user_id",
         },
         "health_sleep": {
-            "cols": "date, total_sleep_s, deep_sleep_s, score",
-            "date_col": "date",
+            "cols": "calendar_date AS date, "
+                    "(COALESCE(deep_seconds,0)+COALESCE(light_seconds,0)+COALESCE(rem_seconds,0)) AS total_sleep_s, "
+                    "deep_seconds, score_overall AS score",
+            "date_col": "calendar_date",
             "user_col": "user_id",
         },
         "health_weight_entries": {
-            "cols": "date, weight_kg, body_fat_pct",
-            "date_col": "date",
+            "cols": "measured_at_utc::date AS date, ROUND((weight_g / 1000.0)::numeric, 1) AS weight_kg, body_fat_pct",
+            "date_col": "measured_at_utc",
             "user_col": "user_id",
         },
         "activity_laps": {
-            "cols": "lap_number, distance_m, duration_s, avg_hr, max_hr",
+            "cols": "message_index, total_distance_m, total_elapsed_time_s, avg_heart_rate, max_heart_rate",
             "date_col": None,
             "user_col": None,
             "activity_join": True,
         },
         "activity_splits": {
-            "cols": "split_number, distance_m, duration_s, avg_pace_s",
+            "cols": "message_index, split_type, total_distance_m, total_elapsed_time_s, avg_speed_ms",
             "date_col": None,
             "user_col": None,
             "activity_join": True,
         },
         "activity_intervals": {
-            "cols": "interval_number, distance_m, duration_s, avg_hr, avg_power_w",
+            "cols": "segment_num, duration_s, avg_heart_rate, avg_power_w, avg_speed_ms",
             "date_col": None,
             "user_col": None,
             "activity_join": True,
