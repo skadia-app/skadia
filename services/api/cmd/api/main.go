@@ -19,6 +19,7 @@ import (
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
+	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
@@ -135,7 +136,8 @@ func main() {
 			LLMEncryptionKey:   cfg.LLMEncryptionKey,
 		},
 	}
-	analyticsHandler := analyticshandler.NewHandler(db, pub)
+	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
+	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 
 	// Router
 	r := chi.NewRouter()
@@ -151,6 +153,9 @@ func main() {
 		r.Get("/callback", h.AuthCallback)
 		r.Post("/refresh", h.AuthRefresh)
 		r.Post("/logout", h.AuthLogout)
+		// Mobile PKCE endpoints (no cookie, tokens in body)
+		r.Post("/token", h.ExchangeToken)
+		r.Post("/mobile-refresh", h.MobileRefreshToken)
 	})
 
 	// Protected routes
@@ -419,6 +424,9 @@ func main() {
 
 			// Analytics
 			r.Mount("/analytics", analyticsHandler.Routes())
+
+			// ML Status
+			r.Get("/ml/status", analyticsHandler.GetMLStatus)
 		})
 	})
 

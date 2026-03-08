@@ -4,15 +4,22 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/ml"
 )
 
 type Handler struct {
 	DB        *database.DB
 	Publisher *event.Publisher // optional — nil when NATS is unavailable
+	ML        *ml.Client       // optional — nil when ML service is unconfigured
 }
 
 func NewHandler(db *database.DB, pub *event.Publisher) *Handler {
 	return &Handler{DB: db, Publisher: pub}
+}
+
+// NewHandlerWithML creates a Handler with an ML client attached.
+func NewHandlerWithML(db *database.DB, pub *event.Publisher, mlClient *ml.Client) *Handler {
+	return &Handler{DB: db, Publisher: pub, ML: mlClient}
 }
 
 func (h *Handler) Routes() chi.Router {
@@ -51,6 +58,14 @@ func (h *Handler) Routes() chi.Router {
 
 	// Route similarity
 	r.Get("/similar-routes", h.GetSimilarRoutes)
+
+	// ML Features (WP3)
+	r.Get("/changepoints", h.GetChangepoints)
+	r.Get("/hrv-extended", h.GetHRVExtended)
+	r.Get("/features", h.GetActivityFeatures)
+	r.Get("/readiness-v2", h.GetReadinessV2)
+	r.Get("/anomalies-v2", h.GetAnomaliesV2)
+	r.Get("/correlations-v2", h.GetCorrelationsV2)
 
 	return r
 }
