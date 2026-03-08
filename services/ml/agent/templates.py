@@ -27,7 +27,7 @@ TEMPLATES = {
         "patterns": [r"hrv.*(trend|verlauf)", r"herzratenvariab"],
         "sql": """
             SELECT measured_at_utc::date AS date, rmssd_ms, sdrr_ms
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1
             ORDER BY measured_at_utc DESC LIMIT 14
         """,

@@ -21,7 +21,7 @@ _BLOCKLIST = re.compile(
 TABLE_WHITELIST = {
     "activities", "activity_streams", "activity_laps", "activity_splits",
     "activity_geo_tags", "activity_stops", "activity_rr_intervals", "activity_photos",
-    "health_hrv_snapshots", "health_sleep", "health_weight_entries",
+    "health_snapshots", "health_sleep", "health_weight_entries",
     "gear", "gear_components", "segments", "segment_efforts",
     "pmc_daily", "user_daily_features", "tags", "activity_tags",
 }
@@ -31,7 +31,7 @@ SCHEMA_CONTEXT = """Available tables (PostgreSQL, READ-ONLY):
 activities: id UUID, user_id UUID, title TEXT, sport_type TEXT, sub_type TEXT, started_at TIMESTAMPTZ, elapsed_time_s INT, moving_time_s INT, distance_m FLOAT8, elevation_gain_m FLOAT8, avg_speed_ms FLOAT8, max_speed_ms FLOAT8, avg_heart_rate FLOAT8, max_heart_rate INT, avg_power_w FLOAT8, max_power_w INT, avg_cadence FLOAT8, avg_temperature_c FLOAT8, tss FLOAT8, trimp FLOAT8, is_indoor BOOL, is_commute BOOL, start_city TEXT, weather_temp_c FLOAT8, weather_condition TEXT, gear_id UUID
 activity_streams: activity_id UUID, time TIMESTAMPTZ, lat FLOAT8, lng FLOAT8, altitude_m FLOAT8, speed_ms FLOAT8, distance_m FLOAT8, heart_rate SMALLINT, power_w SMALLINT, cadence SMALLINT, temperature_c SMALLINT
 activity_laps: activity_id UUID, message_index INT, start_time TIMESTAMPTZ, total_elapsed_time_s FLOAT8, total_distance_m FLOAT8, avg_speed_ms FLOAT8, avg_heart_rate INT, max_heart_rate INT, avg_cadence INT, max_cadence INT, avg_power_w INT, max_power_w INT, total_ascent_m FLOAT8, total_descent_m FLOAT8, total_calories INT
-health_hrv_snapshots: user_id UUID, measured_at_utc TIMESTAMPTZ, rmssd_ms FLOAT8, sdrr_ms FLOAT8, time_of_day TEXT, source_type TEXT, extra_data JSONB
+health_snapshots: user_id UUID, measured_at_utc TIMESTAMPTZ, rmssd_ms FLOAT8, sdrr_ms FLOAT8, time_of_day TEXT, source_type TEXT, extra_data JSONB
 health_sleep: user_id UUID, calendar_date DATE, sleep_start_utc TIMESTAMPTZ, sleep_end_utc TIMESTAMPTZ, deep_seconds INT, light_seconds INT, rem_seconds INT, awake_seconds INT, score_overall INT, score_quality INT
 health_weight_entries: user_id UUID, measured_at_utc TIMESTAMPTZ, weight_g INT, bmi FLOAT8, body_fat_pct FLOAT8
 gear: id UUID, user_id UUID, name TEXT, type TEXT, brand TEXT, model TEXT, total_distance_m FLOAT8, status TEXT

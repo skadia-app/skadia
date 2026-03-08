@@ -5,7 +5,6 @@ Cached in /data/models/ volume.
 """
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +16,18 @@ _chronos = None
 
 
 def get_tspulse():
-    """Load TSPulse anomaly detection model (~4MB)."""
+    """Load TSPulse R1 anomaly detection model (~4MB)."""
     global _tspulse
     if _tspulse is None:
         try:
-            from tsfm_public.models.tspulse import TSPulseModel
-            _tspulse = TSPulseModel.from_pretrained(
-                "ibm-granite/granite-tspulse",
+            from tsfm_public.models.tspulse import TSPulseForReconstruction
+            _tspulse = TSPulseForReconstruction.from_pretrained(
+                "ibm-granite/granite-timeseries-tspulse-r1",
+                revision="main",
                 cache_dir=MODEL_CACHE_DIR,
             )
-            logger.info("TSPulse model loaded")
+            _tspulse.eval()
+            logger.info("TSPulse R1 model loaded")
         except Exception as e:
             logger.error("Failed to load TSPulse: %s", e)
             return None
@@ -34,16 +35,18 @@ def get_tspulse():
 
 
 def get_ttm():
-    """Load TTM forecasting model (~3MB)."""
+    """Load TTM R2 forecasting model (~3MB)."""
     global _ttm
     if _ttm is None:
         try:
             from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
             _ttm = TinyTimeMixerForPrediction.from_pretrained(
-                "ibm-granite/granite-timeseries-ttm-v2",
+                "ibm-granite/granite-timeseries-ttm-r2",
+                prediction_filter_length=96,
                 cache_dir=MODEL_CACHE_DIR,
             )
-            logger.info("TTM model loaded")
+            _ttm.eval()
+            logger.info("TTM R2 model loaded")
         except Exception as e:
             logger.error("Failed to load TTM: %s", e)
             return None

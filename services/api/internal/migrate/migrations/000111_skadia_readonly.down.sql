@@ -1,6 +1,6 @@
 -- Drop all RLS policies first
 DROP POLICY IF EXISTS user_isolation_direct ON activities;
-DROP POLICY IF EXISTS user_isolation_direct ON health_hrv_snapshots;
+DROP POLICY IF EXISTS user_isolation_direct ON health_snapshots;
 DROP POLICY IF EXISTS user_isolation_direct ON health_sleep;
 DROP POLICY IF EXISTS user_isolation_direct ON health_weight_entries;
 DROP POLICY IF EXISTS user_isolation_direct ON gear;
@@ -27,7 +27,7 @@ ALTER TABLE activity_laps DISABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_geo_tags DISABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_stops DISABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_rr_intervals DISABLE ROW LEVEL SECURITY;
-ALTER TABLE health_hrv_snapshots DISABLE ROW LEVEL SECURITY;
+ALTER TABLE health_snapshots DISABLE ROW LEVEL SECURITY;
 ALTER TABLE health_sleep DISABLE ROW LEVEL SECURITY;
 ALTER TABLE health_weight_entries DISABLE ROW LEVEL SECURITY;
 ALTER TABLE gear DISABLE ROW LEVEL SECURITY;

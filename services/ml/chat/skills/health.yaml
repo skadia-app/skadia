@@ -1,7 +1,7 @@
 name: health
 description: "HRV, Schlaf, Ruhepuls, Readiness, Body Battery, SpO2"
 schema_excerpt: |
-  health_hrv_snapshots: user_id, measured_at_utc, rmssd_ms REAL, sdrr_ms REAL,
+  health_snapshots: user_id, measured_at_utc, rmssd_ms REAL, sdrr_ms REAL,
     weekly_avg REAL, baseline_low REAL, baseline_high REAL, status TEXT
   health_sleep: user_id, date, total_sleep_s INT, deep_sleep_s INT,
     light_sleep_s INT, rem_sleep_s INT, awake_s INT, score SMALLINT

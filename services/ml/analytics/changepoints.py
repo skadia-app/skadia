@@ -40,7 +40,7 @@ async def detect_changepoints(
             """
             SELECT measured_at_utc::date AS date,
                    (extra_data->>'resting_hr')::float AS value_num
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1 AND measured_at_utc::date >= $2
               AND extra_data->>'resting_hr' IS NOT NULL
             ORDER BY measured_at_utc::date

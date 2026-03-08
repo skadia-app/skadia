@@ -22,7 +22,7 @@ async def detect_anomalies(conn, user_id: str) -> list:
         rows = await conn.fetch(
             """
             SELECT measured_at_utc::date AS date, rmssd_ms
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1
               AND measured_at_utc > NOW() - interval '90 days'
               AND rmssd_ms IS NOT NULL
@@ -95,7 +95,7 @@ async def detect_anomalies_v2(pool, user_id) -> list:
         "resting_hr": """
             SELECT measured_at_utc::date AS date,
                    (extra_data->>'resting_hr')::float AS value
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1
               AND measured_at_utc > NOW() - interval '90 days'
               AND extra_data->>'resting_hr' IS NOT NULL
@@ -103,7 +103,7 @@ async def detect_anomalies_v2(pool, user_id) -> list:
         """,
         "hrv_rmssd": """
             SELECT measured_at_utc::date AS date, rmssd_ms AS value
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1
               AND measured_at_utc > NOW() - interval '90 days'
               AND rmssd_ms IS NOT NULL

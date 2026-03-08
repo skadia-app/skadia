@@ -404,7 +404,7 @@ ALL_TOOL_DEFINITIONS = [
             "name": "query_data",
             "description": (
                 "General-purpose data retrieval for questions not covered by specialized tools. "
-                "Fetches from: pmc_daily (TSS/CTL/ATL), health_hrv_snapshots, health_sleep, "
+                "Fetches from: pmc_daily (TSS/CTL/ATL), health_snapshots, health_sleep, "
                 "health_weight_entries, activity_laps, activity_splits, activity_intervals. "
                 "Use as fallback when no specific tool matches the user's question. "
                 "Do NOT use for activities, geo features, segments, or gear — use the specialized tools. "
@@ -416,7 +416,7 @@ ALL_TOOL_DEFINITIONS = [
                     "table": {
                         "type": "string",
                         "enum": [
-                            "pmc_daily", "health_hrv_snapshots", "health_sleep",
+                            "pmc_daily", "health_snapshots", "health_sleep",
                             "health_weight_entries", "activity_laps",
                             "activity_splits", "activity_intervals",
                         ],
@@ -635,7 +635,7 @@ async def _get_health_status(pool, user_id, aspect="all", days=30):
         rows = await pool.fetch(
             "SELECT measured_at_utc::date AS date, rmssd_ms, sdrr_ms, "
             "weekly_avg, baseline_low, baseline_high, status "
-            "FROM health_hrv_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
+            "FROM health_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
             "ORDER BY measured_at_utc",
             user_id, since,
         )
@@ -679,7 +679,7 @@ async def _get_health_status(pool, user_id, aspect="all", days=30):
     if aspect in ("resting_hr", "all"):
         rows = await pool.fetch(
             "SELECT measured_at_utc::date AS date, resting_hr_bpm "
-            "FROM health_hrv_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
+            "FROM health_snapshots WHERE user_id = $1 AND measured_at_utc >= $2 "
             "AND resting_hr_bpm IS NOT NULL ORDER BY measured_at_utc",
             user_id, since,
         )
@@ -914,7 +914,7 @@ async def _query_data(pool, user_id, table, days=30, limit=30, activity_id=None)
             "date_col": "date",
             "user_col": "user_id",
         },
-        "health_hrv_snapshots": {
+        "health_snapshots": {
             "cols": "measured_at_utc::date AS date, rmssd_ms, sdrr_ms, status",
             "date_col": "measured_at_utc",
             "user_col": "user_id",

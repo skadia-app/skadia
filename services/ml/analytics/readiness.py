@@ -17,7 +17,7 @@ async def compute_readiness(conn, user_id: str) -> dict:
         # 1. HRV 7-Tage-Trend
         hrv_rows = await conn.fetch(
             """
-            SELECT rmssd_ms FROM health_hrv_snapshots
+            SELECT rmssd_ms FROM health_snapshots
             WHERE user_id = $1 AND measured_at_utc > NOW() - interval '7 days'
             ORDER BY measured_at_utc
             """,

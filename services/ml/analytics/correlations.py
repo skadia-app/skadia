@@ -27,7 +27,7 @@ async def compute_correlations(conn, user_id: str) -> dict:
             """
             WITH hrv_daily AS (
                 SELECT measured_at_utc::date AS date, AVG(rmssd_ms) AS rmssd
-                FROM health_hrv_snapshots
+                FROM health_snapshots
                 WHERE user_id = $1
                   AND measured_at_utc > NOW() - interval '180 days'
                 GROUP BY 1
@@ -224,7 +224,7 @@ async def compute_correlations_v2(pool, user_id, top_n: int = 20) -> dict:
         hrv_rows = await conn.fetch(
             """
             SELECT measured_at_utc::date AS date, AVG(rmssd_ms) AS value
-            FROM health_hrv_snapshots
+            FROM health_snapshots
             WHERE user_id = $1 AND measured_at_utc > NOW() - interval '180 days'
               AND rmssd_ms IS NOT NULL
             GROUP BY 1 ORDER BY 1

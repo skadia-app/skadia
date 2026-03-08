@@ -237,7 +237,7 @@ func readFITFileType(data []byte) uint8 {
 	return 0
 }
 
-// hrvsStatusExtra holds the extra HRV-status fields stored in health_hrv_snapshots.extra_data.
+// hrvsStatusExtra holds the extra HRV-status fields stored in health_snapshots.extra_data.
 type hrvStatusExtra struct {
 	WeeklyAvgMS            float64 `json:"weekly_avg_ms"`
 	LastNightAvgMS         float64 `json:"last_night_avg_ms"`
