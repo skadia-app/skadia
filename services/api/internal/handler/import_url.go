@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -80,7 +81,8 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", req.URL, nil)
 	dlResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Download Failed", err.Error(), r.URL.Path)
+		slog.Error("import-url: download failed", "url", req.URL, "error", err)
+		writeError(w, http.StatusBadGateway, "Download Failed", "failed to download file from URL", r.URL.Path)
 		return
 	}
 	defer dlResp.Body.Close()
@@ -335,30 +337,63 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 }
 
 // isInternalHost returns true for RFC-1918 / loopback / link-local hosts to
-// prevent SSRF attacks.
+// prevent SSRF attacks. It resolves hostnames to IPs before checking.
 func isInternalHost(host string) bool {
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+	if host == "localhost" {
 		return true
 	}
-	if strings.HasPrefix(host, "10.") {
-		return true
+
+	// Resolve hostname to IPs and check each resolved address
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		// If we can't resolve, also check the raw host string as an IP
+		ips = []string{host}
 	}
-	if strings.HasPrefix(host, "192.168.") {
-		return true
-	}
-	if strings.HasPrefix(host, "169.254.") {
-		return true
-	}
-	// 172.16.0.0/12  →  172.16.x.x – 172.31.x.x
-	if strings.HasPrefix(host, "172.") {
-		parts := strings.SplitN(host, ".", 3)
-		if len(parts) >= 2 {
-			var second int
-			fmt.Sscanf(parts[1], "%d", &second)
-			if second >= 16 && second <= 31 {
-				return true
-			}
+
+	for _, ipStr := range ips {
+		if isBlockedIP(ipStr) {
+			return true
 		}
 	}
+	return false
+}
+
+// isBlockedIP checks whether a single IP string belongs to a private/loopback/link-local range.
+func isBlockedIP(ipStr string) bool {
+	// Block IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) — extract the IPv4 part
+	if strings.HasPrefix(ipStr, "::ffff:") {
+		ipStr = strings.TrimPrefix(ipStr, "::ffff:")
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// Explicit zero address
+	if ip.Equal(net.IPv4zero) || ipStr == "0.0.0.0" {
+		return true
+	}
+
+	// Loopback (127.0.0.0/8, ::1)
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Link-local (169.254.0.0/16, fe80::/10)
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Private (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7)
+	if ip.IsPrivate() {
+		return true
+	}
+
+	// Unspecified (0.0.0.0, ::)
+	if ip.IsUnspecified() {
+		return true
+	}
+
 	return false
 }

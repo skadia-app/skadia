@@ -51,6 +51,8 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isSecure := strings.HasPrefix(h.Auth.AppRedirectURI, "https://")
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    state,
@@ -58,7 +60,7 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int((5 * time.Minute).Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   false, // set true in production behind TLS
+		Secure:   isSecure,
 	})
 
 	params := url.Values{}
@@ -147,6 +149,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Store OIDC refresh token as HttpOnly cookie (7 days)
 	if tokens.RefreshToken != "" {
+		isSecureCb := strings.HasPrefix(h.Auth.AppRedirectURI, "https://")
 		http.SetCookie(w, &http.Cookie{
 			Name:     refreshCookieName,
 			Value:    tokens.RefreshToken,
@@ -154,7 +157,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 			MaxAge:   int(refreshDuration.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
-			Secure:   false, // set true in production
+			Secure:   isSecureCb,
 		})
 	}
 
@@ -209,6 +212,7 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Rotate refresh cookie if OIDC returned a new one
 	if tokens.RefreshToken != "" {
+		isSecureRef := strings.HasPrefix(h.Auth.AppRedirectURI, "https://")
 		http.SetCookie(w, &http.Cookie{
 			Name:     refreshCookieName,
 			Value:    tokens.RefreshToken,
@@ -216,7 +220,7 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 			MaxAge:   int(refreshDuration.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
-			Secure:   false,
+			Secure:   isSecureRef,
 		})
 	}
 

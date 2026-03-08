@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ShadowFSConfig holds the configuration for the shadow file system.
@@ -25,6 +26,16 @@ type ShadowMeta struct {
 	UserID           string `json:"user_id"`
 }
 
+// validatePath ensures relativePath stays within basePath to prevent path traversal.
+func validatePath(basePath, relativePath string) error {
+	resolved := filepath.Clean(filepath.Join(basePath, relativePath))
+	cleanBase := filepath.Clean(basePath) + string(os.PathSeparator)
+	if !strings.HasPrefix(resolved, cleanBase) && resolved != filepath.Clean(basePath) {
+		return fmt.Errorf("path traversal detected: %s", relativePath)
+	}
+	return nil
+}
+
 // EnsureDir creates all directories along the given path.
 func EnsureDir(dirPath string) error {
 	return os.MkdirAll(dirPath, 0755)
@@ -33,6 +44,9 @@ func EnsureDir(dirPath string) error {
 // WriteShadowFile writes the original activity file and a .meta JSON sidecar
 // to basePath/relativePath. It creates any necessary intermediate directories.
 func WriteShadowFile(basePath, relativePath string, originalData []byte, metaData []byte) error {
+	if err := validatePath(basePath, relativePath); err != nil {
+		return err
+	}
 	fullPath := filepath.Join(basePath, relativePath)
 	dir := filepath.Dir(fullPath)
 
@@ -55,6 +69,12 @@ func WriteShadowFile(basePath, relativePath string, originalData []byte, metaDat
 // MoveShadowFile moves a shadow file and its .meta sidecar from oldPath to newPath.
 // Both paths are relative to basePath.
 func MoveShadowFile(basePath, oldPath, newPath string) error {
+	if err := validatePath(basePath, oldPath); err != nil {
+		return err
+	}
+	if err := validatePath(basePath, newPath); err != nil {
+		return err
+	}
 	oldFull := filepath.Join(basePath, oldPath)
 	newFull := filepath.Join(basePath, newPath)
 
