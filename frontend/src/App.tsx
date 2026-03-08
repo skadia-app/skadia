@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
 import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
@@ -39,6 +39,44 @@ const InsightsTab = lazy(() => import('@/pages/analytics/InsightsTab'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
+
+function ImportRedirect() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const url = searchParams.get('url')
+
+  useEffect(() => {
+    if (!url) {
+      navigate('/')
+      return
+    }
+    fetch('/api/v1/import/from-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+      .then(async r => {
+        if (!r.ok) throw new Error(await r.text())
+        return r.json()
+      })
+      .then((result: { activity?: { id: string } }) => {
+        if (result.activity?.id) {
+          navigate(`/activities/${result.activity.id}`)
+        } else {
+          navigate('/')
+        }
+      })
+      .catch(() => {
+        navigate('/')
+      })
+  }, [url, navigate])
+
+  return (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-neutral-500">Importiere Aktivität...</p>
+    </div>
+  )
+}
 
 function LoadingSpinner() {
   return (
@@ -96,6 +134,7 @@ export default function App() {
                         <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
                         <Route path="settings/tags" element={<TagsPage />} />
                         <Route path="settings/import" element={<ImportPage />} />
+                        <Route path="import/url" element={<ImportRedirect />} />
                         <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
                       </Route>
                     </Route>
