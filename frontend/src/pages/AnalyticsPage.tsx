@@ -11,6 +11,7 @@ import TagFilterInput from '@/components/TagFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
 import GearFilterInput from '@/components/GearFilterInput'
 import type { GearFilter } from '@/components/GearFilterInput'
+import { toLocalISO } from '@/lib/dateUtils'
 
 const tabs = [
   { to: '/analytics/training', label: 'Training' },
@@ -29,7 +30,7 @@ const DATE_PRESETS: { label: string; days: number | null }[] = [
 ]
 
 function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return toLocalISO(d)
 }
 
 function activeFilterCount(filters: AnalyticsFilterState): number {

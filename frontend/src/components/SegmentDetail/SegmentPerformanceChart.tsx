@@ -6,6 +6,8 @@ import { apiClient } from '@/api/client'
 
 interface SegmentPerformanceChartProps {
   segmentId: string
+  dateFrom?: string
+  dateTo?: string
 }
 
 function formatTime(s: number): string {
@@ -14,7 +16,7 @@ function formatTime(s: number): string {
   return `${m}:${String(sec).padStart(2, '0')}`
 }
 
-export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartProps) {
+export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: SegmentPerformanceChartProps) {
   const navigate = useNavigate()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
@@ -27,13 +29,18 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
 
   const performances: any[] = data?.performances ?? []
 
-  const sorted = useMemo(
-    () =>
-      [...performances].sort(
-        (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
-      ),
-    [performances]
-  )
+  const sorted = useMemo(() => {
+    const fromMs = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null
+    const toMs = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null
+    return [...performances]
+      .filter(p => {
+        const t = new Date(p.started_at).getTime()
+        if (fromMs !== null && t < fromMs) return false
+        if (toMs !== null && t > toMs) return false
+        return true
+      })
+      .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+  }, [performances, dateFrom, dateTo])
 
   const trend = useMemo(() => {
     if (sorted.length < 3) return null
@@ -59,17 +66,31 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
       chartInstance.current = echarts.init(chartRef.current, null, { renderer: 'canvas' })
     }
 
-    const timeData = sorted.map((p: any) => [new Date(p.started_at).getTime(), p.elapsed_time_s])
-    const minTime = timeData.length > 0 ? Math.min(...timeData.map(d => d[0])) : 0
-    const maxTime = timeData.length > 0 ? Math.max(...timeData.map(d => d[0])) : 0
+    const timeData = sorted.map((p: any) => {
+      const isBest = p.elapsed_time_s === bestTime
+      return {
+        value: [new Date(p.started_at).getTime(), p.elapsed_time_s],
+        symbolSize: isBest ? 12 : 10,
+        itemStyle: { color: isBest ? '#FFD700' : '#888', borderWidth: 0 },
+        emphasis: {
+          symbolSize: isBest ? 15 : 13,
+          itemStyle: {
+            color: isBest ? '#FFD700' : '#ef4444',
+            borderWidth: isBest ? 1.5 : 0,
+            borderColor: isBest ? '#d97706' : 'transparent',
+          },
+        },
+      }
+    })
+    const minTime = timeData.length > 0 ? Math.min(...timeData.map(d => (d.value as number[])[0])) : 0
+    const maxTime = timeData.length > 0 ? Math.max(...timeData.map(d => (d.value as number[])[0])) : 0
 
     const option: echarts.EChartsOption = {
       tooltip: {
         trigger: 'item',
         formatter: (params: any) => {
           if (params.seriesIndex !== 0) return ''
-          const ts = params.data[0]
-          const time = params.data[1]
+          const [ts, time] = params.data.value ?? params.data
           const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
           const dateStr = new Date(ts).toLocaleDateString('de-DE')
           return `${dateStr}<br/><b>${formatTime(time)}</b>${perf ? '<br/>' + perf.title : ''}`
@@ -96,15 +117,18 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
           type: 'scatter',
           data: timeData,
           symbolSize: 10,
-          itemStyle: {
-            color: (params: any) =>
-              params.data[1] === bestTime ? '#FFD700' : '#888',
-          },
+          emphasis: { scale: false },
         },
         {
           type: 'line',
           data: [[minTime, Math.round(avgTime)], [maxTime, Math.round(avgTime)]],
-          lineStyle: { type: 'dashed', color: '#aaa', width: 1 },
+          lineStyle: {
+            type: 'dashed',
+            color: getComputedStyle(document.documentElement)
+              .getPropertyValue('--color-accent-DEFAULT')
+              .trim() || '#f97316',
+            width: 1.5,
+          },
           symbol: 'none',
           tooltip: { show: false },
         },
@@ -116,7 +140,7 @@ export function SegmentPerformanceChart({ segmentId }: SegmentPerformanceChartPr
     chartInstance.current.off('click')
     chartInstance.current.on('click', (params: any) => {
       if (params.seriesIndex === 0) {
-        const ts = params.data[0]
+        const [ts] = params.data.value ?? params.data
         const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
         if (perf) navigate(`/activities/${perf.activity_id}`)
       }

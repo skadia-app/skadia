@@ -10,6 +10,8 @@ import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerfo
 import { FavoriteButton } from '@/components/SegmentDetail/FavoriteButton'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
+import ActivityFilters, { EMPTY_FILTERS, type ActivityFilterState } from '@/components/ActivityFilters'
+import DateRangePicker from '@/components/DateRangePicker'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren', foot: 'Laufsport', swim: 'Schwimmen',
@@ -29,6 +31,7 @@ export default function SegmentDetailPage() {
   const navigate = useNavigate()
   const [showEdit, setShowEdit] = useState(false)
   const [localPending, setLocalPending] = useState(false)
+  const [filters, setFilters] = useState<ActivityFilterState>(EMPTY_FILTERS)
 
   const queryClient = useQueryClient()
   const { isJobActiveForEntity } = useActiveJobs()
@@ -44,7 +47,6 @@ export default function SegmentDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['segment', id] })
         queryClient.invalidateQueries({ queryKey: ['segment-performances', id] })
       }, 3000)
-      // Nach 10s bereinigen — bis dahin hat der Poll den Job längst bestätigt
       setTimeout(() => setLocalPending(false), 10000)
     },
     onError: () => {
@@ -71,6 +73,12 @@ export default function SegmentDetailPage() {
           <ArrowLeft size={16} /> Segmente
         </Link>
         <div className="flex items-center gap-2">
+          <DateRangePicker
+            dateFrom={filters.dateFrom}
+            dateTo={filters.dateTo}
+            onChange={(from, to) => setFilters(f => ({ ...f, dateFrom: from, dateTo: to }))}
+          />
+          <ActivityFilters filters={filters} onChange={setFilters} />
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
@@ -130,11 +138,11 @@ export default function SegmentDetailPage() {
       {/* Minimap + Activity List */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SegmentMinimap segment={segment} />
-        <SegmentActivityList segmentId={id!} segment={segment} />
+        <SegmentActivityList segmentId={id!} segment={segment} filters={filters} />
       </div>
 
       {/* Performance Chart */}
-      <SegmentPerformanceChart segmentId={id!} />
+      <SegmentPerformanceChart segmentId={id!} dateFrom={filters.dateFrom} dateTo={filters.dateTo} />
 
       {/* Edit Modal */}
       {showEdit && (

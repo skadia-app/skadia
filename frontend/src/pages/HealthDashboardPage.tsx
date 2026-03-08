@@ -9,6 +9,7 @@ import {
   fetchHealthTrainingLoad,
   fetchHealthReadiness,
 } from '@/api/health'
+import { toLocalISO } from '@/lib/dateUtils'
 import HealthOverviewCards from '@/components/health/HealthOverviewCards'
 import StepsChart from '@/components/health/StepsChart'
 import SleepChart from '@/components/health/SleepChart'
@@ -31,13 +32,13 @@ const periodLabels: Record<Period, string> = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getDateRange(period: Period): { from: string; to: string } {
-  const to = new Date().toISOString().split('T')[0]
+  const to = toLocalISO(new Date())
   const from = new Date()
   if (period === '7d') from.setDate(from.getDate() - 7)
   else if (period === '30d') from.setDate(from.getDate() - 30)
   else if (period === '90d') from.setDate(from.getDate() - 90)
   else if (period === '1y') from.setFullYear(from.getFullYear() - 1)
-  return { from: from.toISOString().split('T')[0], to }
+  return { from: toLocalISO(from), to }
 }
 
 // ── Chart Section ─────────────────────────────────────────────────────────────

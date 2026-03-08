@@ -12,6 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchSleepAnalysis } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { toLocalISO } from '@/lib/dateUtils'
 
 echarts.use([
   BarChart,
@@ -40,8 +41,8 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
     case '90d': from.setDate(from.getDate() - 90); break
   }
   return {
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
+    from: toLocalISO(from),
+    to: toLocalISO(to),
   }
 }
 

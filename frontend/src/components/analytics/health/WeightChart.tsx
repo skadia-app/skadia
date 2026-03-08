@@ -11,6 +11,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchWeightAnalysis } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { toLocalISO } from '@/lib/dateUtils'
 
 echarts.use([
   LineChart,
@@ -33,8 +34,8 @@ export default function WeightChart() {
     const to = new Date()
     const from = new Date()
     from.setDate(from.getDate() - 90)
-    params.set('from', from.toISOString().split('T')[0])
-    params.set('to', to.toISOString().split('T')[0])
+    params.set('from', toLocalISO(from))
+    params.set('to', toLocalISO(to))
     return params.toString()
   }, [toQueryString])
 

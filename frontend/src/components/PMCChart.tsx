@@ -13,6 +13,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchPMC } from '@/api/stats'
+import { toLocalISO } from '@/lib/dateUtils'
 import type { PMCDataPoint } from '@/api/stats'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, BrushComponent, ToolboxComponent, CanvasRenderer])
@@ -49,18 +50,18 @@ function getDateRange(range: TimeRange): { from: string; to: string } {
     case '3m': from.setMonth(from.getMonth() - 3); break
     case '6m': from.setMonth(from.getMonth() - 6); break
     case '1y': from.setFullYear(from.getFullYear() - 1); break
-    case 'all': return { from: '0001-01-01', to: to.toISOString().split('T')[0] }
+    case 'all': return { from: '0001-01-01', to: toLocalISO(to) }
   }
   return {
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
+    from: toLocalISO(from),
+    to: toLocalISO(to),
   }
 }
 
 export default function PMCChart() {
   const [range, setRange] = useState<TimeRange | null>('3m')
-  const today = new Date().toISOString().split('T')[0]
-  const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().split('T')[0] })()
+  const today = toLocalISO(new Date())
+  const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 3); return toLocalISO(d) })()
   const [dateFrom, setDateFrom] = useState(threeMonthsAgo)
   const [dateTo, setDateTo] = useState(today)
   const [isZoomed, setIsZoomed] = useState(false)

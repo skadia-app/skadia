@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { toLocalISO } from '@/lib/dateUtils'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -567,7 +568,7 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
 function ServiceEventsPanel({ componentId }: { componentId: string }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
-  const [performedAt, setPerformedAt] = useState(new Date().toISOString().split('T')[0])
+  const [performedAt, setPerformedAt] = useState(toLocalISO(new Date()))
   const [description, setDescription] = useState('')
   const [cost, setCost] = useState('')
   const [notes, setNotes] = useState('')

@@ -10,6 +10,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHRVCorrelation } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { toLocalISO } from '@/lib/dateUtils'
 
 echarts.use([ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -29,11 +30,11 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
     case '30d': from.setDate(from.getDate() - 30); break
     case '90d': from.setDate(from.getDate() - 90); break
     case '1y': from.setFullYear(from.getFullYear() - 1); break
-    case 'all': return { from: '0001-01-01', to: to.toISOString().split('T')[0] }
+    case 'all': return { from: '0001-01-01', to: toLocalISO(to) }
   }
   return {
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
+    from: toLocalISO(from),
+    to: toLocalISO(to),
   }
 }
 

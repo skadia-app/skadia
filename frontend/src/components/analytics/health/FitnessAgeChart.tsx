@@ -10,6 +10,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthFitnessAge } from '@/api/analytics'
+import { toLocalISO } from '@/lib/dateUtils'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
@@ -22,7 +23,7 @@ export default function FitnessAgeChart() {
     const to = new Date()
     return {
       from: '0001-01-01',
-      to: to.toISOString().split('T')[0],
+      to: toLocalISO(to),
     }
   }, [])
 

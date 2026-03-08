@@ -12,6 +12,7 @@ import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
 import { fetchInsightsReadiness, fetchHRVAnalysis } from '@/api/analytics'
 import type { ReadinessInsight, HRVAnalysis } from '@/api/analytics'
+import { toLocalISO } from '@/lib/dateUtils'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -22,13 +23,13 @@ function startOfWeekISO(): string {
   const diff = day === 0 ? 6 : day - 1
   d.setDate(d.getDate() - diff)
   d.setHours(0, 0, 0, 0)
-  return d.toISOString().split('T')[0]
+  return toLocalISO(d)
 }
 
 function sevenDaysAgo(): string {
   const d = new Date()
   d.setDate(d.getDate() - 7)
-  return d.toISOString().split('T')[0]
+  return toLocalISO(d)
 }
 
 // ── Readiness Ring ────────────────────────────────────────────────────────────────

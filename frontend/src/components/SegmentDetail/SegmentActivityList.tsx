@@ -5,6 +5,7 @@ import { Wrench } from 'lucide-react'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { apiClient } from '@/api/client'
 import type { Segment } from '@/api/segments'
+import type { ActivityFilterState } from '@/components/ActivityFilters'
 
 interface Performance {
   id: string
@@ -29,6 +30,7 @@ function getDirectionLabels(segment?: Segment) {
 interface SegmentActivityListProps {
   segmentId: string
   segment?: Segment
+  filters?: ActivityFilterState
 }
 
 function formatTime(s: number): string {
@@ -40,15 +42,9 @@ function formatTime(s: number): string {
     : `${m}:${String(sec).padStart(2, '0')}`
 }
 
-function toggleItem<T>(arr: T[], val: T): T[] {
-  return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
-}
-
-export function SegmentActivityList({ segmentId, segment }: SegmentActivityListProps) {
+export function SegmentActivityList({ segmentId, segment, filters }: SegmentActivityListProps) {
   const navigate = useNavigate()
   const [directionMode, setDirectionMode] = useState<'standard' | 'reverse' | 'all'>('standard')
-  const [selectedSports, setSelectedSports] = useState<string[]>([])
-  const [selectedGearIds, setSelectedGearIds] = useState<string[]>([])
 
   const isReverse = directionMode === 'all' ? undefined : directionMode === 'reverse'
 
@@ -62,36 +58,44 @@ export function SegmentActivityList({ segmentId, segment }: SegmentActivityListP
 
   const all: Performance[] = data?.performances ?? []
 
-  // Unique sport types found in data
-  const availableSportTypes = useMemo(
-    () => [...new Set(all.map(p => p.sport_type))].filter(Boolean),
-    [all],
-  )
-
-  // Unique gear options found in data
-  const availableGear = useMemo(() => {
-    const map = new Map<string, string>()
-    all.forEach(p => {
-      if (p.gear_id && p.gear_name) map.set(p.gear_id, p.gear_name)
-    })
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
-  }, [all])
-
   const filtered = useMemo(() => {
     return all.filter(p => {
-      if (selectedSports.length > 0 && !selectedSports.includes(p.sport_type)) return false
-      if (selectedGearIds.length > 0 && (!p.gear_id || !selectedGearIds.includes(p.gear_id)))
-        return false
+      const date = new Date(p.started_at)
+
+      if (filters?.dateFrom) {
+        const from = new Date(filters.dateFrom)
+        from.setHours(0, 0, 0, 0)
+        if (date < from) return false
+      }
+      if (filters?.dateTo) {
+        const to = new Date(filters.dateTo)
+        to.setHours(23, 59, 59, 999)
+        if (date > to) return false
+      }
+
+      if (filters?.sportTypes && filters.sportTypes.size > 0) {
+        // sportTypes uses "sport" or "sport:subtype" keys — match against sport_type
+        const matches = [...filters.sportTypes].some(key => {
+          const [sport] = key.split(':')
+          return sport === p.sport_type || key === p.sport_type
+        })
+        if (!matches) return false
+      }
+
+      if (filters?.gearFilters && filters.gearFilters.length > 0) {
+        const includes = filters.gearFilters.filter(gf => gf.state === 'include')
+        const excludes = filters.gearFilters.filter(gf => gf.state === 'exclude')
+        if (includes.length > 0 && (!p.gear_id || !includes.some(gf => gf.id === p.gear_id))) return false
+        if (excludes.length > 0 && p.gear_id && excludes.some(gf => gf.id === p.gear_id)) return false
+      }
+
       return true
     })
-  }, [all, selectedSports, selectedGearIds])
-
-  const activeFilterCount =
-    (selectedSports.length > 0 ? 1 : 0) + (selectedGearIds.length > 0 ? 1 : 0)
+  }, [all, filters])
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Sort controls */}
+      {/* Direction controls */}
       <div className="flex gap-2">
         {(['standard', 'reverse', 'all'] as const).map(mode => (
           <button
@@ -108,72 +112,6 @@ export function SegmentActivityList({ segmentId, segment }: SegmentActivityListP
         ))}
       </div>
 
-      {/* Sport-type filter — only shown when more than one sport is present */}
-      {availableSportTypes.length > 1 && (
-        <div className="flex flex-wrap gap-1.5">
-          {availableSportTypes.map(sport => {
-            const active = selectedSports.includes(sport)
-            return (
-              <button
-                key={sport}
-                onClick={() => setSelectedSports(prev => toggleItem(prev, sport))}
-                style={
-                  active
-                    ? {
-                        backgroundColor: 'var(--color-accent-DEFAULT, #FF6B35)',
-                        borderColor: 'var(--color-accent-DEFAULT, #FF6B35)',
-                        color: '#fff',
-                      }
-                    : undefined
-                }
-                className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                  active
-                    ? ''
-                    : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                }`}
-              >
-                {sportLabel(sport)}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Gear filter — only shown when activities have gear data */}
-      {availableGear.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
-            <Wrench className="w-3 h-3" />
-            Gear:
-          </span>
-          {availableGear.map(g => {
-            const active = selectedGearIds.includes(g.id)
-            return (
-              <button
-                key={g.id}
-                onClick={() => setSelectedGearIds(prev => toggleItem(prev, g.id))}
-                style={
-                  active
-                    ? {
-                        backgroundColor: 'var(--color-accent-DEFAULT, #FF6B35)',
-                        borderColor: 'var(--color-accent-DEFAULT, #FF6B35)',
-                        color: '#fff',
-                      }
-                    : undefined
-                }
-                className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                  active
-                    ? ''
-                    : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                }`}
-              >
-                {g.name}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       {/* Activity list */}
       <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
         {isLoading && (
@@ -181,9 +119,7 @@ export function SegmentActivityList({ segmentId, segment }: SegmentActivityListP
         )}
         {!isLoading && filtered.length === 0 && (
           <div className="text-sm text-neutral-500 dark:text-neutral-400">
-            {activeFilterCount > 0
-              ? 'Keine Aktivitäten mit diesen Filtern.'
-              : 'Keine Aktivitäten auf diesem Segment.'}
+            Keine Aktivitäten mit diesen Filtern.
           </div>
         )}
         {filtered.map(perf => (

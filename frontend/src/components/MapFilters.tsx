@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateRange } from 'react-day-picker'
+import { MonthYearCaption } from '@/components/DateRangePicker'
 import { de } from 'date-fns/locale'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
@@ -15,6 +16,7 @@ import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
+import { toLocalISO } from '@/lib/dateUtils'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
@@ -145,12 +147,13 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
             onSelect={(range: DateRange | undefined) => {
               onChange({
                 ...filters,
-                dateFrom: range?.from ? range.from.toISOString().split('T')[0] : '',
-                dateTo: range?.to ? range.to.toISOString().split('T')[0] : '',
+                dateFrom: range?.from ? toLocalISO(range.from) : '',
+                dateTo:   range?.to   ? toLocalISO(range.to)   : '',
               })
               if (range?.from && range?.to) setDatePickerOpen(false)
             }}
             locale={de}
+            components={{ MonthCaption: MonthYearCaption as any }}
             className="p-3 text-sm"
           />
         </div>
