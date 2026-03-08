@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
@@ -6,6 +6,8 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
+import { EditorMap } from '@/components/editor/EditorMap'
+import { TrimControls } from '@/components/editor/TrimControls'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
@@ -205,6 +207,11 @@ export default function ActivityEditorPage() {
   const [isDetectingGPS, setIsDetectingGPS] = useState(false)
   const [isSavingGPS, setIsSavingGPS] = useState(false)
 
+  // ── Track / Trim State ─────────────────────────────────────────────────────
+  const [trimStart, setTrimStart] = useState(0)
+  const [trimEnd, setTrimEnd] = useState(0)
+  const [activeMapSelect, setActiveMapSelect] = useState<'start' | 'end' | null>(null)
+
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: ['activity', id],
     queryFn: () => fetchActivity(id!),
@@ -223,7 +230,45 @@ export default function ActivityEditorPage() {
     enabled: !!id,
   })
 
-  // Build spike set from sidecar (for chart markers if already saved)
+  // ── Track GeoJSON (aus Streams abgeleitet) ────────────────────────────────
+  const trackGeoJSON = useMemo<GeoJSON.LineString | null>(() => {
+    const gpsPoints = streams.filter(s => s.lat != null && s.lng != null)
+    if (gpsPoints.length < 2) return null
+    return {
+      type: 'LineString',
+      coordinates: gpsPoints.map(s => [s.lng!, s.lat!]),
+    }
+  }, [streams])
+
+  // GPS-Outlier-Timestamps → Koordinaten
+  const outlierPoints = useMemo(() => {
+    if (!detectedGPSOutliers.length || !trackGeoJSON) return []
+    const tsSet = new Set(detectedGPSOutliers)
+    return streams
+      .filter(s => s.lat != null && s.lng != null && tsSet.has(new Date(s.time).toISOString()))
+      .map(s => ({ lat: s.lat!, lng: s.lng!, time: s.time }))
+  }, [detectedGPSOutliers, streams, trackGeoJSON])
+
+  // trimEnd auf letzen Index setzen wenn Track das erste Mal geladen wird
+  const didInitTrim = useRef(false)
+  useEffect(() => {
+    if (!trackGeoJSON || didInitTrim.current) return
+    const maxIdx = trackGeoJSON.coordinates.length - 1
+    setTrimEnd(maxIdx)
+    didInitTrim.current = true
+  }, [trackGeoJSON])
+
+  // Map-Klick-Handler: je nach activeMapSelect Start oder Ende setzen
+  const handleTrackClick = useCallback((index: number) => {
+    if (activeMapSelect === 'start') {
+      setTrimStart(index)
+    } else if (activeMapSelect === 'end') {
+      setTrimEnd(index)
+    }
+    setActiveMapSelect(null)
+  }, [activeMapSelect])
+
+  // ── Build spike set from sidecar (for chart markers if already saved)
   const savedSpikeTimestamps = new Set<string>(
     sidecar?.edits
       .filter(e => e.type === 'hr_spike_smooth')
@@ -319,6 +364,10 @@ export default function ActivityEditorPage() {
       setDetectedSpikes([])
       setDetectedGPSOutliers([])
       setShowPreview(false)
+      // Reset trim to full track
+      setTrimStart(0)
+      if (trackGeoJSON) setTrimEnd(trackGeoJSON.coordinates.length - 1)
+      didInitTrim.current = false
       await refetchSidecar()
       showStatus('Edits zurückgesetzt.')
     } catch {
@@ -344,6 +393,53 @@ export default function ActivityEditorPage() {
       showStatus('GPS-Ausreißer-Erkennung fehlgeschlagen.')
     } finally {
       setIsDetectingGPS(false)
+    }
+  }
+
+  // Save trim as sidecar edits
+  async function handleSaveTrim() {
+    if (!id || !trackGeoJSON) return
+    const maxIdx = trackGeoJSON.coordinates.length - 1
+    const trimActive = trimStart > 0 || trimEnd < maxIdx
+    if (!trimActive) return
+
+    setIsSaving(true)
+    try {
+      const now = new Date().toISOString()
+      const newEdits: Edit[] = [
+        // Keep non-trim edits from existing sidecar
+        ...(sidecar?.edits.filter(e => e.type !== 'trim_start' && e.type !== 'trim_end') ?? []),
+      ]
+
+      // Map index → timestamp from streams (GPS points only)
+      const gpsStreams = streams.filter(s => s.lat != null && s.lng != null)
+      if (trimStart > 0 && gpsStreams[trimStart]) {
+        newEdits.push({
+          type: 'trim_start',
+          timestamp: new Date(gpsStreams[trimStart].time).toISOString(),
+        })
+      }
+      if (trimEnd < maxIdx && gpsStreams[trimEnd]) {
+        newEdits.push({
+          type: 'trim_end',
+          timestamp: new Date(gpsStreams[trimEnd].time).toISOString(),
+        })
+      }
+
+      const newSidecar: EditSidecar = {
+        version: 1,
+        activity_id: id,
+        created_at: sidecar?.created_at ?? now,
+        updated_at: now,
+        edits: newEdits,
+      }
+      await putEdits(id, newSidecar)
+      await refetchSidecar()
+      showStatus('Trim gespeichert.')
+    } catch {
+      showStatus('Trim-Speichern fehlgeschlagen.')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -398,7 +494,9 @@ export default function ActivityEditorPage() {
     )
   }
 
-  const hasEdits = (sidecar?.edits.length ?? 0) > 0 || detectedSpikes.length > 0 || detectedGPSOutliers.length > 0
+  const maxTrackIdx = (trackGeoJSON?.coordinates.length ?? 1) - 1
+  const trimActive = trackGeoJSON != null && (trimStart > 0 || trimEnd < maxTrackIdx)
+  const hasEdits = (sidecar?.edits.length ?? 0) > 0 || detectedSpikes.length > 0 || detectedGPSOutliers.length > 0 || trimActive
   const hasUnsavedSpikes = detectedSpikes.length > 0 || detectedGPSOutliers.length > 0
 
   return (
@@ -432,6 +530,64 @@ export default function ActivityEditorPage() {
       {statusMsg && (
         <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-2.5 text-sm text-blue-700 dark:text-blue-400">
           {statusMsg}
+        </div>
+      )}
+
+      {/* Track Map + Trim Controls */}
+      {trackGeoJSON && (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Strecke
+              {activity.has_gps && (
+                <span className="ml-2 text-xs text-neutral-400 dark:text-neutral-500 font-normal">
+                  {trackGeoJSON.coordinates.length} GPS-Punkte
+                </span>
+              )}
+            </h2>
+            {outlierPoints.length > 0 && (
+              <span className="text-xs text-orange-600 dark:text-orange-400">
+                {outlierPoints.length} Ausreißer markiert
+              </span>
+            )}
+          </div>
+
+          <EditorMap
+            trackGeoJSON={trackGeoJSON}
+            outlierPoints={outlierPoints}
+            trimStart={trimStart}
+            trimEnd={trimEnd}
+            onTrackClick={activeMapSelect ? handleTrackClick : undefined}
+            className="h-72 rounded-lg overflow-hidden"
+          />
+
+          <TrimControls
+            totalPoints={trackGeoJSON.coordinates.length}
+            trimStart={trimStart}
+            trimEnd={trimEnd}
+            onTrimStartChange={setTrimStart}
+            onTrimEndChange={setTrimEnd}
+            onSetFromMap={(which) => setActiveMapSelect(prev => prev === which ? null : which)}
+            activeMapSelect={activeMapSelect}
+          />
+
+          {trimActive && (
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveTrim}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                           border border-amber-300 dark:border-amber-700
+                           text-amber-700 dark:text-amber-400
+                           hover:bg-amber-50 dark:hover:bg-amber-900/20
+                           disabled:opacity-50 disabled:cursor-not-allowed
+                           transition-colors"
+              >
+                <SaveIcon className="w-4 h-4" />
+                {isSaving ? 'Speichere...' : 'Trim speichern'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
