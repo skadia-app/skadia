@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -309,6 +311,13 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 		}
 		exportTCX(w, activity, streams)
 	case "fit":
+		if activity.SportType == "multisport" {
+			children, err := h.DB.GetChildActivities(r.Context(), id)
+			if err == nil && len(children) > 0 {
+				exportMultiSessionFIT(w, activity, children, h.DB, r.Context())
+				return
+			}
+		}
 		streams, err := h.DB.GetActivityStreams(r.Context(), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
@@ -600,93 +609,89 @@ func degToSemicircles(deg float64) int32 {
 	return int32(deg * (math.Pow(2, 31) / 180.0))
 }
 
-func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.StreamPoint) {
-	filename := fmt.Sprintf("activity-%s.fit", activity.StartedAt.Format("2006-01-02"))
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-
-	var messages []proto.Message
-
-	// FileId message
+// buildFITFileId builds a FileId message for the given activity.
+func buildFITFileId(act *model.Activity) proto.Message {
 	fileId := mesgdef.NewFileId(nil)
 	fileId.Type = typedef.FileActivity
 	fileId.Manufacturer = typedef.ManufacturerDevelopment
-	fileId.TimeCreated = activity.StartedAt
-	messages = append(messages, fileId.ToMesg(nil))
+	fileId.TimeCreated = act.StartedAt
+	return fileId.ToMesg(nil)
+}
 
-	// Record messages from streams
-	for _, s := range streams {
-		rec := mesgdef.NewRecord(nil)
-		rec.Timestamp = s.Time
-		if s.Lat != nil && s.Lng != nil {
-			rec.PositionLat = degToSemicircles(*s.Lat)
-			rec.PositionLong = degToSemicircles(*s.Lng)
-		}
-		if s.AltitudeM != nil {
-			rec.EnhancedAltitude = uint32((*s.AltitudeM + 500) * 5)
-			rec.Altitude = uint16((*s.AltitudeM + 500) * 5)
-		}
-		if s.HeartRate != nil {
-			rec.HeartRate = uint8(*s.HeartRate)
-		}
-		if s.PowerW != nil {
-			rec.Power = uint16(*s.PowerW)
-		}
-		if s.Cadence != nil {
-			rec.Cadence = uint8(*s.Cadence)
-		}
-		if s.SpeedMS != nil {
-			rec.EnhancedSpeed = uint32(*s.SpeedMS * 1000)
-			rec.Speed = uint16(*s.SpeedMS * 1000)
-		}
-		if s.DistanceM != nil {
-			rec.Distance = uint32(*s.DistanceM * 100)
-		}
-		if s.TemperatureC != nil {
-			rec.Temperature = int8(*s.TemperatureC)
-		}
-		messages = append(messages, rec.ToMesg(nil))
+// buildFITRecord builds a Record message from a StreamPoint.
+func buildFITRecord(s model.StreamPoint) proto.Message {
+	rec := mesgdef.NewRecord(nil)
+	rec.Timestamp = s.Time
+	if s.Lat != nil && s.Lng != nil {
+		rec.PositionLat = degToSemicircles(*s.Lat)
+		rec.PositionLong = degToSemicircles(*s.Lng)
 	}
+	if s.AltitudeM != nil {
+		rec.EnhancedAltitude = uint32((*s.AltitudeM + 500) * 5)
+		rec.Altitude = uint16((*s.AltitudeM + 500) * 5)
+	}
+	if s.HeartRate != nil {
+		rec.HeartRate = uint8(*s.HeartRate)
+	}
+	if s.PowerW != nil {
+		rec.Power = uint16(*s.PowerW)
+	}
+	if s.Cadence != nil {
+		rec.Cadence = uint8(*s.Cadence)
+	}
+	if s.SpeedMS != nil {
+		rec.EnhancedSpeed = uint32(*s.SpeedMS * 1000)
+		rec.Speed = uint16(*s.SpeedMS * 1000)
+	}
+	if s.DistanceM != nil {
+		rec.Distance = uint32(*s.DistanceM * 100)
+	}
+	if s.TemperatureC != nil {
+		rec.Temperature = int8(*s.TemperatureC)
+	}
+	return rec.ToMesg(nil)
+}
 
-	// Session message
+// buildFITSession builds a Session message from an activity's metadata.
+func buildFITSession(act *model.Activity) proto.Message {
 	sess := mesgdef.NewSession(nil)
-	sess.StartTime = activity.StartedAt
-	if activity.ElapsedTimeS != nil {
-		sess.TotalElapsedTime = uint32(*activity.ElapsedTimeS * 1000)
-		sess.TotalTimerTime = uint32(*activity.ElapsedTimeS * 1000)
-		if activity.MovingTimeS != nil {
-			sess.TotalTimerTime = uint32(*activity.MovingTimeS * 1000)
+	sess.StartTime = act.StartedAt
+	if act.ElapsedTimeS != nil {
+		sess.TotalElapsedTime = uint32(*act.ElapsedTimeS * 1000)
+		sess.TotalTimerTime = uint32(*act.ElapsedTimeS * 1000)
+		if act.MovingTimeS != nil {
+			sess.TotalTimerTime = uint32(*act.MovingTimeS * 1000)
 		}
 	}
-	if activity.DistanceM != nil {
-		sess.TotalDistance = uint32(*activity.DistanceM * 100)
+	if act.DistanceM != nil {
+		sess.TotalDistance = uint32(*act.DistanceM * 100)
 	}
-	if activity.ElevationGainM != nil {
-		sess.TotalAscent = uint16(*activity.ElevationGainM)
+	if act.ElevationGainM != nil {
+		sess.TotalAscent = uint16(*act.ElevationGainM)
 	}
-	if activity.AvgHeartRate != nil {
-		sess.AvgHeartRate = uint8(*activity.AvgHeartRate)
+	if act.AvgHeartRate != nil {
+		sess.AvgHeartRate = uint8(*act.AvgHeartRate)
 	}
-	if activity.MaxHeartRate != nil {
-		sess.MaxHeartRate = uint8(*activity.MaxHeartRate)
+	if act.MaxHeartRate != nil {
+		sess.MaxHeartRate = uint8(*act.MaxHeartRate)
 	}
-	if activity.AvgPowerW != nil {
-		sess.AvgPower = uint16(*activity.AvgPowerW)
+	if act.AvgPowerW != nil {
+		sess.AvgPower = uint16(*act.AvgPowerW)
 	}
-	if activity.MaxPowerW != nil {
-		sess.MaxPower = uint16(*activity.MaxPowerW)
+	if act.MaxPowerW != nil {
+		sess.MaxPower = uint16(*act.MaxPowerW)
 	}
-	if activity.NormalizedPowerW != nil {
-		sess.NormalizedPower = uint16(*activity.NormalizedPowerW)
+	if act.NormalizedPowerW != nil {
+		sess.NormalizedPower = uint16(*act.NormalizedPowerW)
 	}
-	if activity.AvgCadence != nil {
-		sess.AvgCadence = uint8(*activity.AvgCadence)
+	if act.AvgCadence != nil {
+		sess.AvgCadence = uint8(*act.AvgCadence)
 	}
-	if activity.AvgSpeedMS != nil {
-		sess.AvgSpeed = uint16(*activity.AvgSpeedMS * 1000)
-		sess.EnhancedAvgSpeed = uint32(*activity.AvgSpeedMS * 1000)
+	if act.AvgSpeedMS != nil {
+		sess.AvgSpeed = uint16(*act.AvgSpeedMS * 1000)
+		sess.EnhancedAvgSpeed = uint32(*act.AvgSpeedMS * 1000)
 	}
-	switch activity.SportType {
+	switch act.SportType {
 	case "cycling", "e_biking":
 		sess.Sport = typedef.SportCycling
 	case "running":
@@ -700,20 +705,83 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 	default:
 		sess.Sport = typedef.SportGeneric
 	}
-	messages = append(messages, sess.ToMesg(nil))
+	return sess.ToMesg(nil)
+}
 
-	// Activity message
-	act := mesgdef.NewActivity(nil)
-	act.Timestamp = activity.StartedAt
-	act.NumSessions = 1
-	act.Type = typedef.ActivityManual
-	messages = append(messages, act.ToMesg(nil))
+// buildFITActivity builds the Activity wrapper message.
+func buildFITActivity(act *model.Activity, numSessions int) proto.Message {
+	a := mesgdef.NewActivity(nil)
+	a.Timestamp = act.StartedAt
+	a.NumSessions = uint16(numSessions)
+	a.Type = typedef.ActivityManual
+	return a.ToMesg(nil)
+}
+
+func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.StreamPoint) {
+	filename := fmt.Sprintf("activity-%s.fit", activity.StartedAt.Format("2006-01-02"))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	var messages []proto.Message
+	messages = append(messages, buildFITFileId(activity))
+	for _, s := range streams {
+		messages = append(messages, buildFITRecord(s))
+	}
+	messages = append(messages, buildFITSession(activity))
+	messages = append(messages, buildFITActivity(activity, 1))
 
 	fit := &proto.FIT{Messages: messages}
 	enc := encoder.New(w)
 	if err := enc.Encode(fit); err != nil {
 		slog.Warn("FIT export encode failed", "activity_id", activity.ID, "error", err)
 	}
+}
+
+// exportMultiSessionFIT writes a multi-session FIT file for a multisport parent activity.
+// Each child activity contributes its own block of records followed by a session message,
+// producing a valid multi-sport FIT file that consumer fitness tools can parse.
+func exportMultiSessionFIT(
+	w http.ResponseWriter, parent *model.Activity,
+	children []model.Activity, db *database.DB, ctx context.Context,
+) {
+	var messages []proto.Message
+	messages = append(messages, buildFITFileId(parent))
+
+	actualSessions := 0
+	for _, child := range children {
+		streams, err := db.GetActivityStreams(ctx, child.ID)
+		if err != nil {
+			slog.Warn("multi-session FIT: child streams not found", "child_id", child.ID, "error", err)
+			continue
+		}
+		for _, s := range streams {
+			messages = append(messages, buildFITRecord(s))
+		}
+		c := child // avoid loop variable capture
+		messages = append(messages, buildFITSession(&c))
+		actualSessions++
+	}
+
+	if actualSessions == 0 {
+		// No child streams available — emit a single session from the parent metadata
+		actualSessions = 1
+		messages = append(messages, buildFITSession(parent))
+	}
+
+	messages = append(messages, buildFITActivity(parent, actualSessions))
+
+	buf := new(bytes.Buffer)
+	enc := encoder.New(buf)
+	if err := enc.Encode(&proto.FIT{Messages: messages}); err != nil {
+		slog.Error("multi-session FIT encode failed", "parent_id", parent.ID, "error", err)
+		http.Error(w, "export failed", http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("%s_multisport.fit", parent.StartedAt.Format("2006-01-02"))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Write(buf.Bytes())
 }
 
 // --- Zone Distribution ---
