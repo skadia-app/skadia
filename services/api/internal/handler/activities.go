@@ -224,7 +224,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.DeleteActivity(r.Context(), id); err != nil {
+	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
 		if err.Error() == "activity not found" {
 			writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 			return

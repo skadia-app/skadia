@@ -94,10 +94,21 @@ func (h *Handler) GetHRVCorrelation(w http.ResponseWriter, r *http.Request) {
 // Full DFA computation is deferred to the ML service (Phase 9).
 // Returns 204 No Content when no R-R data exists for the activity.
 func (h *Handler) GetHRVDFAAlpha1(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := r.URL.Query().Get("activity_id")
 	if activityID == "" {
 		writeError(w, http.StatusBadRequest, "Missing Parameter",
 			"activity_id query parameter is required", r.URL.Path)
+		return
+	}
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 

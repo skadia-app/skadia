@@ -290,7 +290,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Update distance_m via PostGIS
 	_, err = tx.Exec(ctx, `
 		UPDATE segments SET distance_m = (
-			SELECT ST_Length(ST_Transform(track, 3857))
+			SELECT ST_Length(track::geography)
 			FROM segment_versions WHERE segment_id = $1 AND version_number = 1
 		) WHERE id = $1`, s.ID)
 	if err != nil {
@@ -335,7 +335,8 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 			ORDER BY version_number DESC
 			LIMIT 1
 		) sv ON true
-		WHERE s.id = $1`, segmentID, userID,
+		WHERE s.id = $1
+		  AND ($2 = '' OR s.visibility = 'public' OR s.created_by = $2)`, segmentID, userID,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -357,7 +358,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 	return &s, nil
 }
 
-func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model.SegmentUpdate) (*model.Segment, error) {
+func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, update *model.SegmentUpdate) (*model.Segment, error) {
 	// If new_version requested: copy latest segment_version to create a new one
 	if update.NewVersion {
 		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
@@ -399,9 +400,9 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID string, update *model
 		return db.GetSegment(ctx, segmentID, "")
 	}
 
-	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d",
-		strings.Join(setClauses, ", "), argIdx)
-	args = append(args, segmentID)
+	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d AND created_by = $%d",
+		strings.Join(setClauses, ", "), argIdx, argIdx+1)
+	args = append(args, segmentID, userID)
 
 	tag, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {

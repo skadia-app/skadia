@@ -74,6 +74,7 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
 
 	gear, err := h.DB.GetGear(r.Context(), id)
@@ -86,12 +87,29 @@ func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
+	if gear.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, gear)
 }
 
 func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
+
+	// Verify ownership before updating.
+	existing, err := h.DB.GetGear(r.Context(), id)
+	if err != nil {
+		slog.Error("update gear: get gear failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		return
+	}
+	if existing == nil || existing.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	var update model.GearUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -131,7 +149,20 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	id := chi.URLParam(r, "id")
+
+	// Verify ownership before updating status.
+	existing, err := h.DB.GetGear(r.Context(), id)
+	if err != nil {
+		slog.Error("update gear status: get gear failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		return
+	}
+	if existing == nil || existing.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	var req struct {
 		Status string `json:"status"`
@@ -166,16 +197,17 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	gearID := chi.URLParam(r, "id")
 
-	// Verify gear exists
+	// Verify gear exists and belongs to the user
 	gear, err := h.DB.GetGear(r.Context(), gearID)
 	if err != nil {
 		slog.Error("get gear for component failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
-	if gear == nil {
+	if gear == nil || gear.UserID != userID {
 		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}

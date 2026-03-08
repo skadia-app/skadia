@@ -7,11 +7,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	laps, err := h.DB.GetLaps(r.Context(), activityID)
 	if err != nil {
@@ -24,7 +36,18 @@ func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetSplits(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	splits, err := h.DB.GetSplits(r.Context(), activityID)
 	if err != nil {
@@ -47,7 +70,18 @@ func (h *Handler) GetSplits(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetLengths(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	lengths, err := h.DB.GetLengths(r.Context(), activityID)
 	if err != nil {
@@ -60,7 +94,18 @@ func (h *Handler) GetLengths(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	events, err := h.DB.GetClimbProEvents(r.Context(), activityID)
 	if err != nil {
@@ -75,8 +120,19 @@ func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
 // PatchSplit updates mutable split fields (currently only climbing_grade).
 // PATCH /api/v1/activities/{id}/splits/{splitId}
 func (h *Handler) PatchSplit(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
 	splitID := chi.URLParam(r, "splitId")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	var update model.SplitUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {

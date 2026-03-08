@@ -755,8 +755,8 @@ func (db *DB) UpdateActivity(ctx context.Context, id string, update *model.Activ
 	return db.GetActivity(ctx, id)
 }
 
-func (db *DB) DeleteActivity(ctx context.Context, id string) error {
-	result, err := db.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1`, id)
+func (db *DB) DeleteActivity(ctx context.Context, userID, id string) error {
+	result, err := db.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete activity: %w", err)
 	}

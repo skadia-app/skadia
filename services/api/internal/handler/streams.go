@@ -8,12 +8,24 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) GetStreams(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
 
 	streams, err := h.DB.GetStreams(r.Context(), activityID)
 	if err != nil {

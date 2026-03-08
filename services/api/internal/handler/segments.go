@@ -171,7 +171,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	segment, err := h.DB.UpdateSegment(r.Context(), id, &update)
+	segment, err := h.DB.UpdateSegment(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update segment failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update segment", r.URL.Path)
