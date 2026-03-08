@@ -1,0 +1,142 @@
+"""Chat endpoint with 3-layer fallback: Templates → Tool-Use LLM → Error.
+
+Streams responses via SSE for real-time frontend updates.
+"""
+import json
+import logging
+import os
+from typing import AsyncGenerator
+from uuid import UUID
+
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from agent.templates import match_template
+from agent.tools import TOOL_DEFINITIONS, execute_tool
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/ml", tags=["chat"])
+
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://litellm:4000/v1")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "none")
+LLM_MODEL = os.environ.get("LLM_MODEL", "skadia-default")
+
+SYSTEM_PROMPT = """Du bist ein Trainingsanalyst für einen erfahrenen Sportler.
+
+Regeln:
+- Sag nichts Offensichtliches. Der User sieht seine Daten täglich.
+- Keine Binsenweisheiten.
+- Sprich auf Augenhöhe, knapp und direkt — wie ein kompetenter Trainingspartner.
+- Zahlen > Prosa.
+- Wenn du nichts Interessantes findest, sag das kurz.
+- Antworte auf Deutsch.
+"""
+
+
+class ChatRequest(BaseModel):
+    user_id: UUID
+    session_id: UUID
+    message_id: str
+    message: str
+    history: list[dict] = []
+
+
+@router.post("/chat")
+async def chat(req: ChatRequest):
+    """Stream chat response via SSE."""
+    return StreamingResponse(
+        _chat_stream(req),
+        media_type="text/event-stream",
+    )
+
+
+async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
+    """Main chat logic with fallback layers."""
+    from db import get_pool
+    pool = await get_pool()
+    user_id = req.user_id
+
+    # Layer A: Check templates first (works without LLM)
+    template_match = match_template(req.message)
+    if template_match:
+        yield _sse("chat.thinking", req.message_id, step="Template-Antwort...")
+        tmpl = template_match["template"]
+        try:
+            rows = await pool.fetch(tmpl["sql"], user_id, *tmpl["params"](template_match["match"]))
+            result_text = tmpl["format"] + "\n" + _format_rows(rows)
+            yield _sse("chat.chunk", req.message_id, delta=result_text)
+            yield _sse("chat.done", req.message_id, sources=["template"])
+            return
+        except Exception as e:
+            logger.warning("Template query failed: %s", e)
+            # Fall through to LLM
+
+    # Layer B: Try LLM with tool-use
+    try:
+        from openai import AsyncOpenAI
+
+        llm = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
+        yield _sse("chat.thinking", req.message_id, step="Analysiere Frage...")
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for msg in req.history[-10:]:
+            if msg.get("role") in ("user", "assistant") and msg.get("content"):
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": req.message})
+
+        response = await llm.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            stream=True,
+        )
+
+        async for chunk in response:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    if tc.function and tc.function.name:
+                        yield _sse("chat.tool_call", req.message_id,
+                                   tool=tc.function.name,
+                                   args=tc.function.arguments or "")
+                        try:
+                            args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                            result = await execute_tool(pool, user_id, tc.function.name, args)
+                            yield _sse("chat.tool_result", req.message_id,
+                                       tool=tc.function.name,
+                                       summary=json.dumps(result, default=str)[:500])
+                        except Exception as e:
+                            yield _sse("chat.tool_result", req.message_id,
+                                       tool=tc.function.name,
+                                       summary=f"Error: {e}")
+
+            if delta.content:
+                yield _sse("chat.chunk", req.message_id, delta=delta.content)
+
+        yield _sse("chat.done", req.message_id, sources=["llm"])
+
+    except Exception as e:
+        logger.warning("LLM chat failed: %s", e)
+        yield _sse("chat.error", req.message_id, error=f"Chat nicht verfügbar: {e}")
+
+
+def _sse(event_type: str, msg_id: str, **kwargs) -> str:
+    data = {"type": event_type, "id": msg_id, **kwargs}
+    return f"data: {json.dumps(data, default=str)}\n\n"
+
+
+def _format_rows(rows: list) -> str:
+    if not rows:
+        return "Keine Daten gefunden."
+    lines = []
+    for r in rows[:20]:
+        d = dict(r)
+        parts = [f"{k}: {v}" for k, v in d.items() if k != "id"]
+        lines.append(" | ".join(parts))
+    return "\n".join(lines)
