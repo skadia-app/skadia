@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { RefreshCw, Check, X } from 'lucide-react'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import type { ActiveJob } from '@/lib/useActiveJobs'
+import { useJobStream } from '@/lib/useJobStream'
 
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMImport = job.job_type === 'osm_import'
@@ -125,6 +126,7 @@ function JobRow({ job }: { job: ActiveJob }) {
 }
 
 export default function ActiveJobsIndicator() {
+  useJobStream()
   const { jobs, isAnyActive } = useActiveJobs()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)

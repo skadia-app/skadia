@@ -173,6 +173,7 @@ func main() {
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
 			r.Get("/jobs/active", h.ListActiveJobs)
+			r.Get("/jobs/stream", h.StreamJobProgress)
 			r.Get("/activities/sport-type-stats", h.GetSportTypeStats)
 			r.Get("/activities", h.ListActivities)
 			r.Post("/activities/export-zip", h.ExportActivitiesZip)

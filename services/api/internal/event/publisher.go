@@ -140,6 +140,12 @@ func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js
 }
 
+// Subscribe creates a NATS core subscription on the given subject.
+// The returned subscription must be Unsubscribed by the caller when no longer needed.
+func (p *Publisher) Subscribe(subject string, handler natsgo.MsgHandler) (*natsgo.Subscription, error) {
+	return p.nc.Subscribe(subject, handler)
+}
+
 func (p *Publisher) Close() {
 	if p.nc != nil {
 		p.nc.Close()

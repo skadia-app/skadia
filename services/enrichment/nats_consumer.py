@@ -107,11 +107,11 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
             for step_name, step_fn in steps:
                 try:
                     await publish_progress(
-                        nc, activity_id, step_name, "running"
+                        nc, activity_id, step_name, "running", user_id=user_id
                     )
                     await step_fn(pool, activity_id, user_id)
                     await publish_progress(
-                        nc, activity_id, step_name, "done"
+                        nc, activity_id, step_name, "done", user_id=user_id
                     )
                 except Exception as e:
                     logger.error(
@@ -121,7 +121,7 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
                         e,
                     )
                     await publish_progress(
-                        nc, activity_id, step_name, "error", str(e)
+                        nc, activity_id, step_name, "error", str(e), user_id=user_id
                     )
                     # Continue with remaining steps even if one fails
 
