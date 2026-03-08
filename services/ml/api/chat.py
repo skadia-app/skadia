@@ -23,15 +23,19 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://litellm:4000/v1")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "none")
 LLM_MODEL = os.environ.get("LLM_MODEL", "skadia-default")
 
-SYSTEM_PROMPT = """Du bist ein Trainingsanalyst für einen erfahrenen Sportler.
+SYSTEM_PROMPT = """Du bist ein Trainingsanalyst für einen erfahrenen Sportler. Heute ist {today}.
 
 Regeln:
-- Sag nichts Offensichtliches. Der User sieht seine Daten täglich.
-- Keine Binsenweisheiten.
 - Sprich auf Augenhöhe, knapp und direkt — wie ein kompetenter Trainingspartner.
-- Zahlen > Prosa.
-- Wenn du nichts Interessantes findest, sag das kurz.
+- Zahlen > Prosa. Konkrete Daten, Distanzen (km), Zeiten, Pace (min/km), HR nennen.
+- Wenn du Tool-Ergebnisse bekommst: fasse sie natürlichsprachlich zusammen. Nenne konkrete Werte aus den Daten (Datum, Titel, Distanz, Ort etc.). Gib dem User nie rohe JSON-Daten.
+- Wenn keine Daten gefunden werden, sag das klar.
 - Antworte auf Deutsch.
+
+Sport-Typ Mapping (User sagt → DB-Wert):
+Laufen/Joggen→running, Radfahren/Rad→cycling, Wandern→hiking, Gehen/Spazieren→walking,
+Schwimmen→swimming, Skifahren→alpine_skiing, Langlauf→cross_country_skiing,
+Krafttraining→strength_training, Trail→trail_running, MTB/Mountainbike→mountain_biking
 """
 
 
@@ -81,7 +85,9 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
 
         yield _sse("chat.thinking", req.message_id, step="Analysiere Frage...")
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        from datetime import date as datemod
+        system = SYSTEM_PROMPT.format(today=datemod.today().isoformat())
+        messages = [{"role": "system", "content": system}]
         for msg in req.history[-10:]:
             if msg.get("role") in ("user", "assistant") and msg.get("content"):
                 messages.append({"role": msg["role"], "content": msg["content"]})
@@ -98,6 +104,8 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
         # Streaming splits arguments across many chunks — we must join them
         # before attempting json.loads().
         tool_call_accum: dict[int, dict] = {}
+        # Track tool call IDs for the follow-up message
+        tool_call_ids: dict[int, str] = {}
 
         async for chunk in response:
             if not chunk.choices:
@@ -110,6 +118,8 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                     idx = tc.index
                     if idx not in tool_call_accum:
                         tool_call_accum[idx] = {"name": "", "arguments": ""}
+                    if tc.id:
+                        tool_call_ids[idx] = tc.id
                     if tc.function:
                         if tc.function.name:
                             tool_call_accum[idx]["name"] = tc.function.name
@@ -121,21 +131,71 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
 
             # Execute accumulated tool calls once the LLM signals it is done.
             if choice.finish_reason == "tool_calls" and tool_call_accum:
-                for entry in tool_call_accum.values():
+                # Build assistant message with tool_calls for the follow-up
+                assistant_tool_calls = []
+                tool_results = []
+
+                for idx, entry in sorted(tool_call_accum.items()):
                     tool_name = entry["name"]
                     raw_args = entry["arguments"]
+                    call_id = tool_call_ids.get(idx, f"call_{idx}")
+
                     yield _sse("chat.tool_call", req.message_id,
                                tool=tool_name, args=raw_args)
+
+                    assistant_tool_calls.append({
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": raw_args},
+                    })
+
                     try:
                         args = json.loads(raw_args) if raw_args else {}
                         result = await execute_tool(pool, user_id, tool_name, args)
+                        result_str = json.dumps(result, default=str)
                         yield _sse("chat.tool_result", req.message_id,
                                    tool=tool_name,
-                                   summary=json.dumps(result, default=str)[:500])
+                                   summary=result_str[:500])
                     except Exception as e:
+                        result_str = f"Error: {e}"
                         yield _sse("chat.tool_result", req.message_id,
-                                   tool=tool_name, summary=f"Error: {e}")
+                                   tool=tool_name, summary=result_str)
+
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": result_str[:2000],
+                    })
+
                 tool_call_accum.clear()
+
+                # Second LLM call: send tool results back so it can
+                # formulate a natural-language answer.
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": assistant_tool_calls,
+                })
+                messages.extend(tool_results)
+
+                yield _sse("chat.thinking", req.message_id,
+                           step="Formuliere Antwort...")
+
+                followup = await llm.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages,
+                    stream=True,
+                )
+
+                async for chunk2 in followup:
+                    if not chunk2.choices:
+                        continue
+                    delta2 = chunk2.choices[0].delta
+                    if delta2.content:
+                        yield _sse("chat.chunk", req.message_id,
+                                   delta=delta2.content)
+
+                break  # Done after follow-up
 
         yield _sse("chat.done", req.message_id, sources=["llm"])
 

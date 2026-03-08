@@ -12,14 +12,32 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "query_activities",
-            "description": "Search and filter user activities",
+            "description": (
+                "Suche Aktivitäten des Users. Gibt Titel, Sportart, Datum, Distanz (m), "
+                "Dauer (s), Höhenmeter, Durchschnitts-HR und Startort zurück. "
+                "sport_type DB-Werte: running, cycling, hiking, walking, swimming, "
+                "alpine_skiing, cross_country_skiing, strength_training, trail_running, "
+                "mountain_biking, open_water_swimming. "
+                "Setze days=365 für 'letzte' Fragen wenn 30 Tage zu kurz sein könnten."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sport_type": {"type": "string", "description": "Filter by sport type"},
-                    "days": {"type": "integer", "description": "Look back N days", "default": 30},
-                    "limit": {"type": "integer", "description": "Max results", "default": 10},
-                    "sort_by": {"type": "string", "enum": ["date", "distance", "duration", "hr"], "default": "date"},
+                    "sport_type": {
+                        "type": "string",
+                        "description": "DB sport_type (z.B. 'cycling', 'running')",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Zeitraum in Tagen rückwärts (default 30, nutze 365 für 'letztes Mal')",
+                        "default": 30,
+                    },
+                    "limit": {"type": "integer", "description": "Max Ergebnisse", "default": 10},
+                    "sort_by": {
+                        "type": "string",
+                        "enum": ["date", "distance", "duration", "hr"],
+                        "default": "date",
+                    },
                 },
             },
         },
@@ -28,7 +46,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_hrv_trend",
-            "description": "Get HRV trend data",
+            "description": "HRV-Verlauf (RMSSD, SDRR) für N Tage. Für Erholungs- und Stressbewertung.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -41,7 +59,10 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_training_load",
-            "description": "Get training load metrics (CTL, ATL, TSB, ACWR)",
+            "description": (
+                "Trainingsbelastung (PMC): CTL (Fitness), ATL (Ermüdung), TSB (Form), "
+                "ACWR (Acute:Chronic Ratio). Für Belastungssteuerung."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -54,14 +75,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "compare_periods",
-            "description": "Compare two time periods",
+            "description": "Vergleiche zwei Zeiträume (Anzahl, Distanz, Dauer, HR, Höhenmeter). Datumsformat: YYYY-MM-DD.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "period1_start": {"type": "string"},
-                    "period1_end": {"type": "string"},
-                    "period2_start": {"type": "string"},
-                    "period2_end": {"type": "string"},
+                    "period1_start": {"type": "string", "description": "YYYY-MM-DD"},
+                    "period1_end": {"type": "string", "description": "YYYY-MM-DD"},
+                    "period2_start": {"type": "string", "description": "YYYY-MM-DD"},
+                    "period2_end": {"type": "string", "description": "YYYY-MM-DD"},
                 },
                 "required": ["period1_start", "period1_end", "period2_start", "period2_end"],
             },
@@ -71,7 +92,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_readiness",
-            "description": "Get current readiness score",
+            "description": "Aktuelle Trainingsbereitschaft (Score, Faktoren wie HRV-Trend, Ermüdung, Schlaf).",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -79,11 +100,11 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_gear_stats",
-            "description": "Get gear usage statistics",
+            "description": "Ausrüstungs-Statistik (Name, Typ, Marke, Gesamtdistanz, Status). Ohne gear_id: alle aktiven.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "gear_id": {"type": "string"},
+                    "gear_id": {"type": "string", "description": "Optional: UUID eines bestimmten Gear"},
                 },
             },
         },
@@ -118,23 +139,42 @@ async def _query_activities(pool, user_id, sport_type=None, days=30, limit=10, s
         "hr": "avg_heart_rate",
     }.get(sort_by, "started_at")
 
+    # Include start_location from reverse geocoding
+    base = (
+        "SELECT a.id, a.title, a.sport_type, a.started_at, "
+        "a.distance_m, a.elapsed_time_s, a.avg_heart_rate, a.elevation_gain_m, "
+        "a.start_location, a.start_city "
+        "FROM activities a "
+    )
     if sport_type:
         query = (
-            f"SELECT id, title, sport_type, started_at, distance_m, elapsed_time_s, "
-            f"avg_heart_rate, elevation_gain_m FROM activities "
-            f"WHERE user_id = $1 AND started_at >= $2 AND sport_type = $3 "
-            f"ORDER BY {sort_col} DESC LIMIT {min(limit, 50)}"
+            base +
+            f"WHERE a.user_id = $1 AND a.started_at >= $2 AND a.sport_type = $3 "
+            f"ORDER BY a.{sort_col} DESC LIMIT {min(limit, 50)}"
         )
         rows = await pool.fetch(query, user_id, since, sport_type)
     else:
         query = (
-            f"SELECT id, title, sport_type, started_at, distance_m, elapsed_time_s, "
-            f"avg_heart_rate, elevation_gain_m FROM activities "
-            f"WHERE user_id = $1 AND started_at >= $2 "
-            f"ORDER BY {sort_col} DESC LIMIT {min(limit, 50)}"
+            base +
+            f"WHERE a.user_id = $1 AND a.started_at >= $2 "
+            f"ORDER BY a.{sort_col} DESC LIMIT {min(limit, 50)}"
         )
         rows = await pool.fetch(query, user_id, since)
-    return {"activities": [dict(r) for r in rows]}
+
+    activities = []
+    for r in rows:
+        d = dict(r)
+        # Human-readable formatting
+        if d.get("distance_m"):
+            d["distance_km"] = round(d["distance_m"] / 1000, 1)
+        if d.get("elapsed_time_s"):
+            mins = d["elapsed_time_s"] // 60
+            d["duration_str"] = f"{mins // 60}h{mins % 60:02d}min" if mins >= 60 else f"{mins}min"
+        if d.get("started_at"):
+            d["date"] = str(d["started_at"])[:10]
+        activities.append(d)
+
+    return {"activities": activities}
 
 
 async def _get_hrv_trend(pool, user_id, days=30):
