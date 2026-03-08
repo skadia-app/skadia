@@ -2,14 +2,25 @@
 
 Reads from environment variables. Provides LLM client initialization.
 """
+import logging
 import os
 from typing import Optional
 from openai import AsyncOpenAI
 
+_config_logger = logging.getLogger(__name__)
+
 ML_MODE = os.getenv("ML_MODE", "local")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://skadia:skadia@postgres:5432/skadia")
-READONLY_DATABASE_URL = os.getenv("READONLY_DATABASE_URL", "postgresql://skadia_readonly:skadia_readonly_password@postgres:5432/skadia")
+_readonly_url_raw = os.getenv("READONLY_DATABASE_URL")
+if _readonly_url_raw:
+    READONLY_DATABASE_URL = _readonly_url_raw
+else:
+    _config_logger.warning(
+        "READONLY_DATABASE_URL not set — falling back to DATABASE_URL for readonly pool. "
+        "Set READONLY_DATABASE_URL to use the skadia_readonly role."
+    )
+    READONLY_DATABASE_URL = DATABASE_URL
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://litellm:4000/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-dummy")
