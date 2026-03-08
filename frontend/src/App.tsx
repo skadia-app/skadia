@@ -41,6 +41,7 @@ const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
 const ActivityComparisonPage = lazy(() => import('@/pages/ActivityComparisonPage'))
+const FusionPage = lazy(() => import('@/pages/FusionPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -109,6 +110,7 @@ export default function App() {
                         <Route path="dashboard" element={<DashboardPage />} />
                         <Route path="activities" element={<ActivitiesPage />} />
                         <Route path="activities/compare" element={<ActivityComparisonPage />} />
+                        <Route path="fusion" element={<FusionPage />} />
                         <Route path="activities/:id" element={<ActivityDetailPage />} />
                         <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
                         <Route path="map" element={<MapPage />} />
