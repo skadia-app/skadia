@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 MAX_CONCURRENT_PER_USER = 2
 MAX_CONCURRENT_ANALYTICS_PER_USER = 1
+MAX_GLOBAL_CONCURRENT = 5
+
+# Global semaphore to prevent resource exhaustion under burst load
+_global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
 
 # Per-user semaphores for rate limiting
 _user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
@@ -305,30 +309,33 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
         try:
             pool = await get_pool()
 
-            # Definiere alle zu berechnenden Module: (cache_key, coroutine)
-            modules = [
-                ("readiness", compute_readiness(pool, user_id)),
-                ("anomalies", detect_anomalies(pool, user_id)),
-                ("clusters", cluster_activities(pool, user_id)),
-                ("projection", compute_projection(pool, user_id)),
-                ("correlations", compute_correlations(pool, user_id)),
-            ]
+            # Acquire a single connection for all analytics modules
+            # to avoid exhausting the pool (previously up to 9 connections)
+            async with pool.acquire() as conn:
+                # Definiere alle zu berechnenden Module: (cache_key, factory)
+                modules = [
+                    ("readiness", compute_readiness),
+                    ("anomalies", detect_anomalies),
+                    ("clusters", cluster_activities),
+                    ("projection", compute_projection),
+                    ("correlations", compute_correlations),
+                ]
 
-            for cache_key, coro in modules:
-                try:
-                    result = await coro
-                    await _upsert_analytics_cache(pool, user_id, cache_key, result)
-                    logger.debug(
-                        "analytics: computed %s for user %s", cache_key, user_id
-                    )
-                except Exception as e:
-                    # Fehler dieses Moduls loggen, andere weiterlaufen lassen
-                    logger.error(
-                        "analytics: module %r failed for user %s: %s",
-                        cache_key,
-                        user_id,
-                        e,
-                    )
+                for cache_key, module_fn in modules:
+                    try:
+                        result = await module_fn(conn, user_id)
+                        await _upsert_analytics_cache(conn, user_id, cache_key, result)
+                        logger.debug(
+                            "analytics: computed %s for user %s", cache_key, user_id
+                        )
+                    except Exception as e:
+                        # Fehler dieses Moduls loggen, andere weiterlaufen lassen
+                        logger.error(
+                            "analytics: module %r failed for user %s: %s",
+                            cache_key,
+                            user_id,
+                            e,
+                        )
 
             await msg.ack()
             _metrics["processed_total"] += 1
@@ -351,9 +358,9 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
             _metrics["active_tasks"] -= 1
 
 
-async def _upsert_analytics_cache(pool, user_id: str, cache_key: str, result) -> None:
+async def _upsert_analytics_cache(conn, user_id: str, cache_key: str, result) -> None:
     """Schreibt ein Analytics-Ergebnis in die analytics_cache Tabelle (UPSERT)."""
-    await pool.execute(
+    await conn.execute(
         """
         INSERT INTO analytics_cache (user_id, cache_key, computed_at, data)
         VALUES ($1, $2, NOW(), $3::jsonb)
@@ -422,7 +429,9 @@ async def start_consumers(nc: nats.NATS) -> list:
     async def _consume(sub, steps, name):
         logger.info("Consumer %s started", name)
         async for msg in sub.messages:
-            asyncio.create_task(_process_message(msg, steps, nc))
+            await _global_semaphore.acquire()
+            task = asyncio.create_task(_process_message(msg, steps, nc))
+            task.add_done_callback(lambda _: _global_semaphore.release())
 
     asyncio.create_task(_consume(sub_high, HIGH_PRIORITY_STEPS, "high"))
     asyncio.create_task(_consume(sub_normal, NORMAL_PRIORITY_STEPS, "normal"))
@@ -453,7 +462,9 @@ async def start_consumers(nc: nats.NATS) -> list:
     async def _consume_documents(sub):
         logger.info("Consumer document-processor started")
         async for msg in sub.messages:
-            asyncio.create_task(_process_document_message(msg, nc))
+            await _global_semaphore.acquire()
+            task = asyncio.create_task(_process_document_message(msg, nc))
+            task.add_done_callback(lambda _: _global_semaphore.release())
 
     asyncio.create_task(_consume_documents(sub_doc))
 
@@ -482,7 +493,9 @@ async def start_consumers(nc: nats.NATS) -> list:
     async def _consume_analytics(sub):
         logger.info("Consumer analytics-invalidate started")
         async for msg in sub.messages:
-            asyncio.create_task(_process_analytics_message(msg, nc))
+            await _global_semaphore.acquire()
+            task = asyncio.create_task(_process_analytics_message(msg, nc))
+            task.add_done_callback(lambda _: _global_semaphore.release())
 
     asyncio.create_task(_consume_analytics(sub_analytics))
 

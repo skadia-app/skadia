@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 _MIN_ACTIVITIES = 10
 
 
-async def cluster_activities(pool, user_id: str) -> list:
+async def cluster_activities(conn, user_id: str) -> list:
     """Gruppiert Aktivitäten in 3–6 Cluster via KMeans.
 
     Features (alle normalisiert):
@@ -23,7 +23,7 @@ async def cluster_activities(pool, user_id: str) -> list:
     Graceful: [] bei weniger als 10 Aktivitäten.
     """
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             SELECT
                 a.id,

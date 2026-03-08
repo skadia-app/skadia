@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 _MIN_PAIRS = 10
 
 
-async def compute_correlations(pool, user_id: str) -> dict:
+async def compute_correlations(conn, user_id: str) -> dict:
     """Berechnet Pearson-Korrelationen zwischen Sport- und Gesundheits-Metriken.
 
     Analysierte Paare:
@@ -23,7 +23,7 @@ async def compute_correlations(pool, user_id: str) -> dict:
 
     # --- 1. HRV (Vortag) <-> TSS (Folgetag) ---
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             WITH hrv_daily AS (
                 SELECT measured_at_utc::date AS date, AVG(rmssd_ms) AS rmssd
@@ -62,7 +62,7 @@ async def compute_correlations(pool, user_id: str) -> dict:
 
     # --- 2. Schlaf-Score <-> TSS (Folgetag) ---
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             WITH sleep_daily AS (
                 SELECT calendar_date AS date, score_overall AS sleep_score
@@ -101,7 +101,7 @@ async def compute_correlations(pool, user_id: str) -> dict:
 
     # --- 3. Temperatur <-> Pace ---
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             SELECT weather_temp_c, moving_time_s, distance_m
             FROM activities
@@ -137,7 +137,7 @@ async def compute_correlations(pool, user_id: str) -> dict:
 
     # --- 4. Wochentag <-> TSS ---
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             SELECT EXTRACT(DOW FROM started_at) AS weekday, training_stress_score
             FROM activities

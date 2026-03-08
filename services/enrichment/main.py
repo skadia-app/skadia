@@ -29,9 +29,26 @@ async def lifespan(app: FastAPI):
     await get_pool()
     logger.info("Database pool initialized")
 
-    # Connect to NATS
+    # Connect to NATS with resilience callbacks
     nats_url = os.environ.get("NATS_URL", "nats://nats:4222")
-    _nc = await nats.connect(nats_url)
+
+    async def _on_disconnect():
+        logger.warning("NATS disconnected")
+
+    async def _on_reconnect():
+        logger.info("NATS reconnected")
+
+    async def _on_error(e):
+        logger.error("NATS error: %s", e)
+
+    _nc = await nats.connect(
+        nats_url,
+        error_cb=_on_error,
+        disconnected_cb=_on_disconnect,
+        reconnected_cb=_on_reconnect,
+        max_reconnect_attempts=-1,
+        reconnect_time_wait=2,
+    )
     logger.info("Connected to NATS at %s", nats_url)
 
     # Start JetStream consumers

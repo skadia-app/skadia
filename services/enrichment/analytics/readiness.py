@@ -5,7 +5,7 @@ import statistics
 logger = logging.getLogger(__name__)
 
 
-async def compute_readiness(pool, user_id: str) -> dict:
+async def compute_readiness(conn, user_id: str) -> dict:
     """Berechnet einen Readiness-Score (0-100) aus HRV, ATL und Schlaf.
 
     Gewichtung:
@@ -15,7 +15,7 @@ async def compute_readiness(pool, user_id: str) -> dict:
     """
     try:
         # 1. HRV 7-Tage-Trend
-        hrv_rows = await pool.fetch(
+        hrv_rows = await conn.fetch(
             """
             SELECT rmssd_ms FROM health_hrv_snapshots
             WHERE user_id = $1 AND measured_at_utc > NOW() - interval '7 days'
@@ -25,7 +25,7 @@ async def compute_readiness(pool, user_id: str) -> dict:
         )
 
         # 2. Letzter PMC-ATL-Wert
-        atl_row = await pool.fetchrow(
+        atl_row = await conn.fetchrow(
             """
             SELECT atl FROM pmc_daily
             WHERE user_id = $1 ORDER BY date DESC LIMIT 1
@@ -34,7 +34,7 @@ async def compute_readiness(pool, user_id: str) -> dict:
         )
 
         # 3. Letzter Schlaf-Score
-        sleep_row = await pool.fetchrow(
+        sleep_row = await conn.fetchrow(
             """
             SELECT score_overall FROM health_sleep
             WHERE user_id = $1 ORDER BY calendar_date DESC LIMIT 1

@@ -10,7 +10,7 @@ _PROJECTION_DAYS = 28
 _PLATEAU_SLOPE_THRESHOLD = 0.05  # CTL/Tag
 
 
-async def compute_projection(pool, user_id: str) -> dict:
+async def compute_projection(conn, user_id: str) -> dict:
     """Berechnet einen 28-Tage-CTL-Ausblick via linearer Regression.
 
     Lädt die letzten 90 PMC-Tage, fittet eine Gerade auf CTL
@@ -23,7 +23,7 @@ async def compute_projection(pool, user_id: str) -> dict:
       trend:            "aufbau" | "abbau" | "plateau"
     """
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             SELECT date, ctl FROM pmc_daily
             WHERE user_id = $1

@@ -10,7 +10,7 @@ _WINDOW_DAYS = 30
 _ZSCORE_THRESHOLD = -2.0
 
 
-async def detect_anomalies(pool, user_id: str) -> list:
+async def detect_anomalies(conn, user_id: str) -> list:
     """Erkennt HRV-Anomalien über einen rollierenden 30-Tage-Baseline-Z-Score.
 
     Gibt eine Liste von {date, rmssd_ms, zscore, baseline_mean, baseline_std}
@@ -19,7 +19,7 @@ async def detect_anomalies(pool, user_id: str) -> list:
     Graceful degradation: liefert [] wenn weniger als 14 Datenpunkte vorhanden.
     """
     try:
-        rows = await pool.fetch(
+        rows = await conn.fetch(
             """
             SELECT measured_at_utc::date AS date, rmssd_ms
             FROM health_hrv_snapshots
