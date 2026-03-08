@@ -128,8 +128,25 @@ export async function getZoneDistribution(id: string): Promise<ZoneDistribution>
   return apiClient<ZoneDistribution>(`/activities/${id}/zone-distribution`)
 }
 
-export async function getPowerCurve(period: 'ytd' | '90d' | 'all' = 'ytd'): Promise<PowerCurveResponse> {
-  return apiClient<PowerCurveResponse>(`/stats/power-curve?period=${period}`)
+export interface PDCParams {
+  period?: 'ytd' | '90d' | 'all'
+  from?: string   // YYYY-MM-DD
+  to?: string     // YYYY-MM-DD
+  sport_type?: string
+}
+
+export async function getPowerCurve(params: PDCParams = {}): Promise<PowerCurveResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.from && params.to) {
+    searchParams.set('from', params.from)
+    searchParams.set('to', params.to)
+  } else if (params.period) {
+    searchParams.set('period', params.period)
+  } else {
+    searchParams.set('period', 'ytd')
+  }
+  if (params.sport_type) searchParams.set('sport_type', params.sport_type)
+  return apiClient<PowerCurveResponse>(`/stats/power-curve?${searchParams}`)
 }
 
 export async function fetchActivityLaps(id: string): Promise<Lap[]> {

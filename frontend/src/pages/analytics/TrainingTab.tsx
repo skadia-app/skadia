@@ -3,6 +3,7 @@ import PMCChartExtended from '@/components/analytics/training/PMCChartExtended'
 import YearProgressionChart from '@/components/analytics/training/YearProgressionChart'
 import TrainingVolumeChart from '@/components/analytics/training/TrainingVolumeChart'
 import ZoneDistributionChart from '@/components/analytics/training/ZoneDistributionChart'
+import PowerDurationCurve from '@/components/analytics/training/PowerDurationCurve'
 import PersonalRecordsTable from '@/components/analytics/training/PersonalRecordsTable'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
@@ -50,6 +51,15 @@ export default function TrainingTab() {
           </ErrorBoundary>
         </section>
       </div>
+
+      {/* Power Duration Curve — full width */}
+      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <ErrorBoundary>
+          <Suspense fallback={<CardSkeleton height="h-[320px]" />}>
+            <PowerDurationCurve />
+          </Suspense>
+        </ErrorBoundary>
+      </section>
 
       {/* Personal records — full width */}
       <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
