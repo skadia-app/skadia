@@ -15,6 +15,7 @@ import { apiFetch } from '@/lib/auth'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
+import ChatProfileSettings from '@/components/ChatProfileSettings'
 
 function OSMStatusSection() {
   const [showImportModal, setShowImportModal] = useState(false)
@@ -473,6 +474,7 @@ export default function SettingsPage() {
         <Stage2EnrichmentSection />
         <MLServiceSection />
         <NotificationSettingsSection />
+        <ChatProfileSettings />
       </>}
 
       {activeTab === 'general' && <>
