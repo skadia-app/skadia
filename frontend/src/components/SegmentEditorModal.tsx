@@ -7,6 +7,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import MapboxDraw from 'maplibre-gl-draw'
 import { createSegment } from '@/api/segments'
 import { nearestIndex, extractSubTrack, detectLapCrossings } from './segment-editor/TrackMode'
+import { buildRasterStyle, RASTER_STYLES, type BaseStyle } from '@/lib/mapStyles'
 
 type EditorMode = 'track' | 'draw' | 'lap'
 type EditorPhase = 'edit' | 'form'
@@ -20,20 +21,6 @@ interface Props {
   onClose: () => void
 }
 
-// Inline-Style für die Karte (keine externe URL)
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
 
 const SPORT_GROUPS = [
   { value: 'bike', label: 'Rad' },
@@ -70,6 +57,7 @@ export default function SegmentEditorModal({
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [heatmapVisible, setHeatmapVisible] = useState(false)
+  const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
   const [phase, setPhase] = useState<EditorPhase>('edit')
 
   // Gemeinsame State-Variablen (alle Modi)
@@ -170,12 +158,58 @@ export default function SegmentEditorModal({
     })
   }
 
+  // Hilfsfunktion: Track-Line + Richtungspfeile hinzufügen (auch nach Style-Wechsel aufrufbar)
+  function addTrackLayerToMap(m: maplibregl.Map) {
+    if (!trackPoints || trackPoints.length < 2) return
+    if (m.getSource('activity-track')) return
+    const coords = trackPoints.map(p => [p.lng, p.lat])
+    m.addSource('activity-track', {
+      type: 'geojson',
+      data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } as GeoJSON.Feature,
+    })
+    m.addLayer({
+      id: 'activity-track-line',
+      type: 'line',
+      source: 'activity-track',
+      paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.7 },
+    })
+    // Richtungspfeile als Symbol-Layer
+    if (m.hasImage('arrow')) {
+      m.addLayer({
+        id: 'activity-track-arrows',
+        type: 'symbol',
+        source: 'activity-track',
+        layout: {
+          'symbol-placement': 'line',
+          'symbol-spacing': 100,
+          'icon-image': 'arrow',
+          'icon-size': 0.7,
+          'icon-rotate': 90,
+          'icon-rotation-alignment': 'map',
+          'icon-allow-overlap': true,
+        },
+      })
+    }
+  }
+
+  // Pfeil-Icon registrieren (einmalig) und Track-Layer hinzufügen
+  function registerArrowAndTrack(m: maplibregl.Map) {
+    const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M8 0 L16 8 L8 16 L8 10 L0 10 L0 6 L8 6 Z" fill="#fff" stroke="#333" stroke-width="1"/></svg>`
+    const img = new Image(16, 16)
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
+    img.onload = () => {
+      if (!m.hasImage('arrow')) m.addImage('arrow', img)
+      addTrackLayerToMap(m)
+    }
+    img.onerror = () => addTrackLayerToMap(m)
+  }
+
   // Map Init
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: MAP_STYLE,
+      style: buildRasterStyle(mapStyle),
       center: [11.0, 48.0],
       zoom: 10,
     })
@@ -191,21 +225,7 @@ export default function SegmentEditorModal({
       map.on('load', () => map.fitBounds(bounds, { padding: 40 }))
     }
 
-    // Track-Layer hinzufügen
-    map.on('load', () => {
-      if (!trackPoints || trackPoints.length < 2) return
-      const coords = trackPoints.map(p => [p.lng, p.lat])
-      map.addSource('activity-track', {
-        type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } as GeoJSON.Feature,
-      })
-      map.addLayer({
-        id: 'activity-track-line',
-        type: 'line',
-        source: 'activity-track',
-        paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.7 },
-      })
-    })
+    map.on('load', () => registerArrowAndTrack(map))
 
     return () => { map.remove(); mapRef.current = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -381,16 +401,59 @@ export default function SegmentEditorModal({
         </h2>
         <div className="flex items-center gap-3">
           {phase === 'edit' && (
-            <button
-              onClick={() => setHeatmapVisible(v => !v)}
-              className={`px-2 py-1 text-xs rounded-md border transition-colors ${
-                heatmapVisible
-                  ? 'bg-accent-DEFAULT/20 border-accent-DEFAULT/50 text-orange-400'
-                  : 'border-neutral-700 text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              Heatmap
-            </button>
+            <>
+              {/* Kartenstil-Auswahl */}
+              <div className="flex rounded-lg overflow-hidden border border-neutral-600 bg-neutral-800/90">
+                {RASTER_STYLES.map(([key, def]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setMapStyle(key)
+                      const map = mapRef.current
+                      if (!map) return
+                      map.setStyle(buildRasterStyle(key))
+                      map.once('style.load', () => {
+                        registerArrowAndTrack(map)
+                        if (heatmapVisible) {
+                          const layerId = 'editor-heatmap'
+                          if (!map.getSource(layerId)) {
+                            map.addSource(layerId, {
+                              type: 'vector',
+                              tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}`],
+                            })
+                            map.addLayer({
+                              id: layerId,
+                              type: 'line',
+                              source: layerId,
+                              'source-layer': 'heatmap_lines_mvt',
+                              paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.5 },
+                            })
+                          }
+                        }
+                      })
+                    }}
+                    className={`px-2 py-1 text-xs font-medium transition-colors ${
+                      mapStyle === key
+                        ? 'bg-accent-DEFAULT text-white'
+                        : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700'
+                    }`}
+                  >
+                    {def.label}
+                  </button>
+                ))}
+              </div>
+              {/* Heatmap-Toggle */}
+              <button
+                onClick={() => setHeatmapVisible(v => !v)}
+                className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+                  heatmapVisible
+                    ? 'bg-accent-DEFAULT/20 border-accent-DEFAULT/50 text-orange-400'
+                    : 'border-neutral-700 text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Heatmap
+              </button>
+            </>
           )}
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-100 text-lg leading-none">&#x2715;</button>
         </div>
