@@ -13,3 +13,4 @@ neurokit2==0.2.12
 tsfel==0.2.0
 ruptures>=1.1.9
 sqlglot>=26.0
+pyyaml>=6.0
