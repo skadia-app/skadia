@@ -750,13 +750,13 @@ function ActivityHeader({ activity }: { activity: Activity }) {
       >
         &#10178; Aufteilen
       </button>
-      <button
-        onClick={() => setMergeDialogOpen(true)}
+      <Link
+        to={`/fusion?target=${activity.id}`}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-        title="Felder aus einer anderen Aktivitat ubernehmen"
+        title="Aktivitäten fusionieren — GPS, HR, Power aus mehreren Quellen kombinieren"
       >
         &#10240; Fusionieren
-      </button>
+      </Link>
 
       {/* Trim / Split / Merge dialogs */}
       {trimDialogOpen && (
