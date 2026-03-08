@@ -22,3 +22,8 @@ postgres:
     amenities:
       schema: public
       function: amenities_mvt
+
+# Lokale Base-Map MBTiles/PMTiles
+mbtiles:
+  paths:
+    - /data/tiles/

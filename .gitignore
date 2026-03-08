@@ -1,9 +1,15 @@
 # Environment
 .env
 
-# Data / temp
-data/
+# Data / temp (Laufzeitdaten, nicht im Git)
+# data/* statt data/ damit Unterverzeichnisse per !-Ausnahme freigebbar sind
+data/*
+!data/tiles/
 temp/
+
+# Tile-Dateien zu groß für Git — nur .gitkeep tracken
+data/tiles/*
+!data/tiles/.gitkeep
 
 # Go binaries
 services/api/api

@@ -690,7 +690,7 @@ function SportSettingsSection() {
   )
 }
 
-type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark'
+type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
 
 const BASE_STYLE_OPTIONS: { value: BaseStyle; label: string }[] = [
   { value: 'osm', label: 'OSM (Standard)' },
@@ -698,6 +698,7 @@ const BASE_STYLE_OPTIONS: { value: BaseStyle; label: string }[] = [
   { value: 'cyclosm', label: 'CyclOSM' },
   { value: 'satellite', label: 'Satellit' },
   { value: 'dark', label: 'Dark' },
+  { value: 'local', label: 'Lokal (Offline)' },
 ]
 
 function HeatmapSettingsSection() {
