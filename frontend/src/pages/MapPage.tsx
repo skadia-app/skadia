@@ -24,22 +24,29 @@ import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type 
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
-type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark'
+type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
 type ViewMode = 'tracks' | 'heatmap'
 
-const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attribution: string }> = {
+type RasterStyleDef = { label: string; type: 'raster'; tiles: string[]; attribution: string }
+type VectorStyleDef = { label: string; type: 'vector'; styleUrl: string }
+type StyleDef = RasterStyleDef | VectorStyleDef
+
+const BASE_STYLES: Record<BaseStyle, StyleDef> = {
   osm: {
     label: 'OSM',
+    type: 'raster',
     tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
   topo: {
     label: 'Topo',
+    type: 'raster',
     tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
     attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
   },
   cyclosm: {
     label: 'CyclOSM',
+    type: 'raster',
     tiles: [
       'https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
       'https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
@@ -49,11 +56,13 @@ const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attributi
   },
   satellite: {
     label: 'Satellit',
+    type: 'raster',
     tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
     attribution: '&copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
   },
   dark: {
     label: 'Dark',
+    type: 'raster',
     tiles: [
       'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
       'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
@@ -61,10 +70,20 @@ const BASE_STYLES: Record<BaseStyle, { label: string; tiles: string[]; attributi
     ],
     attribution: '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
+  local: {
+    label: 'Lokal (Offline)',
+    type: 'vector',
+    styleUrl: '/tiles/style.json',
+  },
 }
 
-function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification {
-  const { tiles, attribution } = BASE_STYLES[base]
+function buildMapStyle(base: BaseStyle): maplibregl.StyleSpecification | string {
+  const def = BASE_STYLES[base]
+  if (def.type === 'vector') {
+    // Vector/Style: MapLibre lädt den kompletten Style-JSON via setStyle(url)
+    return def.styleUrl
+  }
+  const { tiles, attribution } = def
   return {
     version: 8,
     sources: {
@@ -459,7 +478,7 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
 
 // Kartenstile, die als "hell" gelten — beim Wechsel zu Heatmap wird automatisch
 // auf Dark gewechselt. Satellite bleibt unangetastet.
-const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm']
+const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm', 'local']
 
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)

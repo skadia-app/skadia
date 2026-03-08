@@ -1,0 +1,33 @@
+{
+  "version": 8,
+  "name": "Skadia Local",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "sprite": "https://tiles.openfreemap.org/sprites/liberty/sprite",
+  "sources": {
+    "local-basemap": {
+      "type": "vector",
+      "url": "http://localhost:3000/tiles_catalog"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f8f4f0" }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "local-basemap",
+      "source-layer": "water",
+      "paint": { "fill-color": "#a8d5e2" }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "transportation",
+      "paint": { "line-color": "#c9c0b4", "line-width": 1 }
+    }
+  ]
+}
