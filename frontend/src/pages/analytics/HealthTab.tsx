@@ -9,6 +9,7 @@ import SpO2Chart from '@/components/analytics/health/SpO2Chart'
 import BloodPressureChart from '@/components/analytics/health/BloodPressureChart'
 import FitnessAgeChart from '@/components/analytics/health/FitnessAgeChart'
 import HRVCorrelationChart from '@/components/analytics/health/HRVCorrelationChart'
+import HRVExtendedPanel from '@/components/analytics/HRVExtendedPanel'
 
 // ── Recovery Score colours ────────────────────────────────────────────────────
 
@@ -181,6 +182,9 @@ export default function HealthTab() {
 
       {/* Recovery Score — full width */}
       <RecoveryScoreCard />
+
+      {/* Extended HRV Analysis (NeuroKit2) — full width */}
+      <HRVExtendedPanel />
 
       {/* Sleep — full width */}
       <SleepAnalysisChart />

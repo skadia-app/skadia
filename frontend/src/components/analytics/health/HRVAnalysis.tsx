@@ -8,12 +8,14 @@ import {
   TooltipComponent,
   LegendComponent,
   MarkPointComponent,
+  MarkLineComponent,
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHRVAnalysis } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 
 echarts.use([
   LineChart,
@@ -22,6 +24,7 @@ echarts.use([
   TooltipComponent,
   LegendComponent,
   MarkPointComponent,
+  MarkLineComponent,
   DataZoomComponent,
   CanvasRenderer,
 ])
@@ -55,6 +58,7 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
 export default function HRVAnalysisChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [preset, setPreset] = useState<TimePreset>('90d')
+  const changepoints = useChangepoints('hrv_rmssd', 180)
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
@@ -219,6 +223,10 @@ export default function HRVAnalysisChart() {
             data: markPointData,
             z: 5,
           },
+          markLine: changepoints.length > 0 ? {
+            silent: true,
+            data: changepointsToMarkLines(changepoints),
+          } : undefined,
         },
         // RMSSD trend line (same data, no symbol)
         {

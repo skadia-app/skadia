@@ -9,12 +9,14 @@ import {
   LegendComponent,
   DataZoomComponent,
   MarkAreaComponent,
+  MarkLineComponent,
   ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchAnalyticsPMC } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 
 echarts.use([
   LineChart,
@@ -24,6 +26,7 @@ echarts.use([
   LegendComponent,
   DataZoomComponent,
   MarkAreaComponent,
+  MarkLineComponent,
   ToolboxComponent,
   CanvasRenderer,
 ])
@@ -80,6 +83,7 @@ function acwrStatusColor(status: string): string {
 export default function PMCChartExtended() {
   const { toQueryString } = useAnalyticsFilters()
   const [range, setRange] = useState<TimeRange>('3m')
+  const changepoints = useChangepoints('ctl', 180)
   const [localFrom, setLocalFrom] = useState<string>('')
   const [localTo, setLocalTo] = useState<string>('')
   const [isCustomRange, setIsCustomRange] = useState(false)
@@ -297,6 +301,10 @@ export default function PMCChartExtended() {
           itemStyle: { color: '#3b82f6' },
           z: 2,
           connectNulls: false,
+          markLine: changepoints.length > 0 ? {
+            silent: true,
+            data: changepointsToMarkLines(changepoints),
+          } : undefined,
         },
         {
           name: 'ATL (Ermüdung)',
