@@ -114,8 +114,9 @@ type garminSleepRecord struct {
 	SleepScores            json.RawMessage `json:"sleepScores"`
 }
 
-// garminWellnessActivity matches *_wellnessActivities.json items.
+// garminWellnessActivity matches *_wellnessActivities.json items (Health Snapshot feature).
 type garminWellnessActivity struct {
+	ActivityName            string `json:"activityName"`
 	WellnessActivityType    string `json:"wellnessActivityType"`
 	StartTimestampGMT       string `json:"startTimestampGMT"`
 	SnapshotTimeOfDayType   string `json:"snapshotTimeOfDayType"`
@@ -360,7 +361,8 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				continue
 			}
 
-			var rmssd, sdrr, stressLevel, spo2 *float64
+			var rmssd, sdrr *float64
+			var heartRate, respiration, stressLevel, spo2 *int16
 			for _, entry := range rec.SummaryTypeDataList {
 				v := entry.AvgValue
 				switch entry.SummaryType {
@@ -368,10 +370,18 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 					rmssd = &v
 				case "SDRR_HRV":
 					sdrr = &v
+				case "HEART_RATE":
+					i := int16(v)
+					heartRate = &i
+				case "RESPIRATION":
+					i := int16(v)
+					respiration = &i
 				case "STRESS":
-					stressLevel = &v
+					i := int16(v)
+					stressLevel = &i
 				case "SPO2":
-					spo2 = &v
+					i := int16(v)
+					spo2 = &i
 				}
 			}
 
@@ -381,15 +391,25 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				timeOfDay = &tod
 			}
 
-			// Store HRV snapshot (only when RMSSD is present).
-			if rmssd != nil {
+			var title *string
+			if rec.ActivityName != "" {
+				title = &rec.ActivityName
+			}
+
+			// Store health snapshot (all fields from Garmin Health Snapshot feature).
+			if rmssd != nil || heartRate != nil {
 				snap := &model.HealthHRVSnapshot{
-					UserID:        params.UserID,
-					MeasuredAtUTC: measuredAt,
-					RmssdMS:       rmssd,
-					SdrrMS:        sdrr,
-					TimeOfDay:     timeOfDay,
-					SourceType:    "garmin",
+					UserID:          params.UserID,
+					MeasuredAtUTC:   measuredAt,
+					RmssdMS:         rmssd,
+					SdrrMS:          sdrr,
+					AvgHeartRateBPM: heartRate,
+					SpO2Pct:         spo2,
+					RespirationBRPM: respiration,
+					StressLevel:     stressLevel,
+					Title:           title,
+					TimeOfDay:       timeOfDay,
+					SourceType:      "garmin",
 				}
 				if err := params.DB.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
 					slog.Warn("garmin health: upsert HRV snapshot failed", "ts", rec.StartTimestampGMT, "error", err)

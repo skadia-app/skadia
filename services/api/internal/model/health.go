@@ -51,16 +51,22 @@ type HealthSleep struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-// HealthHRVSnapshot is a single HRV measurement.
+// HealthHRVSnapshot is a single health snapshot measurement (Garmin Health Snapshot feature).
+// Contains HRV, heart rate, SpO2, respiration, and stress from a 2-minute measurement.
 type HealthHRVSnapshot struct {
-	UserID        string    `json:"user_id"`
-	MeasuredAtUTC time.Time `json:"measured_at_utc"`
-	RmssdMS       *float64  `json:"rmssd_ms"`
-	SdrrMS        *float64  `json:"sdrr_ms"`
-	TimeOfDay     *string   `json:"time_of_day"`
-	SourceType    string    `json:"source_type"`
-	ExtraData     *string   `json:"extra_data,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	UserID           string    `json:"user_id"`
+	MeasuredAtUTC    time.Time `json:"measured_at_utc"`
+	RmssdMS          *float64  `json:"rmssd_ms"`
+	SdrrMS           *float64  `json:"sdrr_ms"`
+	AvgHeartRateBPM  *int16    `json:"avg_heart_rate_bpm"`
+	SpO2Pct          *int16    `json:"spo2_pct"`
+	RespirationBRPM  *int16    `json:"respiration_brpm"`
+	StressLevel      *int16    `json:"stress_level"`
+	Title            *string   `json:"title"`
+	TimeOfDay        *string   `json:"time_of_day"`
+	SourceType       string    `json:"source_type"`
+	ExtraData        *string   `json:"extra_data,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // HealthWeightEntry is a single body composition measurement.

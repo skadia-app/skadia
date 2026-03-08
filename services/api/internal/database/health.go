@@ -215,26 +215,35 @@ func (db *DB) GetLatestHealthSleep(ctx context.Context, userID string) (*model.H
 	return &s, nil
 }
 
-// --- health_hrv_snapshots ---
+// --- health_snapshots ---
 
 func (db *DB) UpsertHealthHRVSnapshot(ctx context.Context, s *model.HealthHRVSnapshot) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO health_hrv_snapshots (
-			user_id, measured_at_utc, rmssd_ms, sdrr_ms, time_of_day, source_type, extra_data
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO health_snapshots (
+			user_id, measured_at_utc, rmssd_ms, sdrr_ms,
+			avg_heart_rate_bpm, spo2_pct, respiration_brpm, stress_level, title,
+			time_of_day, source_type, extra_data
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
-			rmssd_ms    = COALESCE(EXCLUDED.rmssd_ms,  health_hrv_snapshots.rmssd_ms),
-			sdrr_ms     = COALESCE(EXCLUDED.sdrr_ms,   health_hrv_snapshots.sdrr_ms),
-			time_of_day = COALESCE(EXCLUDED.time_of_day, health_hrv_snapshots.time_of_day),
-			source_type = EXCLUDED.source_type
-	`, s.UserID, s.MeasuredAtUTC, s.RmssdMS, s.SdrrMS, s.TimeOfDay, s.SourceType, s.ExtraData)
+			rmssd_ms           = COALESCE(EXCLUDED.rmssd_ms,           health_snapshots.rmssd_ms),
+			sdrr_ms            = COALESCE(EXCLUDED.sdrr_ms,            health_snapshots.sdrr_ms),
+			avg_heart_rate_bpm = COALESCE(EXCLUDED.avg_heart_rate_bpm, health_snapshots.avg_heart_rate_bpm),
+			spo2_pct           = COALESCE(EXCLUDED.spo2_pct,           health_snapshots.spo2_pct),
+			respiration_brpm   = COALESCE(EXCLUDED.respiration_brpm,   health_snapshots.respiration_brpm),
+			stress_level       = COALESCE(EXCLUDED.stress_level,       health_snapshots.stress_level),
+			title              = COALESCE(EXCLUDED.title,              health_snapshots.title),
+			time_of_day        = COALESCE(EXCLUDED.time_of_day,        health_snapshots.time_of_day),
+			source_type        = EXCLUDED.source_type
+	`, s.UserID, s.MeasuredAtUTC, s.RmssdMS, s.SdrrMS,
+		s.AvgHeartRateBPM, s.SpO2Pct, s.RespirationBRPM, s.StressLevel, s.Title,
+		s.TimeOfDay, s.SourceType, s.ExtraData)
 	return err
 }
 
 // GetHealthHRV returns HRV snapshots for the given time range.
 //
 // Data source strategy:
-//  1. health_hrv_snapshots — real per-measurement snapshots (Garmin HRV Status / wellness
+//  1. health_snapshots — real per-measurement snapshots (Garmin HRV Status / wellness
 //     activities). Sparse: only exists when the watch performed an HRV measurement.
 //  2. health_readiness_scores.hrv_weekly_avg_ms — daily rolling-7-day average imported
 //     from TrainingReadinessDTO. Dense (one row per day). Used as a synthetic daily
@@ -244,8 +253,10 @@ func (db *DB) UpsertHealthHRVSnapshot(ctx context.Context, s *model.HealthHRVSna
 // measurements are absent (which is the common case for most Garmin devices).
 func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]model.HealthHRVSnapshot, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms, time_of_day, source_type, extra_data, created_at
-		FROM health_hrv_snapshots
+		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms,
+		       avg_heart_rate_bpm, spo2_pct, respiration_brpm, stress_level, title,
+		       time_of_day, source_type, extra_data, created_at
+		FROM health_snapshots
 		WHERE user_id = $1 AND measured_at_utc BETWEEN $2::timestamptz AND $3::timestamptz
 
 		UNION ALL
@@ -256,6 +267,11 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 			r.calendar_date::timestamptz  AS measured_at_utc,
 			r.hrv_weekly_avg_ms           AS rmssd_ms,
 			NULL::double precision         AS sdrr_ms,
+			NULL::smallint                 AS avg_heart_rate_bpm,
+			NULL::smallint                 AS spo2_pct,
+			NULL::smallint                 AS respiration_brpm,
+			NULL::smallint                 AS stress_level,
+			NULL::text                     AS title,
 			'daily_avg'                    AS time_of_day,
 			r.source_type,
 			NULL::text                     AS extra_data,
@@ -266,7 +282,7 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 		  AND r.calendar_date BETWEEN $2::date AND $3::date
 		  -- Exclude dates already covered by a real snapshot.
 		  AND NOT EXISTS (
-			SELECT 1 FROM health_hrv_snapshots h
+			SELECT 1 FROM health_snapshots h
 			WHERE h.user_id = r.user_id
 			  AND h.measured_at_utc::date = r.calendar_date
 		  )
@@ -282,8 +298,9 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 	for rows.Next() {
 		var s model.HealthHRVSnapshot
 		if err := rows.Scan(
-			&s.UserID, &s.MeasuredAtUTC, &s.RmssdMS, &s.SdrrMS, &s.TimeOfDay,
-			&s.SourceType, &s.ExtraData, &s.CreatedAt,
+			&s.UserID, &s.MeasuredAtUTC, &s.RmssdMS, &s.SdrrMS,
+			&s.AvgHeartRateBPM, &s.SpO2Pct, &s.RespirationBRPM, &s.StressLevel, &s.Title,
+			&s.TimeOfDay, &s.SourceType, &s.ExtraData, &s.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan health hrv: %w", err)
 		}
@@ -294,14 +311,18 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 
 func (db *DB) GetLatestHealthHRV(ctx context.Context, userID string) (*model.HealthHRVSnapshot, error) {
 	row := db.Pool.QueryRow(ctx, `
-		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms, time_of_day, source_type, extra_data, created_at
-		FROM health_hrv_snapshots
+		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms,
+		       avg_heart_rate_bpm, spo2_pct, respiration_brpm, stress_level, title,
+		       time_of_day, source_type, extra_data, created_at
+		FROM health_snapshots
 		WHERE user_id = $1
 		ORDER BY measured_at_utc DESC
 		LIMIT 1
 	`, userID)
 	var s model.HealthHRVSnapshot
-	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.RmssdMS, &s.SdrrMS, &s.TimeOfDay, &s.SourceType, &s.ExtraData, &s.CreatedAt)
+	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.RmssdMS, &s.SdrrMS,
+		&s.AvgHeartRateBPM, &s.SpO2Pct, &s.RespirationBRPM, &s.StressLevel, &s.Title,
+		&s.TimeOfDay, &s.SourceType, &s.ExtraData, &s.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
