@@ -87,3 +87,9 @@ app.include_router(features_router)
 
 from api.chat import router as chat_router
 app.include_router(chat_router)
+
+from api.health import router as health_router
+app.include_router(health_router)
+
+from api.forecast import router as forecast_router
+app.include_router(forecast_router)
