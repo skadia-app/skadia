@@ -139,6 +139,41 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 	return activities, rows.Err()
 }
 
+// GetActivitiesByIDs loads multiple activities and verifies ownership via user_id.
+func (db *DB) GetActivitiesByIDs(ctx context.Context, userID string, ids []string) ([]model.Activity, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, user_id, sport_type, title, started_at,
+		        elapsed_time_s, moving_time_s, distance_m, elevation_gain_m, parent_id
+		 FROM activities
+		 WHERE id = ANY($1::uuid[]) AND user_id = $2`,
+		ids, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get activities by ids: %w", err)
+	}
+	defer rows.Close()
+	var result []model.Activity
+	for rows.Next() {
+		var a model.Activity
+		if err := rows.Scan(
+			&a.ID, &a.UserID, &a.SportType, &a.Title, &a.StartedAt,
+			&a.ElapsedTimeS, &a.MovingTimeS, &a.DistanceM, &a.ElevationGainM, &a.ParentID,
+		); err != nil {
+			return nil, fmt.Errorf("scan activity: %w", err)
+		}
+		result = append(result, a)
+	}
+	return result, rows.Err()
+}
+
+// SetActivitiesParent sets parent_id on multiple activities (with ownership check).
+func (db *DB) SetActivitiesParent(ctx context.Context, userID string, activityIDs []string, parentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET parent_id = $1
+		 WHERE id = ANY($2::uuid[]) AND user_id = $3`,
+		parentID, activityIDs, userID)
+	return err
+}
+
 // AggregateParentMetrics updates a parent activity's metrics by summing its children's values.
 func (db *DB) AggregateParentMetrics(ctx context.Context, parentID string) error {
 	_, err := db.Pool.Exec(ctx, `

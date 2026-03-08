@@ -44,6 +44,7 @@ import TrimDialog from '@/components/TrimDialog'
 import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
+import { MultisportMap } from '@/components/activity/MultisportMap'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -182,12 +183,54 @@ export default function ActivityDetailPage() {
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
 
-      {/* Stats */}
-      <StatsGrid activity={activity} />
+      {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
+      {activity.sport_type !== 'multisport' && <StatsGrid activity={activity} />}
 
-      {/* Multisport child activities */}
-      {activity.sport_type === 'multisport' && childActivities && childActivities.length > 0 && (
-        <MultisportSection children={childActivities} />
+      {/* Multisport parent — combined view */}
+      {activity.sport_type === 'multisport' && (
+        <div className="space-y-4">
+          {/* Combined map */}
+          <MultisportMap
+            activityId={activity.id}
+            className="h-80 w-full rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800"
+          />
+
+          {/* Aggregated totals */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdauer</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {formatDuration(activity.elapsed_time_s ?? 0)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdistanz</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {formatDistance(activity.distance_m)}
+              </div>
+            </div>
+            {(activity.elevation_gain_m ?? 0) > 0 && (
+              <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Höhenmeter</div>
+                <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                  {Math.round(activity.elevation_gain_m ?? 0)} m
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Discipline list + ungroup */}
+          {childActivities && childActivities.length > 0 && (
+            <MultisportSectionWithUngroup
+              activity={activity}
+              children={childActivities}
+              onUngrouped={() => {
+                queryClient.invalidateQueries({ queryKey: ['activities'] })
+                queryClient.invalidateQueries({ queryKey: ['activity', id] })
+              }}
+            />
+          )}
+        </div>
       )}
 
       {/* Erweiterte Metriken */}
@@ -1733,6 +1776,76 @@ function ZoneDistributionChart({ distribution }: { distribution: ZoneDistributio
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── MultisportSectionWithUngroup ──────────────────────────────────────────────
+function MultisportSectionWithUngroup({
+  activity,
+  children,
+  onUngrouped,
+}: {
+  activity: Activity
+  children: Activity[]
+  onUngrouped: () => void
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleUngroup() {
+    setLoading(true)
+    setError(null)
+    try {
+      const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
+      if (!resp.ok) {
+        const text = await resp.text()
+        setError(`Fehler ${resp.status}: ${text}`)
+        setLoading(false)
+        return
+      }
+      onUngrouped()
+    } catch (e) {
+      setError(String(e))
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+          Multisport-Disziplinen
+        </h3>
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            className="text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
+          >
+            Gruppe auflösen
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-neutral-500">Wirklich auflösen?</span>
+            <button
+              onClick={() => setConfirming(false)}
+              className="text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
+            >
+              Nein
+            </button>
+            <button
+              onClick={handleUngroup}
+              disabled={loading}
+              className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50 cursor-pointer"
+            >
+              {loading ? 'Wird aufgelöst...' : 'Ja, auflösen'}
+            </button>
+          </div>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <MultisportSection children={children} />
     </div>
   )
 }

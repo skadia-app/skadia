@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/muktihari/fit/encoder"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -881,4 +882,163 @@ func computeHRZones(streams []model.StreamPoint, maxHR int) []model.TimeInZone {
 		}
 	}
 	return result
+}
+
+// GetCombinedTrack returns a GeoJSON FeatureCollection with one Feature per child activity track.
+// GET /api/v1/activities/{id}/combined-track
+func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	activityID := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	activity, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil || activity == nil || activity.UserID != userID || activity.SportType != "multisport" {
+		writeError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
+		return
+	}
+
+	children, err := h.DB.GetChildActivities(ctx, activityID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	type Feature struct {
+		Type       string          `json:"type"`
+		Geometry   json.RawMessage `json:"geometry"`
+		Properties map[string]any  `json:"properties"`
+	}
+
+	var features []Feature
+	for i, child := range children {
+		var geojson json.RawMessage
+		err := h.DB.Pool.QueryRow(ctx,
+			`SELECT ST_AsGeoJSON(track_simplified) FROM activity_tracks WHERE activity_id = $1`,
+			child.ID).Scan(&geojson)
+		if err != nil || len(geojson) == 0 {
+			continue
+		}
+		title := ""
+		if child.Title != nil {
+			title = *child.Title
+		}
+		features = append(features, Feature{
+			Type:     "Feature",
+			Geometry: geojson,
+			Properties: map[string]any{
+				"activity_id": child.ID,
+				"sport_type":  child.SportType,
+				"title":       title,
+				"child_index": i,
+			},
+		})
+	}
+
+	if features == nil {
+		features = []Feature{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"type":     "FeatureCollection",
+		"features": features,
+	})
+}
+
+// GroupActivities creates a multisport parent activity and links the given activities to it.
+// POST /api/v1/activities/group
+// Body: { "activity_ids": ["uuid1", "uuid2", ...], "title": "Mein Triathlon" }
+func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	ctx := r.Context()
+
+	var req struct {
+		ActivityIDs []string `json:"activity_ids"`
+		Title       string   `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		return
+	}
+	if len(req.ActivityIDs) < 2 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 activities required", r.URL.Path)
+		return
+	}
+	if len(req.ActivityIDs) > 20 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "max 20 activities", r.URL.Path)
+		return
+	}
+
+	// Load all activities and verify ownership.
+	activities, err := h.DB.GetActivitiesByIDs(ctx, userID, req.ActivityIDs)
+	if err != nil || len(activities) != len(req.ActivityIDs) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "one or more activities not found", r.URL.Path)
+		return
+	}
+
+	// Use the earliest started_at as the parent timestamp.
+	earliest := activities[0].StartedAt
+	for _, a := range activities[1:] {
+		if a.StartedAt.Before(earliest) {
+			earliest = a.StartedAt
+		}
+	}
+
+	title := req.Title
+	if title == "" {
+		title = "Multisport"
+	}
+
+	parent := &model.Activity{
+		ID:        uuid.New().String(),
+		UserID:    userID,
+		SportType: "multisport",
+		Title:     &title,
+		StartedAt: earliest,
+	}
+	if err := h.DB.InsertMultisportParent(ctx, parent); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	if err := h.DB.SetActivitiesParent(ctx, userID, req.ActivityIDs, parent.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	if err := h.DB.AggregateParentMetrics(ctx, parent.ID); err != nil {
+		slog.Warn("GroupActivities: aggregate metrics failed", "parent_id", parent.ID, "error", err)
+	}
+
+	writeJSON(w, http.StatusCreated, parent)
+}
+
+// UngroupActivities dissolves a multisport group: clears parent_id on all children, then deletes the parent.
+// DELETE /api/v1/activities/{id}/group
+func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	parentID := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	parent, err := h.DB.GetActivity(ctx, parentID)
+	if err != nil || parent == nil || parent.UserID != userID || parent.SportType != "multisport" {
+		writeError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
+		return
+	}
+
+	// Release children.
+	if _, err := h.DB.Pool.Exec(ctx,
+		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
+		parentID, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	// Delete the parent.
+	if _, err := h.DB.Pool.Exec(ctx,
+		`DELETE FROM activities WHERE id = $1 AND user_id = $2 AND sport_type = 'multisport'`,
+		parentID, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

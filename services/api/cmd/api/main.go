@@ -170,6 +170,7 @@ func main() {
 
 		r.Route("/api/v1", func(r chi.Router) {
 			r.Post("/activities/upload", h.Upload)
+			r.Post("/activities/group", h.GroupActivities)
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
 			r.Get("/jobs/active", h.ListActiveJobs)
@@ -196,6 +197,8 @@ func main() {
 			r.Get("/activities/{id}/fusion-candidates", h.GetFusionCandidates)
 			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)
 			r.Get("/activities/{id}/children", h.GetChildActivities)
+			r.Get("/activities/{id}/combined-track", h.GetCombinedTrack)
+			r.Delete("/activities/{id}/group", h.UngroupActivities)
 			r.Get("/stats/pmc", h.GetPMC)
 			r.Get("/stats/power-curve", h.GetPowerCurve)
 
