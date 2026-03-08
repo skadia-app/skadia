@@ -79,10 +79,6 @@ export function applyAccentColor(entry: AccentEntry) {
   root.style.setProperty('--color-accent-100', entry.shade100)
 }
 
-function findEntry(hex: string): AccentEntry {
-  return ACCENT_PALETTE.find(e => e.shade500.toLowerCase() === hex.toLowerCase()) ?? ACCENT_PALETTE[0]
-}
-
 interface AccentColorContextValue {
   accent: AccentEntry
   setAccent: (entry: AccentEntry) => void

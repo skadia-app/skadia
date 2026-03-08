@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Activity } from '@/api/types'
 
 interface MergeField {

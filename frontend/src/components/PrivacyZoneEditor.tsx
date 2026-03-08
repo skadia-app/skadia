@@ -340,7 +340,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
    * Clamp pin to inside polygon (or centroid if outside).
    * Called when polygon vertices move.
    */
-  function clampPinToPolygon(map: maplibregl.Map, pts: [number, number][]) {
+  function clampPinToPolygon(_map: maplibregl.Map, pts: [number, number][]) {
     const pin: [number, number] = [pinLngRef.current, pinLatRef.current]
     if (!pointInPolygon(pin, pts)) {
       const c = centroid(pts)

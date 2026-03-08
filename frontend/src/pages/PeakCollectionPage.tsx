@@ -339,7 +339,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 }
 
 function SortableHeader({
-  field, label, sortField, sortDir, onToggle, indicator,
+  field, label, sortField: _sortField, sortDir: _sortDir, onToggle, indicator,
 }: {
   field: SortField
   label: string

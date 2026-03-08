@@ -113,7 +113,7 @@ export function MultisportMap({ activityId, className }: Props) {
           type: 'geojson',
           data: {
             type: 'Feature',
-            geometry: feature.geometry,
+            geometry: feature.geometry as GeoJSON.Geometry,
             properties: feature.properties,
           },
         })

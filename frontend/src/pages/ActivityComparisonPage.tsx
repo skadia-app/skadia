@@ -17,7 +17,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import type { Activity, StreamPoint } from '@/api/types'
 import { formatDuration, formatDistance, sportLabel } from '@/lib/utils'
-import { sportColor } from '@/lib/sportTaxonomy'
+
 import { SportIcon } from '@/components/SportIcon'
 
 echarts.use([

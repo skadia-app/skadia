@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface Peak {
   elevation_m: number | null
   name: string

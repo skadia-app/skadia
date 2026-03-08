@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 interface ToolCallCardProps {
   toolName: string

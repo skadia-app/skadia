@@ -18,7 +18,7 @@ import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCust
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
-import { updateActivity } from '@/api/activities'
+import { fetchActivity, updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { fetchExplorationCoverage, type ExplorationCoverage } from '@/api/exploration'
 
