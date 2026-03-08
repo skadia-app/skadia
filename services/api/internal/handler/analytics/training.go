@@ -58,8 +58,11 @@ func calcMonotony(tssSlice []float64) float64 {
 		d := v - mean
 		variance += d * d
 	}
-	stddev := math.Sqrt(variance / float64(n))
-	return stddev / mean
+	stddev := math.Sqrt(variance / float64(n-1))
+	if stddev == 0 {
+		return 0
+	}
+	return mean / stddev
 }
 
 // linearProjection extrapolates CTL/ATL/TSB for the next `horizon` days using

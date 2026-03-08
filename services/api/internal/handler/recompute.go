@@ -159,9 +159,9 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 
 			// Fortschritt alle 20 Aktivitäten in DB schreiben.
 			if dbJobID != "" {
-				processed := h.recomputeJob.processed.Load()
-				if processed%20 == 0 {
-					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, int(processed))
+				done := h.recomputeJob.processed.Load() + h.recomputeJob.errors.Load()
+				if done%20 == 0 {
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, int(done))
 				}
 			}
 		}
