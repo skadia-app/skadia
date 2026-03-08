@@ -871,7 +871,7 @@ export default function ActivitiesPage() {
           onOpenTabs={(items) => setOpenTabsItems(items)}
           onGroup={(ids) => setGroupModalIds(ids)}
           onUngroup={async (id) => {
-            await fetch(`/api/v1/activities/${id}/group`, { method: 'DELETE' })
+            await apiFetch(`/api/v1/activities/${id}/group`, { method: 'DELETE' })
             queryClient.invalidateQueries({ queryKey: ['activities'] })
           }}
         />
