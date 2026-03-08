@@ -1,0 +1,17 @@
+[
+    {"q": "Wie weit bin ich diese Woche gelaufen?", "tool": "aggregate_stats", "domain": "activities", "answer": "Diese Woche 3 Läufe, 28.4 km gesamt."},
+    {"q": "Wie oft war ich letztes Jahr Rad fahren?", "tool": "aggregate_stats", "domain": "activities", "answer": "42 Radtouren in den letzten 12 Monaten."},
+    {"q": "Wann war mein letzter Lauf?", "tool": "query_activities", "domain": "activities", "answer": "Dein letzter Lauf war am 05.03. in Beispielstadt, 8.3 km."},
+    {"q": "Was war mein längster Lauf dieses Jahr?", "tool": "query_activities", "domain": "activities", "answer": "Dein längster Lauf: 21.1 km am 15.01. (Pace 5:12 min/km)."},
+    {"q": "Wie ist mein HRV-Trend?", "tool": "get_health_status", "domain": "health", "answer": "HRV-7d-Mittel: 52ms (gut), Tendenz steigend."},
+    {"q": "Bin ich erholt genug für Intervalle?", "tool": "get_health_status", "domain": "health", "answer": "Readiness 78/100. HRV stabil. Grünes Licht."},
+    {"q": "Wie ist meine aktuelle Form?", "tool": "get_training_load", "domain": "training", "answer": "CTL 65 (aufbauend), TSB -7 (optimal), ACWR 1.11."},
+    {"q": "Trainiere ich zu viel?", "tool": "get_training_load", "domain": "training", "answer": "ACWR 1.52 — erhöhtes Risiko! Regenerationswoche empfohlen."},
+    {"q": "Wie viele km haben meine Laufschuhe?", "tool": "get_gear_stats", "domain": "gear", "answer": "3 aktive Laufschuhe: Pegasus 41 (623 km), Hoka Mach 6 (234 km)."},
+    {"q": "Wie viele Gipfel über 2000m habe ich bestiegen?", "tool": "query_geo_features", "domain": "geo", "answer": "12 Gipfel über 2000m. Höchster: Zugspitze (2962m)."},
+    {"q": "Auf welchen Hütten war ich?", "tool": "query_geo_features", "domain": "geo", "answer": "5 Hüttenbesuche dieses Jahr."},
+    {"q": "Was ist meine Bestzeit auf dem Hausberg-Segment?", "tool": "query_segments", "domain": "segments", "answer": "PR 12:34 min am 15.02.2026."},
+    {"q": "Gibt es Anomalien in meinen Daten?", "tool": "get_analytics", "domain": "health", "answer": "1 Anomalie: Ruhepuls am 02.03. erhöht (+12 S/min vs. Baseline)."},
+    {"q": "Vergleiche Januar mit Februar", "tool": "compare_periods", "domain": "training", "answer": "Feb: +23% Distanz, +15% Höhenmeter, Ø-HR gleich."},
+    {"q": "Wie hat sich mein Schlaf letzte Woche entwickelt?", "tool": "get_health_status", "domain": "health", "answer": "Schlaf-Score Ø 72 (ok). Deep Sleep stabil bei 1.8h."}
+]
