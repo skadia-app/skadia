@@ -252,6 +252,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// - cycling + commuting sub_type  → tag "Pendeln", clear sub_type
 	// - strength_training/hiit + amrap → tag "AMRAP"
 	// - strength_training/hiit + emom  → tag "EMOM"
+	// - sail_race / ultra sub_type     → tag "Wettkampf"
 	if data.SubType == "commuting" && data.SportType == "cycling" {
 		tagBase := data.Tags
 		tagBase = appendTagIfMissing(tagBase, "Pendeln")
@@ -272,6 +273,18 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			tagBase = data.Tags
 		}
 		fields["tags"] = appendTagIfMissing(tagBase, "EMOM")
+	}
+	// Race sub-sports (FIT SubSport) → tag "Wettkampf"
+	raceSubSports := map[string]bool{
+		"sail_race": true,
+		"ultra":     true,
+	}
+	if raceSubSports[data.SubType] {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "Wettkampf")
 	}
 
 	// Autotag evaluation: collect enrichment context and evaluate all autotag rules

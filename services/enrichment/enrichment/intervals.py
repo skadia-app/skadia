@@ -58,8 +58,35 @@ async def enrich_intervals(pool, activity_id: str, user_id: str) -> None:
                 seg["intensity"],
             )
 
+        # Auto-Tag "Intervalltraining" erstellen und zuweisen
+        tag_row = await conn.fetchrow(
+            """
+            INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
+            VALUES ($1, 'Intervalltraining', '#EF4444', '#FFFFFF', true, 'activity')
+            ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+            RETURNING id
+            """,
+            user_id,
+        )
+        tag_id = tag_row["id"]
+
         await conn.execute(
-            "UPDATE activities SET training_type = 'interval' WHERE id = $1",
+            """
+            INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+            VALUES ($1, $2, 'auto')
+            ON CONFLICT (activity_id, tag_id) DO NOTHING
+            """,
+            activity_id,
+            tag_id,
+        )
+
+        await conn.execute(
+            """
+            UPDATE activities
+            SET tags = array_append(tags, 'Intervalltraining'),
+                updated_at = NOW()
+            WHERE id = $1 AND NOT ('Intervalltraining' = ANY(COALESCE(tags, '{}')))
+            """,
             activity_id,
         )
 
