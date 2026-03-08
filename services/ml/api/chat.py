@@ -98,6 +98,9 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
             messages=messages,
             tools=TOOL_DEFINITIONS,
             stream=True,
+            temperature=0.3,
+            top_p=0.8,
+            presence_penalty=1.5,
         )
 
         # Accumulate tool-call deltas keyed by tc.index.
@@ -185,6 +188,9 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                     model=LLM_MODEL,
                     messages=messages,
                     stream=True,
+                    temperature=0.3,
+                    top_p=0.8,
+                    presence_penalty=1.5,
                 )
 
                 async for chunk2 in followup:
