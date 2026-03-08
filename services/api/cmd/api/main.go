@@ -422,11 +422,28 @@ func main() {
 			// Fusion Queue (Tier-2 GPS-Similarity)
 			r.Get("/fusion-queue", h.GetFusionQueue)
 
+			// Chat
+			r.Mount("/chat", h.ChatRoutes())
+
 			// Analytics
 			r.Mount("/analytics", analyticsHandler.Routes())
 
 			// ML Status
 			r.Get("/ml/status", analyticsHandler.GetMLStatus)
+
+			// Mobile: Device Registration (FCM/APNs)
+			r.Post("/devices/register", h.RegisterDevice)
+			r.Get("/devices", h.ListDevices)
+			r.Delete("/devices/{id}", h.DeleteDevice)
+
+			// Mobile: Health Data Ingest
+			r.Post("/import/health-data", h.IngestHealthData)
+
+			// Notifications
+			r.Get("/notifications", h.ListNotifications)
+			r.Get("/notifications/unread-count", h.GetUnreadCount)
+			r.Post("/notifications/read-all", h.MarkAllNotificationsRead)
+			r.Post("/notifications/{id}/read", h.MarkNotificationRead)
 		})
 	})
 
