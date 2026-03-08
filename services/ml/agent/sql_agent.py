@@ -3,8 +3,6 @@ import logging
 import re
 from uuid import UUID
 
-import asyncpg
-
 logger = logging.getLogger(__name__)
 
 TABLE_WHITELIST = {
@@ -65,18 +63,25 @@ def validate_sql(sql: str) -> tuple[bool, str]:
 
 
 async def execute_sql(
-    pool: asyncpg.Pool,
     sql: str,
     user_id: UUID,
     max_rows: int = 100,
 ) -> list[dict]:
-    """Execute a validated SQL query."""
+    """Execute a validated SQL query using the readonly database pool.
+
+    Uses ``get_readonly_pool()`` (skadia_readonly role) so that even if the
+    LLM generates a mutating query that slips past ``validate_sql``, the DB
+    role will reject it.  The ``SET LOCAL app.current_user_id`` call enables
+    row-level security policies on the readonly connection.
+    """
     valid, error = validate_sql(sql)
     if not valid:
         raise ValueError(f"SQL validation failed: {error}")
 
+    from db import get_readonly_pool
+    pool = await get_readonly_pool()
     async with pool.acquire() as conn:
-        async with conn.transaction(readonly=True):
+        async with conn.transaction():
             await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
             rows = await conn.fetch(sql, timeout=5.0)
             return [dict(r) for r in rows[:max_rows]]
