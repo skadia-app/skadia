@@ -239,6 +239,38 @@ func encryptAPIKey(plaintext, hexKey string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+func decryptAPIKey(encoded, hexKey string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	if hexKey == "" {
+		// Was stored as plain base64
+		return string(data), nil
+	}
+	key, err := hex.DecodeString(hexKey)
+	if err != nil || len(key) != 32 {
+		return "", fmt.Errorf("LLM_ENCRYPTION_KEY must be 32-byte hex string (64 chars)")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
 // liteLLMConfigTemplate is the Go template for LiteLLM config.yaml
 const liteLLMConfigTemplate = `model_list:
 {{- range .Models}}
@@ -294,10 +326,29 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 		default:
 			continue
 		}
+		// LiteLLM runs inside a container — translate localhost to
+		// host.containers.internal so it can reach host services.
+		apiBase := strings.NewReplacer(
+			"localhost", "host.containers.internal",
+			"127.0.0.1", "host.containers.internal",
+		).Replace(*c.APIBase)
+
+		// For backends without a real API key (llama_server, ollama),
+		// LiteLLM still requires api_key to be set — use "none" as dummy.
+		apiKey := "none"
+		if c.HasAPIKey {
+			if enc, err := h.DB.GetLLMAPIKeyEnc(ctx, c.Role); err == nil && enc != "" {
+				if dec, err := decryptAPIKey(enc, h.Config.LLMEncryptionKey); err == nil {
+					apiKey = dec
+				}
+			}
+		}
+
 		entries = append(entries, liteLLMModelEntry{
 			Role:         c.Role,
 			LiteLLMModel: litellmModel,
-			APIBase:      *c.APIBase,
+			APIBase:      apiBase,
+			APIKey:       apiKey,
 			Enabled:      true,
 		})
 	}

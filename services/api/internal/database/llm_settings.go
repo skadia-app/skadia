@@ -27,6 +27,16 @@ func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, 
 	return configs, rows.Err()
 }
 
+func (db *DB) GetLLMAPIKeyEnc(ctx context.Context, role string) (string, error) {
+	var enc *string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT api_key_enc FROM llm_system_config WHERE role = $1`, role).Scan(&enc)
+	if err != nil || enc == nil {
+		return "", err
+	}
+	return *enc, nil
+}
+
 func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update model.LLMSystemConfigUpdate, encryptedKey *string) error {
 	_, err := db.Pool.Exec(ctx,
 		`INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled, updated_at)
