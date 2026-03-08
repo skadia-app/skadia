@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
 import ImportHub from '@/components/ImportHub'
 import ActiveJobsIndicator from '@/components/ActiveJobsIndicator'
+import NotificationCenter from '@/components/NotificationCenter'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -46,6 +47,8 @@ export default function Layout() {
           <ImportHub />
 
           <ActiveJobsIndicator />
+
+          <NotificationCenter />
 
           <button
             onClick={toggle}
