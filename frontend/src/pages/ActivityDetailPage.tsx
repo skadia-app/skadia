@@ -46,6 +46,7 @@ import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap } from '@/components/activity/MultisportMap'
+import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -412,6 +413,9 @@ export default function ActivityDetailPage() {
           activitySportType={activity.sport_type}
         />
       )}
+
+      {/* Ähnliche Routen (nur bei GPS-Aktivitäten) */}
+      {activity.has_gps && <RouteSimilarityCard activityId={activity.id} />}
 
       {/* Zonen-Verteilung */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (
