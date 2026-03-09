@@ -57,6 +57,14 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/tiles/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            // Prevent ALL caching of tiles — no-store prevents disk/memory cache
+            proxyRes.headers['cache-control'] = 'no-store, must-revalidate'
+            // Remove ETag so browser can't use conditional requests for stale data
+            delete proxyRes.headers['etag']
+          })
+        },
       },
     },
   },

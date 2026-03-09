@@ -242,6 +242,10 @@ function buildTileUrl(
   if (includeGear.length) params.set('include_gear', includeGear.join(','))
   if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
 
+  // Cache-buster: erzwingt frische Tiles nach MVT-Funktionsänderungen.
+  // Bump nach jeder heatmap_lines_mvt / heatmap_points_mvt Migration.
+  params.set('_v', '125')
+
   const qs = params.toString()
   return qs ? `${base}?${qs}` : base
 }

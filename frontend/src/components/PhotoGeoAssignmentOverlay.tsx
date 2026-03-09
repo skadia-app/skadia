@@ -4,6 +4,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { patchActivityPhotoLocation, type ActivityPhoto } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
+import AuthenticatedImage from '@/components/AuthenticatedImage'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -430,11 +431,10 @@ export default function PhotoGeoAssignmentOverlay({
                   className="relative rounded-lg overflow-hidden border border-neutral-700 hover:border-accent-DEFAULT transition-colors cursor-grab active:cursor-grabbing select-none"
                   title={`${photo.original_filename} — auf Karte ziehen`}
                 >
-                  <img
+                  <AuthenticatedImage
                     src={photo.thumb_url}
                     alt={photo.original_filename}
-                    className="w-full aspect-square object-cover pointer-events-none"
-                    draggable={false}
+                    className="w-full h-28 object-contain bg-neutral-950 pointer-events-none"
                   />
                   {/* Drag handle hint */}
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/30">

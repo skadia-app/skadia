@@ -51,7 +51,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   }, [selectedIndex, photos.length])
 
   // Streams are fetched lazily when the geo-assign overlay is opened
-  const { data: streams } = useQuery<StreamPoint[]>({
+  const { data: streams, isLoading: streamsLoading } = useQuery<StreamPoint[]>({
     queryKey: ['activity-streams', activityId],
     queryFn: () => fetchActivityStreams(activityId),
     enabled: showGeoAssign,
@@ -198,96 +198,111 @@ export default function ActivityPhotoSection({ activityId }: Props) {
       )}
 
       {/* Geo-assignment overlay */}
-      {showGeoAssign && (() => {
-        const trackCoords: [number, number][] = (streams ?? [])
-          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
-          .map(s => [s.lng, s.lat])
-        const trackTimes: string[] = (streams ?? [])
-          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
-          .map(s => s.time)
-        return (
-          <PhotoGeoAssignmentOverlay
-            activityId={activityId}
-            trackCoords={trackCoords}
-            trackTimes={trackTimes}
-            unpositionedPhotos={photosWithoutPosition}
-            onClose={() => setShowGeoAssign(false)}
-          />
-        )
-      })()}
+      {showGeoAssign && (
+        streamsLoading ? (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-neutral-950/95">
+            <div className="flex flex-col items-center gap-3 text-neutral-400">
+              <div className="w-6 h-6 border-2 border-neutral-500 border-t-accent-DEFAULT rounded-full animate-spin" />
+              <span className="text-sm">Track wird geladen…</span>
+            </div>
+          </div>
+        ) : (() => {
+          const trackCoords: [number, number][] = (streams ?? [])
+            .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+            .map(s => [s.lng, s.lat])
+          const trackTimes: string[] = (streams ?? [])
+            .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+            .map(s => s.time)
+          return (
+            <PhotoGeoAssignmentOverlay
+              activityId={activityId}
+              trackCoords={trackCoords}
+              trackTimes={trackTimes}
+              unpositionedPhotos={photosWithoutPosition}
+              onClose={() => setShowGeoAssign(false)}
+            />
+          )
+        })()
+      )}
 
       {/* Lightbox */}
       {selectedPhoto && selectedIndex !== null && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90"
           onClick={() => setSelectedIndex(null)}
         >
-          <div
-            className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Photo counter */}
-            {photos.length > 1 && (
-              <div className="absolute top-2 right-2 z-10 text-xs text-white bg-black/50 rounded-full px-2 py-0.5 select-none">
-                {selectedIndex + 1} / {photos.length}
-              </div>
-            )}
-
-            {/* Image area with prev/next buttons */}
-            <div className="relative">
-              <AuthenticatedImage
-                src={selectedPhoto.preview_url || selectedPhoto.full_url}
-                alt={selectedPhoto.original_filename}
-                className="w-full object-contain max-h-[80vh]"
-              />
-
-              {photos.length > 1 && (
-                <>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); goToPrev() }}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors cursor-pointer"
-                    aria-label="Vorheriges Foto"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); goToNext() }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors cursor-pointer"
-                    aria-label="Nächstes Foto"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </>
+          {/* Top bar */}
+          <div className="w-full flex items-center justify-between px-4 py-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div className="text-sm text-neutral-300 truncate max-w-xs">
+              {selectedPhoto.original_filename}
+              {selectedPhoto.taken_at && (
+                <span className="ml-2 text-neutral-500">
+                  {new Date(selectedPhoto.taken_at).toLocaleString('de-DE')}
+                </span>
               )}
             </div>
-
-            <div className="p-4">
-              <p className="text-sm text-neutral-700 dark:text-neutral-300">{selectedPhoto.original_filename}</p>
-              {selectedPhoto.taken_at && (
-                <p className="text-xs text-neutral-500 mt-1">
-                  {new Date(selectedPhoto.taken_at).toLocaleString('de-DE')}
-                </p>
-              )}
-              {selectedPhoto.lat != null && selectedPhoto.lng != null && (
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  {selectedPhoto.lat.toFixed(5)}, {selectedPhoto.lng.toFixed(5)}
-                  {selectedPhoto.location_source && (
-                    <span className="ml-1">({selectedPhoto.location_source === 'exif' ? 'EXIF' : 'Track'})</span>
-                  )}
-                </p>
+            <div className="flex items-center gap-3">
+              {photos.length > 1 && (
+                <span className="text-sm text-neutral-400 select-none">
+                  {selectedIndex + 1} / {photos.length}
+                </span>
               )}
               <button
                 onClick={() => setSelectedIndex(null)}
-                className="mt-3 w-full text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                aria-label="Schließen"
               >
-                Schliessen
+                <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
               </button>
             </div>
           </div>
+
+          {/* Image area */}
+          <div
+            className="relative flex-1 w-full flex items-center justify-center px-14 min-h-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AuthenticatedImage
+              src={selectedPhoto.preview_url || selectedPhoto.full_url}
+              alt={selectedPhoto.original_filename}
+              className="max-w-full object-contain rounded-lg shadow-2xl"
+            />
+
+            {photos.length > 1 && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); goToPrev() }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+                  aria-label="Vorheriges Foto"
+                >
+                  <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); goToNext() }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+                  aria-label="Nächstes Foto"
+                >
+                  <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Bottom bar */}
+          {(selectedPhoto.lat != null && selectedPhoto.lng != null) && (
+            <div className="shrink-0 py-2 text-xs text-neutral-500" onClick={(e) => e.stopPropagation()}>
+              {selectedPhoto.lat.toFixed(5)}, {selectedPhoto.lng.toFixed(5)}
+              {selectedPhoto.location_source && (
+                <span className="ml-1">({selectedPhoto.location_source === 'exif' ? 'EXIF' : 'Track'})</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

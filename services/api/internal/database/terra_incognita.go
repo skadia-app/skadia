@@ -36,13 +36,13 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, radi
 
 	query := fmt.Sprintf(`
 		WITH snapped AS (
-			SELECT ST_SimplifyPreserveTopology(geom, 0.0001) AS geom
+			SELECT ST_SimplifyPreserveTopology(geom, 0.005) AS geom
 			FROM heatmap_lines
 			WHERE user_id = $1
 		),
 		buffered AS (
 			SELECT ST_Buffer(geom::geography, $2)::geometry AS geom,
-			       ntile(8) OVER (ORDER BY ST_Length(geom) DESC) AS bucket
+			       ntile(16) OVER (ORDER BY ST_NPoints(geom) DESC) AS bucket
 			FROM snapped
 			WHERE geom IS NOT NULL
 				AND ST_NumPoints(geom) >= 2

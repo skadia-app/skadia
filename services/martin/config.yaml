@@ -1,3 +1,5 @@
+cache_size_mb: 0
+
 postgres:
   connection_string: ${DATABASE_URL}
   pool_size: 20
