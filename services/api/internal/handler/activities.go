@@ -225,6 +225,36 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Quellen-Handling für Fusion-Ergebnis und Multisport-Parent.
+	sourcesMode := r.URL.Query().Get("sources")
+	if sourcesMode == "restore" {
+		// Alle Kinder/Quellen wieder sichtbar machen.
+		if _, err := h.DB.Pool.Exec(r.Context(),
+			`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
+			id, userID,
+		); err != nil {
+			slog.Warn("delete activity: restore sources failed", "error", err)
+		}
+	} else if sourcesMode == "delete" {
+		// Alle Kinder/Quellen ebenfalls löschen (rekursiv eine Ebene).
+		childIDs := []string{}
+		rows, _ := h.DB.Pool.Query(r.Context(),
+			`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID)
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var cid string
+				rows.Scan(&cid)
+				childIDs = append(childIDs, cid)
+			}
+		}
+		for _, cid := range childIDs {
+			if err := h.DB.DeleteActivity(r.Context(), userID, cid); err != nil {
+				slog.Warn("delete activity: delete child failed", "child_id", cid, "error", err)
+			}
+		}
+	}
+
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
 		if err.Error() == "activity not found" {
 			writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
@@ -976,7 +1006,7 @@ func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
 	for i, child := range children {
 		var geojson json.RawMessage
 		err := h.DB.Pool.QueryRow(ctx,
-			`SELECT ST_AsGeoJSON(track_simplified) FROM activity_tracks WHERE activity_id = $1`,
+			`SELECT ST_AsGeoJSON(track_full) FROM activity_tracks WHERE activity_id = $1`,
 			child.ID).Scan(&geojson)
 		if err != nil || len(geojson) == 0 {
 			continue
