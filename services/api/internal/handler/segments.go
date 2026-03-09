@@ -289,7 +289,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 
 	// Job in DB anlegen.
 	entityName := seg.Name
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_recompute", &id, &entityName, len(ids))
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_recompute", &id, &entityName, int64(len(ids)))
 	if err != nil {
 		slog.Warn("segment recompute: failed to insert job", "segment_id", id, "error", err)
 		jobID = ""
@@ -319,7 +319,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 
 				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
 				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, i+1); err != nil {
+					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
 						slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
 					}
 				}

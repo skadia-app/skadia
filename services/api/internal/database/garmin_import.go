@@ -191,8 +191,8 @@ func (db *DB) ListActiveGarminImportJobs(ctx context.Context, userID string) ([]
 			JobType:         "garmin_import",
 			EntityName:      &entityName,
 			Status:          status,
-			ProgressCurrent: completedMod,
-			ProgressTotal:   totalMod,
+			ProgressCurrent: int64(completedMod),
+			ProgressTotal:   int64(totalMod),
 			StartedAt:       startedAt,
 			FinishedAt:      finishedAt,
 		})

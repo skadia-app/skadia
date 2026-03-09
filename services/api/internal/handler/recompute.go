@@ -138,7 +138,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	h.recomputeJob.mu.Unlock()
 
 	// Job in DB anlegen für persistente Sichtbarkeit über Browser-Reload.
-	dbJobID, dbJobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", nil, nil, len(ids))
+	dbJobID, dbJobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", nil, nil, int64(len(ids)))
 	if dbJobErr != nil {
 		slog.Warn("reprocess-all: failed to insert job", "error", dbJobErr)
 		dbJobID = ""
@@ -161,7 +161,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 			if dbJobID != "" {
 				done := h.recomputeJob.processed.Load() + h.recomputeJob.errors.Load()
 				if done%20 == 0 {
-					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, int(done))
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, done)
 				}
 			}
 		}

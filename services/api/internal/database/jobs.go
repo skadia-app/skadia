@@ -16,14 +16,14 @@ type BackgroundJob struct {
 	EntityName      *string    `json:"entity_name,omitempty"`
 	Status          string     `json:"status"`
 	Phase           *string    `json:"phase,omitempty"` // "download" | "import" | "index"
-	ProgressCurrent int        `json:"progress_current"`
-	ProgressTotal   int        `json:"progress_total"`
+	ProgressCurrent int64      `json:"progress_current"`
+	ProgressTotal   int64      `json:"progress_total"`
 	StartedAt       time.Time  `json:"started_at"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
 
 // InsertBackgroundJob schreibt einen neuen Job-Eintrag und gibt die generierte ID zurück.
-func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, entityID, entityName *string, total int) (string, error) {
+func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, entityID, entityName *string, total int64) (string, error) {
 	id := uuid.New().String()
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO background_jobs (id, user_id, job_type, entity_id, entity_name, status, progress_total)
@@ -42,7 +42,7 @@ func (db *DB) UpdateBackgroundJobPhase(ctx context.Context, jobID, phase string)
 }
 
 // UpdateBackgroundJobProgress aktualisiert den Fortschritts-Zähler eines Jobs.
-func (db *DB) UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int) error {
+func (db *DB) UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int64) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE background_jobs SET progress_current = $1 WHERE id = $2`,
 		current, jobID,
@@ -141,7 +141,7 @@ func (db *DB) FailBackgroundJob(ctx context.Context, jobID string) error {
 }
 
 // ResetBackgroundJobProgress resets progress_current to 0 for a job being resumed.
-func (db *DB) ResetBackgroundJobProgress(ctx context.Context, jobID string, newTotal int) error {
+func (db *DB) ResetBackgroundJobProgress(ctx context.Context, jobID string, newTotal int64) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE background_jobs SET progress_current = 0, progress_total = $2 WHERE id = $1`,
 		jobID, newTotal,

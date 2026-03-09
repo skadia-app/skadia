@@ -89,7 +89,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 			return
 		}
 
-		if err := h.DB.ResetBackgroundJobProgress(ctx, job.ID, len(ids)); err != nil {
+		if err := h.DB.ResetBackgroundJobProgress(ctx, job.ID, int64(len(ids))); err != nil {
 			slog.Warn("resume: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
@@ -112,7 +112,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 				MatchActivitySegments(ctx, h.DB, actID, job.UserID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				if i%10 == 0 || i == len(ids)-1 {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, i+1); err != nil {
+					if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1)); err != nil {
 						slog.Warn("resume: update progress failed", "job_id", job.ID, "error", err)
 					}
 				}

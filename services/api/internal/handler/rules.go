@@ -137,7 +137,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 
 	// Create a background job record so the UI can track progress.
 	jobName := "Automation rules"
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "apply_rules", nil, &jobName, len(activityIDs))
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "apply_rules", nil, &jobName, int64(len(activityIDs)))
 	if err != nil {
 		slog.Warn("apply rules: failed to insert background job", "error", err)
 		jobID = ""
@@ -213,7 +213,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 
 			// Update progress every 10 activities or at the very end.
 			if jobID != "" && (i%10 == 0 || i == len(activityIDs)-1) {
-				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, i+1); err != nil {
+				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
 					slog.Warn("apply rules: update progress failed", "job_id", jobID, "error", err)
 				}
 			}

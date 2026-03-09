@@ -93,8 +93,8 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	}
 	entityName := strings.Join(labels, ", ")
 
-	// Initialer progress_total = geschätzte Gesamtgröße in Bytes
-	progressTotal := totalSizeMB * 1024 * 1024
+	// Initialer progress_total = geschätzte Gesamtgröße in Bytes (int64, kann >2 GB sein)
+	progressTotal := int64(totalSizeMB) * 1024 * 1024
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, progressTotal)
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		slog.Info("osm import: downloading", "region", reg.ID, "url", reg.URL)
 		if err := downloadWithProgress(ctx, reg.URL, pbfPath, func(downloaded, total int64) {
 			if total > 0 {
-				h.DB.UpdateBackgroundJobProgress(ctx, jobID, int(downloaded))
+				h.DB.UpdateBackgroundJobProgress(ctx, jobID, downloaded)
 			}
 		}); err != nil {
 			slog.Error("osm import: download failed", "region", reg.ID, "error", err)
@@ -203,7 +203,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 				slog.Info("osm2pgsql", "line", line)
 				if m := osmProgressRe.FindStringSubmatch(line); len(m) > 1 {
 					if n, err := strconv.Atoi(m[1]); err == nil {
-						h.DB.UpdateBackgroundJobProgress(ctx, jobID, n*1000)
+						h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
 					}
 				}
 			}
@@ -224,13 +224,13 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 
 	indexSteps := buildIndexStatements(categories)
 	for i, stmt := range indexSteps {
-		h.DB.UpdateBackgroundJobProgress(ctx, jobID, i+1)
+		h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
 		if _, err := h.DB.Pool.Exec(ctx, stmt); err != nil {
 			slog.Warn("osm import: index step failed", "stmt", stmt, "error", err)
 		}
 	}
 
-	h.DB.UpdateBackgroundJobProgress(ctx, jobID, len(indexSteps))
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(len(indexSteps)))
 	h.DB.CompleteBackgroundJob(ctx, jobID, false)
 	slog.Info("osm import: completed", "job_id", jobID)
 }
