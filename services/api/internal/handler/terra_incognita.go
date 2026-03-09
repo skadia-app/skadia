@@ -10,8 +10,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
-// GetTerraIncognitaCoverage returns a GeoJSON polygon of explored area
-// (union of buffered heatmap lines) and the total explored area in km².
+// GetTerraIncognitaCoverage returns 5 concentric GeoJSON ring polygons
+// for gradient fog-of-war rendering and the total explored area in km².
 func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -47,15 +47,17 @@ func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Reque
 		radiusM = settings.TerraIncognitaRadiusM
 	}
 
-	geojson, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox, radiusM)
+	rings, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox, radiusM)
 	if err != nil {
 		slog.Error("terra incognita coverage query failed", "error", err, "user_id", userID)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)
 		return
 	}
 
-	// Return raw GeoJSON string to avoid double-encoding
+	// Return raw GeoJSON ring strings to avoid double-encoding.
+	// rings[0]=innermost (-0.3R), rings[4]=outermost (+0.6R)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"terra_incognita_area":%s,"area_km2":%.2f}`, geojson, areaKm2)
+	fmt.Fprintf(w, `{"rings":[%s,%s,%s,%s,%s],"area_km2":%.2f}`,
+		rings[0], rings[1], rings[2], rings[3], rings[4], areaKm2)
 }

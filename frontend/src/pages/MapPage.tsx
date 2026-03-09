@@ -705,8 +705,8 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       if (viewModeRef.current === 'terra_incognita') {
-        if (terraIncognitaRef.current?.terra_incognita_area) {
-          addTerraIncognitaLayers(map, terraIncognitaRef.current.terra_incognita_area)
+        if (terraIncognitaRef.current?.rings?.length) {
+          addTerraIncognitaLayers(map, terraIncognitaRef.current.rings)
         }
       } else {
         addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current, currentUserIdRef.current)
@@ -789,9 +789,8 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       // Sofortiger Nebel (bei fehlendem terraIncognitaData: volle Welt-Abdeckung als Fallback).
-      const geom = terraIncognitaRef.current?.terra_incognita_area
-        ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
-      addTerraIncognitaLayers(map, geom)
+      const rings = terraIncognitaRef.current?.rings ?? []
+      if (rings.length) addTerraIncognitaLayers(map, rings)
     } else {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
@@ -814,8 +813,8 @@ export default function MapPage() {
     if (!map || !map.isStyleLoaded()) return
     terraIncognitaRef.current = terraIncognitaData ?? null
     removeTerraIncognitaLayers(map)
-    if (viewMode === 'terra_incognita' && terraIncognitaData?.terra_incognita_area) {
-      addTerraIncognitaLayers(map, terraIncognitaData.terra_incognita_area)
+    if (viewMode === 'terra_incognita' && terraIncognitaData?.rings?.length) {
+      addTerraIncognitaLayers(map, terraIncognitaData.rings)
     }
   }, [viewMode, terraIncognitaData, styleVersion])
 
@@ -1927,9 +1926,8 @@ export default function MapPage() {
                 if (map) {
                   removeOverlayLayers(map)
                   removeTerraIncognitaLayers(map)
-                  const geom = terraIncognitaRef.current?.terra_incognita_area
-                    ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
-                  addTerraIncognitaLayers(map, geom)
+                  const rings = terraIncognitaRef.current?.rings ?? []
+                  if (rings.length) addTerraIncognitaLayers(map, rings)
                 }
                 setViewMode('terra_incognita')
               }}
@@ -2622,55 +2620,70 @@ function removeOverlayLayers(map: maplibregl.Map) {
 
 // ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
 // Statt MapLibre line-blur (zoom-abhängig, Spike-Artifacts an Vertices):
-// GeoJSON-basierter Fog-of-War: Donut-Polygon (Welt minus erkundete Fläche).
-// Vollständig GPU-gerendert als MapLibre-Fill-Layer — kein Canvas, kein CPU-Blur,
-// kein Re-Render bei Pan/Zoom. Performance: ~0ms auf moveend/zoomend.
+// Gradient-Fog-of-War: 5 gestapelte Donut-Fill-Layer mit additiver Alpha-Compositing.
+// PostGIS liefert 5 konzentrische Ring-Polygone (innermost → outermost).
+// Jedes wird als "Welt minus Ring" Donut gerendert. Da die Donuts überlappen,
+// addieren sich ihre Opacities automatisch per WebGL-Compositing → weicher Gradient.
+//
+// Performance: vollständig GPU, kein Canvas, kein Re-Render bei Pan/Zoom.
 
-const TERRA_INCOGNITA_LAYER_IDS = [
-  'terra-incognita-fog-fill',
-  'terra-incognita-fog-edge',
-] as const
+const TERRA_RING_COUNT = 5
+const TERRA_INCOGNITA_LAYER_IDS = Array.from(
+  { length: TERRA_RING_COUNT },
+  (_, i) => `terra-fog-ring-${i}`,
+)
 
-// Maximale Fog-Deckkraft (0–1). 0.88 = leicht transparent für natürlicheres Aussehen.
-const FOG_MAX_OPACITY = 0.88
+// Per-Layer-Opacity für additive Alpha-Compositing.
+// Berechnet so, dass die Zonen-Gesamtopacity einem weichen Gradient entspricht:
+//   Zone ring[0]→ring[1] (innermost):  ~0.10  (leichter Dunst)
+//   Zone ring[1]→ring[2]:              ~0.25
+//   Zone ring[2]→ring[3]:              ~0.50  (konfigurierter Radius ≈ 50%)
+//   Zone ring[3]→ring[4]:              ~0.72
+//   Zone außerhalb ring[4] (all 5):    ~0.88  (voller Nebel)
+const RING_LAYER_OPACITIES = [0.10, 0.17, 0.33, 0.44, 0.57]
+
+const FOG_COLOR = '#d0daea'
 
 // Modul-globaler State
 let terraAnimRafId: number | null = null
-let fogExploredGeometry: GeoJSON.Geometry | null = null
 
 function removeTerraIncognitaLayers(map: maplibregl.Map) {
   if (terraAnimRafId !== null) {
     cancelAnimationFrame(terraAnimRafId)
     terraAnimRafId = null
   }
-  fogExploredGeometry = null
   for (const id of TERRA_INCOGNITA_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
-  if (map.getSource('terra-incognita-fog')) map.removeSource('terra-incognita-fog')
+  for (let i = 0; i < TERRA_RING_COUNT; i++) {
+    const srcId = `terra-fog-src-${i}`
+    if (map.getSource(srcId)) map.removeSource(srcId)
+  }
 }
 
 /**
- * Baut ein GeoJSON-FeatureCollection mit einem Donut-Polygon:
- * Außenring = Weltrechteck, Löcher = erkundete Flächen.
- * PostGIS liefert Außenringe in CCW-Richtung (GeoJSON-Standard).
- * Als Loch (innerer Ring) müssen sie CW sein → reversieren.
+ * Baut ein Donut-GeoJSON: Weltrechteck mit der Ring-Geometrie als Loch.
+ * PostGIS liefert Außenringe in CCW (GeoJSON-Standard) → reversieren für CW-Holes.
  */
-function buildFogGeoJSON(exploredGeometry: GeoJSON.Geometry): GeoJSON.FeatureCollection {
-  // Weltrechteck CCW (Standard GeoJSON exterior)
+function buildDonutFeature(ringGeometry: GeoJSON.Geometry): GeoJSON.FeatureCollection {
   const worldRing: GeoJSON.Position[] = [
     [-180, -85.051], [180, -85.051], [180, 85.051], [-180, 85.051], [-180, -85.051],
   ]
   const reverseRing = (r: GeoJSON.Position[]): GeoJSON.Position[] => [...r].reverse()
   const holes: GeoJSON.Position[][] = []
 
-  if (exploredGeometry.type === 'Polygon') {
-    // Nur der Außenring wird als Loch eingefügt (Innenringe sind irrelevant)
-    holes.push(reverseRing(exploredGeometry.coordinates[0]))
-  } else if (exploredGeometry.type === 'MultiPolygon') {
-    for (const poly of exploredGeometry.coordinates) {
-      holes.push(reverseRing(poly[0]))
+  if (ringGeometry.type === 'Polygon' && ringGeometry.coordinates.length > 0
+      && ringGeometry.coordinates[0].length > 0) {
+    holes.push(reverseRing(ringGeometry.coordinates[0]))
+  } else if (ringGeometry.type === 'MultiPolygon') {
+    for (const poly of ringGeometry.coordinates) {
+      if (poly[0] && poly[0].length > 0) holes.push(reverseRing(poly[0]))
     }
+  }
+
+  // Wenn keine Löcher → leeres Feature (kein Nebel für diesen Ring)
+  if (holes.length === 0) {
+    return { type: 'FeatureCollection', features: [] }
   }
 
   return {
@@ -2684,48 +2697,41 @@ function buildFogGeoJSON(exploredGeometry: GeoJSON.Geometry): GeoJSON.FeatureCol
 }
 
 /**
- * Fügt den GeoJSON-basierten Fog-Overlay hinzu.
- * Kein Canvas, kein Re-Render bei Pan/Zoom — MapLibre rendert alles in WebGL.
+ * Fügt 5 gestapelte Fill-Layer für den Fog-Gradient hinzu.
+ * Jeder Layer ist ein Donut (Welt minus Ring[i]). Die Donuts überlappen —
+ * die additive Alpha-Compositing in WebGL erzeugt den Gradient.
  *
- * Ablauf:
- *  1. Donut-Polygon (Welt − erkundete Fläche) als GeoJSON-Source laden
- *  2. Fill-Layer (Hauptnebel) + Edge-Layer (weicher Randstrich) hinzufügen
- *  3. RAF-Animation blendet sanft ein (easeInOutQuad, 1.8s)
+ * Ring-Reihenfolge (vom Backend):
+ *   rings[0] = innerster (-0.3R, kleinstes Loch → meiste Abdeckung)
+ *   rings[4] = äußerster (+0.6R, größtes Loch → wenigste Abdeckung)
+ *
+ * Layer-Reihenfolge: rings[4] zuerst (bottom), rings[0] zuletzt (top).
+ * Äußerster Ring hat die höchste Per-Layer-Opacity (0.57).
  */
-function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
+function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geometry[]) {
   removeTerraIncognitaLayers(map)
-  fogExploredGeometry = exploredGeometry
 
-  const fogData = buildFogGeoJSON(exploredGeometry)
+  // Layer von außen (ring[4]) nach innen (ring[0]) hinzufügen.
+  // Äußerer Ring = bottom layer = höchste Per-Layer-Opacity.
+  for (let i = TERRA_RING_COUNT - 1; i >= 0; i--) {
+    const ring = rings[i]
+    if (!ring) continue
+    const srcId = `terra-fog-src-${i}`
+    const layerId = `terra-fog-ring-${i}`
+    const donut = buildDonutFeature(ring)
 
-  map.addSource('terra-incognita-fog', { type: 'geojson', data: fogData })
-
-  // Hauptnebel: Fill-Layer (GPU-Fill, kein CPU-Overhead)
-  map.addLayer({
-    id: 'terra-incognita-fog-fill',
-    type: 'fill',
-    source: 'terra-incognita-fog',
-    paint: {
-      'fill-color': '#d8e2f0',
-      'fill-opacity': 0,
-      'fill-antialias': true,
-    },
-  })
-
-  // Weiche Randzone: schmaler Line-Layer mit leichtem Blur entlang der Polygon-Grenze.
-  // Breite/Blur sind in Screen-Pixeln, werden also mit Zoom größer — das ist gewünscht
-  // (bei hohem Zoom = mehr Detail = weichere, breitere Kante).
-  map.addLayer({
-    id: 'terra-incognita-fog-edge',
-    type: 'line',
-    source: 'terra-incognita-fog',
-    paint: {
-      'line-color': '#d8e2f0',
-      'line-width': ['interpolate', ['exponential', 2], ['zoom'], 6, 4, 12, 20, 16, 60],
-      'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 6, 3, 12, 15, 16, 45],
-      'line-opacity': 0,
-    },
-  })
+    map.addSource(srcId, { type: 'geojson', data: donut })
+    map.addLayer({
+      id: layerId,
+      type: 'fill',
+      source: srcId,
+      paint: {
+        'fill-color': FOG_COLOR,
+        'fill-opacity': 0,
+        'fill-antialias': true,
+      },
+    })
+  }
 
   // Einblend-Animation (easeInOutQuad, 1.8s)
   const DURATION = 1800
@@ -2734,10 +2740,14 @@ function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.
   function animate(ts: number) {
     const p = Math.min((ts - startTs) / DURATION, 1)
     const e = ease(p)
-    if (map.getLayer('terra-incognita-fog-fill'))
-      map.setPaintProperty('terra-incognita-fog-fill', 'fill-opacity', e * FOG_MAX_OPACITY)
-    if (map.getLayer('terra-incognita-fog-edge'))
-      map.setPaintProperty('terra-incognita-fog-edge', 'line-opacity', e)
+    for (let i = 0; i < TERRA_RING_COUNT; i++) {
+      const layerId = `terra-fog-ring-${i}`
+      if (map.getLayer(layerId)) {
+        // Äußerster Ring (i=4) bekommt die höchste Opacity pro Layer
+        const targetOpacity = RING_LAYER_OPACITIES[TERRA_RING_COUNT - 1 - i]
+        map.setPaintProperty(layerId, 'fill-opacity', e * targetOpacity)
+      }
+    }
     if (p < 1) terraAnimRafId = requestAnimationFrame(animate)
     else terraAnimRafId = null
   }
