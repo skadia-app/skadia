@@ -2602,7 +2602,8 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
 			enable_peaks, enable_lifts, enable_settlements, enable_commute,
 			enable_borders, enable_water, enable_forests, enable_surfaces,
-			enable_stops, enable_intervals, enable_ascents, enable_embeddings`,
+			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
+			photo_preview_size`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -2612,6 +2613,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.EnablePeaks, &s.EnableLifts, &s.EnableSettlements, &s.EnableCommute,
 		&s.EnableBorders, &s.EnableWater, &s.EnableForests, &s.EnableSurfaces,
 		&s.EnableStops, &s.EnableIntervals, &s.EnableAscents, &s.EnableEmbeddings,
+		&s.PhotoPreviewSize,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -2630,10 +2632,12 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
 			enable_peaks, enable_lifts, enable_settlements, enable_commute,
 			enable_borders, enable_water, enable_forests, enable_surfaces,
-			enable_stops, enable_intervals, enable_ascents, enable_embeddings
+			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
+			photo_preview_size
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+			$26
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -2659,7 +2663,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_stops = $22,
 			enable_intervals = $23,
 			enable_ascents = $24,
-			enable_embeddings = $25`,
+			enable_embeddings = $25,
+			photo_preview_size = $26`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -2667,6 +2672,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.EnablePeaks, s.EnableLifts, s.EnableSettlements, s.EnableCommute,
 		s.EnableBorders, s.EnableWater, s.EnableForests, s.EnableSurfaces,
 		s.EnableStops, s.EnableIntervals, s.EnableAscents, s.EnableEmbeddings,
+		s.PhotoPreviewSize,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)

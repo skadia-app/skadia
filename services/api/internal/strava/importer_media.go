@@ -5,9 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"image"
-	"image/jpeg"
-	_ "image/png"
 	"log/slog"
 	"path/filepath"
 	"strconv"
@@ -15,8 +12,8 @@ import (
 	"time"
 
 	"github.com/bep/imagemeta"
-	"golang.org/x/image/draw"
 
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -108,8 +105,18 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			}
 		}
 
-		// Generate thumbnail
-		thumbData, thumbErr := mediaGenerateThumbnail(data, 200, 200)
+		// Generate thumbnail (200×200)
+		thumbData, thumbErr := imageutil.Resize(data, 200, 200, 80)
+
+		// Generate preview thumbnail (2048/4K per user settings)
+		previewData, s3KeyPreview := []byte(nil), ""
+		if params.DB != nil {
+			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
+				if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+				}
+			}
+		}
 
 		// S3 paths
 		ext := filepath.Ext(relPath)
@@ -134,6 +141,14 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 					s3KeyThumb = s3Key
 				}
 			}
+
+			if previewData != nil {
+				s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
+				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+					slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
+					s3KeyPreview = ""
+				}
+			}
 		}
 
 		photo := model.ActivityPhoto{
@@ -142,6 +157,7 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			S3Bucket:         bucket,
 			S3Key:            s3Key,
 			S3KeyThumb:       s3KeyThumb,
+			S3KeyPreview:     s3KeyPreview,
 			OriginalFilename: filepath.Base(relPath),
 			ContentType:      "image/jpeg",
 			FileSizeBytes:    int64(len(data)),
@@ -261,35 +277,3 @@ func extractMediaEXIF(data []byte) (takenAt *time.Time, lat *float64, lng *float
 	return t, lat, lng
 }
 
-// mediaGenerateThumbnail creates a max-200x200 JPEG thumbnail.
-func mediaGenerateThumbnail(data []byte, maxW, maxH int) ([]byte, error) {
-	src, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-
-	bounds := src.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-
-	scaleW := float64(maxW) / float64(w)
-	scaleH := float64(maxH) / float64(h)
-	scale := scaleW
-	if scaleH < scale {
-		scale = scaleH
-	}
-	if scale >= 1 {
-		scale = 1
-	}
-
-	newW := int(float64(w) * scale)
-	newH := int(float64(h) * scale)
-
-	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
-	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
-
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 80}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}

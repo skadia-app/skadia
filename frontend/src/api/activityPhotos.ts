@@ -10,9 +10,10 @@ export interface ActivityPhoto {
   taken_at?: string
   lat?: number
   lng?: number
-  location_source?: 'exif' | 'activity_track'
+  location_source?: 'exif' | 'activity_track' | 'manual'
   created_at: string
   thumb_url: string
+  preview_url: string  // large preview (2048/4K) — same as full_url when no preview was generated
   full_url: string
 }
 
@@ -60,4 +61,13 @@ export async function patchActivityPhotoLocation(
     method: 'PATCH',
     body: payload,
   })
+}
+
+export async function recomputePhotoPreviews(): Promise<{
+  recomputed: number
+  skipped: number
+  failed: number
+  total: number
+}> {
+  return apiClient('/photos/recompute-previews', { method: 'POST' })
 }

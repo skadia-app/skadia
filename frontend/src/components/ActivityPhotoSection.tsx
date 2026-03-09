@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
+import AuthenticatedImage from '@/components/AuthenticatedImage'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
 
@@ -107,7 +108,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                     onClick={() => setSelectedPhoto(photo)}
                     className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-accent-400 transition-colors"
                   >
-                    <img
+                    <AuthenticatedImage
                       src={photo.thumb_url}
                       alt={photo.original_filename}
                       className="w-full h-full object-cover"
@@ -192,10 +193,10 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <img
-              src={selectedPhoto.full_url}
+            <AuthenticatedImage
+              src={selectedPhoto.preview_url || selectedPhoto.full_url}
               alt={selectedPhoto.original_filename}
-              className="w-full object-contain max-h-96"
+              className="w-full object-contain max-h-[80vh]"
             />
             <div className="p-4">
               <p className="text-sm text-neutral-700 dark:text-neutral-300">{selectedPhoto.original_filename}</p>

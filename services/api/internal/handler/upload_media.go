@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -161,7 +162,7 @@ func (h *Handler) autoAssignPhoto(
 		}
 	}
 
-	thumbData, _ := generateThumbnail(data, 200, 200)
+	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
 
 	ext := imageExtFromContentType(ct)
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))

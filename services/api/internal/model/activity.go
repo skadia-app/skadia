@@ -709,6 +709,9 @@ type EnrichmentSettings struct {
 	EnableIntervals   bool `json:"enable_intervals"`
 	EnableAscents     bool `json:"enable_ascents"`
 	EnableEmbeddings  bool `json:"enable_embeddings"`
+
+	// Photo preview size: "2048" (default), "4k", or "original" (Migration 000120).
+	PhotoPreviewSize string `json:"photo_preview_size"`
 }
 
 // EnabledModules returns the list of Stage-2 module names that are currently

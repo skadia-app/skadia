@@ -6,9 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/jpeg"
-	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,8 +14,8 @@ import (
 
 	"github.com/bep/imagemeta"
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/image/draw"
 
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -91,11 +88,15 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Thumbnail generieren
-	thumbData, err := generateThumbnail(data, 200, 200)
-	if err != nil {
-		// Thumbnail-Fehler nicht fatal
-		thumbData = nil
+	// Thumbnail (200×200) generieren
+	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
+
+	// Preview-Thumbnail generieren (Größe aus User-Einstellungen)
+	previewData, s3KeyPreview := []byte(nil), ""
+	if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil {
+		if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+			previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+		}
 	}
 
 	// S3-Pfade
@@ -119,11 +120,23 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upload Thumbnail
+	// Upload Thumbnail (200px)
 	if thumbData != nil {
-		_ = h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg")
+		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+			slog.Warn("s3 upload thumb failed", "error", err)
+			s3KeyThumb = s3Key // Fallback: Original
+		}
 	} else {
-		s3KeyThumb = s3Key // Fallback: Original als Thumbnail
+		s3KeyThumb = s3Key // Original ist bereits klein genug
+	}
+
+	// Upload Preview (2048/4K)
+	if previewData != nil {
+		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, hash)
+		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+			slog.Warn("s3 upload preview failed", "error", err)
+			s3KeyPreview = ""
+		}
 	}
 
 	photo := model.ActivityPhoto{
@@ -132,6 +145,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		S3Bucket:         bucket,
 		S3Key:            s3Key,
 		S3KeyThumb:       s3KeyThumb,
+		S3KeyPreview:     s3KeyPreview,
 		OriginalFilename: header.Filename,
 		ContentType:      ct,
 		FileSizeBytes:    int64(len(data)),
@@ -149,8 +163,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved.ThumbURL = "/api/v1/photos/" + saved.ID + "/thumb"
-	saved.FullURL = "/api/v1/photos/" + saved.ID + "/full"
+	setPhotoURLs(&saved)
 	writeJSON(w, http.StatusCreated, saved)
 }
 
@@ -181,8 +194,7 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range photos {
-		photos[i].ThumbURL = "/api/v1/photos/" + photos[i].ID + "/thumb"
-		photos[i].FullURL = "/api/v1/photos/" + photos[i].ID + "/full"
+		setPhotoURLs(&photos[i])
 	}
 	writeJSON(w, http.StatusOK, photos)
 }
@@ -286,8 +298,7 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 		h.writePhotoMetaSidecar(r.Context(), userID, *photo.FileHash, req)
 	}
 
-	photo.ThumbURL = "/api/v1/photos/" + photo.ID + "/thumb"
-	photo.FullURL = "/api/v1/photos/" + photo.ID + "/full"
+	setPhotoURLs(&photo)
 	writeJSON(w, http.StatusOK, photo)
 }
 
@@ -328,6 +339,111 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileHash st
 	slog.Info("photo meta sidecar written", "bucket", bucket, "key", key)
 }
 
+func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	photoID := chi.URLParam(r, "photoID")
+	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		return
+	}
+	// Use preview key if available, otherwise fall back to original.
+	key := photo.S3KeyPreview
+	if key == "" {
+		key = photo.S3Key
+	}
+	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, key)
+	if err != nil && key != photo.S3Key {
+		// Preview key didn't exist (e.g., generated before this feature) — fall back.
+		data, ct, err = h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
+	}
+	if err != nil {
+		slog.Error("s3 download preview failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load preview", r.URL.Path)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
+}
+
+// RecomputePhotoPreviews regenerates preview thumbnails for all user photos
+// using the current photo_preview_size setting. Runs synchronously (small collections)
+// or could be turned into a background job for large ones.
+func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		return
+	}
+	maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize)
+
+	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		return
+	}
+
+	recomputed, skipped, failed := 0, 0, 0
+	for _, photo := range photos {
+		// Download original.
+		data, _, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
+		if err != nil {
+			failed++
+			continue
+		}
+
+		if maxW == 0 {
+			// "original" setting: clear any existing preview key.
+			if photo.S3KeyPreview != "" {
+				_ = h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, "")
+			}
+			skipped++
+			continue
+		}
+
+		previewData, err := imageutil.Resize(data, maxW, maxH, 85)
+		if err != nil || previewData == nil {
+			// No resize needed (original already smaller) or decode error.
+			if photo.S3KeyPreview != "" {
+				_ = h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, "")
+			}
+			skipped++
+			continue
+		}
+
+		s3KeyPreview := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
+		if photo.FileHash == nil {
+			skipped++
+			continue
+		}
+		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
+		if err := h.Storage.UploadToBucket(r.Context(), photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+			slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
+			failed++
+			continue
+		}
+		if err := h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, s3KeyPreview); err != nil {
+			failed++
+			continue
+		}
+		recomputed++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int{
+		"recomputed": recomputed,
+		"skipped":    skipped,
+		"failed":     failed,
+		"total":      len(photos),
+	})
+}
+
 func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	entries, err := h.DB.ListMapPhotos(r.Context(), userID)
@@ -341,6 +457,19 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, entries)
 }
+
+// setPhotoURLs sets the computed URL fields on an ActivityPhoto.
+func setPhotoURLs(p *model.ActivityPhoto) {
+	base := "/api/v1/photos/" + p.ID
+	p.ThumbURL = base + "/thumb"
+	p.FullURL = base + "/full"
+	if p.S3KeyPreview != "" {
+		p.PreviewURL = base + "/preview"
+	} else {
+		p.PreviewURL = base + "/full" // fallback: original
+	}
+}
+
 
 // extractExifData versucht GPS-Koordinaten und Aufnahmezeit aus EXIF-Metadaten zu lesen.
 // Unterstuetzt JPEG, PNG, TIFF und WebP. Gibt nil-Werte zurueck wenn kein EXIF vorhanden.
@@ -400,36 +529,3 @@ func (h *Handler) interpolateFromTrack(ctx context.Context, activityID, userID s
 	return sp.Lat, sp.Lng
 }
 
-// generateThumbnail erstellt ein max-200x200 Thumbnail aus JPEG/PNG Daten.
-func generateThumbnail(data []byte, maxW, maxH int) ([]byte, error) {
-	src, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-
-	bounds := src.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-
-	// Scale-Factor berechnen
-	scaleW := float64(maxW) / float64(w)
-	scaleH := float64(maxH) / float64(h)
-	scale := scaleW
-	if scaleH < scale {
-		scale = scaleH
-	}
-	if scale >= 1 {
-		scale = 1 // Nicht hochskalieren
-	}
-
-	newW := int(float64(w) * scale)
-	newH := int(float64(h) * scale)
-
-	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
-	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
-
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 80}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}

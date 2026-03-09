@@ -330,6 +330,8 @@ func main() {
 			r.Delete("/activities/{id}/photos/{photoID}", h.DeleteActivityPhoto)
 			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
+			r.Get("/photos/{photoID}/preview", h.StreamActivityPhotoPreview)
+			r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
 			r.Get("/map/photos", h.ListMapPhotos)
 			r.Get("/media/{bucket}/*", h.ServeMedia)
 

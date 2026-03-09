@@ -198,6 +198,8 @@ export interface EnrichmentSettings {
   enable_intervals?: boolean
   enable_ascents?: boolean
   enable_embeddings?: boolean
+  // Photo preview size: '2048' (default), '4k', or 'original' (Migration 000120)
+  photo_preview_size?: string
 }
 
 export interface Climb {

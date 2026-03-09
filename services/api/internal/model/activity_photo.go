@@ -9,6 +9,7 @@ type ActivityPhoto struct {
 	S3Bucket         string     `json:"-"`
 	S3Key            string     `json:"-"`
 	S3KeyThumb       string     `json:"-"`
+	S3KeyPreview     string     `json:"-"` // large preview (2048/4K); empty = use original
 	OriginalFilename string     `json:"original_filename"`
 	ContentType      string     `json:"content_type"`
 	FileSizeBytes    int64      `json:"file_size_bytes"`
@@ -19,8 +20,9 @@ type ActivityPhoto struct {
 	LocationSource   *string    `json:"location_source"`
 	CreatedAt        time.Time  `json:"created_at"`
 	// Computed URLs (nicht in DB)
-	ThumbURL string `json:"thumb_url,omitempty"`
-	FullURL  string `json:"full_url,omitempty"`
+	ThumbURL   string `json:"thumb_url,omitempty"`
+	PreviewURL string `json:"preview_url,omitempty"` // large preview (2048/4K) or same as full_url
+	FullURL    string `json:"full_url,omitempty"`
 }
 
 // MapPhotoEntry ist ein kompakter Eintrag für den Map-Overlay

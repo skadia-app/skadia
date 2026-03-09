@@ -13,6 +13,7 @@ import { getImportSettings, updateImportSettings, type ImportSettings, type Conf
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
+import { recomputePhotoPreviews } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
@@ -178,6 +179,100 @@ function Stage2EnrichmentSection() {
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
         &Auml;nderungen gelten f&uuml;r neue Aktivit&auml;ten sowie bei manueller Neuberechnung.
       </p>
+    </section>
+  )
+}
+
+// -----------------------------------------------------------------------
+// Photo Preview Size Section
+// -----------------------------------------------------------------------
+
+const PREVIEW_SIZE_OPTIONS = [
+  { value: '2048', label: '2048 px', description: 'Standard — gute Balance zwischen Qualität und Ladezeit' },
+  { value: '4k', label: '4K (3840 px)', description: 'Maximale Qualität — empfohlen bei schnellem Netzwerk' },
+  { value: 'original', label: 'Original', description: 'Kein Preview-Thumbnail — lädt immer die Originaldatei' },
+] as const
+
+function PhotoPreviewSection() {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+  const [recomputing, setRecomputing] = useState(false)
+
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+  })
+
+  const mutation = useMutation({
+    mutationFn: (size: string) => updateEnrichmentSettings({ photo_preview_size: size }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['enrichment-settings'], updated)
+      addToast({ type: 'success', title: 'Einstellung gespeichert' })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
+    },
+  })
+
+  async function handleRecompute() {
+    setRecomputing(true)
+    try {
+      const result = await recomputePhotoPreviews()
+      addToast({
+        type: 'success',
+        title: `Vorschau-Bilder neu erstellt`,
+        message: `${result.recomputed} neu generiert · ${result.skipped} unverändert · ${result.failed} Fehler`,
+      })
+    } catch {
+      addToast({ type: 'error', title: 'Neuberechnung fehlgeschlagen', duration: 0 })
+    } finally {
+      setRecomputing(false)
+    }
+  }
+
+  const currentSize = settings?.photo_preview_size ?? '2048'
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Foto-Vorschaugröße</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Maximale Auflösung für Galerie-Ansichten. Nur wenn das Original größer ist, wird ein separates Vorschau-Bild erstellt.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {PREVIEW_SIZE_OPTIONS.map(({ value, label, description }) => (
+          <label key={value} className="flex gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="photo-preview-size"
+              value={value}
+              checked={currentSize === value}
+              disabled={isLoading || mutation.isPending}
+              onChange={() => mutation.mutate(value)}
+              className="mt-0.5 accent-orange-500 cursor-pointer"
+            />
+            <div>
+              <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{description}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center gap-3">
+        <button
+          onClick={handleRecompute}
+          disabled={recomputing || isLoading}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {recomputing ? 'Wird neu erstellt…' : 'Vorschauen neu erstellen'}
+        </button>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.
+        </p>
+      </div>
     </section>
   )
 }
@@ -480,6 +575,7 @@ export default function SettingsPage() {
       {activeTab === 'ai' && <>
         <LLMSettingsPage />
         <Stage2EnrichmentSection />
+        <PhotoPreviewSection />
         <MLServiceSection />
         <NotificationSettingsSection />
         <ChatProfileSettings />

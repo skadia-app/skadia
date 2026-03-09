@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -159,7 +160,7 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	takenAt, lat, lng, locationSource := extractExifData(data, ct)
 
 	// Generate thumbnail
-	thumbData, _ := generateThumbnail(data, 200, 200)
+	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
 
 	// Determine extension and hash
 	ext := imageExtFromContentType(ct)
