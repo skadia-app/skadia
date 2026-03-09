@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, apiUpload } from '@/api/client'
 import {
   scanGarminExport,
@@ -605,6 +605,9 @@ function ImportPanel({
   pollFn,
   scanZipFn,
 }: ImportPanelProps) {
+  const queryClient = useQueryClient()
+  const STORAGE_KEY = `skadia-import-job-${platform}`
+
   const [sourcePath, setSourcePath] = useState(defaultPath)
   const [isUploading, setIsUploading] = useState(false)
   const [scanning, setScanning] = useState(false)
@@ -631,6 +634,67 @@ function ImportPanel({
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const lastModuleRef = useRef<string | null>(null)
 
+  // Polling-Logik als wiederverwendbare Funktion (für Reconnect nach Navigation)
+  function startPolling(id: string) {
+    if (pollingRef.current) clearInterval(pollingRef.current)
+    pollingRef.current = setInterval(async () => {
+      try {
+        const j = await pollFn(id)
+        setJob(j)
+
+        if (j.current_module && j.current_module !== lastModuleRef.current) {
+          lastModuleRef.current = j.current_module
+          appendLog(j.current_module)
+        }
+
+        if (j.status === 'completed' && lastModuleRef.current !== '__completed__') {
+          lastModuleRef.current = '__completed__'
+          appendLog(`Abgeschlossen — ${j.completed_modules} Module verarbeitet`)
+        }
+        if (j.status === 'failed' && lastModuleRef.current !== '__failed__') {
+          lastModuleRef.current = '__failed__'
+          appendLog('Import fehlgeschlagen')
+          if (j.errors && j.errors.length > 0) {
+            j.errors.forEach(err => appendLog(`Fehler: ${err}`))
+          }
+        }
+      } catch {
+        // transient polling errors ignorieren
+      }
+    }, 2000)
+  }
+
+  // Reconnect: laufenden Job aus localStorage wiederherstellen
+  // Erst Job-Status prüfen — nur bei tatsächlich noch laufendem Job reconnecten
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (!saved) return
+    ;(async () => {
+      try {
+        const { jobId: savedId } = JSON.parse(saved) as { jobId: string }
+        if (!savedId) { localStorage.removeItem(STORAGE_KEY); return }
+
+        const j = await pollFn(savedId)
+        if (j.status === 'completed' || j.status === 'failed') {
+          // Job bereits fertig — localStorage aufräumen, UI bleibt auf 'scan'
+          localStorage.removeItem(STORAGE_KEY)
+          return
+        }
+        // Job läuft noch → Reconnect
+        setJobId(savedId)
+        setPhase('import')
+        setImporting(true)
+        lastModuleRef.current = null
+        appendLog('Verbinde mit laufendem Import…')
+        startPolling(savedId)
+      } catch {
+        // Job nicht mehr in DB oder Netzwerkfehler → localStorage löschen, kein Reconnect
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Auto-scroll log to bottom
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -644,6 +708,7 @@ function ImportPanel({
         pollingRef.current = null
       }
       setImporting(false)
+      localStorage.removeItem(STORAGE_KEY)
 
       if (job.status === 'completed') {
         getFusionQueue(5)
@@ -651,6 +716,7 @@ function ImportPanel({
           .catch(() => setFusionCount(null))
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job])
 
   // Cleanup on unmount
@@ -736,33 +802,13 @@ function ImportPanel({
 
       const id = await startFn(sourcePath.trim(), modulesToRun, importOptions)
       setJobId(id)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id }))
       appendLog(`Job gestartet (${id.slice(0, 8)})`)
 
-      pollingRef.current = setInterval(async () => {
-        try {
-          const j = await pollFn(id)
-          setJob(j)
+      // Indicator sofort aktualisieren
+      queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
 
-          if (j.current_module && j.current_module !== lastModuleRef.current) {
-            lastModuleRef.current = j.current_module
-            appendLog(j.current_module)
-          }
-
-          if (j.status === 'completed' && lastModuleRef.current !== '__completed__') {
-            lastModuleRef.current = '__completed__'
-            appendLog(`Abgeschlossen — ${j.completed_modules} Module verarbeitet`)
-          }
-          if (j.status === 'failed' && lastModuleRef.current !== '__failed__') {
-            lastModuleRef.current = '__failed__'
-            appendLog('Import fehlgeschlagen')
-            if (j.errors && j.errors.length > 0) {
-              j.errors.forEach(err => appendLog(`Fehler: ${err}`))
-            }
-          }
-        } catch {
-          // ignore transient polling errors
-        }
-      }, 2000)
+      startPolling(id)
     } catch (e) {
       setImportError(e instanceof Error ? e.message : String(e))
       setImporting(false)
@@ -923,6 +969,7 @@ function ImportPanel({
           (job.status === 'completed' || job.status === 'failed') && (
             <button
               onClick={() => {
+                localStorage.removeItem(STORAGE_KEY)
                 setPhase('scan')
                 setScanResult(null)
                 setScanError(null)

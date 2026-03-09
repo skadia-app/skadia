@@ -18,7 +18,7 @@ export function useActiveJobs() {
       const data = query.state.data
       if (!data) return POLL_INTERVAL_MS
       const hasActive = data.jobs.some(j => j.status === 'running')
-      return hasActive ? POLL_INTERVAL_MS : false
+      return hasActive ? POLL_INTERVAL_MS : 30_000
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
