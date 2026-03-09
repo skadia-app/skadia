@@ -241,12 +241,23 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		rows, _ := h.DB.Pool.Query(r.Context(),
 			`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID)
 		if rows != nil {
-			defer rows.Close()
 			for rows.Next() {
 				var cid string
-				rows.Scan(&cid)
+				if err := rows.Scan(&cid); err != nil {
+					slog.Error("delete activity: scan child id failed", "error", err)
+					rows.Close()
+					writeError(w, http.StatusInternalServerError, "Internal Error", "failed to scan child activity", r.URL.Path)
+					return
+				}
 				childIDs = append(childIDs, cid)
 			}
+			if err := rows.Err(); err != nil {
+				slog.Error("delete activity: rows iteration error", "error", err)
+				rows.Close()
+				writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list child activities", r.URL.Path)
+				return
+			}
+			rows.Close()
 		}
 		for _, cid := range childIDs {
 			if err := h.DB.DeleteActivity(r.Context(), userID, cid); err != nil {

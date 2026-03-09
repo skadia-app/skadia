@@ -195,7 +195,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	for field, srcID := range req.FieldMap {
 		sourceMap[field] = srcID
 	}
-	if err := h.DB.SetFusionSources(ctx, merged.ID, sourceMap); err != nil {
+	if err := h.DB.SetFusionSources(ctx, merged.ID, userID, sourceMap); err != nil {
 		slog.Warn("fusion-merge: set fusion sources failed", "error", err)
 	}
 

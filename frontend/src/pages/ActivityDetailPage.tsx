@@ -748,6 +748,7 @@ function ReprocessScopeModal({
 function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }: { activity: Activity; childCount: number; hiddenModules: Set<string>; onToggleModule: (name: string) => void }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { addToast } = useToast()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -845,11 +846,16 @@ function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }:
     },
   })
 
+  const [showRevertFusionModal, setShowRevertFusionModal] = useState(false)
+
   const revertFusionMutation = useMutation({
     mutationFn: () => revertFusion(activity.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activities'] })
       navigate('/activities')
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Fusion konnte nicht rückgängig gemacht werden', message: 'Bitte erneut versuchen.' })
     },
   })
 
@@ -941,7 +947,7 @@ function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }:
               ⚡ Fusion Ergebnis
             </span>
             <button
-              onClick={() => revertFusionMutation.mutate()}
+              onClick={() => setShowRevertFusionModal(true)}
               disabled={revertFusionMutation.isPending}
               className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
             >
@@ -989,6 +995,54 @@ function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }:
       )}
       {mergeDialogOpen && (
         <MergeDialog activity={activity} onClose={() => setMergeDialogOpen(false)} />
+      )}
+      {/* Fusion-Revert confirmation modal */}
+      {showRevertFusionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowRevertFusionModal(false)} />
+          <div className="relative bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+              Fusion rückgängig machen?
+            </h2>
+            <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-3">
+              <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <p className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
+                Die zusammengeführte Aktivität wird dauerhaft gelöscht. Die Quellaktivitäten werden wiederhergestellt und wieder sichtbar.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button
+                onClick={() => setShowRevertFusionModal(false)}
+                disabled={revertFusionMutation.isPending}
+                className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => {
+                  setShowRevertFusionModal(false)
+                  revertFusionMutation.mutate()
+                }}
+                disabled={revertFusionMutation.isPending}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              >
+                {revertFusionMutation.isPending ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Wird rückgängig gemacht…
+                  </>
+                ) : (
+                  'Rückgängig machen'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Export Dropdown */}

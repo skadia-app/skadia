@@ -73,6 +73,16 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Magic-byte detection: validate actual file content regardless of client-supplied header.
+	sniff := data
+	if len(sniff) > 512 {
+		sniff = sniff[:512]
+	}
+	if detected := http.DetectContentType(sniff); !strings.HasPrefix(detected, "image/") {
+		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
+		return
+	}
+
 	// Hash
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
@@ -208,7 +218,7 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	photoID := chi.URLParam(r, "photoID")
-	bucket, key, keyThumb, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
+	bucket, key, keyThumb, keyPreview, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
 		slog.Error("delete activity photo failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete photo", r.URL.Path)
@@ -217,6 +227,9 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
 	if keyThumb != key {
 		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyThumb)
+	}
+	if keyPreview != "" && keyPreview != key {
+		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyPreview)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -38,7 +38,7 @@ func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.SetFusionSources(r.Context(), activityID, sources); err != nil {
+	if err := h.DB.SetFusionSources(r.Context(), activityID, userID, sources); err != nil {
 		slog.Error("set fusion sources", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to set fusion sources", r.URL.Path)
 		return

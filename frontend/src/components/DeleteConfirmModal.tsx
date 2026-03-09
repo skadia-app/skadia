@@ -99,6 +99,12 @@ export default function DeleteConfirmModal({
               </p>
             </div>
 
+            {sourcesMode === 'delete' && (
+              <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                Die zusammengeführten Quellaktivitäten werden ebenfalls dauerhaft gelöscht.
+              </p>
+            )}
+
             {state === 'error' && (
               <p className="text-sm text-red-500">Fehler beim Löschen. Bitte erneut versuchen.</p>
             )}

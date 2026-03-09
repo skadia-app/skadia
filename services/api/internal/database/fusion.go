@@ -42,14 +42,16 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 type FusionSources map[string]string
 
 // SetFusionSources setzt die fusion_sources einer Aktivität.
-func (db *DB) SetFusionSources(ctx context.Context, activityID string, sources FusionSources) error {
+// userID wird als zusätzlicher Guard in die WHERE-Klausel einbezogen,
+// damit der DB-Layer auch bei direkten Aufrufen ownership-sicher ist.
+func (db *DB) SetFusionSources(ctx context.Context, activityID string, userID string, sources FusionSources) error {
 	data, err := json.Marshal(sources)
 	if err != nil {
 		return fmt.Errorf("marshal fusion sources: %w", err)
 	}
 	_, err = db.Pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $2 WHERE id = $1`,
-		activityID, data,
+		`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
+		activityID, data, userID,
 	)
 	return err
 }

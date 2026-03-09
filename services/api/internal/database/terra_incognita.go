@@ -29,16 +29,8 @@ type terraResult struct {
 //
 // The frontend stacks 5 fill layers with additive alpha compositing to create
 // a smooth fog gradient. The configured radius sits at ~50% opacity.
-//
-// An optional bbox [west, south, east, north] limits the query to a viewport.
-func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox *[4]float64, radiusM int) ([]string, float64, error) {
-	var bboxFilter string
+func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, radiusM int) ([]string, float64, error) {
 	args := []any{userID, radiusM} // $1=userID, $2=radiusM
-
-	if bbox != nil {
-		bboxFilter = `AND geom && ST_MakeEnvelope($3, $4, $5, $6, 4326)`
-		args = append(args, bbox[0], bbox[1], bbox[2], bbox[3])
-	}
 
 	emptyGeom := `{"type":"Polygon","coordinates":[]}`
 
@@ -47,11 +39,10 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 			SELECT ST_SimplifyPreserveTopology(geom, 0.0001) AS geom
 			FROM heatmap_lines
 			WHERE user_id = $1
-			%s
 		),
 		buffered AS (
 			SELECT ST_Buffer(geom::geography, $2)::geometry AS geom,
-			       ntile(8) OVER () AS bucket
+			       ntile(8) OVER (ORDER BY ST_Length(geom) DESC) AS bucket
 			FROM snapped
 			WHERE geom IS NOT NULL
 				AND ST_NumPoints(geom) >= 2
@@ -77,7 +68,7 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 			COALESCE(ST_AsGeoJSON(ST_Buffer(geom::geography,  $2 * 0.60)::geometry, 4), '%s'),
 			COALESCE(ST_Area(geom::geography) / 1000000, 0)
 		FROM merged`,
-		bboxFilter, emptyGeom, emptyGeom, emptyGeom, emptyGeom, emptyGeom)
+		emptyGeom, emptyGeom, emptyGeom, emptyGeom, emptyGeom)
 
 	var rings [5]string
 	var areaKm2 float64
@@ -103,8 +94,8 @@ func (db *DB) InvalidateTerraIncognitaCache(ctx context.Context, userID string) 
 
 // GetTerraIncognitaCoverageCached returns the terra incognita rings from cache
 // when the heatmap_lines count and configured radius match. On a cache miss it
-// calls GetTerraIncognitaCoverage (no bbox — always the full dataset) and
-// persists the result for subsequent requests.
+// calls GetTerraIncognitaCoverage (always the full dataset) and persists the
+// result for subsequent requests.
 func (db *DB) GetTerraIncognitaCoverageCached(ctx context.Context, userID string, radiusM int) ([]string, float64, error) {
 	// Count current heatmap lines to detect staleness.
 	var currentCount int
@@ -133,13 +124,21 @@ func (db *DB) GetTerraIncognitaCoverageCached(ctx context.Context, userID string
 	// Cache miss: use singleflight to prevent concurrent computation for the same user.
 	// If a computation is already in-flight for this user, all callers block and share
 	// the single result — avoiding parallel 30 s PostGIS queries.
+	//
+	// context.Background() is used inside the lambda so that if the first caller
+	// disconnects mid-way through the ~30 s PostGIS query, the computation
+	// continues and the result is shared with all other waiting callers.
+	// The request context is only used for the cheap cache-read above and the
+	// cache-write below, not for the heavy computation.
 	v, err, _ := db.terraInflight.Do(userID, func() (any, error) {
-		rings, areaKm2, err := db.GetTerraIncognitaCoverage(ctx, userID, nil, radiusM)
+		rings, areaKm2, err := db.GetTerraIncognitaCoverage(context.Background(), userID, radiusM)
 		if err != nil {
 			return nil, err
 		}
 		// Persist result (UPSERT — one row per user).
-		_, _ = db.Pool.Exec(ctx, `
+		// Use context.Background() here too: the heavy work is done; we must
+		// still write the cache even if the triggering request has gone away.
+		_, _ = db.Pool.Exec(context.Background(), `
 			INSERT INTO terra_incognita_cache (user_id, radius_m, rings, area_km2, heatmap_count, computed_at)
 			VALUES ($1, $2, $3, $4, $5, NOW())
 			ON CONFLICT (user_id) DO UPDATE SET

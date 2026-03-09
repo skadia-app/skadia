@@ -82,11 +82,11 @@ func (db *DB) UpdateActivityPhotoLocation(ctx context.Context, id, userID string
 	return p, err
 }
 
-func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucket, key, keyThumb string, err error) {
+func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucket, key, keyThumb, keyPreview string, err error) {
 	err = db.Pool.QueryRow(ctx,
-		`DELETE FROM activity_photos WHERE id = $1 AND user_id = $2 RETURNING s3_bucket, s3_key, s3_key_thumb`,
+		`DELETE FROM activity_photos WHERE id = $1 AND user_id = $2 RETURNING s3_bucket, s3_key, s3_key_thumb, COALESCE(s3_key_preview, '')`,
 		id, userID,
-	).Scan(&bucket, &key, &keyThumb)
+	).Scan(&bucket, &key, &keyThumb, &keyPreview)
 	return
 }
 
