@@ -475,11 +475,13 @@ export default function MapPage() {
 
   // Terra Incognita
   const terraIncognitaRef = useRef<TerraIncognitaCoverage | null>(null)
-  const { data: terraIncognitaData } = useQuery({
+  const { data: terraIncognitaData, isFetching: terraIncognitaFetching } = useQuery({
     queryKey: ['terra-incognita'],
     queryFn: () => fetchTerraIncognita(),
     staleTime: 5 * 60 * 1000, // 5 min cache
   })
+
+  const [isMapTilesLoading, setIsMapTilesLoading] = useState(false)
 
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -728,6 +730,13 @@ export default function MapPage() {
     }
     map.on('moveend', scheduleViewportSave)
     map.on('zoomend', scheduleViewportSave)
+
+    // Tile-Lade-Indikator: sourcedataloading nur für 'heatmap'-Source (Tracks+Heatmap+TI-Overlay),
+    // idle feuert wenn alle Tiles geladen sind.
+    map.on('sourcedataloading', (e) => {
+      if (e.sourceId === 'heatmap') setIsMapTilesLoading(true)
+    })
+    map.on('idle', () => setIsMapTilesLoading(false))
 
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(mapContainerRef.current)
@@ -1834,82 +1843,107 @@ export default function MapPage() {
           ))}
         </div>
 
-        {/* View mode toggle */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
-          <button
-            onClick={() => {
-              // Direkter synchroner Layer-Wechsel via Refs für sofortiges visuelles Feedback.
-              // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch
-              // von Web-Workern dekodiert werden (_hasPendingWorkerUpdate), obwohl der Style-JSON
-              // fertig ist und addSource/addLayer problemlos funktionieren.
-              const map = mapRef.current
-              if (map) {
-                removeOverlayLayers(map)
-                removeTerraIncognitaLayers(map)
-                if (filtersRef.current.sportTypes.size > 0) {
-                  addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
-                }
-              }
-              setViewMode('tracks')
-            }}
-            className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === 'tracks'
-                ? 'bg-accent-DEFAULT text-white'
-                : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-            }`}
-          >
-            Tracks
-          </button>
-          <button
-            onClick={() => {
-              const map = mapRef.current
-              if (map) {
-                removeOverlayLayers(map)
-                removeTerraIncognitaLayers(map)
-                if (filtersRef.current.sportTypes.size > 0) {
-                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
-                }
-              }
-              setViewMode('heatmap')
-            }}
-            className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === 'heatmap'
-                ? 'bg-accent-DEFAULT text-white'
-                : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-            }`}
-          >
-            Heatmap
-          </button>
-          <button
-            onClick={() => {
-              const map = mapRef.current
-              if (map) {
-                removeOverlayLayers(map)
-                removeTerraIncognitaLayers(map)
-                const geom = terraIncognitaRef.current?.terra_incognita_area
-                  ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
-                addTerraIncognitaLayers(map, geom)
-              }
-              setViewMode('terra_incognita')
-            }}
-            className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === 'terra_incognita'
-                ? 'bg-accent-DEFAULT text-white'
-                : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-            }`}
-          >
-            Terra Incognita
-          </button>
-        </div>
+        {/* View mode toggle + Lade-Indikator + Terra-Incognita-Badge
+            Gemeinsamer Wrapper: flex-col + items-stretch → alle Kinder teilen automatisch
+            die gleiche Breite (bestimmt durch den breitesten Inhalt, i.d.R. die Tabs).
+            Wächst nur breiter, wenn ein Kind breiter ist; niemals schmäler als die Tabs. */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-stretch gap-1.5">
 
-        {/* Terra Incognita stats badge */}
-        {viewMode === 'terra_incognita' && terraIncognitaData && (
-          <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-              {terraIncognitaData.area_km2.toFixed(1)} km² Terra Incognita
-            </span>
+          {/* Lade-Indikator — erscheint während Tiles/API laden */}
+          {(isMapTilesLoading || (viewMode === 'terra_incognita' && terraIncognitaFetching)) && (
+            <div className="flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-white/92 dark:bg-neutral-800/92 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md pointer-events-none">
+              <div className="w-3 h-3 rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-orange-500 animate-spin flex-shrink-0" />
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
+                {viewMode === 'tracks' && 'Tracks werden geladen'}
+                {viewMode === 'heatmap' && 'Heatmap wird gerendert'}
+                {viewMode === 'terra_incognita' && 'Nebel zieht auf'}
+                <span className="inline-flex gap-px ml-0.5">
+                  <span className="animate-[bounce_1.2s_ease-in-out_0s_infinite]">.</span>
+                  <span className="animate-[bounce_1.2s_ease-in-out_0.2s_infinite]">.</span>
+                  <span className="animate-[bounce_1.2s_ease-in-out_0.4s_infinite]">.</span>
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* Terra Incognita Flächen-Badge — erst sichtbar nachdem Ladevorgang abgeschlossen */}
+          {viewMode === 'terra_incognita' && terraIncognitaData && !isMapTilesLoading && !terraIncognitaFetching && (
+            <div className="flex justify-center px-4 py-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
+              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
+                {terraIncognitaData.area_km2.toFixed(1)} km² entdeckt
+              </span>
+            </div>
+          )}
+
+          {/* View mode tabs */}
+          <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
+            <button
+              onClick={() => {
+                // Direkter synchroner Layer-Wechsel via Refs für sofortiges visuelles Feedback.
+                // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch
+                // von Web-Workern dekodiert werden (_hasPendingWorkerUpdate), obwohl der Style-JSON
+                // fertig ist und addSource/addLayer problemlos funktionieren.
+                const map = mapRef.current
+                if (map) {
+                  removeOverlayLayers(map)
+                  removeTerraIncognitaLayers(map)
+                  if (filtersRef.current.sportTypes.size > 0) {
+                    addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                  }
+                }
+                setViewMode('tracks')
+              }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === 'tracks'
+                  ? 'bg-accent-DEFAULT text-white'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              Tracks
+            </button>
+            <button
+              onClick={() => {
+                const map = mapRef.current
+                if (map) {
+                  removeOverlayLayers(map)
+                  removeTerraIncognitaLayers(map)
+                  if (filtersRef.current.sportTypes.size > 0) {
+                    addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                  }
+                }
+                setViewMode('heatmap')
+              }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === 'heatmap'
+                  ? 'bg-accent-DEFAULT text-white'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              Heatmap
+            </button>
+            <button
+              onClick={() => {
+                const map = mapRef.current
+                if (map) {
+                  removeOverlayLayers(map)
+                  removeTerraIncognitaLayers(map)
+                  const geom = terraIncognitaRef.current?.terra_incognita_area
+                    ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
+                  addTerraIncognitaLayers(map, geom)
+                }
+                setViewMode('terra_incognita')
+              }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === 'terra_incognita'
+                  ? 'bg-accent-DEFAULT text-white'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              Terra Incognita
+            </button>
           </div>
-        )}
+
+        </div>
 
         {/* Toggle buttons for custom maps + photos + segments + indoor */}
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
