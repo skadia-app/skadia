@@ -27,6 +27,7 @@ export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 type ViewMode = 'tracks' | 'heatmap' | 'terra_incognita'
+const VALID_VIEW_MODES: readonly ViewMode[] = ['tracks', 'heatmap', 'terra_incognita']
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -414,7 +415,11 @@ export default function MapPage() {
     colorConfig: loadColorConfig(),
     heatmapColor: loadHeatmapColor(),
   })
-  const [viewMode, setViewMode] = useState<ViewMode>(savedViewport?.viewMode ?? 'tracks')
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    VALID_VIEW_MODES.includes(savedViewport?.viewMode as ViewMode)
+      ? (savedViewport!.viewMode as ViewMode)
+      : 'tracks'
+  )
   // Dark-Karte → UI-Dark-Mode: beim Wechsel auf 'dark' Karte schaltet die gesamte UI
   // in den Dark Mode; beim Wegwechseln wird der vorherige Zustand wiederhergestellt.
   useEffect(() => {
