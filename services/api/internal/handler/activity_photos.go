@@ -76,6 +76,12 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	// Hash
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
+	// Duplikat-Prüfung
+	if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
+		writeError(w, http.StatusConflict, "Duplicate", "photo already exists", r.URL.Path)
+		return
+	}
+
 	// EXIF-Daten extrahieren (GPS + Zeitstempel)
 	takenAt, lat, lng, locationSource := extractExifData(data, ct)
 

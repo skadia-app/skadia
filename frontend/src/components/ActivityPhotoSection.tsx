@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
+import { ApiError } from '@/api/client'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
@@ -13,6 +15,7 @@ interface Props {
 
 export default function ActivityPhotoSection({ activityId }: Props) {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -61,6 +64,13 @@ export default function ActivityPhotoSection({ activityId }: Props) {
     mutationFn: (file: File) => uploadActivityPhoto(activityId, file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity-photos', activityId] })
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        addToast({ type: 'warning', title: 'Foto bereits vorhanden', message: 'Dieses Foto wurde bereits hochgeladen.' })
+      } else {
+        addToast({ type: 'error', title: 'Upload fehlgeschlagen', duration: 0 })
+      }
     },
   })
 

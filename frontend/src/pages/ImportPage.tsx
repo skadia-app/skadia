@@ -124,6 +124,7 @@ function categoryLabel(cat: string): string {
     gear: 'Ausrüstung',
     profile: 'Profil',
     privacy_zones: 'Privacy-Zonen',
+    media: 'Fotos',
     health: 'Gesundheit (Schritte, Schlaf, Gewicht)',
     monitoring: 'Sensor-Rohdaten (HRV, Ruhepuls, SpO₂)',
   }
@@ -236,7 +237,7 @@ function ScanResultsView({ result, onContinue }: ScanResultsProps) {
             >
               <div className="font-medium text-sm">{categoryLabel(cat)}</div>
               <div className="text-xs text-neutral-500 mt-0.5">
-                {cat === 'activities'
+                {(cat === 'activities' || cat === 'media')
                   ? `${stats.new} neu · ${stats.existing} vorhanden · ${stats.found} gesamt`
                   : `${stats.found} gefunden`}
               </div>

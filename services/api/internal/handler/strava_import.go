@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -265,6 +267,13 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 			} else {
 				stats.Existing = existing
 			}
+		} else if m.Name == "media" {
+			existing, err := scanExistingStravaMedia(r.Context(), h, userID, src)
+			if err != nil {
+				slog.Warn("strava scan: media existence check failed", "error", err)
+			} else {
+				stats.Existing = existing
+			}
 		}
 		stats.New = stats.Found - stats.Existing
 		if stats.New < 0 {
@@ -317,6 +326,60 @@ func scanExistingStravaActivities(ctx context.Context, h *Handler, userID string
 	return h.DB.CountExistingStravaActivityIDs(ctx, userID, stravaIDs)
 }
 
+// scanExistingStravaMedia reads media.csv, opens each referenced photo file, computes its
+// SHA256 hash and checks whether a photo with that hash already exists for the user.
+// Returns the count of photos that already exist in the DB. Read-only — no writes.
+func scanExistingStravaMedia(ctx context.Context, h *Handler, userID string, src *strava.DirSource) (int, error) {
+	rows, err := src.ReadCSV("media.csv")
+	if err != nil || len(rows) < 2 {
+		return 0, nil
+	}
+
+	hdr := stravaCSVHeader(rows[0])
+	fileColIdx, ok := hdr["Medien-Dateiname"]
+	if !ok {
+		// Fallback: try English column name
+		fileColIdx, ok = hdr["Media Filename"]
+		if !ok {
+			return 0, nil
+		}
+	}
+
+	existing := 0
+	for _, row := range rows[1:] {
+		if ctx.Err() != nil {
+			break
+		}
+		if fileColIdx >= len(row) {
+			continue
+		}
+		relPath := strings.TrimSpace(row[fileColIdx])
+		if relPath == "" {
+			continue
+		}
+
+		data, err := src.ReadFile(relPath)
+		if err != nil {
+			// File not present in the export — skip
+			continue
+		}
+
+		hashBytes := sha256.Sum256(data)
+		hash := fmt.Sprintf("%x", hashBytes)
+
+		exists, err := h.DB.ActivityPhotoExistsByHash(ctx, userID, hash)
+		if err != nil {
+			slog.Warn("strava scan: media hash check failed", "file", relPath, "error", err)
+			continue
+		}
+		if exists {
+			existing++
+		}
+	}
+
+	return existing, nil
+}
+
 // stravaCSVHeader builds a column-name → column-index map from a Strava CSV header row.
 func stravaCSVHeader(row []string) map[string]int {
 	h := make(map[string]int, len(row))
@@ -363,6 +426,13 @@ func (h *Handler) UploadStravaZIPScan(w http.ResponseWriter, r *http.Request) {
 			existing, err := scanExistingStravaActivities(r.Context(), h, userID, src)
 			if err != nil {
 				slog.Warn("strava zip scan: activity existence check failed", "error", err)
+			} else {
+				stats.Existing = existing
+			}
+		} else if m.Name == "media" {
+			existing, err := scanExistingStravaMedia(r.Context(), h, userID, src)
+			if err != nil {
+				slog.Warn("strava zip scan: media existence check failed", "error", err)
 			} else {
 				stats.Existing = existing
 			}

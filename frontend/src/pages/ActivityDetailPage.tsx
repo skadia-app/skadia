@@ -7,7 +7,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
-import { apiDownload } from '@/api/client'
+import { apiDownload, ApiError } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
@@ -50,6 +50,7 @@ import { MultisportMap, type MultisportMapHandle } from '@/components/activity/M
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
+import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
   const map: Record<string, string> = {
@@ -65,6 +66,7 @@ function getSportEmoji(sportType: string): string {
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
 
   const { data: activity, isLoading } = useQuery({
     queryKey: ['activity', id],
@@ -188,8 +190,12 @@ export default function ActivityDetailPage() {
     if (!files || files.length === 0) return
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
-    Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(id, f))).then(() => {
+    Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(id, f))).then((results) => {
       queryClient.invalidateQueries({ queryKey: ['activity-photos', id] })
+      const duplicates = results.filter(r => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 409).length
+      if (duplicates > 0) {
+        addToast({ type: 'warning', title: `${duplicates} Foto${duplicates > 1 ? 's' : ''} bereits vorhanden`, message: 'Duplikate wurden nicht erneut hochgeladen.' })
+      }
     })
   }, [id, queryClient])
 

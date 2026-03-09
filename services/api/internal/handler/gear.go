@@ -695,6 +695,12 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
+	// Duplikat-Prüfung
+	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
+		writeError(w, http.StatusConflict, "Duplicate", "document already exists", r.URL.Path)
+		return
+	}
+
 	// Determine file extension
 	ext := filepath.Ext(header.Filename)
 	if ext == "" {
@@ -969,6 +975,12 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
+
+	// Duplikat-Prüfung
+	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
+		writeError(w, http.StatusConflict, "Duplicate", "document already exists", r.URL.Path)
+		return
+	}
 
 	ext := filepath.Ext(header.Filename)
 	if ext == "" {

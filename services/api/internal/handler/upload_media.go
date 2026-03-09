@@ -166,6 +166,12 @@ func (h *Handler) autoAssignPhoto(
 
 	ext := imageExtFromContentType(ct)
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+
+	// Duplikat-Prüfung: bereits vorhandene Fotos überspringen
+	if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
+		return mediaUploadResult{Filename: filename, Status: "duplicate"}
+	}
+
 	mediaBucket := mediaBucketName()
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
@@ -230,6 +236,14 @@ func (h *Handler) queueMediaFile(
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+
+	// Duplikat-Prüfung für Fotos (nicht für PDFs)
+	if ct != "application/pdf" {
+		if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
+			return mediaUploadResult{Filename: filename, Status: "duplicate"}
+		}
+	}
+
 	tempBucket := mediaBucketName()
 	s3Key := fmt.Sprintf("media-temp/%s/%s%s", userID, hash, ext)
 

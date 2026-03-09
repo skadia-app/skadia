@@ -1503,6 +1503,15 @@ func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	return &d, nil
 }
 
+func (db *DB) GearDocumentExistsByHash(ctx context.Context, userID, hash string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM gear_documents WHERE user_id = $1 AND file_hash = $2)`,
+		userID, hash,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (db *DB) InsertGearDocument(ctx context.Context, doc *model.GearDocument) (*model.GearDocument, error) {
 	return scanGearDocument(db.Pool.QueryRow(ctx, `
 		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key)
