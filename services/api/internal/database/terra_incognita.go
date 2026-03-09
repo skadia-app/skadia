@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-// GetExplorationCoverage computes the explored area as a single GeoJSON polygon
+// GetTerraIncognitaCoverage computes the terra incognita area as a single GeoJSON polygon
 // by buffering and unioning all heatmap_lines for a user.
 // Uses ST_SnapToGrid for performance (~200m grid) before buffering.
 // Returns the GeoJSON string and area in km².
 // An optional bbox [west, south, east, north] limits the query to a viewport.
-func (db *DB) GetExplorationCoverage(ctx context.Context, userID string, bbox *[4]float64) (string, float64, error) {
+func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox *[4]float64) (string, float64, error) {
 	var bboxFilter string
 	args := []any{userID}
 

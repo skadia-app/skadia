@@ -10,9 +10,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
-// GetExplorationCoverage returns a GeoJSON polygon of explored area
+// GetTerraIncognitaCoverage returns a GeoJSON polygon of explored area
 // (union of buffered heatmap lines) and the total explored area in km².
-func (h *Handler) GetExplorationCoverage(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
@@ -40,9 +40,9 @@ func (h *Handler) GetExplorationCoverage(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	geojson, areaKm2, err := h.DB.GetExplorationCoverage(r.Context(), userID, bbox)
+	geojson, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox)
 	if err != nil {
-		slog.Error("exploration coverage query failed", "error", err, "user_id", userID)
+		slog.Error("terra incognita coverage query failed", "error", err, "user_id", userID)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)
 		return
 	}
@@ -50,5 +50,5 @@ func (h *Handler) GetExplorationCoverage(w http.ResponseWriter, r *http.Request)
 	// Return raw GeoJSON string to avoid double-encoding
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"explored_area":%s,"area_km2":%.2f}`, geojson, areaKm2)
+	fmt.Fprintf(w, `{"terra_incognita_area":%s,"area_km2":%.2f}`, geojson, areaKm2)
 }

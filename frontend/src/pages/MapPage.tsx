@@ -20,13 +20,13 @@ import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
 import { fetchActivity, updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
-import { fetchExplorationCoverage, type ExplorationCoverage } from '@/api/exploration'
+import { fetchTerraIncognita, type TerraIncognitaCoverage } from '@/api/terraIncognita'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
-type ViewMode = 'tracks' | 'heatmap' | 'exploration'
+type ViewMode = 'tracks' | 'heatmap' | 'terra_incognita'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -466,11 +466,11 @@ export default function MapPage() {
   })
   const [segmentFilters, setSegmentFilters] = useState<SegmentsOverlayFilters>(DEFAULT_SEGMENT_FILTERS)
 
-  // Entdeckungskarte
-  const explorationDataRef = useRef<ExplorationCoverage | null>(null)
-  const { data: explorationData } = useQuery({
-    queryKey: ['exploration-coverage'],
-    queryFn: () => fetchExplorationCoverage(),
+  // Terra Incognita
+  const terraIncognitaRef = useRef<TerraIncognitaCoverage | null>(null)
+  const { data: terraIncognitaData } = useQuery({
+    queryKey: ['terra-incognita'],
+    queryFn: () => fetchTerraIncognita(),
     staleTime: 5 * 60 * 1000, // 5 min cache
   })
 
@@ -686,10 +686,10 @@ export default function MapPage() {
     map.on('style.load', () => {
       map.resize()
       removeOverlayLayers(map)
-      removeExplorationLayers(map)
-      if (viewModeRef.current === 'exploration') {
-        if (explorationDataRef.current?.explored_area) {
-          addExplorationLayers(map, explorationDataRef.current.explored_area)
+      removeTerraIncognitaLayers(map)
+      if (viewModeRef.current === 'terra_incognita') {
+        if (terraIncognitaRef.current?.terra_incognita_area) {
+          addTerraIncognitaLayers(map, terraIncognitaRef.current.terra_incognita_area)
         }
       } else {
         addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current, currentUserIdRef.current)
@@ -763,18 +763,18 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    if (viewMode === 'exploration') {
-      // Beim Wechsel zu Exploration: Overlay-Source komplett entfernen (inkl. Tile-Cache),
-      // da die Source für Exploration nicht mehr benötigt wird.
+    if (viewMode === 'terra_incognita') {
+      // Beim Wechsel zu Terra Incognita: Overlay-Source komplett entfernen (inkl. Tile-Cache),
+      // da die Source für Terra Incognita nicht mehr benötigt wird.
       removeOverlayLayers(map)
-      removeExplorationLayers(map)
-      // Sofortiger Nebel (bei fehlendem explorationData: volle Welt-Abdeckung als Fallback).
-      const geom = explorationDataRef.current?.explored_area
+      removeTerraIncognitaLayers(map)
+      // Sofortiger Nebel (bei fehlendem terraIncognitaData: volle Welt-Abdeckung als Fallback).
+      const geom = terraIncognitaRef.current?.terra_incognita_area
         ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
-      addExplorationLayers(map, geom)
+      addTerraIncognitaLayers(map, geom)
     } else {
       removeOverlayLayers(map)
-      removeExplorationLayers(map)
+      removeTerraIncognitaLayers(map)
       if (filters.sportTypes.size > 0) {
         addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
       }
@@ -782,22 +782,22 @@ export default function MapPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion])
 
-  // ── Exploration Overlay Layer ─────────────────────────────────────────────
+  // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
   // weil setStyle() alle Custom-Layers löscht. Dieser Effect aktualisiert die Ref
-  // und baut den Layer neu auf. Hinweis: der style.load-Handler liest explorationDataRef
+  // und baut den Layer neu auf. Hinweis: der style.load-Handler liest terraIncognitaRef
   // synchron, kann dabei aber eine veraltete (noch nicht durch diesen Effect befüllte)
   // Ref sehen. styleVersion stellt sicher, dass der Layer spätestens beim nächsten
   // styleVersion-Trigger korrekt vorhanden ist.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    explorationDataRef.current = explorationData ?? null
-    removeExplorationLayers(map)
-    if (viewMode === 'exploration' && explorationData?.explored_area) {
-      addExplorationLayers(map, explorationData.explored_area)
+    terraIncognitaRef.current = terraIncognitaData ?? null
+    removeTerraIncognitaLayers(map)
+    if (viewMode === 'terra_incognita' && terraIncognitaData?.terra_incognita_area) {
+      addTerraIncognitaLayers(map, terraIncognitaData.terra_incognita_area)
     }
-  }, [viewMode, explorationData, styleVersion])
+  }, [viewMode, terraIncognitaData, styleVersion])
 
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
@@ -1827,7 +1827,7 @@ export default function MapPage() {
               const map = mapRef.current
               if (map) {
                 removeOverlayLayers(map)
-                removeExplorationLayers(map)
+                removeTerraIncognitaLayers(map)
                 if (filtersRef.current.sportTypes.size > 0) {
                   addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
                 }
@@ -1847,7 +1847,7 @@ export default function MapPage() {
               const map = mapRef.current
               if (map) {
                 removeOverlayLayers(map)
-                removeExplorationLayers(map)
+                removeTerraIncognitaLayers(map)
                 if (filtersRef.current.sportTypes.size > 0) {
                   addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
                 }
@@ -1867,28 +1867,28 @@ export default function MapPage() {
               const map = mapRef.current
               if (map) {
                 removeOverlayLayers(map)
-                removeExplorationLayers(map)
-                const geom = explorationDataRef.current?.explored_area
+                removeTerraIncognitaLayers(map)
+                const geom = terraIncognitaRef.current?.terra_incognita_area
                   ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
-                addExplorationLayers(map, geom)
+                addTerraIncognitaLayers(map, geom)
               }
-              setViewMode('exploration')
+              setViewMode('terra_incognita')
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === 'exploration'
+              viewMode === 'terra_incognita'
                 ? 'bg-accent-DEFAULT text-white'
                 : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Entdeckung
+            Terra Incognita
           </button>
         </div>
 
-        {/* Exploration stats badge */}
-        {viewMode === 'exploration' && explorationData && (
+        {/* Terra Incognita stats badge */}
+        {viewMode === 'terra_incognita' && terraIncognitaData && (
           <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
             <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-              {explorationData.area_km2.toFixed(1)} km² erkundet
+              {terraIncognitaData.area_km2.toFixed(1)} km² Terra Incognita
             </span>
           </div>
         )}
@@ -2564,24 +2564,24 @@ function removeOverlayLayers(map: maplibregl.Map) {
   if (map.getSource('heatmap')) map.removeSource('heatmap')
 }
 
-const EXPLORATION_LAYER_IDS = ['exploration-overlay'] as const
+const TERRA_INCOGNITA_LAYER_IDS = ['terra-incognita-overlay'] as const
 
-function removeExplorationLayers(map: maplibregl.Map) {
-  for (const id of EXPLORATION_LAYER_IDS) {
+function removeTerraIncognitaLayers(map: maplibregl.Map) {
+  for (const id of TERRA_INCOGNITA_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
-  if (map.getSource('exploration')) map.removeSource('exploration')
+  if (map.getSource('terra-incognita')) map.removeSource('terra-incognita')
 }
 
 /**
- * Add exploration overlay: a world-covering polygon with explored area
+ * Add terra incognita overlay: a world-covering polygon with explored area
  * cut out as holes → unexplored regions appear as semi-transparent dark overlay.
  *
- * Diese Funktion ist self-cleaning: sie ruft intern removeExplorationLayers() auf,
- * bevor sie Source und Layer hinzufügt. Aufrufer müssen removeExplorationLayers()
+ * Diese Funktion ist self-cleaning: sie ruft intern removeTerraIncognitaLayers() auf,
+ * bevor sie Source und Layer hinzufügt. Aufrufer müssen removeTerraIncognitaLayers()
  * nicht vorher aufrufen.
  */
-function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
+function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
   // World-covering polygon (outer ring, counter-clockwise = RFC 7946 exterior)
   const worldRing: GeoJSON.Position[] = [
     [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85],
@@ -2616,16 +2616,16 @@ function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geo
 
   // Defensive Bereinigung: verhindert "Source already exists"-Fehler bei
   // doppeltem Aufruf (z.B. durch style.load-Handler + React-Effect gleichzeitig).
-  removeExplorationLayers(map)
-  map.addSource('exploration', {
+  removeTerraIncognitaLayers(map)
+  map.addSource('terra-incognita', {
     type: 'geojson',
     data: unexploredPolygon,
   })
 
   map.addLayer({
-    id: 'exploration-overlay',
+    id: 'terra-incognita-overlay',
     type: 'fill',
-    source: 'exploration',
+    source: 'terra-incognita',
     paint: {
       'fill-color': '#1a1a2e',
       'fill-opacity': 0.6,

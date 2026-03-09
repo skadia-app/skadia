@@ -336,7 +336,7 @@ func main() {
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
 
 			// Entdeckungskarte
-			r.Get("/exploration/coverage", h.GetExplorationCoverage)
+			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
 
 			// Peaks Collection
 			r.Get("/peaks/collection", h.GetPeakCollection)
