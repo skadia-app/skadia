@@ -140,6 +140,23 @@ export default function ActivityDetailPage() {
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
 
+  // Per-activity module visibility (persisted in localStorage)
+  const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(`skadia-hidden-modules-${id ?? ''}`)
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch { return new Set() }
+  })
+  const toggleModule = (name: string) => {
+    setHiddenModules(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      try { localStorage.setItem(`skadia-hidden-modules-${id ?? ''}`, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
+
   // Load child streams for multisport combined chart
   const { data: childStreams } = useQuery({
     queryKey: ['multisport-streams', id, childActivities?.map(c => c.id)],
@@ -242,7 +259,7 @@ export default function ActivityDetailPage() {
       </div>
 
       {/* Header */}
-      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} />
+      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} hiddenModules={hiddenModules} onToggleModule={toggleModule} />
 
       {/* Tags (user + enrichment) in one row */}
       <div className="flex flex-wrap items-center gap-2">
@@ -651,7 +668,7 @@ function ReprocessScopeModal({
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function ActivityHeader({ activity, childCount }: { activity: Activity; childCount: number }) {
+function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }: { activity: Activity; childCount: number; hiddenModules: Set<string>; onToggleModule: (name: string) => void }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
@@ -659,22 +676,6 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [exportOpen, setExportOpen] = useState(false)
   const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
 
-  // Per-activity module visibility (persisted in localStorage)
-  const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(`skadia-hidden-modules-${activity.id}`)
-      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
-    } catch { return new Set() }
-  })
-  const toggleModule = (name: string) => {
-    setHiddenModules(prev => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      try { localStorage.setItem(`skadia-hidden-modules-${activity.id}`, JSON.stringify([...next])) } catch { /* ignore */ }
-      return next
-    })
-  }
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [trimDialogOpen, setTrimDialogOpen] = useState(false)

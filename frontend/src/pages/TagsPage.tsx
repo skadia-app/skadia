@@ -564,6 +564,9 @@ export default function TagsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  // Track whether the current editingId came from a URL ?edit= param (needs auto-scroll)
+  const [urlEditId, setUrlEditId] = useState<string | null>(null)
+  const editFormRef = useRef<HTMLDivElement>(null)
 
   // Open edit form when navigated to with ?edit=<tagId>
   useEffect(() => {
@@ -571,11 +574,24 @@ export default function TagsPage() {
     const editId = params.get('edit')
     if (editId) {
       setEditingId(editId)
+      setUrlEditId(editId)
       setShowForm(false)
     }
   }, [location.search])
 
   const [expandedActivitiesId, setExpandedActivitiesId] = useState<string | null>(null)
+
+  // Scroll to the edit form after it becomes visible (tags loaded + editingId set via URL).
+  // No dependency array: runs after every render so it catches the moment editFormRef becomes
+  // available (after the tags query resolves and the form div is mounted in the DOM).
+  // The setUrlEditId(null) guard ensures it only scrolls once.
+  useEffect(() => {
+    if (urlEditId && editingId === urlEditId && editFormRef.current) {
+      editFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setUrlEditId(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  })
 
   // --- Merge state ---
   const [mergeSourceId, setMergeSourceId] = useState<string>('')
@@ -792,7 +808,7 @@ export default function TagsPage() {
 
       {/* Full edit form below table (for non-inline edit, i.e. autotags/system-autotags) */}
       {editingId !== null && allTags.find(t => t.id === editingId) && (
-        <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+        <div ref={editFormRef} className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">
             Tag bearbeiten: <span style={{ color: allTags.find(t => t.id === editingId)?.color }}>
               {allTags.find(t => t.id === editingId)?.name}

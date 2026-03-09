@@ -1532,13 +1532,16 @@ export default function MapPage() {
   useEffect(() => {
     if (!selectedLocationTagId) {
       setTagActivities([])
+      setTagActivitiesLoading(false)
       return
     }
+    let cancelled = false
     setTagActivitiesLoading(true)
     fetchTagActivities(selectedLocationTagId)
-      .then(acts => setTagActivities(acts))
-      .catch(() => setTagActivities([]))
-      .finally(() => setTagActivitiesLoading(false))
+      .then(acts => { if (!cancelled) setTagActivities(acts) })
+      .catch(() => { if (!cancelled) setTagActivities([]) })
+      .finally(() => { if (!cancelled) setTagActivitiesLoading(false) })
+    return () => { cancelled = true }
   }, [selectedLocationTagId])
 
   // Location tag popup: gallery state + photo loading
