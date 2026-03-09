@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiClient, apiUpload } from '@/api/client'
+import { apiClient, apiUploadWithProgress } from '@/api/client'
 import {
   scanGarminExport,
   scanStravaExport,
@@ -68,10 +68,13 @@ async function getGarminImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/garmin/jobs/${jobId}`)
 }
 
-async function uploadGarminZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
+async function uploadGarminZIPScan(
+  file: File,
+  onUploaded?: () => void,
+): Promise<{ source_path: string; scan_result: ScanResult }> {
   const fd = new FormData()
   fd.append('file', file)
-  return apiUpload('/import/garmin/upload-zip-scan', fd)
+  return apiUploadWithProgress('/import/garmin/upload-zip-scan', fd, onUploaded)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +101,13 @@ async function getStravaImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/strava/jobs/${jobId}`)
 }
 
-async function uploadStravaZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
+async function uploadStravaZIPScan(
+  file: File,
+  onUploaded?: () => void,
+): Promise<{ source_path: string; scan_result: ScanResult }> {
   const fd = new FormData()
   fd.append('file', file)
-  return apiUpload('/import/strava/upload-zip-scan', fd)
+  return apiUploadWithProgress('/import/strava/upload-zip-scan', fd, onUploaded)
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +597,7 @@ interface ImportPanelProps {
   detectFn: (path: string) => Promise<DetectedModule[]>
   startFn: (path: string, modules: string[], options: ImportOptions) => Promise<string>
   pollFn: (jobId: string) => Promise<ImportJob>
-  scanZipFn: (file: File) => Promise<{ source_path: string; scan_result: ScanResult }>
+  scanZipFn: (file: File, onUploaded?: () => void) => Promise<{ source_path: string; scan_result: ScanResult }>
 }
 
 function ImportPanel({
@@ -609,7 +615,7 @@ function ImportPanel({
   const STORAGE_KEY = `skadia-import-job-${platform}`
 
   const [sourcePath, setSourcePath] = useState(defaultPath)
-  const [isUploading, setIsUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'scanning'>('idle')
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -753,14 +759,13 @@ function ImportPanel({
   }
 
   async function handleZIPUpload(file: File) {
-    setIsUploading(true)
+    setUploadStatus('uploading')
     setScanError(null)
     setScanResult(null)
     setLog([])
-    appendLog(`ZIP wird hochgeladen (${(file.size / 1024 / 1024).toFixed(1)} MB)…`)
 
     try {
-      const { source_path, scan_result } = await scanZipFn(file)
+      const { source_path, scan_result } = await scanZipFn(file, () => setUploadStatus('scanning'))
       setSourcePath(source_path)
       setScanResult(scan_result)
       const cats = Object.entries(scan_result)
@@ -768,11 +773,10 @@ function ImportPanel({
         .map(([cat]) => cat)
       setImportOptions(prev => ({ ...prev, categories: cats }))
       setPhase('config')
-      // Keep log visible in wizard panel
     } catch (e) {
       setScanError(e instanceof Error ? e.message : String(e))
     } finally {
-      setIsUploading(false)
+      setUploadStatus('idle')
     }
   }
 
@@ -858,11 +862,11 @@ function ImportPanel({
             }
           }}
           placeholder={dirPlaceholder}
-          disabled={(phase === 'import' && importing) || isUploading}
+          disabled={(phase === 'import' && importing) || uploadStatus !== 'idle'}
           className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
         />
         {/* Action buttons — only in scan phase before results are shown */}
-        {phase === 'scan' && !isUploading && !scanResult && (
+        {phase === 'scan' && uploadStatus === 'idle' && !scanResult && (
           <div className="flex flex-col items-stretch gap-3">
             <button
               onClick={handleAnalyse}
@@ -898,14 +902,14 @@ function ImportPanel({
             </button>
           </div>
         )}
-        {/* Upload in progress indicator */}
-        {isUploading && (
+        {/* Upload / scan in progress indicator */}
+        {uploadStatus !== 'idle' && (
           <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
             <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
-            ZIP wird hochgeladen…
+            {uploadStatus === 'uploading' ? 'ZIP wird hochgeladen…' : 'Wird analysiert…'}
           </div>
         )}
       </section>

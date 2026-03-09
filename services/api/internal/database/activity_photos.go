@@ -84,6 +84,15 @@ func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucke
 	return
 }
 
+func (db *DB) ActivityPhotoExistsByHash(ctx context.Context, userID, hash string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_photos WHERE user_id = $1 AND file_hash = $2)`,
+		userID, hash,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhotoEntry, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT ap.id, ap.activity_id, a.title, ap.lat, ap.lng, ap.taken_at

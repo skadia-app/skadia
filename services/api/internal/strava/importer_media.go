@@ -100,6 +100,14 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		hashBytes := sha256.Sum256(data)
 		hash := fmt.Sprintf("%x", hashBytes)
 
+		// Skip if photo with same hash already exists for this user
+		if params.DB != nil {
+			if exists, err := params.DB.ActivityPhotoExistsByHash(ctx, params.UserID, hash); err == nil && exists {
+				result.Skipped++
+				continue
+			}
+		}
+
 		// Generate thumbnail
 		thumbData, thumbErr := mediaGenerateThumbnail(data, 200, 200)
 

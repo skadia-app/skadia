@@ -60,6 +60,49 @@ function doFetch(path: string, options: RequestOptions): Promise<Response> {
   })
 }
 
+/**
+ * Upload FormData via XHR with optional callback when all bytes are sent (before server response).
+ * Useful to distinguish "uploading" and "processing/scanning" phases in the UI.
+ */
+export function apiUploadWithProgress<T>(
+  path: string,
+  formData: FormData,
+  onUploaded?: () => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+    const token = getToken()
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url)
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.withCredentials = true
+
+    if (onUploaded) {
+      xhr.upload.addEventListener('load', onUploaded)
+    }
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 401) {
+        clearToken()
+        window.location.href = '/login'
+        reject(new ApiError(401, 'Unauthorized'))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(xhr.status, xhr.responseText))
+        return
+      }
+      try {
+        resolve(JSON.parse(xhr.responseText) as T)
+      } catch {
+        reject(new Error('Invalid JSON response'))
+      }
+    })
+    xhr.addEventListener('error', () => reject(new Error('Network error')))
+    xhr.send(formData)
+  })
+}
+
 /** Upload FormData with automatic token refresh on 401 */
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
