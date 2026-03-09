@@ -18,6 +18,7 @@ import type { LngLatLike } from 'maplibre-gl'
 import type { StreamPoint } from '@/api/types'
 import ColorPicker from '@/components/ColorPicker'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 
 echarts.use([
@@ -165,9 +166,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
 
   const { data: meData } = useQuery({
     queryKey: ['me'],
-    queryFn: () =>
-      fetch('/api/v1/me', { credentials: 'include' })
-        .then(r => r.json()) as Promise<{ user_id: string }>,
+    queryFn: () => apiClient<{ user_id: string }>('/me'),
     staleTime: Infinity,
   })
   const userId = meData?.user_id ?? ''

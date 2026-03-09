@@ -74,6 +74,10 @@ export function addHeatmapLayers(
 ): void {
   if (map.getSource(HEATMAP_SOURCE_ID)) return // schon vorhanden
 
+  // Only use beforeLayerId if the layer actually exists (avoids MapLibre error
+  // when heatmap effect runs before track layers are added after style change)
+  const safeBeforeId = beforeLayerId && map.getLayer(beforeLayerId) ? beforeLayerId : undefined
+
   map.addSource(HEATMAP_SOURCE_ID, {
     type: 'vector',
     tiles: [tileUrl],
@@ -105,7 +109,7 @@ export function addHeatmapLayers(
           'line-blur': l.blur,
         },
       },
-      beforeLayerId,
+      safeBeforeId,
     )
   }
 }

@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import type { LngLatLike } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useQuery } from '@tanstack/react-query'
+import { apiClient } from '@/api/client'
 import ColorPicker from '@/components/ColorPicker'
 import { buildRasterStyle, BASE_STYLES, type BaseStyle } from '@/lib/mapStyles'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
@@ -46,9 +47,7 @@ const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap
 
   const { data: meData } = useQuery({
     queryKey: ['me'],
-    queryFn: () =>
-      fetch('/api/v1/me', { credentials: 'include' })
-        .then(r => r.json()) as Promise<{ user_id: string }>,
+    queryFn: () => apiClient<{ user_id: string }>('/me'),
     staleTime: Infinity,
   })
   const userId = meData?.user_id ?? ''
