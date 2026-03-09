@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { fetchActivityStreams } from '@/api/activities'
@@ -15,7 +15,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
-  const [selectedPhoto, setSelectedPhoto] = useState<ActivityPhoto | null>(null)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [showGeoAssign, setShowGeoAssign] = useState(false)
   const { openModal } = useModal()
 
@@ -23,6 +23,30 @@ export default function ActivityPhotoSection({ activityId }: Props) {
     queryKey: ['activity-photos', activityId],
     queryFn: () => listActivityPhotos(activityId),
   })
+
+  const selectedPhoto = selectedIndex !== null ? (photos[selectedIndex] ?? null) : null
+
+  function goToPrev() {
+    if (selectedIndex === null || photos.length <= 1) return
+    setSelectedIndex((selectedIndex - 1 + photos.length) % photos.length)
+  }
+
+  function goToNext() {
+    if (selectedIndex === null || photos.length <= 1) return
+    setSelectedIndex((selectedIndex + 1) % photos.length)
+  }
+
+  useEffect(() => {
+    if (selectedIndex === null) return
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'ArrowLeft') goToPrev()
+      else if (e.key === 'ArrowRight') goToNext()
+      else if (e.key === 'Escape') setSelectedIndex(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIndex, photos.length])
 
   // Streams are fetched lazily when the geo-assign overlay is opened
   const { data: streams } = useQuery<StreamPoint[]>({
@@ -69,7 +93,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           variant: 'destructive',
           onClick: async () => {
             deleteMutation.mutate(photo.id)
-            if (selectedPhoto?.id === photo.id) setSelectedPhoto(null)
+            if (selectedPhoto?.id === photo.id) setSelectedIndex(null)
           }
         }
       ]
@@ -102,10 +126,10 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           {/* Thumbnail grid */}
           {photos.length > 0 && (
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 pt-3">
-              {photos.map((photo) => (
+              {photos.map((photo, index) => (
                 <div key={photo.id} className="relative group aspect-square">
                   <button
-                    onClick={() => setSelectedPhoto(photo)}
+                    onClick={() => setSelectedIndex(index)}
                     className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-accent-400 transition-colors"
                   >
                     <AuthenticatedImage
@@ -184,20 +208,54 @@ export default function ActivityPhotoSection({ activityId }: Props) {
       })()}
 
       {/* Lightbox */}
-      {selectedPhoto && (
+      {selectedPhoto && selectedIndex !== null && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-          onClick={() => setSelectedPhoto(null)}
+          onClick={() => setSelectedIndex(null)}
         >
           <div
-            className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
+            className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <AuthenticatedImage
-              src={selectedPhoto.preview_url || selectedPhoto.full_url}
-              alt={selectedPhoto.original_filename}
-              className="w-full object-contain max-h-[80vh]"
-            />
+            {/* Photo counter */}
+            {photos.length > 1 && (
+              <div className="absolute top-2 right-2 z-10 text-xs text-white bg-black/50 rounded-full px-2 py-0.5 select-none">
+                {selectedIndex + 1} / {photos.length}
+              </div>
+            )}
+
+            {/* Image area with prev/next buttons */}
+            <div className="relative">
+              <AuthenticatedImage
+                src={selectedPhoto.preview_url || selectedPhoto.full_url}
+                alt={selectedPhoto.original_filename}
+                className="w-full object-contain max-h-[80vh]"
+              />
+
+              {photos.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goToPrev() }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors cursor-pointer"
+                    aria-label="Vorheriges Foto"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goToNext() }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors cursor-pointer"
+                    aria-label="Nächstes Foto"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+
             <div className="p-4">
               <p className="text-sm text-neutral-700 dark:text-neutral-300">{selectedPhoto.original_filename}</p>
               {selectedPhoto.taken_at && (
@@ -214,7 +272,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 </p>
               )}
               <button
-                onClick={() => setSelectedPhoto(null)}
+                onClick={() => setSelectedIndex(null)}
                 className="mt-3 w-full text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
               >
                 Schliessen

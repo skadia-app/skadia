@@ -453,14 +453,16 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range entries {
-		entries[i].ThumbURL = "/api/v1/photos/" + entries[i].ID + "/thumb"
+		entries[i].ThumbURL = "/photos/" + entries[i].ID + "/thumb"
 	}
 	writeJSON(w, http.StatusOK, entries)
 }
 
 // setPhotoURLs sets the computed URL fields on an ActivityPhoto.
+// NOTE: paths are relative to /api/v1 — the frontend's apiClient/apiDownload
+// automatically prepends API_BASE (/api/v1), so we must NOT include it here.
 func setPhotoURLs(p *model.ActivityPhoto) {
-	base := "/api/v1/photos/" + p.ID
+	base := "/photos/" + p.ID
 	p.ThumbURL = base + "/thumb"
 	p.FullURL = base + "/full"
 	if p.S3KeyPreview != "" {

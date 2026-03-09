@@ -212,7 +212,6 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	now := time.Now()
 	_ = h.DB.UpdateImportQueueStatus(r.Context(), id, userID, "resolved", &now)
 
-	photo.ThumbURL = "/api/v1/photos/" + photo.ID + "/thumb"
-	photo.FullURL = "/api/v1/photos/" + photo.ID + "/full"
+	setPhotoURLs(&photo)
 	writeJSON(w, http.StatusCreated, photo)
 }

@@ -16,6 +16,8 @@ import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
+import { apiDownload } from '@/api/client'
+import AuthenticatedImage from '@/components/AuthenticatedImage'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
 import { fetchActivity, updateActivity } from '@/api/activities'
@@ -1002,8 +1004,12 @@ export default function MapPage() {
         background: #333;
       `
       const img = document.createElement('img')
-      img.src = photo.thumb_url
       img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;'
+      apiDownload(photo.thumb_url).then(({ blob }) => {
+        const blobUrl = URL.createObjectURL(blob)
+        img.src = blobUrl
+        img.addEventListener('load', () => URL.revokeObjectURL(blobUrl), { once: true })
+      }).catch(() => { /* thumbnail load failed — marker shows background color */ })
       el.appendChild(img)
 
       el.addEventListener('click', (e) => {
@@ -2497,7 +2503,7 @@ export default function MapPage() {
                               }
                             }}
                           >
-                            <img src={photo.thumb_url} alt="" className="w-full h-full object-cover" />
+                            <AuthenticatedImage src={photo.thumb_url} alt="" className="w-full h-full object-cover" />
                           </div>
                         ))}
                       </div>
@@ -2529,7 +2535,7 @@ export default function MapPage() {
               className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <img
+              <AuthenticatedImage
                 src={selectedPhoto.thumb_url.replace('/thumb', '/full')}
                 alt={selectedPhoto.activity_title ?? 'Foto'}
                 className="w-full object-contain max-h-96"
