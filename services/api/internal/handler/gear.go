@@ -697,7 +697,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 
 	// Duplikat-Prüfung
 	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
-		writeError(w, http.StatusConflict, "Duplicate", "document already exists", r.URL.Path)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
 
@@ -978,7 +978,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 	// Duplikat-Prüfung
 	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
-		writeError(w, http.StatusConflict, "Duplicate", "document already exists", r.URL.Path)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
 

@@ -4,7 +4,6 @@ import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type Acti
 import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
-import { ApiError } from '@/api/client'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
@@ -62,15 +61,15 @@ export default function ActivityPhotoSection({ activityId }: Props) {
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadActivityPhoto(activityId, file),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity-photos', activityId] })
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.status === 409) {
+    onSuccess: (result) => {
+      if (result.status === 'duplicate') {
         addToast({ type: 'warning', title: 'Foto bereits vorhanden', message: 'Dieses Foto wurde bereits hochgeladen.' })
       } else {
-        addToast({ type: 'error', title: 'Upload fehlgeschlagen', duration: 0 })
+        queryClient.invalidateQueries({ queryKey: ['activity-photos', activityId] })
       }
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Upload fehlgeschlagen', duration: 0 })
     },
   })
 

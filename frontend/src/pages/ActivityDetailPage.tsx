@@ -7,7 +7,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings } from '@/api/settings'
-import { apiDownload, ApiError } from '@/api/client'
+import { apiDownload } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
@@ -192,7 +192,7 @@ export default function ActivityDetailPage() {
     if (imageFiles.length === 0) return
     Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(id, f))).then((results) => {
       queryClient.invalidateQueries({ queryKey: ['activity-photos', id] })
-      const duplicates = results.filter(r => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 409).length
+      const duplicates = results.filter(r => r.status === 'fulfilled' && r.value.status === 'duplicate').length
       if (duplicates > 0) {
         addToast({ type: 'warning', title: `${duplicates} Foto${duplicates > 1 ? 's' : ''} bereits vorhanden`, message: 'Duplikate wurden nicht erneut hochgeladen.' })
       }

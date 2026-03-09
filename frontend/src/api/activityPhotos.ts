@@ -31,10 +31,19 @@ export async function listActivityPhotos(activityId: string): Promise<ActivityPh
   return apiClient<ActivityPhoto[]>(`/activities/${activityId}/photos`)
 }
 
-export async function uploadActivityPhoto(activityId: string, file: File): Promise<ActivityPhoto> {
+export interface UploadPhotoResult {
+  status: 'created' | 'duplicate'
+  photo?: ActivityPhoto
+}
+
+export async function uploadActivityPhoto(activityId: string, file: File): Promise<UploadPhotoResult> {
   const formData = new FormData()
   formData.append('photo', file)
-  return apiUpload<ActivityPhoto>(`/activities/${activityId}/photos`, formData)
+  const result = await apiUpload<ActivityPhoto | { status: string }>(`/activities/${activityId}/photos`, formData)
+  if ('status' in result && result.status === 'duplicate') {
+    return { status: 'duplicate' }
+  }
+  return { status: 'created', photo: result as ActivityPhoto }
 }
 
 export async function deleteActivityPhoto(activityId: string, photoId: string): Promise<void> {

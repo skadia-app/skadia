@@ -78,7 +78,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Duplikat-Prüfung
 	if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
-		writeError(w, http.StatusConflict, "Duplicate", "photo already exists", r.URL.Path)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
 
