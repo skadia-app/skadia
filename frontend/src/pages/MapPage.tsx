@@ -2629,7 +2629,10 @@ function removeOverlayLayers(map: maplibregl.Map) {
 
 const TERRA_INCOGNITA_LAYER_IDS = ['terra-incognita-fog-layer'] as const
 const FOG_CANVAS_SIZE = 1024  // Pixel (quadratisch)
-const FOG_BLUR_PX = 20        // Canvas-Blur-Radius in Pixeln
+// Geographische Breite der weichen Rand-Zone in Metern.
+// Zoom-adaptiv: bei wenig Zoom = kleinere Pixelbreite,
+// damit der Blur nicht das gesamte Polygon erodiert.
+const FOG_EDGE_METERS = 600
 
 // Modul-globaler State (kein React-State nötig, da außerhalb der Komponente)
 let terraAnimRafId: number | null = null
@@ -2664,9 +2667,10 @@ function removeTerraIncognitaLayers(map: maplibregl.Map) {
  *
  * Technik:
  *  1. Canvas mit Fog-Farbe (#eef1f7) füllen.
- *  2. ctx.filter='blur()' + destination-out: erkundete Flächen werden
- *     mit weichem Blur aus dem Fog herausgeschnitten.
- *     Zentrum = vollständig transparent, Randzone = weicher Gradient.
+ *  2. Pass 1: Zoom-adaptiver Blur (FOG_EDGE_METERS → Pixel) + destination-out:
+ *     erzeugt weichen Außenrand. Blur-Radius skaliert mit Viewport-Breite.
+ *  3. Pass 2: Kein Blur + destination-out: schneidet das Polygon-Innere
+ *     vollständig frei — verhindert Erosion bei kleinem Zoom.
  *
  * Gibt die Canvas-Koordinaten (geo-referenziert) zurück.
  */
@@ -2701,13 +2705,14 @@ function buildFogCanvas(
   ctx.fillStyle = '#eef1f7'
   ctx.fillRect(0, 0, FOG_CANVAS_SIZE, FOG_CANVAS_SIZE)
 
-  // Schritt 2: Erkundete Flächen weich ausschneiden
-  // blur() weicht die Kanten des gezeichneten Polygons auf; destination-out
-  // entfernt Alpha proportional zur Blur-Intensität → perfekter Gradient.
-  ctx.save()
-  ctx.filter = `blur(${FOG_BLUR_PX}px)`
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = 'rgba(0,0,0,1)'
+  // Zoom-adaptiver Blur: FOG_EDGE_METERS in Canvas-Pixel umrechnen.
+  // Viewport-Breite in Metern bestimmt den Maßstab.
+  const avgLat = (nLat + sLat) / 2
+  const metersPerDegreeLng = Math.cos((avgLat * Math.PI) / 180) * 111320
+  const viewportWidthM = lngSpan * metersPerDegreeLng
+  const metersPerPx = viewportWidthM / FOG_CANVAS_SIZE
+  // Clamp: min 2px (zu klein = harter Rand), max 80px (zu groß = zu viel Erosion)
+  const blurPx = Math.max(2, Math.min(80, FOG_EDGE_METERS / metersPerPx))
 
   const drawRings = (rings: GeoJSON.Position[][]) => {
     ctx.beginPath()
@@ -2724,11 +2729,31 @@ function buildFogCanvas(
     ctx.fill('evenodd')
   }
 
-  if (exploredGeometry.type === 'Polygon') {
-    drawRings(exploredGeometry.coordinates)
-  } else if (exploredGeometry.type === 'MultiPolygon') {
-    for (const poly of exploredGeometry.coordinates) drawRings(poly)
+  const drawExplored = () => {
+    if (exploredGeometry.type === 'Polygon') {
+      drawRings(exploredGeometry.coordinates)
+    } else if (exploredGeometry.type === 'MultiPolygon') {
+      for (const poly of exploredGeometry.coordinates) drawRings(poly)
+    }
   }
+
+  // Pass 1: Weicher Außenrand — Blur-Version schneidet sanft außerhalb des Polygons.
+  // Blur vor destination-out: das gezeichnete Polygon "wächst" nach außen,
+  // sodass die Fog-Grenze soft ausläuft.
+  ctx.save()
+  ctx.filter = `blur(${blurPx}px)`
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = 'rgba(0,0,0,1)'
+  drawExplored()
+  ctx.restore()
+
+  // Pass 2: Sauberes Interior-Cut — ohne Blur, schneidet das Polygon-Innere
+  // vollständig durch. Verhindert, dass Blur bei kleinem Viewport-Polygon
+  // das Zentrum nicht vollständig freigibt.
+  ctx.save()
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = 'rgba(0,0,0,1)'
+  drawExplored()
   ctx.restore()
 
   return {
