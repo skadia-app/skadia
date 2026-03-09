@@ -368,8 +368,7 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 }
 
 // RecomputePhotoPreviews regenerates preview thumbnails for all user photos
-// using the current photo_preview_size setting. Runs synchronously (small collections)
-// or could be turned into a background job for large ones.
+// using the current photo_preview_size setting. Runs as a background job.
 func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -390,58 +389,71 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	recomputed, skipped, failed := 0, 0, 0
-	for _, photo := range photos {
-		// Download original.
-		data, _, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
-		if err != nil {
-			failed++
-			continue
-		}
-
-		if maxW == 0 {
-			// "original" setting: clear any existing preview key.
-			if photo.S3KeyPreview != "" {
-				_ = h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, "")
-			}
-			skipped++
-			continue
-		}
-
-		previewData, err := imageutil.Resize(data, maxW, maxH, 85)
-		if err != nil || previewData == nil {
-			// No resize needed (original already smaller) or decode error.
-			if photo.S3KeyPreview != "" {
-				_ = h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, "")
-			}
-			skipped++
-			continue
-		}
-
-		s3KeyPreview := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-		if photo.FileHash == nil {
-			skipped++
-			continue
-		}
-		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-		if err := h.Storage.UploadToBucket(r.Context(), photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-			slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
-			failed++
-			continue
-		}
-		if err := h.DB.UpdateActivityPhotoPreviewKey(r.Context(), photo.ID, userID, s3KeyPreview); err != nil {
-			failed++
-			continue
-		}
-		recomputed++
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
+	if err != nil {
+		slog.Error("recompute previews: failed to create background job", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]int{
-		"recomputed": recomputed,
-		"skipped":    skipped,
-		"failed":     failed,
-		"total":      len(photos),
-	})
+	go func() {
+		ctx := context.Background()
+		processed := int64(0)
+		anyFailed := false
+
+		for _, photo := range photos {
+			data, _, err := h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
+			if err != nil {
+				anyFailed = true
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			if maxW == 0 {
+				if photo.S3KeyPreview != "" {
+					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
+				}
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			previewData, err := imageutil.Resize(data, maxW, maxH, 85)
+			if err != nil || previewData == nil {
+				if photo.S3KeyPreview != "" {
+					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
+				}
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			if photo.FileHash == nil {
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			s3KeyPreview := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
+			if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+				slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
+				anyFailed = true
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+			if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, s3KeyPreview); err != nil {
+				anyFailed = true
+			}
+			processed++
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+		}
+
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {

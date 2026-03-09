@@ -257,6 +257,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			subTypePtr = &actData.SubType
 		}
 		_ = h.DB.InsertHeatmapLine(ctx, userID, activity.ID, actData.SportType, subTypePtr, actData.StartedAt)
+		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 		interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
 		_ = h.DB.InsertHeatmapPoints(ctx, userID, activity.ID, actData.SportType, subTypePtr, actData.StartedAt, interval)
 	}

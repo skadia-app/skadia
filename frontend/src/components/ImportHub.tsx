@@ -16,10 +16,18 @@ interface UploadResult {
   warnings?: string[]
 }
 
+interface BatchResultEntry {
+  filename: string
+  status: UploadResult['status'] | 'error'
+  activity_id?: string
+  error?: string
+}
+
 type UploadState =
   | { type: 'idle' }
   | { type: 'uploading'; filename: string }
   | { type: 'success'; count: number }
+  | { type: 'batch_results'; results: BatchResultEntry[] }
   | { type: 'media_success'; result: MediaUploadResult }
   | { type: 'error'; message: string }
 
@@ -113,7 +121,7 @@ function StravaBadge() {
 async function uploadActivityFile(file: File): Promise<UploadResult> {
   const fd = new FormData()
   fd.append('file', file)
-  return apiUpload<UploadResult>('/upload', fd)
+  return apiUpload<UploadResult>('/activities/upload', fd)
 }
 
 async function uploadMediaFiles(files: File[]): Promise<MediaUploadResult> {
@@ -190,6 +198,83 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
           </button>
         </div>
       )}
+      <button
+        onClick={onReset}
+        className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+      >
+        Weitere hochladen
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Batch activity results display
+// ---------------------------------------------------------------------------
+
+function BatchResultsPanel({ results, onReset, onClose }: {
+  results: BatchResultEntry[]
+  onReset: () => void
+  onClose: (path: string) => void
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-3 space-y-2">
+      <div className="space-y-1.5">
+        {results.map((entry, i) => {
+          if (entry.status === 'created' || entry.status === 'replaced' || entry.status === 'enriched') {
+            return (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <CheckIcon className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-500" />
+                <span className="text-neutral-600 dark:text-neutral-300 truncate min-w-0">
+                  <span className="font-medium">{entry.filename}</span>
+                  {entry.activity_id && (
+                    <>
+                      {' → '}
+                      <button
+                        onClick={() => onClose(`/activities/${entry.activity_id}`)}
+                        className="text-accent-DEFAULT hover:underline"
+                      >
+                        Aktivität öffnen
+                      </button>
+                    </>
+                  )}
+                </span>
+              </div>
+            )
+          }
+
+          if (entry.status === 'skipped') {
+            return (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <span className="w-3.5 h-3.5 shrink-0 mt-0.5 text-yellow-500 font-bold leading-none">⚡</span>
+                <span className="text-neutral-600 dark:text-neutral-300 truncate min-w-0">
+                  <span className="font-medium">{entry.filename}</span>
+                  {' – Fusionskandidat → '}
+                  <button
+                    onClick={() => onClose('/workshop/fusion')}
+                    className="text-accent-DEFAULT hover:underline"
+                  >
+                    Fusion
+                  </button>
+                </span>
+              </div>
+            )
+          }
+
+          // error
+          return (
+            <div key={i} className="flex items-start gap-2 text-xs">
+              <span className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-500 font-bold leading-none">✕</span>
+              <span className="text-neutral-600 dark:text-neutral-300 min-w-0">
+                <span className="font-medium">{entry.filename}</span>
+                {entry.error && (
+                  <span className="block text-red-600 dark:text-red-400 truncate">{entry.error}</span>
+                )}
+              </span>
+            </div>
+          )
+        })}
+      </div>
       <button
         onClick={onReset}
         className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
@@ -327,24 +412,30 @@ export default function ImportHub() {
     const activityFiles = files.filter(isActivityFile)
     const mediaFiles = files.filter(isMediaFile)
 
-    // Handle activity files (unchanged flow)
+    // Handle activity files — collect per-file results, continue on error
     if (activityFiles.length > 0) {
-      let successCount = 0
+      const batchResults: BatchResultEntry[] = []
       for (const file of activityFiles) {
         setUploadState({ type: 'uploading', filename: file.name })
         try {
           const result = await uploadActivityFile(file)
-          if (result.status !== 'skipped') successCount++
+          batchResults.push({ filename: file.name, status: result.status, activity_id: result.activity_id })
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          setUploadState({ type: 'error', message: msg })
-          return
+          batchResults.push({ filename: file.name, status: 'error', error: msg })
         }
       }
-      // If only activity files, show success
+      // If only activity files, show batch results (no auto-dismiss)
       if (mediaFiles.length === 0) {
-        setUploadState({ type: 'success', count: successCount })
-        setTimeout(() => setUploadState({ type: 'idle' }), 4000)
+        if (activityFiles.length === 1 && batchResults[0].status !== 'error') {
+          // Single successful file — keep the simple success banner with auto-dismiss
+          const entry = batchResults[0]
+          const count = entry.status !== 'skipped' ? 1 : 0
+          setUploadState({ type: 'success', count })
+          setTimeout(() => setUploadState({ type: 'idle' }), 4000)
+        } else {
+          setUploadState({ type: 'batch_results', results: batchResults })
+        }
         return
       }
     }
@@ -401,6 +492,11 @@ export default function ImportHub() {
   function handleGoToQueue() {
     setOpen(false)
     navigate('/settings/import?tab=queue')
+  }
+
+  function handleNavigateAndClose(path: string) {
+    setOpen(false)
+    navigate(path)
   }
 
   return (
@@ -481,6 +577,14 @@ export default function ImportHub() {
                     Weitere
                   </button>
                 </div>
+              )}
+
+              {uploadState.type === 'batch_results' && (
+                <BatchResultsPanel
+                  results={uploadState.results}
+                  onReset={() => setUploadState({ type: 'idle' })}
+                  onClose={handleNavigateAndClose}
+                />
               )}
 
               {uploadState.type === 'media_success' && (

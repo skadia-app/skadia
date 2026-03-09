@@ -63,11 +63,6 @@ export async function patchActivityPhotoLocation(
   })
 }
 
-export async function recomputePhotoPreviews(): Promise<{
-  recomputed: number
-  skipped: number
-  failed: number
-  total: number
-}> {
+export async function recomputePhotoPreviews(): Promise<{ job_id: string }> {
   return apiClient('/photos/recompute-previews', { method: 'POST' })
 }

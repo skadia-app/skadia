@@ -106,6 +106,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			subTypePtr = &data.SubType
 		}
 		_ = h.DB.InsertHeatmapLine(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt)
+		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 		interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
 		_ = h.DB.InsertHeatmapPoints(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval)
 	}

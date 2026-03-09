@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { apiFetch } from '@/lib/auth'
@@ -43,16 +43,42 @@ interface FeatureCollection {
   features: GeoJSONFeature[]
 }
 
+export interface MultisportMapHandle {
+  setHoverPoint(point: { lat: number; lng: number } | null): void
+}
+
 interface Props {
   activityId: string
   className?: string
   hoveredActivityId?: string | null
 }
 
-export function MultisportMap({ activityId, className, hoveredActivityId }: Props) {
+export const MultisportMap = forwardRef<MultisportMapHandle, Props>(
+function MultisportMap({ activityId, className, hoveredActivityId }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const featureIdsRef = useRef<{ sourceId: string; activityId: string }[]>([])
+  const hoverMarkerRef = useRef<maplibregl.Marker | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    setHoverPoint(point) {
+      hoverMarkerRef.current?.remove()
+      hoverMarkerRef.current = null
+      if (!point) return
+      const map = mapRef.current
+      if (!map) return
+      const el = document.createElement('div')
+      el.style.width = '10px'
+      el.style.height = '10px'
+      el.style.borderRadius = '50%'
+      el.style.backgroundColor = 'white'
+      el.style.border = '2px solid #f97316'
+      el.style.boxShadow = '0 0 4px #f97316'
+      hoverMarkerRef.current = new maplibregl.Marker({ element: el })
+        .setLngLat([point.lng, point.lat])
+        .addTo(map)
+    },
+  }), [])
 
   useEffect(() => {
     const el = containerRef.current
@@ -151,6 +177,8 @@ export function MultisportMap({ activityId, className, hoveredActivityId }: Prop
     })
 
     return () => {
+      hoverMarkerRef.current?.remove()
+      hoverMarkerRef.current = null
       mapRef.current = null
       featureIdsRef.current = []
       map.remove()
@@ -176,4 +204,4 @@ export function MultisportMap({ activityId, className, hoveredActivityId }: Prop
   return (
     <div ref={containerRef} className={className ?? 'h-80 w-full rounded-lg overflow-hidden'} />
   )
-}
+})

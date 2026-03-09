@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// terraResult is the shared return type for singleflight.
+type terraResult struct {
+	rings   []string
+	areaKm2 float64
+}
+
 // GetTerraIncognitaCoverage computes the terra incognita explored area as
 // 5 concentric ring polygons (GeoJSON) for gradient fog rendering.
 //
@@ -87,4 +93,72 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 	}
 
 	return rings[:], areaKm2, nil
+}
+
+// InvalidateTerraIncognitaCache deletes the cache entry for a user.
+// Call this after new heatmap_lines are inserted or the radius setting changes.
+func (db *DB) InvalidateTerraIncognitaCache(ctx context.Context, userID string) {
+	_, _ = db.Pool.Exec(ctx, `DELETE FROM terra_incognita_cache WHERE user_id = $1`, userID)
+}
+
+// GetTerraIncognitaCoverageCached returns the terra incognita rings from cache
+// when the heatmap_lines count and configured radius match. On a cache miss it
+// calls GetTerraIncognitaCoverage (no bbox — always the full dataset) and
+// persists the result for subsequent requests.
+func (db *DB) GetTerraIncognitaCoverageCached(ctx context.Context, userID string, radiusM int) ([]string, float64, error) {
+	// Count current heatmap lines to detect staleness.
+	var currentCount int
+	_ = db.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM heatmap_lines WHERE user_id = $1`, userID,
+	).Scan(&currentCount)
+
+	// Try to read cached entry.
+	var (
+		cachedRings  []string
+		cachedArea   float64
+		cachedRadius int
+		cachedCount  int
+	)
+	err := db.Pool.QueryRow(ctx, `
+		SELECT rings, area_km2, radius_m, heatmap_count
+		FROM terra_incognita_cache
+		WHERE user_id = $1`, userID,
+	).Scan(&cachedRings, &cachedArea, &cachedRadius, &cachedCount)
+
+	// Cache hit: radius and heatmap line count both match.
+	if err == nil && cachedRadius == radiusM && cachedCount == currentCount {
+		return cachedRings, cachedArea, nil
+	}
+
+	// Cache miss: use singleflight to prevent concurrent computation for the same user.
+	// If a computation is already in-flight for this user, all callers block and share
+	// the single result — avoiding parallel 30 s PostGIS queries.
+	v, err, _ := db.terraInflight.Do(userID, func() (any, error) {
+		rings, areaKm2, err := db.GetTerraIncognitaCoverage(ctx, userID, nil, radiusM)
+		if err != nil {
+			return nil, err
+		}
+		// Persist result (UPSERT — one row per user).
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO terra_incognita_cache (user_id, radius_m, rings, area_km2, heatmap_count, computed_at)
+			VALUES ($1, $2, $3, $4, $5, NOW())
+			ON CONFLICT (user_id) DO UPDATE SET
+				radius_m      = EXCLUDED.radius_m,
+				rings         = EXCLUDED.rings,
+				area_km2      = EXCLUDED.area_km2,
+				heatmap_count = EXCLUDED.heatmap_count,
+				computed_at   = EXCLUDED.computed_at`,
+			userID, radiusM, rings, areaKm2, currentCount,
+		)
+		return &terraResult{rings: rings, areaKm2: areaKm2}, nil
+	})
+	if err != nil {
+		empty := make([]string, 5)
+		for i := range empty {
+			empty[i] = `{"type":"Polygon","coordinates":[]}`
+		}
+		return empty, 0, err
+	}
+	res := v.(*terraResult)
+	return res.rings, res.areaKm2, nil
 }

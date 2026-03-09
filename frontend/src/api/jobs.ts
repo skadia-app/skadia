@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 export interface ActiveJob {
   id: string
-  job_type: 'segment_recompute' | 'activity_recompute_all' | 'osm_import'
+  job_type: 'segment_recompute' | 'activity_recompute_all' | 'osm_import' | 'photo_preview_recompute'
   entity_id?: string
   entity_name?: string
   status: 'running' | 'completed' | 'failed'

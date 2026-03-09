@@ -569,6 +569,7 @@ func (h *Handler) rebuildHeatmapForActivity(ctx context.Context, activityID, use
 	if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt); err != nil {
 		return fmt.Errorf("insert heatmap line: %w", err)
 	}
+	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
 	if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt, interval); err != nil {
 		return fmt.Errorf("insert heatmap points: %w", err)

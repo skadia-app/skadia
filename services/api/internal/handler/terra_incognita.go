@@ -4,40 +4,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 // GetTerraIncognitaCoverage returns 5 concentric GeoJSON ring polygons
 // for gradient fog-of-war rendering and the total explored area in km².
+// Results are served from terra_incognita_cache (keyed by user + heatmap line
+// count + radius) to avoid the ~30 s PostGIS computation on every request.
 func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
-	}
-
-	// Optional bbox filter: ?bbox=west,south,east,north
-	var bbox *[4]float64
-	if bboxStr := r.URL.Query().Get("bbox"); bboxStr != "" {
-		parts := strings.Split(bboxStr, ",")
-		if len(parts) == 4 {
-			var coords [4]float64
-			valid := true
-			for i, p := range parts {
-				v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-				if err != nil {
-					valid = false
-					break
-				}
-				coords[i] = v
-			}
-			if valid {
-				bbox = &coords
-			}
-		}
 	}
 
 	// Load terra incognita radius from user settings (default 1000m).
@@ -47,7 +26,7 @@ func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Reque
 		radiusM = settings.TerraIncognitaRadiusM
 	}
 
-	rings, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox, radiusM)
+	rings, areaKm2, err := h.DB.GetTerraIncognitaCoverageCached(r.Context(), userID, radiusM)
 	if err != nil {
 		slog.Error("terra incognita coverage query failed", "error", err, "user_id", userID)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)

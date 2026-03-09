@@ -3,8 +3,15 @@ import type { FusionCandidate } from '@/api/fusion'
 interface ActivityInfo {
   id: string
   label: string
+  color: string   // #EF4444, #3B82F6, #22C55E
   candidate: FusionCandidate | null
   isTarget: boolean
+}
+
+function colorPillClasses(hex: string): string {
+  if (hex === '#EF4444') return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+  if (hex === '#22C55E') return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+  return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
 }
 
 interface FusionFieldTableProps {
@@ -95,11 +102,7 @@ export default function FusionFieldTable({
             {activities.map(a => (
               <th key={a.id} className="text-center py-2 px-2 font-medium">
                 <span
-                  className={`inline-block px-2 py-0.5 rounded-full text-xs ${
-                    a.isTarget
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                  }`}
+                  className={`inline-block px-2 py-0.5 rounded-full text-xs ${colorPillClasses(a.color)}`}
                 >
                   {a.label}
                 </span>
@@ -149,7 +152,7 @@ export default function FusionFieldTable({
                           </span>
                         )}
                         {a.isTarget && !a.candidate && (
-                          <span className="text-xs text-neutral-400">Target</span>
+                          <span className="text-xs text-neutral-400">Kandidat A</span>
                         )}
                       </label>
                     </td>
@@ -213,7 +216,7 @@ export default function FusionFieldTable({
                   className="accent-accent-DEFAULT"
                 />
                 <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                  Tags aus allen Quellen zusammenführen
+                  Tags aus allen Kandidaten zusammenführen
                 </span>
               </label>
             </td>

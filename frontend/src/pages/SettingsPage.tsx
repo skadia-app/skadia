@@ -196,7 +196,6 @@ const PREVIEW_SIZE_OPTIONS = [
 function PhotoPreviewSection() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-  const [recomputing, setRecomputing] = useState(false)
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['enrichment-settings'],
@@ -215,18 +214,11 @@ function PhotoPreviewSection() {
   })
 
   async function handleRecompute() {
-    setRecomputing(true)
     try {
-      const result = await recomputePhotoPreviews()
-      addToast({
-        type: 'success',
-        title: `Vorschau-Bilder neu erstellt`,
-        message: `${result.recomputed} neu generiert · ${result.skipped} unverändert · ${result.failed} Fehler`,
-      })
+      await recomputePhotoPreviews()
+      addToast({ type: 'info', title: 'Vorschau-Generierung gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
     } catch {
-      addToast({ type: 'error', title: 'Neuberechnung fehlgeschlagen', duration: 0 })
-    } finally {
-      setRecomputing(false)
+      addToast({ type: 'error', title: 'Neuberechnung konnte nicht gestartet werden', duration: 0 })
     }
   }
 
@@ -264,10 +256,10 @@ function PhotoPreviewSection() {
       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center gap-3">
         <button
           onClick={handleRecompute}
-          disabled={recomputing || isLoading}
+          disabled={isLoading}
           className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {recomputing ? 'Wird neu erstellt…' : 'Vorschauen neu erstellen'}
+          Vorschauen neu erstellen
         </button>
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.

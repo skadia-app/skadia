@@ -478,7 +478,7 @@ export default function MapPage() {
   const { data: terraIncognitaData, isFetching: terraIncognitaFetching } = useQuery({
     queryKey: ['terra-incognita'],
     queryFn: () => fetchTerraIncognita(),
-    staleTime: 5 * 60 * 1000, // 5 min cache
+    staleTime: Infinity, // serverseitiger Cache — kein automatisches Re-fetch
   })
 
   const [isMapTilesLoading, setIsMapTilesLoading] = useState(false)
@@ -2261,7 +2261,19 @@ export default function MapPage() {
         </div>
 
         {/* Filters panel */}
-        <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
+        <div className={viewMode === 'terra_incognita' ? 'opacity-40 pointer-events-none select-none' : undefined}>
+          <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
+        </div>
+        {viewMode === 'terra_incognita' && (
+          <div className="absolute top-4 right-4 z-20 w-64 px-3 pt-3">
+            <div className="w-full rounded-lg bg-neutral-800/90 dark:bg-neutral-900/90 backdrop-blur-sm border border-neutral-600/50 dark:border-neutral-700/60 px-3 py-2 flex items-center gap-2 shadow-md">
+              <svg className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+              </svg>
+              <span className="text-xs text-neutral-300 leading-tight">Terra Incognita zeigt immer alle Aktivitäten — Filter haben keinen Einfluss</span>
+            </div>
+          </div>
+        )}
 
         {/* Drag-to-merge Bestätigungs-Dialog */}
         {tagMergeDialog && (

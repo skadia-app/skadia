@@ -520,6 +520,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.RebuildHeatmapData(ctx, targetID); err != nil {
 			slog.Warn("merge: heatmap rebuild failed", "id", targetID, "err", err)
 		}
+		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	}
 
 	// Merge title.

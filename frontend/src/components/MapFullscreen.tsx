@@ -141,7 +141,10 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
 
   const [xMode, setXMode] = useState<XMode>('distance')
   const [isZoomed, setIsZoomed] = useState(false)
-  const [enabledStreams, setEnabledStreams] = useState<Set<FieldKey>>(new Set(['altitude']))
+  const [enabledStreams, setEnabledStreams] = useState<Set<FieldKey>>(() => {
+    // Alle möglichen FieldKeys vorausgewählt — ECharts blendet Serien ohne Daten automatisch aus
+    return new Set<FieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
+  })
 
   const data = useMemo(() => buildChartData(streams), [streams])
 
@@ -686,7 +689,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
           onClick={onClose}
           className="absolute top-3 right-14 z-10 flex items-center justify-center w-9 h-9
                      rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
-                     text-neutral-700 dark:text-neutral-200 shadow-md
+                     text-neutral-700 dark:text-neutral-200 shadow-md cursor-pointer
                      hover:bg-white dark:hover:bg-neutral-700 transition-colors"
           title="Schließen (Esc)"
         >
@@ -734,7 +737,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
         </div>
 
         {/* Chart */}
-        <div ref={chartContainerRef} className="h-[200px] w-full [&_canvas]:!cursor-pointer" />
+        <div ref={chartContainerRef} className="h-[200px] w-full [&_canvas]:!cursor-crosshair" />
       </div>
     </div>
   )

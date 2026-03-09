@@ -70,6 +70,23 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
+	addToZip := func(activity *model.Activity) {
+		fileBytes, filename, err := h.exportActivityBytes(r.Context(), activity, body.Format)
+		if err != nil {
+			slog.Warn("export-zip: export failed, skipping",
+				"id", activity.ID, "format", body.Format, "error", err)
+			return
+		}
+		f, err := zw.Create(filename)
+		if err != nil {
+			slog.Error("export-zip: zip create entry failed", "error", err)
+			return
+		}
+		if _, err := f.Write(fileBytes); err != nil {
+			slog.Error("export-zip: zip write failed", "error", err)
+		}
+	}
+
 	for _, id := range ids {
 		activity, err := h.DB.GetActivity(r.Context(), id)
 		if err != nil || activity == nil {
@@ -81,21 +98,20 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		fileBytes, filename, err := h.exportActivityBytes(r.Context(), activity, body.Format)
-		if err != nil {
-			slog.Warn("export-zip: export failed, skipping",
-				"id", id, "format", body.Format, "error", err)
+		// Multisport parents have no own file — expand to children instead.
+		if activity.SportType == "multisport" && (activity.FileHash == nil || *activity.FileHash == "") {
+			children, cerr := h.DB.GetChildActivities(r.Context(), activity.ID)
+			if cerr != nil || len(children) == 0 {
+				slog.Warn("export-zip: multisport has no children, skipping", "id", id)
+				continue
+			}
+			for i := range children {
+				addToZip(&children[i])
+			}
 			continue
 		}
 
-		f, err := zw.Create(filename)
-		if err != nil {
-			slog.Error("export-zip: zip create entry failed", "error", err)
-			continue
-		}
-		if _, err := f.Write(fileBytes); err != nil {
-			slog.Error("export-zip: zip write failed", "error", err)
-		}
+		addToZip(activity)
 	}
 
 	if err := zw.Close(); err != nil {

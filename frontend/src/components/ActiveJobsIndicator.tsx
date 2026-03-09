@@ -21,6 +21,8 @@ function JobRow({ job }: { job: ActiveJob }) {
     ? 'Strava-Import'
     : job.job_type === 'activity_recompute_all'
     ? 'Alle Aktivitäten neu berechnen'
+    : job.job_type === 'photo_preview_recompute'
+    ? 'Foto-Vorschauen'
     : `Segment „${job.entity_name ?? 'Segment'}`
 
   const pct =
@@ -32,6 +34,8 @@ function JobRow({ job }: { job: ActiveJob }) {
     !isOSMImport && !isDataImport && job.status === 'running' && job.progress_total > 0
       ? job.job_type === 'segment_recompute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
+        : job.job_type === 'photo_preview_recompute'
+        ? `${job.progress_current} / ${job.progress_total} Thumbnails generiert`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
       : isDataImport && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`

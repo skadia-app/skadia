@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type FusionQueueEntry, setActivityFusion } from '@/api/importWizard'
+import { useNavigate } from 'react-router-dom'
+import { type FusionQueueEntry } from '@/api/importWizard'
 
 interface DuplicateReviewPanelProps {
   entries: FusionQueueEntry[]
@@ -9,36 +9,11 @@ interface DuplicateReviewPanelProps {
 }
 
 export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Weiter zum Import' }: DuplicateReviewPanelProps) {
+  const navigate = useNavigate()
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
-  const [fused, setFused] = useState<Set<string>>(new Set())
-  const queryClient = useQueryClient()
 
   // selectedSports: wenn sport_type_a !== sport_type_b muss der Nutzer eine wählen
   const [selectedSports, setSelectedSports] = useState<Record<string, string>>({})
-
-  const fuseMutation = useMutation({
-    mutationFn: ({ idA, idB, richerIsA, chosenSportActivityId }: {
-      idA: string
-      idB: string
-      richerIsA: boolean
-      chosenSportActivityId: string
-    }) => {
-      const richSource = richerIsA ? idA : idB
-      const leanSource = richerIsA ? idB : idA
-      return setActivityFusion(richSource, {
-        gps: richSource,
-        hr: richSource,
-        power: richSource,
-        cadence: richSource,
-        temperature: leanSource,
-        metadata: chosenSportActivityId,
-      })
-    },
-    onSuccess: (_, { idA, idB }) => {
-      setFused(prev => new Set([...prev, pairKey(idA, idB)]))
-      queryClient.invalidateQueries({ queryKey: ['activities'] })
-    },
-  })
 
   function pairKey(a: string, b: string) {
     return [a, b].sort().join(':')
@@ -56,25 +31,15 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
 
   const visible = entries.filter(e => {
     const key = pairKey(e.activity_id_a, e.activity_id_b)
-    return !dismissed.has(key) && !fused.has(key)
+    return !dismissed.has(key)
   })
 
   if (visible.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
         <p className="text-neutral-500 dark:text-neutral-400 text-sm">
-          {fused.size > 0
-            ? `${fused.size} Aktivitätspaar${fused.size > 1 ? 'e' : ''} zusammengeführt.`
-            : 'Keine Fusionskandidaten gefunden.'}
+          Keine Fusionskandidaten gefunden.
         </p>
-        {fused.size > 0 && (
-          <button
-            onClick={onDone}
-            className="mt-4 bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          >
-            {doneLabel}
-          </button>
-        )}
       </div>
     )
   }
@@ -89,6 +54,8 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
       {visible.map(entry => {
         const key = pairKey(entry.activity_id_a, entry.activity_id_b)
         const richerIsA = entry.field_richness_a >= entry.field_richness_b
+        const richerId = richerIsA ? entry.activity_id_a : entry.activity_id_b
+        const leanerId = richerIsA ? entry.activity_id_b : entry.activity_id_a
 
         return (
           <div key={key} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3">
@@ -160,20 +127,9 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
             <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={() => {
-                  const sportsDiffer = entry.sport_type_a !== entry.sport_type_b
-                  const chosenSport = selectedSports[key]
-                  if (sportsDiffer && !chosenSport) return
-                  fuseMutation.mutate({
-                    idA: entry.activity_id_a,
-                    idB: entry.activity_id_b,
-                    richerIsA,
-                    chosenSportActivityId: sportsDiffer ? chosenSport : (richerIsA ? entry.activity_id_a : entry.activity_id_b),
-                  })
+                  navigate(`/fusion?target=${richerId}&source=${leanerId}`)
                 }}
-                disabled={
-                  fuseMutation.isPending ||
-                  (entry.sport_type_a !== entry.sport_type_b && !selectedSports[key])
-                }
+                disabled={entry.sport_type_a !== entry.sport_type_b && !selectedSports[key]}
                 title={
                   entry.sport_type_a !== entry.sport_type_b && !selectedSports[key]
                     ? 'Bitte zuerst eine Sportart auswählen'
@@ -181,7 +137,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                 }
                 className="flex-1 bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
               >
-                Zusammenführen
+                Editor öffnen
               </button>
               <button
                 onClick={() => setDismissed(prev => new Set([...prev, key]))}

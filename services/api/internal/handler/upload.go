@@ -359,6 +359,7 @@ func (h *Handler) postInsertActivity(
 		if err := h.DB.InsertHeatmapLine(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
 			slog.Error("insert heatmap line failed", "error", err)
 		}
+		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 		interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
 		if err := h.DB.InsertHeatmapPoints(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
 			slog.Error("insert heatmap points failed", "error", err)
