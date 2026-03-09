@@ -378,6 +378,7 @@ func main() {
 			r.Post("/activities/{id}/split", h.SplitActivity)
 			r.Post("/activities/{id}/merge", h.MergeActivities)
 			r.Post("/activities/{id}/fusion-merge", h.FusionMerge)
+			r.Post("/activities/{id}/revert-fusion", h.RevertFusion)
 
 			// Media Upload (multi-file, EXIF auto-assignment)
 			r.Post("/upload/media", h.UploadMedia)
