@@ -575,7 +575,6 @@ export default function SettingsPage() {
       {activeTab === 'ai' && <>
         <LLMSettingsPage />
         <Stage2EnrichmentSection />
-        <PhotoPreviewSection />
         <MLServiceSection />
         <NotificationSettingsSection />
         <ChatProfileSettings />
@@ -608,6 +607,8 @@ export default function SettingsPage() {
           </button>
         )}
       </section>
+
+      <PhotoPreviewSection />
 
       {/* Sportarten */}
       <SportSettingsSection />
