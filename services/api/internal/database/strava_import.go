@@ -137,6 +137,58 @@ func (db *DB) CompleteStravaImportJob(ctx context.Context, jobID string, errs []
 	return nil
 }
 
+// ListActiveStravaImportJobs gibt laufende (und kürzlich abgeschlossene) Strava-Import-Jobs
+// im BackgroundJob-Format zurück, damit sie in der Statusleiste erscheinen.
+func (db *DB) ListActiveStravaImportJobs(ctx context.Context, userID string) ([]BackgroundJob, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, status, total_modules, completed_modules, started_at, completed_at
+		 FROM strava_import_jobs
+		 WHERE user_id = $1
+		   AND (
+		         (status = 'running' AND started_at > NOW() - INTERVAL '2 hours')
+		         OR (status IN ('completed', 'failed')
+		             AND completed_at > NOW() - INTERVAL '5 minutes')
+		       )
+		 ORDER BY started_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []BackgroundJob
+	for rows.Next() {
+		var (
+			id           string
+			status       string
+			totalMod     int
+			completedMod int
+			startedAt    time.Time
+			finishedAt   *time.Time
+		)
+		if err := rows.Scan(&id, &status, &totalMod, &completedMod, &startedAt, &finishedAt); err != nil {
+			return nil, err
+		}
+		entityName := "Strava-Import"
+		jobs = append(jobs, BackgroundJob{
+			ID:              id,
+			UserID:          userID,
+			JobType:         "strava_import",
+			EntityName:      &entityName,
+			Status:          status,
+			ProgressCurrent: completedMod,
+			ProgressTotal:   totalMod,
+			StartedAt:       startedAt,
+			FinishedAt:      finishedAt,
+		})
+	}
+	if jobs == nil {
+		jobs = []BackgroundJob{}
+	}
+	return jobs, rows.Err()
+}
+
 // FindActivityIDAtTime returns the ID of the activity that was running at the given time.
 // Returns an empty string if no matching activity is found.
 func (db *DB) FindActivityIDAtTime(ctx context.Context, userID string, ts time.Time) (string, error) {

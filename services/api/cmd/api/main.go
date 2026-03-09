@@ -239,9 +239,9 @@ func main() {
 			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
 			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
 
-			// ML System Settings (admin-only: nightly job toggles etc.)
-			r.Get("/admin/settings/ml", h.GetMLSystemSettings)
-			r.Put("/admin/settings/ml/{key}", h.PutMLSystemSetting)
+			// ML System Settings (nightly job toggles etc.)
+			r.Get("/settings/ml", h.GetMLSystemSettings)
+			r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
 			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
 			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)
@@ -425,6 +425,7 @@ func main() {
 			r.Post("/import/garmin/scan", h.ScanGarminExport)
 			r.Post("/import/garmin/start", h.StartGarminImport)
 			r.Post("/import/garmin/upload-zip", h.UploadGarminZIP)
+			r.Post("/import/garmin/upload-zip-scan", h.UploadGarminZIPScan)
 			r.Get("/import/garmin/jobs/{id}", h.GetGarminImportJob)
 
 			// Strava Import
@@ -432,6 +433,7 @@ func main() {
 			r.Post("/import/strava/scan", h.ScanStravaExport)
 			r.Post("/import/strava/start", h.StartStravaImport)
 			r.Post("/import/strava/upload-zip", h.UploadStravaZIP)
+			r.Post("/import/strava/upload-zip-scan", h.UploadStravaZIPScan)
 			r.Get("/import/strava/jobs/{id}", h.GetStravaImportJob)
 
 			// Fusion Queue (Tier-2 GPS-Similarity)

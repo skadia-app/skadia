@@ -77,6 +77,12 @@ async function uploadGarminZIP(file: File): Promise<string> {
   return res.job_id
 }
 
+async function uploadGarminZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiUpload('/import/garmin/upload-zip-scan', fd)
+}
+
 // ---------------------------------------------------------------------------
 // API helpers — Strava
 // ---------------------------------------------------------------------------
@@ -108,6 +114,12 @@ async function uploadStravaZIP(file: File): Promise<string> {
   return res.job_id
 }
 
+async function uploadStravaZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiUpload('/import/strava/upload-zip-scan', fd)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -122,7 +134,8 @@ function categoryLabel(cat: string): string {
     gear: 'Ausrüstung',
     profile: 'Profil',
     privacy_zones: 'Privacy-Zonen',
-    health: 'Gesundheit',
+    health: 'Gesundheit (Schritte, Schlaf, Gewicht)',
+    monitoring: 'Sensor-Rohdaten (HRV, Ruhepuls, SpO₂)',
   }
   return labels[cat] ?? cat
 }
@@ -234,7 +247,9 @@ function ScanResultsView({ result, onContinue }: ScanResultsProps) {
             >
               <div className="font-medium text-sm">{categoryLabel(cat)}</div>
               <div className="text-xs text-neutral-500 mt-0.5">
-                {stats.new} neu · {stats.existing} vorhanden · {stats.found} gesamt
+                {cat === 'activities'
+                  ? `${stats.new} neu · ${stats.existing} vorhanden · ${stats.found} gesamt`
+                  : `${stats.found} gefunden`}
               </div>
             </div>
           ) : null
@@ -297,7 +312,9 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
               />
               <span className="flex-1 text-sm">{categoryLabel(cat)}</span>
               <span className="text-xs text-neutral-400">
-                {stats.new} neu · {stats.existing} vorhanden
+                {cat === 'activities'
+                  ? `${stats.new} neu · ${stats.existing} vorhanden`
+                  : `${stats.found} gefunden`}
               </span>
             </label>
           )
@@ -436,7 +453,7 @@ function ImportPhase({
             <span className="text-xs text-neutral-500 tabular-nums font-mono">
               Job {jobId.slice(0, 8)}
               {job && job.total_modules > 0 &&
-                ` · ${job.completed_modules}/${job.total_modules} Module (${progress} %)`}
+                ` · ${job.completed_modules}/${job.total_modules} Kategorien (${progress} %)`}
             </span>
           </div>
 
@@ -508,7 +525,7 @@ function ImportPhase({
                   ? 'text-yellow-800 dark:text-yellow-300'
                   : 'text-green-800 dark:text-green-300'
               }`}>
-                Import abgeschlossen — {job.completed_modules}/{job.total_modules} Kategorien verarbeitet.
+                Abgeschlossen — {job.completed_modules}/{job.total_modules} Kategorien importiert.
                 {job.errors && job.errors.length > 0 && ` (${job.errors.length} Fehler)`}
               </p>
               <p className={`text-xs mt-1 ${
@@ -571,7 +588,7 @@ interface ImportPanelProps {
   detectFn: (path: string) => Promise<DetectedModule[]>
   startFn: (path: string, modules: string[], options: ImportOptions) => Promise<string>
   pollFn: (jobId: string) => Promise<ImportJob>
-  uploadZipFn: (file: File) => Promise<string>
+  scanZipFn: (file: File) => Promise<{ source_path: string; scan_result: ScanResult }>
 }
 
 function ImportPanel({
@@ -583,7 +600,7 @@ function ImportPanel({
   detectFn,
   startFn,
   pollFn,
-  uploadZipFn,
+  scanZipFn,
 }: ImportPanelProps) {
   const [sourcePath, setSourcePath] = useState(defaultPath)
   const [isUploading, setIsUploading] = useState(false)
@@ -663,56 +680,30 @@ function ImportPanel({
   }
 
   async function handleZIPUpload(file: File) {
-    setPhase('import')
     setIsUploading(true)
-    setImporting(true)
-    setImportError(null)
-    setJob(null)
-    setJobId(null)
+    setScanError(null)
+    setScanResult(null)
     setLog([])
-    lastModuleRef.current = null
     appendLog(`ZIP wird hochgeladen (${(file.size / 1024 / 1024).toFixed(1)} MB)…`)
 
     try {
-      const id = await uploadZipFn(file)
-      setIsUploading(false)
-      setJobId(id)
-      appendLog(`Job gestartet (${id.slice(0, 8)})`)
-
-      pollingRef.current = setInterval(async () => {
-        try {
-          const j = await pollFn(id)
-          setJob(j)
-          if (j.current_module && j.current_module !== lastModuleRef.current) {
-            lastModuleRef.current = j.current_module
-            appendLog(j.current_module)
-          }
-          if (j.status === 'completed' && lastModuleRef.current !== '__completed__') {
-            lastModuleRef.current = '__completed__'
-            appendLog(`Abgeschlossen — ${j.completed_modules} Module verarbeitet`)
-          }
-          if (j.status === 'failed' && lastModuleRef.current !== '__failed__') {
-            lastModuleRef.current = '__failed__'
-            appendLog('Import fehlgeschlagen')
-            if (j.errors && j.errors.length > 0) {
-              j.errors.forEach(err => appendLog(`Fehler: ${err}`))
-            }
-          }
-        } catch {
-          // ignore transient polling errors
-        }
-      }, 2000)
+      const { source_path, scan_result } = await scanZipFn(file)
+      setSourcePath(source_path)
+      setScanResult(scan_result)
+      const cats = Object.entries(scan_result)
+        .filter(([, stats]) => stats !== undefined)
+        .map(([cat]) => cat)
+      setImportOptions(prev => ({ ...prev, categories: cats }))
+      setPhase('config')
+      // Keep log visible in wizard panel
     } catch (e) {
-      setImportError(e instanceof Error ? e.message : String(e))
+      setScanError(e instanceof Error ? e.message : String(e))
+    } finally {
       setIsUploading(false)
-      setImporting(false)
-      setPhase('scan')
     }
   }
 
   async function handleStartImport() {
-    // Determine which modules to import based on selected categories
-    // Map categories back to modules via detectFn, or use categories directly as module names
     const categoriesToImport = importOptions.categories ?? []
 
     setPhase('import')
@@ -724,17 +715,16 @@ function ImportPanel({
     lastModuleRef.current = null
 
     try {
-      // Use the detect API to get actual module names for the selected categories,
-      // then filter to only those that match selected categories.
-      // If categories array is empty (all selected / no filter set), detect all available.
-      const allModules = await detectFn(sourcePath.trim())
-      const availableModules = allModules.filter(m => m.available)
-      const modulesToRun =
-        categoriesToImport.length === 0
-          ? availableModules.map(m => m.name)
-          : availableModules
-              .filter(m => categoriesToImport.includes(m.name))
-              .map(m => m.name)
+      // Derive module names from scanResult — avoids a redundant detectFn call
+      // (which could fail if a temp dir was cleaned up between scan and start).
+      const modulesToRun = scanResult
+        ? Object.entries(scanResult)
+            .filter(([cat, stats]) =>
+              stats !== undefined &&
+              (categoriesToImport.length === 0 || categoriesToImport.includes(cat))
+            )
+            .map(([cat]) => cat)
+        : categoriesToImport
 
       const id = await startFn(sourcePath.trim(), modulesToRun, importOptions)
       setJobId(id)
@@ -768,7 +758,7 @@ function ImportPanel({
     } catch (e) {
       setImportError(e instanceof Error ? e.message : String(e))
       setImporting(false)
-      setPhase('config')
+      // Stay on import phase so the error is visible — do NOT go back to config silently
     }
   }
 
@@ -1036,8 +1026,8 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'garmin' && (
+      {/* Tab content — panels are always mounted to preserve state during tab switches */}
+      <div className={activeTab !== 'garmin' ? 'hidden' : ''}>
         <ImportPanel
           platform="garmin"
           defaultPath={DEFAULT_GARMIN_PATH}
@@ -1047,11 +1037,11 @@ export default function ImportPage() {
           detectFn={detectGarminModules}
           startFn={startGarminImportJob}
           pollFn={getGarminImportJob}
-          uploadZipFn={uploadGarminZIP}
+          scanZipFn={uploadGarminZIPScan}
         />
-      )}
+      </div>
 
-      {activeTab === 'strava' && (
+      <div className={activeTab !== 'strava' ? 'hidden' : ''}>
         <ImportPanel
           platform="strava"
           defaultPath={DEFAULT_STRAVA_PATH}
@@ -1061,9 +1051,9 @@ export default function ImportPage() {
           detectFn={detectStravaModules}
           startFn={startStravaImportJob}
           pollFn={getStravaImportJob}
-          uploadZipFn={uploadStravaZIP}
+          scanZipFn={uploadStravaZIPScan}
         />
-      )}
+      </div>
 
       {activeTab === 'queue' && (
         <Suspense fallback={

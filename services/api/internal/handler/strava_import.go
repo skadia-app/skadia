@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -83,8 +84,12 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run import asynchronously
+	// Run import asynchronously; clean up temp dir afterwards if ZIP was uploaded
+	isTempPath := strings.HasPrefix(req.SourcePath, os.TempDir())
 	go func() {
+		if isTempPath {
+			defer os.RemoveAll(req.SourcePath)
+		}
 		bgCtx := context.Background()
 		src := strava.NewDirSource(req.SourcePath)
 		registry := h.buildStravaRegistry()
@@ -319,4 +324,58 @@ func stravaCSVHeader(row []string) map[string]int {
 		h[col] = i
 	}
 	return h
+}
+
+// UploadStravaZIPScan accepts a ZIP upload, extracts it to a temp directory, runs a scan
+// (without starting the import) and returns the scan result + the temp dir path so the
+// frontend can show the config wizard before the actual import begins.
+//
+// POST /api/v1/import/strava/upload-zip-scan
+// Body: multipart/form-data { file: <export.zip> }
+func (h *Handler) UploadStravaZIPScan(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	tmpDir, ok := parseUploadedZIP(w, r, r.URL.Path)
+	if !ok {
+		return
+	}
+
+	type categoryStats struct {
+		Found    int `json:"found"`
+		Existing int `json:"existing"`
+		New      int `json:"new"`
+	}
+	scanResult := map[string]categoryStats{}
+
+	src := strava.NewDirSource(tmpDir)
+	registry := h.buildStravaRegistry()
+	modules := registry.Detect(src)
+	for _, m := range modules {
+		if !m.Available {
+			continue
+		}
+		stats := categoryStats{Found: m.ItemCount}
+		if m.Name == "activities" {
+			existing, err := scanExistingStravaActivities(r.Context(), h, userID, src)
+			if err != nil {
+				slog.Warn("strava zip scan: activity existence check failed", "error", err)
+			} else {
+				stats.Existing = existing
+			}
+		}
+		stats.New = stats.Found - stats.Existing
+		if stats.New < 0 {
+			stats.New = 0
+		}
+		scanResult[m.Name] = stats
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"source_path": tmpDir,
+		"scan_result": scanResult,
+	})
 }

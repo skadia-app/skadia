@@ -45,6 +45,10 @@ export function useActiveJobs() {
         if (job.job_type === 'osm_import') {
           queryClient.invalidateQueries({ queryKey: ['osm-status'] })
         }
+        if (job.job_type === 'garmin_import' || job.job_type === 'strava_import') {
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
+        }
       }
     }
 

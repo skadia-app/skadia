@@ -43,7 +43,8 @@ func (a *ActivitiesImporter) Detect(src ExportSource) (bool, int, error) {
 	if len(zips) == 0 {
 		return false, 0, nil
 	}
-	// Count activity files across all ZIPs
+	// Count only genuine activity files: GPX/TCX always qualify; for FIT files
+	// we read the first 256 bytes to check the file_id type (activity = 4).
 	count := 0
 	for _, z := range zips {
 		zr, err := zip.OpenReader(filepath.Join(src.BaseDir(), z))
@@ -51,9 +52,16 @@ func (a *ActivitiesImporter) Detect(src ExportSource) (bool, int, error) {
 			continue
 		}
 		for _, f := range zr.File {
-			if isActivityFile(f.Name) {
-				count++
+			if !isActivityFile(f.Name) {
+				continue
 			}
+			lower := strings.ToLower(f.Name)
+			if strings.HasSuffix(lower, ".fit") {
+				if readFITFileTypeFromZipEntry(f) != fitFileTypeActivity {
+					continue // skip monitoring / HRV / other non-activity FITs
+				}
+			}
+			count++
 		}
 		zr.Close()
 	}
@@ -369,15 +377,10 @@ func readFileFromZip(zipPath, fileName string) ([]byte, error) {
 
 // detectActivityFormat detects the file format from content + extension.
 func detectActivityFormat(data []byte, filename string) string {
-	// FIT: check header
-	if len(data) >= 14 {
-		headerSize := int(data[0])
-		if (headerSize == 12 || headerSize == 14) && headerSize <= len(data) {
-			sig := string(data[headerSize-4 : headerSize])
-			if sig == ".FIT" {
-				return "fit"
-			}
-		}
+	// FIT: check header — ".FIT" signature is always at bytes 8–11,
+	// regardless of whether the header is 12 or 14 bytes.
+	if len(data) >= 12 && string(data[8:12]) == ".FIT" {
+		return "fit"
 	}
 	// XML-based
 	content := strings.ToLower(string(data[:min(len(data), 1024)]))

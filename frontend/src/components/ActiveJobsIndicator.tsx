@@ -11,9 +11,14 @@ import {
 
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMImport = job.job_type === 'osm_import'
+  const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import'
 
   const label = isOSMImport
     ? 'OSM-Import'
+    : job.job_type === 'garmin_import'
+    ? 'Garmin-Import'
+    : job.job_type === 'strava_import'
+    ? 'Strava-Import'
     : job.job_type === 'activity_recompute_all'
     ? 'Alle Aktivitäten neu berechnen'
     : `Segment „${job.entity_name ?? 'Segment'}`
@@ -24,10 +29,12 @@ function JobRow({ job }: { job: ActiveJob }) {
       : null
 
   const subLabel =
-    !isOSMImport && job.status === 'running' && job.progress_total > 0
+    !isOSMImport && !isDataImport && job.status === 'running' && job.progress_total > 0
       ? job.job_type === 'segment_recompute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
+      : isDataImport && job.status === 'running' && job.progress_total > 0
+      ? `${job.progress_current} / ${job.progress_total} Kategorien`
       : null
 
   const downloadPct =

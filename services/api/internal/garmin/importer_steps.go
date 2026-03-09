@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,15 +24,29 @@ import (
 type StepsImporter struct{}
 
 func (s *StepsImporter) Name() string        { return "health" }
-func (s *StepsImporter) Description() string { return "Gesundheitsdaten (Schritte, Schlaf, Ruhepuls)" }
+func (s *StepsImporter) Description() string { return "Gesundheitsdaten (Schritte, Schlaf, Gewicht, Trainingsstatus)" }
 func (s *StepsImporter) Priority() int       { return 40 }
 
 func (s *StepsImporter) Detect(src ExportSource) (bool, int, error) {
 	files, _ := src.FindFiles("DI_CONNECT/DI-Connect-Aggregator/UDSFile_*.json")
-	if len(files) > 0 {
-		return true, len(files) * 100, nil
+	if len(files) == 0 {
+		return false, 0, nil
 	}
-	return false, 0, nil
+	// Count actual JSON records instead of using a fixed heuristic.
+	total := 0
+	for _, f := range files {
+		data, err := os.ReadFile(filepath.Join(src.BaseDir(), f))
+		if err != nil {
+			continue
+		}
+		// UDSFile_*.json is a JSON array — count elements cheaply via json.RawMessage.
+		var records []json.RawMessage
+		if err := json.Unmarshal(data, &records); err != nil {
+			continue
+		}
+		total += len(records)
+	}
+	return true, total, nil
 }
 
 // parseGarminTime parses Garmin's timestamp strings (with optional fractional seconds).
@@ -710,11 +726,7 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 	slog.Info("garmin health: imported hydration records", "count", totalHydration)
 	result.Imported += totalHydration
 
-	// Abschnitt 10: Monitoring FIT files (HRV-Status, 5-min HRV night values, Resting HR)
-	// These come from the same UploadedFiles ZIPs as activities, but are non-activity FIT types.
-	fitImported, fitErrs := importMonitoringFITs(ctx, params)
-	result.Imported += fitImported
-	result.Errors = append(result.Errors, fitErrs...)
+	// Monitoring FIT files (HRV, Ruhepuls) sind jetzt im separaten MonitoringFITImporter.
 
 	return result, nil
 }

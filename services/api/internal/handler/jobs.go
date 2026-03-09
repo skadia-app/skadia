@@ -24,6 +24,18 @@ func (h *Handler) ListActiveJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Include active Garmin + Strava import jobs
+	if garminJobs, err := h.DB.ListActiveGarminImportJobs(r.Context(), userID); err == nil {
+		jobs = append(jobs, garminJobs...)
+	} else {
+		slog.Warn("list active garmin import jobs failed", "error", err)
+	}
+	if stravaJobs, err := h.DB.ListActiveStravaImportJobs(r.Context(), userID); err == nil {
+		jobs = append(jobs, stravaJobs...)
+	} else {
+		slog.Warn("list active strava import jobs failed", "error", err)
+	}
+
 	pending, err := h.DB.CountPendingEnrichments(r.Context(), userID)
 	if err != nil {
 		slog.Warn("count pending enrichments failed", "error", err)

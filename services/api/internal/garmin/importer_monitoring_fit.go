@@ -19,11 +19,11 @@ import (
 )
 
 // Garmin monitoring FIT file types found in UploadedFiles ZIPs.
-// These are Garmin-proprietary types (not in the FIT SDK standard).
 const (
-	fitFileTypeActivity    = 4  // Standard activity (Laufen, Radfahren etc.)
-	fitFileTypeMonitorMain = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
-	fitFileTypeHRVNight    = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
+	fitFileTypeActivity       = 4  // Standard activity (Laufen, Radfahren etc.)
+	fitFileTypeMonitorDevice  = 20 // Stündliche Device-Monitoring-Daten (Schritte, Kalorien, HR)
+	fitFileTypeHRVNight       = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
+	fitFileTypeMonitorMain    = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
 )
 
 // monitoringFITResult holds all health data extracted from a single monitoring FIT file.
@@ -139,6 +139,21 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 	imported = totalHRV + totalNightHRV + totalRHR
 	return imported, errs
+}
+
+// readFITFileTypeFromZipEntry liest nur die ersten 256 Bytes eines ZIP-Eintrags und
+// bestimmt daraus den FIT-Dateityp. Das reicht für readFITFileType, da die file_id-
+// Nachricht immer als erste Nachricht direkt nach dem FIT-Header steht.
+// Deutlich schneller als readZipEntry für bloße Typ-Erkennung (Detect-Phase).
+func readFITFileTypeFromZipEntry(f *zip.File) uint8 {
+	rc, err := f.Open()
+	if err != nil {
+		return 0
+	}
+	defer rc.Close()
+	buf := make([]byte, 256)
+	n, _ := rc.Read(buf)
+	return readFITFileType(buf[:n])
 }
 
 // readZipEntry reads the full contents of a zip.File into a byte slice.
@@ -401,4 +416,49 @@ func hrvStatusString(s typedef.HrvStatus) string {
 	default:
 		return "none"
 	}
+}
+
+// MonitoringFITImporter is a standalone DataImporter that reads Garmin monitoring FIT files
+// (HRV-Status, nächtliche HRV-Werte, Ruhepuls) from the UploadedFiles ZIPs.
+// It was previously embedded in StepsImporter; splitting it out allows users to configure
+// whether to import the large set of monitoring FITs independently from daily aggregates.
+type MonitoringFITImporter struct{}
+
+func (m *MonitoringFITImporter) Name() string { return "monitoring" }
+func (m *MonitoringFITImporter) Description() string {
+	return "Monitoring-Daten (HRV, Ruhepuls, SpO2) aus Garmin-Sensor-FITs"
+}
+func (m *MonitoringFITImporter) Priority() int { return 45 }
+
+func (m *MonitoringFITImporter) Detect(src ExportSource) (bool, int, error) {
+	zips, _ := src.FindFiles("DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_*.zip")
+	if len(zips) == 0 {
+		return false, 0, nil
+	}
+	count := 0
+	for _, z := range zips {
+		zr, err := zip.OpenReader(filepath.Join(src.BaseDir(), z))
+		if err != nil {
+			continue
+		}
+		for _, f := range zr.File {
+			if !strings.HasSuffix(strings.ToLower(f.Name), ".fit") {
+				continue
+			}
+			ft := readFITFileTypeFromZipEntry(f)
+			// Count all FIT files that are NOT activities (type 4).
+			// This includes type 20 (hourly device monitoring), type 44 (HRV night),
+			// type 68 (HRV/resting HR status), and any other non-activity types.
+			if ft != 0 && ft != fitFileTypeActivity {
+				count++
+			}
+		}
+		zr.Close()
+	}
+	return count > 0, count, nil
+}
+
+func (m *MonitoringFITImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
+	imported, errs := importMonitoringFITs(ctx, params)
+	return &ImportResult{Imported: imported, Errors: errs}, nil
 }
