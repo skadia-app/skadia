@@ -396,10 +396,6 @@ function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> 
   )
 }
 
-// Kartenstile, die als "hell" gelten — beim Wechsel zu Heatmap wird automatisch
-// auf Dark gewechselt. Satellite bleibt unangetastet.
-const LIGHT_STYLES: BaseStyle[] = ['osm', 'topo', 'cyclosm', 'local']
-
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -443,10 +439,6 @@ export default function MapPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Merkt sich, ob wir den Stil automatisch auf Dark gesetzt haben,
-  // damit wir ihn beim Zurueckwechseln auch wieder zuruecksetzen koennen.
-  const autoSwitchedToDark = useRef(false)
-  const styleBeforeAutoSwitch = useRef<BaseStyle>('osm')
   // Track welche user_id zuletzt für den jeweiligen Source verwendet wurde,
   // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
   const lastPeaksUserId = useRef<string>('')
@@ -479,7 +471,6 @@ export default function MapPage() {
   const { data: explorationData } = useQuery({
     queryKey: ['exploration-coverage'],
     queryFn: () => fetchExplorationCoverage(),
-    enabled: viewMode === 'exploration',
     staleTime: 5 * 60 * 1000, // 5 min cache
   })
 
@@ -772,18 +763,21 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    removeOverlayLayers(map)
-    removeExplorationLayers(map)
     if (viewMode === 'exploration') {
-      // Exploration-Modus: Entdeckungs-Overlay neu hinzufügen falls Daten vorhanden.
-      // Ohne diesen Re-Add würde jede Filter-Änderung den Overlay dauerhaft entfernen,
-      // weil removeExplorationLayers() oben ihn löscht und der separate Exploration-
-      // Effect (deps: viewMode, explorationData, styleVersion) nicht erneut feuert.
-      if (explorationDataRef.current?.explored_area) {
-        addExplorationLayers(map, explorationDataRef.current.explored_area)
+      // Beim Wechsel zu Exploration: Overlay-Source komplett entfernen (inkl. Tile-Cache),
+      // da die Source für Exploration nicht mehr benötigt wird.
+      removeOverlayLayers(map)
+      removeExplorationLayers(map)
+      // Sofortiger Nebel (bei fehlendem explorationData: volle Welt-Abdeckung als Fallback).
+      const geom = explorationDataRef.current?.explored_area
+        ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
+      addExplorationLayers(map, geom)
+    } else {
+      removeOverlayLayers(map)
+      removeExplorationLayers(map)
+      if (filters.sportTypes.size > 0) {
+        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
       }
-    } else if (filters.sportTypes.size > 0) {
-      addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion])
@@ -1826,12 +1820,19 @@ export default function MapPage() {
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
           <button
             onClick={() => {
-              setViewMode('tracks')
-              // Automatisch gesetzten Dark-Stil zuruecksetzen
-              if (autoSwitchedToDark.current) {
-                autoSwitchedToDark.current = false
-                setBaseStyle(styleBeforeAutoSwitch.current)
+              // Direkter synchroner Layer-Wechsel via Refs für sofortiges visuelles Feedback.
+              // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch
+              // von Web-Workern dekodiert werden (_hasPendingWorkerUpdate), obwohl der Style-JSON
+              // fertig ist und addSource/addLayer problemlos funktionieren.
+              const map = mapRef.current
+              if (map) {
+                removeOverlayLayers(map)
+                removeExplorationLayers(map)
+                if (filtersRef.current.sportTypes.size > 0) {
+                  addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                }
               }
+              setViewMode('tracks')
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'tracks'
@@ -1843,13 +1844,15 @@ export default function MapPage() {
           </button>
           <button
             onClick={() => {
-              setViewMode('heatmap')
-              // Automatisch auf Dark wechseln, wenn aktueller Stil ein heller Stil ist
-              if (LIGHT_STYLES.includes(baseStyle)) {
-                styleBeforeAutoSwitch.current = baseStyle
-                autoSwitchedToDark.current = true
-                setBaseStyle('dark')
+              const map = mapRef.current
+              if (map) {
+                removeOverlayLayers(map)
+                removeExplorationLayers(map)
+                if (filtersRef.current.sportTypes.size > 0) {
+                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                }
               }
+              setViewMode('heatmap')
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'heatmap'
@@ -1861,12 +1864,15 @@ export default function MapPage() {
           </button>
           <button
             onClick={() => {
-              setViewMode('exploration')
-              // Automatisch gesetzten Dark-Stil zuruecksetzen
-              if (autoSwitchedToDark.current) {
-                autoSwitchedToDark.current = false
-                setBaseStyle(styleBeforeAutoSwitch.current)
+              const map = mapRef.current
+              if (map) {
+                removeOverlayLayers(map)
+                removeExplorationLayers(map)
+                const geom = explorationDataRef.current?.explored_area
+                  ?? ({ type: 'Polygon', coordinates: [] } as GeoJSON.Geometry)
+                addExplorationLayers(map, geom)
               }
+              setViewMode('exploration')
             }}
             className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
               viewMode === 'exploration'
@@ -2576,21 +2582,25 @@ function removeExplorationLayers(map: maplibregl.Map) {
  * nicht vorher aufrufen.
  */
 function addExplorationLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
-  // World-covering polygon (outer ring, counter-clockwise)
+  // World-covering polygon (outer ring, counter-clockwise = RFC 7946 exterior)
   const worldRing: GeoJSON.Position[] = [
     [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85],
   ]
+
+  // PostGIS ST_AsGeoJSON returns exterior rings as CCW (RFC 7946).
+  // GeoJSON holes (interior rings) must be CW → reverse the ring.
+  const toHoleRing = (ring: GeoJSON.Position[]): GeoJSON.Position[] => ring.slice().reverse()
 
   // Extract holes from the explored area geometry
   const holes: GeoJSON.Position[][] = []
   if (exploredGeometry.type === 'Polygon' && exploredGeometry.coordinates.length > 0) {
     // The exterior ring of the explored polygon becomes a hole in the overlay
-    holes.push(exploredGeometry.coordinates[0])
+    holes.push(toHoleRing(exploredGeometry.coordinates[0]))
   } else if (exploredGeometry.type === 'MultiPolygon') {
     // Each polygon's exterior ring becomes a hole
     for (const poly of exploredGeometry.coordinates) {
       if (poly.length > 0) {
-        holes.push(poly[0])
+        holes.push(toHoleRing(poly[0]))
       }
     }
   }
@@ -2664,10 +2674,8 @@ function addOverlayLayers(
   samplingIntervalM?: number,
   userId?: string,
 ) {
-  // Linien-Layer fuer beide Modi.
-  // Defensive Bereinigung: Falls addOverlayLayers ohne vorherigem removeOverlayLayers
-  // aufgerufen wird (z.B. Race-Condition zwischen style.load-Handler und Effect),
-  // verhindert removeOverlayLayers() hier einen "Source already exists"-Fehler.
+  // Layer und Source vollständig entfernen und neu aufbauen.
+  // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
   removeOverlayLayers(map)
   map.addSource('heatmap', {
     type: 'vector',
