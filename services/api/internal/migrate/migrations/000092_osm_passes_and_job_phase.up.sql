@@ -1,4 +1,4 @@
--- Neue Tabelle für echte Straßenpässe (mountain_pass=yes in OSM)
+-- Neue Tabelle für echte Passstraßen (mountain_pass=yes in OSM)
 CREATE TABLE IF NOT EXISTS osm_passes (
     id      BIGSERIAL PRIMARY KEY,
     osm_id  BIGINT,

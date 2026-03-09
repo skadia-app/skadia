@@ -6,7 +6,7 @@ import { useToast } from '@/lib/toast'
 
 const ALL_CATEGORIES = [
   { id: 'peaks',       label: 'Gipfel & Sättel' },
-  { id: 'passes',      label: 'Straßenpässe' },
+  { id: 'passes',      label: 'Passstraßen' },
   { id: 'lifts',       label: 'Lifte' },
   { id: 'settlements', label: 'Ortschaften' },
   { id: 'amenities',   label: 'Gastronomie & POIs' },

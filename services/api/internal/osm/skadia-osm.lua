@@ -101,7 +101,7 @@ local import_all = not (import_peaks or import_passes or import_lifts or
 function osm2pgsql.process_node(object)
     local tags = object.tags
 
-    -- Straßenpässe (mountain_pass=yes) — Rennrad-relevante Pässe wie Stilfser Joch
+    -- Passstraßen (mountain_pass=yes) — Rennrad-relevante Pässe wie Stilfser Joch
     if (import_all or import_passes) and tags.mountain_pass == 'yes' then
         tables.passes:insert({
             osm_id = object.id,
