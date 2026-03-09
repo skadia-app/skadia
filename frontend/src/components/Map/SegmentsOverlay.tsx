@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -49,11 +49,26 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
   const mergedFilters: SegmentsOverlayFilters = { ...DEFAULT_SEGMENT_FILTERS, ...filters }
   const colors: SegmentColorConfig = { ...DEFAULT_SEGMENT_COLORS, ...colorConfig }
 
+  // Viewport-bbox für räumlichen Filter — nur Segmente im sichtbaren Bereich laden
+  const [bbox, setBbox] = useState('')
+  const updateBbox = useCallback(() => {
+    if (!map) return
+    const b = map.getBounds()
+    setBbox(`${b.getWest().toFixed(5)},${b.getSouth().toFixed(5)},${b.getEast().toFixed(5)},${b.getNorth().toFixed(5)}`)
+  }, [map])
+
+  useEffect(() => {
+    if (!map || !enabled) return
+    updateBbox()
+    map.on('moveend', updateBbox)
+    return () => { map.off('moveend', updateBbox) }
+  }, [map, enabled, updateBbox])
+
   const { data: rawData } = useQuery<SegmentsResponse>({
-    queryKey: ['segments-overlay-list'],
-    queryFn: () => fetchSegments({ include_geojson: true, limit: -1 }),
-    enabled: enabled && !!map,
-    staleTime: 5 * 60 * 1000, // 5 Minuten cachen
+    queryKey: ['segments-overlay-list', bbox],
+    queryFn: () => fetchSegments({ include_geojson: true, limit: 500, ...(bbox ? { bbox } : {}) }),
+    enabled: enabled && !!map && bbox !== '',
+    staleTime: 5 * 60 * 1000,
   })
   const segmentData: Segment[] = rawData?.segments ?? []
 
