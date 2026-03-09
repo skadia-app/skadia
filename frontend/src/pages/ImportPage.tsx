@@ -8,10 +8,8 @@ import {
   type ScanResult,
   type ImportOptions,
   type ConflictStrategy,
-  type FusionQueueEntry,
 } from '@/api/importWizard'
 import { fetchImportQueueCount } from '@/api/importQueue'
-import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
 
 const ImportQueueTab = lazy(() => import('@/components/ImportQueueTab'))
 
@@ -44,7 +42,7 @@ interface LogEntry {
   message: string
 }
 
-type WizardPhase = 'scan' | 'config' | 'review' | 'import'
+type WizardPhase = 'scan' | 'config' | 'import'
 
 // ---------------------------------------------------------------------------
 // API helpers — Garmin
@@ -68,13 +66,6 @@ async function startGarminImportJob(sourcePath: string, modules: string[], optio
 
 async function getGarminImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/garmin/jobs/${jobId}`)
-}
-
-async function uploadGarminZIP(file: File): Promise<string> {
-  const fd = new FormData()
-  fd.append('file', file)
-  const res = await apiUpload<{ job_id: string }>('/import/garmin/upload-zip', fd)
-  return res.job_id
 }
 
 async function uploadGarminZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
@@ -105,13 +96,6 @@ async function startStravaImportJob(sourcePath: string, modules: string[], optio
 
 async function getStravaImportJob(jobId: string): Promise<ImportJob> {
   return apiClient<ImportJob>(`/import/strava/jobs/${jobId}`)
-}
-
-async function uploadStravaZIP(file: File): Promise<string> {
-  const fd = new FormData()
-  fd.append('file', file)
-  const res = await apiUpload<{ job_id: string }>('/import/strava/upload-zip', fd)
-  return res.job_id
 }
 
 async function uploadStravaZIPScan(file: File): Promise<{ source_path: string; scan_result: ScanResult }> {
@@ -161,8 +145,7 @@ interface StepIndicatorProps {
 const STEPS: { id: WizardPhase; label: string; num: number }[] = [
   { id: 'scan', label: 'Analysieren', num: 1 },
   { id: 'config', label: 'Konfigurieren', num: 2 },
-  { id: 'review', label: 'Prüfen', num: 3 },
-  { id: 'import', label: 'Importieren', num: 4 },
+  { id: 'import', label: 'Importieren', num: 3 },
 ]
 
 function StepIndicator({ phase }: StepIndicatorProps) {
@@ -411,6 +394,7 @@ interface ImportPhaseProps {
   log: LogEntry[]
   logEndRef: React.RefObject<HTMLDivElement | null>
   progress: number
+  fusionCount: number | null
 }
 
 function ImportPhase({
@@ -421,6 +405,7 @@ function ImportPhase({
   log,
   logEndRef,
   progress,
+  fusionCount,
 }: ImportPhaseProps) {
   return (
     <div className="space-y-4">
@@ -552,6 +537,24 @@ function ImportPhase({
             </div>
           )}
 
+          {/* Fusion candidates hint */}
+          {job?.status === 'completed' && fusionCount !== null && fusionCount > 0 && (
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 mt-3">
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
+                {fusionCount >= 5 ? 'Mehrere' : fusionCount} Fusionskandidat{fusionCount !== 1 ? 'en' : ''} gefunden
+              </p>
+              <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                Aktivitäten die möglicherweise mit zwei Geräten aufgezeichnet wurden.
+              </p>
+              <a
+                href="/workshop/fusion"
+                className="inline-block mt-2 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Fusionskandidaten prüfen →
+              </a>
+            </div>
+          )}
+
           {/* Failure summary */}
           {job?.status === 'failed' && (
             <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 space-y-1">
@@ -622,6 +625,8 @@ function ImportPanel({
   const [importError, setImportError] = useState<string | null>(null)
   const [log, setLog] = useState<LogEntry[]>([])
 
+  const [fusionCount, setFusionCount] = useState<number | null>(null)
+
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const lastModuleRef = useRef<string | null>(null)
@@ -631,7 +636,7 @@ function ImportPanel({
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [log])
 
-  // Stop polling when job is done
+  // Stop polling when job is done + check fusion candidates on completion
   useEffect(() => {
     if (job && (job.status === 'completed' || job.status === 'failed')) {
       if (pollingRef.current) {
@@ -639,6 +644,12 @@ function ImportPanel({
         pollingRef.current = null
       }
       setImporting(false)
+
+      if (job.status === 'completed') {
+        getFusionQueue(5)
+          .then(entries => setFusionCount(entries.length))
+          .catch(() => setFusionCount(null))
+      }
     }
   }, [job])
 
@@ -655,10 +666,6 @@ function ImportPanel({
       if (next.length > MAX_LOG_ENTRIES) return next.slice(next.length - MAX_LOG_ENTRIES)
       return next
     })
-  }
-
-  function handleGoToReview() {
-    setPhase('review')
   }
 
   async function handleAnalyse() {
@@ -712,6 +719,7 @@ function ImportPanel({
     setJob(null)
     setJobId(null)
     setLog([])
+    setFusionCount(null)
     lastModuleRef.current = null
 
     try {
@@ -766,12 +774,6 @@ function ImportPanel({
     job && job.total_modules > 0
       ? Math.round((job.completed_modules / job.total_modules) * 100)
       : 0
-
-  const { data: fusionQueue = [] } = useQuery<FusionQueueEntry[]>({
-    queryKey: ['fusion-queue'],
-    queryFn: () => getFusionQueue(20),
-    enabled: phase === 'review',
-  })
 
   return (
     <div className="space-y-6">
@@ -889,25 +891,8 @@ function ImportPanel({
             scanResult={scanResult}
             options={importOptions}
             onChange={setImportOptions}
-            onStart={handleGoToReview}
+            onStart={handleStartImport}
           />
-        )}
-
-        {phase === 'review' && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                Fusionskandidaten prüfen
-              </h2>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-                Aktivitäten die möglicherweise mit zwei Geräten aufgezeichnet wurden.
-              </p>
-            </div>
-            <DuplicateReviewPanel
-              entries={fusionQueue}
-              onDone={handleStartImport}
-            />
-          </div>
         )}
 
         {phase === 'import' && (
@@ -919,6 +904,7 @@ function ImportPanel({
             log={log}
             logEndRef={logEndRef}
             progress={progress}
+            fusionCount={fusionCount}
           />
         )}
 
@@ -931,15 +917,6 @@ function ImportPanel({
             ← Zurück zur Analyse
           </button>
         )}
-        {phase === 'review' && (
-          <button
-            onClick={() => setPhase('config')}
-            className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
-          >
-            ← Zurück zur Konfiguration
-          </button>
-        )}
-
         {/* New import button — only after import completes */}
         {phase === 'import' &&
           job &&

@@ -92,8 +92,15 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
         SELECT b.id FROM activities a
         JOIN activities b ON b.user_id = a.user_id
             AND b.id != a.id
-            AND ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= $3
             AND b.is_fusion_source = FALSE
+            AND (
+                -- Zeitlicher Overlap: Aktivitäten überschneiden sich
+                (b.ended_at IS NOT NULL AND a.ended_at IS NOT NULL
+                 AND b.started_at < a.ended_at AND b.ended_at > a.started_at)
+                OR
+                -- Fallback: Start-Differenz innerhalb Zeitfenster
+                ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= $3
+            )
         WHERE a.id = $1 AND a.user_id = $2
         LIMIT 10`,
 		activityID, userID, timeWindowMin*60,

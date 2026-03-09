@@ -43,6 +43,12 @@ const sections = [
     description: 'Alle besuchten Gipfel mit Statistiken und Kartenansicht',
     icon: PeakIcon,
   },
+  {
+    to: '/workshop/fusion',
+    title: 'Fusionskandidaten',
+    description: 'Aktivitäten aus mehreren Geräten erkennen und zusammenführen',
+    icon: FusionIcon,
+  },
 ]
 
 export default function WorkshopPage() {
@@ -128,6 +134,18 @@ function PeakIcon() {
   return (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 20l6.5-11L13 15l4-6 4 11H3z" />
+    </svg>
+  )
+}
+
+function FusionIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6c0 6-6 6-6 12" />
+      <path d="M6 6c0 6 6 6 6 12" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="12" cy="18" r="3" />
     </svg>
   )
 }

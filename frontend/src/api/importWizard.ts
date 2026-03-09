@@ -21,6 +21,7 @@ export interface ScanResult {
   profile?: CategoryStats
   privacy_zones?: CategoryStats
   health?: CategoryStats
+  monitoring?: CategoryStats
   [key: string]: CategoryStats | undefined  // für weitere Kategorien
 }
 

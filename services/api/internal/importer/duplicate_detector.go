@@ -121,7 +121,7 @@ func CheckTier2(ctx context.Context, db *database.DB, userID string, activityID 
 			continue
 		}
 
-		pct := GPSSimilarityPercent(trackA, trackB)
+		pct := GPSOverlapPercent(trackA, trackB, 50) // 50m radius
 		if pct < threshold {
 			continue
 		}

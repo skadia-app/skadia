@@ -20,10 +20,9 @@ import (
 
 // Garmin monitoring FIT file types found in UploadedFiles ZIPs.
 const (
-	fitFileTypeActivity       = 4  // Standard activity (Laufen, Radfahren etc.)
-	fitFileTypeMonitorDevice  = 20 // Stündliche Device-Monitoring-Daten (Schritte, Kalorien, HR)
-	fitFileTypeHRVNight       = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
-	fitFileTypeMonitorMain    = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
+	fitFileTypeActivity    = 4  // Standard activity (Laufen, Radfahren etc.)
+	fitFileTypeHRVNight    = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
+	fitFileTypeMonitorMain = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
 )
 
 // monitoringFITResult holds all health data extracted from a single monitoring FIT file.

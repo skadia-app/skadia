@@ -8,7 +8,7 @@ interface SimilarRoute {
   title: string
   sport_type: string
   started_at: string
-  hausdorff_dist: number
+  overlap_pct: number
 }
 
 export default function RouteSimilarityCard({ activityId }: { activityId: string }) {
@@ -47,7 +47,7 @@ export default function RouteSimilarityCard({ activityId }: { activityId: string
               </p>
             </div>
             <span className="text-xs text-neutral-400 ml-2 flex-shrink-0">
-              Δ{r.hausdorff_dist.toFixed(3)}°
+              {Math.round(r.overlap_pct)}%
             </span>
           </button>
         ))}

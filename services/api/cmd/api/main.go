@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -478,6 +480,34 @@ func main() {
 
 	// Resume interrupted background jobs from previous server process.
 	go h.ResumeInterruptedJobs(context.Background())
+
+	// Clean up orphaned ZIP-scan temp directories from previous server runs.
+	// These are created by UploadGarminZIPScan / UploadStravaZIPScan and only
+	// removed by the subsequent start-import call. If the user abandons the
+	// wizard they linger until the next restart.
+	go func() {
+		tmpBase := os.TempDir()
+		entries, err := os.ReadDir(tmpBase)
+		if err != nil {
+			return
+		}
+		threshold := time.Now().Add(-2 * time.Hour)
+		for _, e := range entries {
+			if !e.IsDir() || !strings.HasPrefix(e.Name(), "skadia-import-") {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil || info.ModTime().After(threshold) {
+				continue
+			}
+			path := filepath.Join(tmpBase, e.Name())
+			if rmErr := os.RemoveAll(path); rmErr != nil {
+				slog.Warn("startup cleanup: failed to remove orphaned temp dir", "path", path, "error", rmErr)
+			} else {
+				slog.Info("startup cleanup: removed orphaned temp dir", "path", path)
+			}
+		}
+	}()
 
 	// Background: recalculate PMC for all active users on startup.
 	// Ensures historical data is populated after service changes or fresh deploys.

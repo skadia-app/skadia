@@ -5,9 +5,10 @@ import { type FusionQueueEntry, setActivityFusion } from '@/api/importWizard'
 interface DuplicateReviewPanelProps {
   entries: FusionQueueEntry[]
   onDone: () => void
+  doneLabel?: string
 }
 
-export default function DuplicateReviewPanel({ entries, onDone }: DuplicateReviewPanelProps) {
+export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Weiter zum Import' }: DuplicateReviewPanelProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [fused, setFused] = useState<Set<string>>(new Set())
   const queryClient = useQueryClient()
@@ -66,12 +67,14 @@ export default function DuplicateReviewPanel({ entries, onDone }: DuplicateRevie
             ? `${fused.size} Aktivitätspaar${fused.size > 1 ? 'e' : ''} zusammengeführt.`
             : 'Keine Fusionskandidaten gefunden.'}
         </p>
-        <button
-          onClick={onDone}
-          className="mt-4 bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-        >
-          Weiter zum Import
-        </button>
+        {fused.size > 0 && (
+          <button
+            onClick={onDone}
+            className="mt-4 bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {doneLabel}
+          </button>
+        )}
       </div>
     )
   }
@@ -197,7 +200,7 @@ export default function DuplicateReviewPanel({ entries, onDone }: DuplicateRevie
           onClick={onDone}
           className="w-full border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors"
         >
-          {visible.length > 0 ? 'Restliche überspringen und weiter' : 'Weiter zum Import'}
+          {visible.length > 0 ? 'Restliche überspringen und weiter' : doneLabel}
         </button>
       </div>
     </div>

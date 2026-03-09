@@ -124,3 +124,71 @@ func GPSSimilarityPercent(a, b []LatLng) float64 {
 	}
 	return pct
 }
+
+// haversineDistance returns the distance in metres between two LatLng points
+// using the Haversine formula.
+func haversineDistance(a, b LatLng) float64 {
+	const earthRadiusM = 6371000.0
+	dLat := (b.Lat - a.Lat) * math.Pi / 180
+	dLng := (b.Lng - a.Lng) * math.Pi / 180
+	lat1 := a.Lat * math.Pi / 180
+	lat2 := b.Lat * math.Pi / 180
+	sinLat := math.Sin(dLat / 2)
+	sinLng := math.Sin(dLng / 2)
+	h := sinLat*sinLat + math.Cos(lat1)*math.Cos(lat2)*sinLng*sinLng
+	return 2 * earthRadiusM * math.Asin(math.Sqrt(h))
+}
+
+// subsample returns at most maxN evenly-spaced points from pts.
+func subsample(pts []LatLng, maxN int) []LatLng {
+	if len(pts) <= maxN {
+		return pts
+	}
+	step := float64(len(pts)) / float64(maxN)
+	out := make([]LatLng, 0, maxN)
+	for i := 0; i < maxN; i++ {
+		out = append(out, pts[int(float64(i)*step)])
+	}
+	return out
+}
+
+// overlapDirection computes the fraction (0–100) of points in "from" that have
+// at least one point in "to" within radiusM metres.
+func overlapDirection(from, to []LatLng, radiusM float64) float64 {
+	covered := 0
+	for _, pf := range from {
+		for _, pt := range to {
+			if haversineDistance(pf, pt) <= radiusM {
+				covered++
+				break
+			}
+		}
+	}
+	return float64(covered) / float64(len(from)) * 100
+}
+
+// GPSOverlapPercent computes the percentage of track overlap between two GPS
+// tracks. For each point in track A it checks whether any point in track B is
+// within radiusM metres (and vice versa). Returns max(A→B, B→A).
+// This is more robust than Hausdorff distance for partial overlaps (e.g. same
+// tour but one device records an extra detour — a single outlier point 500m
+// away kills the Hausdorff score while overlap stays high).
+func GPSOverlapPercent(a, b []LatLng, radiusM float64) float64 {
+	if len(a) < 2 || len(b) < 2 {
+		return 0
+	}
+	if radiusM <= 0 {
+		radiusM = 50
+	}
+
+	// Subsample both tracks to max ~300 points for performance
+	sa := subsample(a, 300)
+	sb := subsample(b, 300)
+
+	coveredA := overlapDirection(sa, sb, radiusM)
+	coveredB := overlapDirection(sb, sa, radiusM)
+
+	// Return max — asymmetric: if 82% of A is in B, it's a candidate
+	// even if only 75% of B is in A (B has extra segments)
+	return math.Max(coveredA, coveredB)
+}
