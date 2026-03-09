@@ -101,6 +101,8 @@ export interface Activity {
   // Multisport parent/child
   parent_id?: string | null
   child_count?: number
+  // Fusion result: maps stream fields to source activity IDs.
+  fusion_sources?: Record<string, string> | null
 }
 
 export interface ActivitiesResponse {

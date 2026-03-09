@@ -214,6 +214,8 @@ type Activity struct {
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
+	// Fusion result: maps stream fields to source activity IDs.
+	FusionSources json.RawMessage `json:"fusion_sources,omitempty"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.

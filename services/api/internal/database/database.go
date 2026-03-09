@@ -12,12 +12,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 type DB struct {
-	Pool *pgxpool.Pool
+	Pool          *pgxpool.Pool
+	terraInflight singleflight.Group // deduplicates concurrent terra incognita computations per user
 }
 
 func New(ctx context.Context, databaseURL string) (*DB, error) {
@@ -299,7 +301,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
 			a.exclude_lift_subtraction,
 			COALESCE(a.elevation_source, 'device'),
-			a.parent_id
+			a.parent_id,
+			a.fusion_sources
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.id = $1`, id,
@@ -326,6 +329,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.ExcludeLiftSubtraction,
 		&a.ElevationSource,
 		&a.ParentID,
+		&a.FusionSources,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
