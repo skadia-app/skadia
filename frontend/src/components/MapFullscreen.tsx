@@ -13,7 +13,12 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useQuery } from '@tanstack/react-query'
+import type { LngLatLike } from 'maplibre-gl'
 import type { StreamPoint } from '@/api/types'
+import ColorPicker from '@/components/ColorPicker'
+import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 
 echarts.use([
   LineChart,
@@ -146,6 +151,27 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     return new Set<FieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
   })
 
+  const [baseStyle, setBaseStyle] = useState<BaseStyle>(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem('skadia-map-defaults') ?? '{}') as Record<string, unknown>
+      return (d.baseStyle as BaseStyle) ?? 'osm'
+    } catch { return 'osm' }
+  })
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
+  const [styleVersion, setStyleVersion] = useState(0)
+  const pendingCameraRestoreRef = useRef<{ center: LngLatLike; zoom: number } | null>(null)
+  const initialFitDoneRef = useRef(false)
+
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: () =>
+      fetch('/api/v1/me', { credentials: 'include' })
+        .then(r => r.json()) as Promise<{ user_id: string }>,
+    staleTime: Infinity,
+  })
+  const userId = meData?.user_id ?? ''
+
   const data = useMemo(() => buildChartData(streams), [streams])
 
   // Filter to only streams with actual data
@@ -190,32 +216,47 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     let map: maplibregl.Map | null = null
     let disposed = false
 
+    const addTrackLayers = (m: maplibregl.Map) => {
+      if (m.getSource('track')) return // guard: don't double-add
+
+      m.addSource('track', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } },
+      })
+      m.addLayer({
+        id: 'track-line',
+        type: 'line',
+        source: 'track',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
+      })
+      m.addSource('highlight', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+      })
+      m.addLayer({
+        id: 'highlight-line',
+        type: 'line',
+        source: 'highlight',
+        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
+      })
+
+      if (!initialFitDoneRef.current) {
+        const bounds = new maplibregl.LngLatBounds()
+        for (const c of coordinates) bounds.extend(c)
+        m.fitBounds(bounds, { padding: 60, maxZoom: 15 })
+        initialFitDoneRef.current = true
+      }
+    }
+
     const initMap = () => {
       if (disposed || map) return
       if (el.clientWidth === 0 || el.clientHeight === 0) return
 
       map = new maplibregl.Map({
         container: el,
-        style: {
-          version: 8,
-          sources: {
-            osm: {
-              type: 'raster',
-              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            },
-          },
-          layers: [
-            {
-              id: 'osm-tiles',
-              type: 'raster',
-              source: 'osm',
-              minzoom: 0,
-              maxzoom: 19,
-            },
-          ],
-        },
+        style: buildRasterStyle(baseStyle),
         attributionControl: {},
       })
 
@@ -223,40 +264,16 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
 
       map.on('load', () => {
         map!.resize()
+        addTrackLayers(map!)
+      })
 
-        // Full track
-        map!.addSource('track', {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'LineString', coordinates },
-          },
-        })
-        map!.addLayer({
-          id: 'track-line',
-          type: 'line',
-          source: 'track',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
-        })
-
-        // Highlight segment
-        map!.addSource('highlight', {
-          type: 'geojson',
-          data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-        })
-        map!.addLayer({
-          id: 'highlight-line',
-          type: 'line',
-          source: 'highlight',
-          layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
-          paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
-        })
-
-        const bounds = new maplibregl.LngLatBounds()
-        for (const c of coordinates) bounds.extend(c)
-        map!.fitBounds(bounds, { padding: 60, maxZoom: 15 })
+      map.on('style.load', () => {
+        if (pendingCameraRestoreRef.current) {
+          map!.jumpTo(pendingCameraRestoreRef.current)
+          pendingCameraRestoreRef.current = null
+        }
+        addTrackLayers(map!)
+        setStyleVersion(v => v + 1)
       })
 
       mapRef.current = map
@@ -282,6 +299,33 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
       mapRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Style switcher effect ─────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    pendingCameraRestoreRef.current = {
+      center: map.getCenter() as LngLatLike,
+      zoom: map.getZoom(),
+    }
+    map.setStyle(buildRasterStyle(baseStyle))
+  }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Heatmap effect ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    removeHeatmapLayers(map)
+    if (showHeatmap && userId) {
+      addHeatmapLayers(map, buildHeatmapTileUrl(userId), heatmapColor, 'track-line')
+    }
+  }, [showHeatmap, heatmapColor, styleVersion, userId])
+
+  // ── Heatmap color save handler ────────────────────────────────────────────
+  const handleHeatmapColorChange = (hex: string) => {
+    setHeatmapColor(hex)
+    saveHeatmapColor(hex)
+  }
 
   // ── Move hover marker on map ──────────────────────────────────────────────
   const moveMarker = useCallback((index: number | null) => {
@@ -683,6 +727,46 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
       {/* Map fills the space */}
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div ref={mapContainerRef} className="w-full h-full" />
+
+        {/* Kartenstil-Tabs + Heatmap */}
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-0.5 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md p-0.5">
+            {(Object.keys(BASE_STYLES) as BaseStyle[]).map(key => (
+              <button
+                key={key}
+                onClick={() => setBaseStyle(key)}
+                className={[
+                  'px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                  baseStyle === key
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                ].join(' ')}
+              >
+                {BASE_STYLES[key].label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
+            <button
+              onClick={() => setShowHeatmap(v => !v)}
+              title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+              className={[
+                'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
+                showHeatmap
+                  ? 'text-accent-DEFAULT'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white',
+              ].join(' ')}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C8.5 6 6 9 6 13a6 6 0 0012 0c0-2.5-1-4.5-2.5-6.5C14.5 8.5 13.5 10 13 12c-.5-1.5-.5-3 0-5.5C12.5 5 12.2 3.5 12 2z"/>
+              </svg>
+              Heatmap
+            </button>
+            {showHeatmap && (
+              <ColorPicker value={heatmapColor} onChange={handleHeatmapColorChange} />
+            )}
+          </div>
+        </div>
 
         {/* Close button */}
         <button
