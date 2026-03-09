@@ -2628,7 +2628,14 @@ const TERRA_INCOGNITA_LAYER_IDS = [
   'terra-incognita-cloud-4',
 ] as const
 
+// Laufende RAF-Animation — wird beim Entfernen der Layer abgebrochen.
+let terraAnimRafId: number | null = null
+
 function removeTerraIncognitaLayers(map: maplibregl.Map) {
+  if (terraAnimRafId !== null) {
+    cancelAnimationFrame(terraAnimRafId)
+    terraAnimRafId = null
+  }
   for (const id of TERRA_INCOGNITA_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
@@ -2688,46 +2695,67 @@ function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.
     data: { type: 'Feature', properties: {}, geometry: exploredGeometry } as GeoJSON.Feature,
   })
 
-  // Layer 1: Wolkenmasse — opake weiße Basis über unerkundeten Gebieten
+  // Alle Layer starten bei opacity 0 — werden per RAF animiert.
   map.addLayer({
     id: 'terra-incognita-overlay',
     type: 'fill',
     source: 'terra-incognita',
-    paint: {
-      'fill-color': '#eef1f7',
-      'fill-opacity': 0.92,
-    },
+    paint: { 'fill-color': '#eef1f7', 'fill-opacity': 0 },
   })
-
-  // Layer 2–5: Wolkenrand-Auslauf (cloud dissolve effect)
-  // Jeder Layer ist ein Line-Layer auf dem Rand des erkundeten Polygons.
-  // Die Wolkenfarbe läuft durch line-blur in die erkundete Fläche aus —
-  // von dickem Wolkenrand (innen) bis zum transparenten Auslauf (außen).
-  // GPU-gerendert: kein Pixelraster, echter Farbverlauf.
   map.addLayer({
     id: 'terra-incognita-cloud-1',
     type: 'line',
     source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 120, 'line-opacity': 0.55, 'line-blur': 60 },
+    paint: { 'line-color': '#eef1f7', 'line-width': 120, 'line-opacity': 0, 'line-blur': 60 },
   })
   map.addLayer({
     id: 'terra-incognita-cloud-2',
     type: 'line',
     source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 65, 'line-opacity': 0.70, 'line-blur': 32 },
+    paint: { 'line-color': '#eef1f7', 'line-width': 65, 'line-opacity': 0, 'line-blur': 32 },
   })
   map.addLayer({
     id: 'terra-incognita-cloud-3',
     type: 'line',
     source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 30, 'line-opacity': 0.82, 'line-blur': 15 },
+    paint: { 'line-color': '#eef1f7', 'line-width': 30, 'line-opacity': 0, 'line-blur': 15 },
   })
   map.addLayer({
     id: 'terra-incognita-cloud-4',
     type: 'line',
     source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 12, 'line-opacity': 0.90, 'line-blur': 6 },
+    paint: { 'line-color': '#eef1f7', 'line-width': 12, 'line-opacity': 0, 'line-blur': 6 },
   })
+
+  // Wolken-Animation: äußere Feather-Layer ziehen zuerst rein, Wolkenmasse füllt nach.
+  // Gestaffelte Startzeitpunkte erzeugen das "Wolken rollen herein"-Gefühl.
+  const DURATION = 2200
+  const TARGET = { overlay: 0.92, c1: 0.55, c2: 0.70, c3: 0.82, c4: 0.90 }
+  // Easing: langsamer Start, schnelle Mitte, sanftes Ausklingen
+  const ease = (t: number) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+  // Berechnet Fortschritt eines gestaffelten Layers (delay = 0..1, startet erst ab delay*DURATION)
+  const stagger = (p: number, delay: number) => ease(Math.max(0, (p - delay) / (1 - delay)))
+
+  const startTs = performance.now()
+  function animate(ts: number) {
+    const p = Math.min((ts - startTs) / DURATION, 1)
+
+    // Feather-Layer von außen nach innen (c1 → c4), Körper zuletzt
+    if (map.getLayer('terra-incognita-cloud-1'))
+      map.setPaintProperty('terra-incognita-cloud-1', 'line-opacity', stagger(p, 0.00) * TARGET.c1)
+    if (map.getLayer('terra-incognita-cloud-2'))
+      map.setPaintProperty('terra-incognita-cloud-2', 'line-opacity', stagger(p, 0.08) * TARGET.c2)
+    if (map.getLayer('terra-incognita-cloud-3'))
+      map.setPaintProperty('terra-incognita-cloud-3', 'line-opacity', stagger(p, 0.16) * TARGET.c3)
+    if (map.getLayer('terra-incognita-cloud-4'))
+      map.setPaintProperty('terra-incognita-cloud-4', 'line-opacity', stagger(p, 0.22) * TARGET.c4)
+    if (map.getLayer('terra-incognita-overlay'))
+      map.setPaintProperty('terra-incognita-overlay', 'fill-opacity', stagger(p, 0.30) * TARGET.overlay)
+
+    if (p < 1) terraAnimRafId = requestAnimationFrame(animate)
+    else terraAnimRafId = null
+  }
+  terraAnimRafId = requestAnimationFrame(animate)
 }
 
 function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {

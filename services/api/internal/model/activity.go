@@ -712,6 +712,9 @@ type EnrichmentSettings struct {
 
 	// Photo preview size: "2048" (default), "4k", or "original" (Migration 000120).
 	PhotoPreviewSize string `json:"photo_preview_size"`
+
+	// Terra incognita buffer radius in meters (default 1000, Migration 000121).
+	TerraIncognitaRadiusM int `json:"terra_incognita_radius_m"`
 }
 
 // EnabledModules returns the list of Stage-2 module names that are currently

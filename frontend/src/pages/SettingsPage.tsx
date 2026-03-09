@@ -1176,6 +1176,7 @@ const BASE_STYLE_OPTIONS: { value: BaseStyle; label: string }[] = [
 
 function HeatmapSettingsSection() {
   const queryClient = useQueryClient()
+  const [localRadius, setLocalRadius] = useState<number | null>(null)
   const [localInterval, setLocalInterval] = useState<number | null>(null)
   const [localThreshold, setLocalThreshold] = useState<number | null>(null)
   const [localFilterMap, setLocalFilterMap] = useState<boolean | null>(null)
@@ -1195,6 +1196,23 @@ function HeatmapSettingsSection() {
     queryKey: ['heatmap-settings'],
     queryFn: getHeatmapSettings,
   })
+
+  // Terra Incognita Radius aus Enrichment-Settings
+  const { data: enrichSettings } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+  })
+  const radiusMut = useMutation({
+    mutationFn: (val: number) => updateEnrichmentSettings({ terra_incognita_radius_m: val }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['enrichment-settings'], updated)
+      queryClient.invalidateQueries({ queryKey: ['terra-incognita'] })
+      setLocalRadius(null)
+    },
+  })
+  const currentRadius = localRadius ?? enrichSettings?.terra_incognita_radius_m ?? 1000
+  const radiusDirty = localRadius !== null && localRadius !== (enrichSettings?.terra_incognita_radius_m ?? 1000)
+  const fmtRadius = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`
 
   const updateHeatmapMut = useMutation({
     mutationFn: updateHeatmapSettings,
@@ -1250,6 +1268,40 @@ function HeatmapSettingsSection() {
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+      </div>
+
+      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            Terra Incognita — Sichtweite
+          </label>
+          <span className="text-sm text-neutral-500 tabular-nums">{fmtRadius(currentRadius)}</span>
+        </div>
+        <input
+          type="range"
+          min={100}
+          max={10000}
+          step={50}
+          value={currentRadius}
+          onChange={(e) => setLocalRadius(Number(e.target.value))}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>100 m (eng am Track)</span>
+          <span>10 km (großzügig)</span>
+        </div>
+        <p className="text-xs text-neutral-400 mt-2">
+          Bestimmt den Radius um jeden Track, in dem die Karte sichtbar ist. Kleinere Werte erfordern mehr Erkundung.
+        </p>
+        {radiusDirty && (
+          <button
+            onClick={() => radiusMut.mutate(currentRadius)}
+            disabled={radiusMut.isPending}
+            className="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {radiusMut.isPending ? 'Speichert...' : 'Sichtweite speichern'}
+          </button>
+        )}
       </div>
 
       <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">

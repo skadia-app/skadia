@@ -10,12 +10,12 @@ import (
 // Uses ST_SnapToGrid for performance (~200m grid) before buffering.
 // Returns the GeoJSON string and area in km².
 // An optional bbox [west, south, east, north] limits the query to a viewport.
-func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox *[4]float64) (string, float64, error) {
+func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox *[4]float64, radiusM int) (string, float64, error) {
 	var bboxFilter string
-	args := []any{userID}
+	args := []any{userID, radiusM} // $1=userID, $2=radiusM
 
 	if bbox != nil {
-		bboxFilter = `AND geom && ST_MakeEnvelope($2, $3, $4, $5, 4326)`
+		bboxFilter = `AND geom && ST_MakeEnvelope($3, $4, $5, $6, 4326)`
 		args = append(args, bbox[0], bbox[1], bbox[2], bbox[3])
 	}
 
@@ -30,7 +30,7 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 		),
 		merged AS (
 			SELECT ST_Union(
-				ST_Buffer(geom::geography, 150)::geometry
+				ST_Buffer(geom::geography, $2)::geometry
 			) AS geom
 			FROM snapped
 			WHERE geom IS NOT NULL

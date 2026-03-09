@@ -200,6 +200,8 @@ export interface EnrichmentSettings {
   enable_embeddings?: boolean
   // Photo preview size: '2048' (default), '4k', or 'original' (Migration 000120)
   photo_preview_size?: string
+  // Terra Incognita Sichtweite in Metern (100–10000, Default 1000). Migration 000121.
+  terra_incognita_radius_m?: number
 }
 
 export interface Climb {

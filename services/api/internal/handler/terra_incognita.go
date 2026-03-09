@@ -40,7 +40,14 @@ func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	geojson, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox)
+	// Load terra incognita radius from user settings (default 1000m).
+	radiusM := 1000
+	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
+	if err == nil && settings.TerraIncognitaRadiusM > 0 {
+		radiusM = settings.TerraIncognitaRadiusM
+	}
+
+	geojson, areaKm2, err := h.DB.GetTerraIncognitaCoverage(r.Context(), userID, bbox, radiusM)
 	if err != nil {
 		slog.Error("terra incognita coverage query failed", "error", err, "user_id", userID)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)

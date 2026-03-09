@@ -2603,7 +2603,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			enable_peaks, enable_lifts, enable_settlements, enable_commute,
 			enable_borders, enable_water, enable_forests, enable_surfaces,
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
-			photo_preview_size`,
+			photo_preview_size, terra_incognita_radius_m`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -2613,7 +2613,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.EnablePeaks, &s.EnableLifts, &s.EnableSettlements, &s.EnableCommute,
 		&s.EnableBorders, &s.EnableWater, &s.EnableForests, &s.EnableSurfaces,
 		&s.EnableStops, &s.EnableIntervals, &s.EnableAscents, &s.EnableEmbeddings,
-		&s.PhotoPreviewSize,
+		&s.PhotoPreviewSize, &s.TerraIncognitaRadiusM,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -2633,11 +2633,11 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_peaks, enable_lifts, enable_settlements, enable_commute,
 			enable_borders, enable_water, enable_forests, enable_surfaces,
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
-			photo_preview_size
+			photo_preview_size, terra_incognita_radius_m
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
 			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-			$26
+			$26, $27
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -2664,7 +2664,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_intervals = $23,
 			enable_ascents = $24,
 			enable_embeddings = $25,
-			photo_preview_size = $26`,
+			photo_preview_size = $26,
+			terra_incognita_radius_m = $27`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -2672,7 +2673,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.EnablePeaks, s.EnableLifts, s.EnableSettlements, s.EnableCommute,
 		s.EnableBorders, s.EnableWater, s.EnableForests, s.EnableSurfaces,
 		s.EnableStops, s.EnableIntervals, s.EnableAscents, s.EnableEmbeddings,
-		s.PhotoPreviewSize,
+		s.PhotoPreviewSize, s.TerraIncognitaRadiusM,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)
