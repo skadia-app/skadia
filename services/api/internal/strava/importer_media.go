@@ -10,6 +10,8 @@ import (
 	_ "image/png"
 	"log/slog"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bep/imagemeta"
@@ -19,8 +21,8 @@ import (
 )
 
 // MediaImporter imports photos from the Strava export's media/ directory.
-// It reads media.csv (Medien-Dateiname, Medienunterschrift), reads EXIF data from each
-// photo, matches photos to activities by timestamp, and stores them in activity_photos.
+// Primary mapping: activities.csv "Medien" column (pipe-separated UUIDs per activity).
+// Fallback: EXIF timestamp → nearest activity lookup.
 type MediaImporter struct{}
 
 func (m *MediaImporter) Name() string        { return "media" }
@@ -47,9 +49,13 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		return result, nil
 	}
 
+	// Build mapping: media UUID (filename without ext) → Skadia activity ID
+	// by reading activities.csv "Medien" column (pipe-separated UUID paths).
+	uuidToActivityID := buildMediaActivityMap(ctx, params)
+
 	hdr := csvHeader(rows[0])
 	total := len(rows) - 1
-	slog.Info("strava media: found photos", "count", total)
+	slog.Info("strava media: found photos", "count", total, "mapped", len(uuidToActivityID))
 
 	for i, row := range rows[1:] {
 		if ctx.Err() != nil {
@@ -76,9 +82,15 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		// EXIF: extract taken_at and GPS coords
 		takenAt, lat, lng := extractMediaEXIF(data)
 
-		// Match photo to activity by taken_at timestamp
+		// Primary: look up activity via activities.csv Medien mapping
 		var activityIDPtr *string
-		if takenAt != nil && params.DB != nil {
+		uuid := mediaUUID(relPath)
+		if actID, ok := uuidToActivityID[uuid]; ok {
+			activityIDPtr = &actID
+		}
+
+		// Fallback: match by EXIF timestamp if no direct mapping found
+		if activityIDPtr == nil && takenAt != nil && params.DB != nil {
 			if actID, err := params.DB.FindActivityIDAtTime(ctx, params.UserID, *takenAt); err == nil && actID != "" {
 				activityIDPtr = &actID
 			}
@@ -152,6 +164,64 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		"errors", len(result.Errors),
 	)
 	return result, nil
+}
+
+// buildMediaActivityMap reads activities.csv and returns a map from media UUID
+// (filename stem, e.g. "eb811093-44e9-437c-8127-abcd02647414") to Skadia activity ID.
+func buildMediaActivityMap(ctx context.Context, params ImportParams) map[string]string {
+	m := make(map[string]string)
+	if params.DB == nil {
+		return m
+	}
+
+	rows, err := params.Source.ReadCSV("activities.csv")
+	if err != nil || len(rows) < 2 {
+		return m
+	}
+
+	hdr := csvHeader(rows[0])
+	medienCol, hasMediaCol := hdr["Medien"]
+	stravaIDCol, hasIDCol := hdr["Aktivitäts-ID"]
+	if !hasMediaCol || !hasIDCol {
+		return m
+	}
+
+	for _, row := range rows[1:] {
+		if ctx.Err() != nil {
+			break
+		}
+		stravaIDStr := colVal(row, stravaIDCol)
+		mediaCell := colVal(row, medienCol)
+		if stravaIDStr == "" || mediaCell == "" {
+			continue
+		}
+
+		stravaID, err := strconv.ParseInt(stravaIDStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		actID, err := params.DB.GetActivityIDByStravaID(ctx, params.UserID, stravaID)
+		if err != nil || actID == "" {
+			continue
+		}
+
+		for _, path := range strings.Split(mediaCell, "|") {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+			m[mediaUUID(path)] = actID
+		}
+	}
+	return m
+}
+
+// mediaUUID returns the filename stem (UUID without extension) from a media path.
+func mediaUUID(relPath string) string {
+	base := filepath.Base(relPath)
+	ext := filepath.Ext(base)
+	return strings.TrimSuffix(base, ext)
 }
 
 // extractMediaEXIF reads taken_at, lat, lng from JPEG EXIF data.

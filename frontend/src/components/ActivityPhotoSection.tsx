@@ -1,7 +1,10 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
+import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
+import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
+import type { StreamPoint } from '@/api/types'
 
 interface Props {
   activityId: string
@@ -12,12 +15,22 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<ActivityPhoto | null>(null)
+  const [showGeoAssign, setShowGeoAssign] = useState(false)
   const { openModal } = useModal()
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ['activity-photos', activityId],
     queryFn: () => listActivityPhotos(activityId),
   })
+
+  // Streams are fetched lazily when the geo-assign overlay is opened
+  const { data: streams } = useQuery<StreamPoint[]>({
+    queryKey: ['activity-streams', activityId],
+    queryFn: () => fetchActivityStreams(activityId),
+    enabled: showGeoAssign,
+  })
+
+  const photosWithoutPosition = photos.filter(p => p.lat == null || p.lng == null)
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadActivityPhoto(activityId, file),
@@ -114,6 +127,21 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             </div>
           )}
 
+          {/* No-position warning + geo-assign trigger */}
+          {photosWithoutPosition.length > 0 && (
+            <div className="flex items-center gap-2 px-1">
+              <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <button
+                onClick={() => setShowGeoAssign(true)}
+                className="text-xs text-amber-500 hover:text-amber-400 cursor-pointer transition-colors text-left"
+              >
+                {photosWithoutPosition.length} {photosWithoutPosition.length === 1 ? 'Foto' : 'Fotos'} ohne Position — Auf Karte zuweisen
+              </button>
+            </div>
+          )}
+
           {/* Upload button */}
           <div className="pt-1">
             <input
@@ -134,6 +162,25 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           </div>
         </div>
       )}
+
+      {/* Geo-assignment overlay */}
+      {showGeoAssign && (() => {
+        const trackCoords: [number, number][] = (streams ?? [])
+          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+          .map(s => [s.lng, s.lat])
+        const trackTimes: string[] = (streams ?? [])
+          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+          .map(s => s.time)
+        return (
+          <PhotoGeoAssignmentOverlay
+            activityId={activityId}
+            trackCoords={trackCoords}
+            trackTimes={trackTimes}
+            unpositionedPhotos={photosWithoutPosition}
+            onClose={() => setShowGeoAssign(false)}
+          />
+        )
+      })()}
 
       {/* Lightbox */}
       {selectedPhoto && (

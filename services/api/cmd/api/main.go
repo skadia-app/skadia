@@ -326,6 +326,7 @@ func main() {
 			// Activity Photos
 			r.Post("/activities/{id}/photos", h.UploadActivityPhoto)
 			r.Get("/activities/{id}/photos", h.ListActivityPhotos)
+			r.Patch("/activities/{id}/photos/{photoID}", h.PatchActivityPhotoLocation)
 			r.Delete("/activities/{id}/photos/{photoID}", h.DeleteActivityPhoto)
 			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -238,6 +239,93 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Write(data)
+}
+
+// patchPhotoLocationRequest is the body for PATCH /activities/{id}/photos/{photoID}.
+type patchPhotoLocationRequest struct {
+	Lat            *float64   `json:"lat"`
+	Lng            *float64   `json:"lng"`
+	TakenAt        *time.Time `json:"taken_at"`
+	LocationSource string     `json:"location_source"`
+}
+
+// PatchActivityPhotoLocation handles PATCH /api/v1/activities/{id}/photos/{photoID}.
+// Updates the GPS position and/or timestamp of a photo. When location_source is
+// 'manual' a meta-sidecar JSON is written to S3 so the original file remains untouched.
+func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	photoID := chi.URLParam(r, "photoID")
+
+	var req patchPhotoLocationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+
+	// Default location_source to 'manual' when not provided.
+	if req.LocationSource == "" {
+		req.LocationSource = "manual"
+	}
+
+	photo, err := h.DB.UpdateActivityPhotoLocation(
+		r.Context(), photoID, userID,
+		req.Lat, req.Lng, req.TakenAt, req.LocationSource,
+	)
+	if err != nil {
+		slog.Error("patch photo location: update failed", "photo_id", photoID, "error", err)
+		writeError(w, http.StatusNotFound, "Not Found", "photo not found or not owned by user", r.URL.Path)
+		return
+	}
+
+	// ShadowFS: write meta-sidecar when position was manually set.
+	if req.LocationSource == "manual" && photo.FileHash != nil {
+		h.writePhotoMetaSidecar(r.Context(), userID, *photo.FileHash, req)
+	}
+
+	photo.ThumbURL = "/api/v1/photos/" + photo.ID + "/thumb"
+	photo.FullURL = "/api/v1/photos/" + photo.ID + "/full"
+	writeJSON(w, http.StatusOK, photo)
+}
+
+// writePhotoMetaSidecar writes a .meta.json sidecar to S3 (skadia-media bucket).
+// Path: activity-photos/{userID}/{hash}.meta.json
+// This follows the Shadow FS principle: originals stay untouched; annotations go in sidecars.
+func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileHash string, req patchPhotoLocationRequest) {
+	type metaSidecar struct {
+		Lat            *float64   `json:"lat"`
+		Lng            *float64   `json:"lng"`
+		TakenAt        *time.Time `json:"taken_at,omitempty"`
+		LocationSource string     `json:"location_source"`
+		UpdatedAt      time.Time  `json:"updated_at"`
+	}
+
+	meta := metaSidecar{
+		Lat:            req.Lat,
+		Lng:            req.Lng,
+		TakenAt:        req.TakenAt,
+		LocationSource: req.LocationSource,
+		UpdatedAt:      time.Now().UTC(),
+	}
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		slog.Error("photo meta sidecar: marshal failed", "error", err)
+		return
+	}
+
+	bucket := mediaBucketName()
+	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
+
+	if err := h.Storage.UploadToBucket(ctx, bucket, key, data, "application/json"); err != nil {
+		slog.Error("photo meta sidecar: upload failed", "bucket", bucket, "key", key, "error", err)
+		return
+	}
+
+	slog.Info("photo meta sidecar written", "bucket", bucket, "key", key)
 }
 
 func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {

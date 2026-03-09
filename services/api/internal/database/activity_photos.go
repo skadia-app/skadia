@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -55,6 +56,21 @@ func (db *DB) GetActivityPhoto(ctx context.Context, id, userID string) (model.Ac
 		       content_type, file_size_bytes, file_hash, taken_at, lat, lng, location_source, created_at
 		FROM activity_photos WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb,
+		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
+		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt)
+	return p, err
+}
+
+func (db *DB) UpdateActivityPhotoLocation(ctx context.Context, id, userID string, lat, lng *float64, takenAt *time.Time, locationSource string) (model.ActivityPhoto, error) {
+	var p model.ActivityPhoto
+	err := db.Pool.QueryRow(ctx, `
+		UPDATE activity_photos
+		SET lat = $3, lng = $4, taken_at = COALESCE($5, taken_at), location_source = $6
+		WHERE id = $1 AND user_id = $2
+		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, original_filename,
+		          content_type, file_size_bytes, file_hash, taken_at, lat, lng, location_source, created_at
+	`, id, userID, lat, lng, takenAt, locationSource,
+	).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt)
 	return p, err

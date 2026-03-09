@@ -43,3 +43,21 @@ export async function deleteActivityPhoto(activityId: string, photoId: string): 
 export async function listMapPhotos(): Promise<MapPhotoEntry[]> {
   return apiClient<MapPhotoEntry[]>('/map/photos')
 }
+
+export interface PatchPhotoLocationPayload {
+  lat: number
+  lng: number
+  taken_at?: string
+  location_source: 'manual'
+}
+
+export async function patchActivityPhotoLocation(
+  activityId: string,
+  photoId: string,
+  payload: PatchPhotoLocationPayload,
+): Promise<ActivityPhoto> {
+  return apiClient<ActivityPhoto>(`/activities/${activityId}/photos/${photoId}`, {
+    method: 'PATCH',
+    body: payload,
+  })
+}
