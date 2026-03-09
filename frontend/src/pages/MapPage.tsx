@@ -657,6 +657,8 @@ export default function MapPage() {
   const viewModeRef = useRef(viewMode)
   const teleportRef = useRef(teleportThresholdM)
   const samplingRef = useRef(samplingIntervalM)
+  // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
+  const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => {
     viewModeRef.current = viewMode
@@ -689,6 +691,12 @@ export default function MapPage() {
     // kein "Source already exists"-Fehler entsteht falls der Handler mehrfach
     // feuert (z. B. React StrictMode double-invoke).
     map.on('style.load', () => {
+      // Kameraposition nach Stilwechsel atomar wiederherstellen (verhindert Race Condition
+      // mit map.once('style.load') das bei synchronem setStyle() zu spät registriert wird)
+      if (pendingCameraRestoreRef.current) {
+        map.jumpTo(pendingCameraRestoreRef.current)
+        pendingCameraRestoreRef.current = null
+      }
       map.resize()
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
@@ -741,16 +749,12 @@ export default function MapPage() {
     if (!map || prevBaseStyleRef.current === baseStyle) return
     prevBaseStyleRef.current = baseStyle
 
-    const center = map.getCenter()
-    const zoom = map.getZoom()
+    // Kamera vor setStyle() sichern — persistenter style.load-Handler stellt sie wieder her.
+    // map.once() würde die Race Condition nicht lösen: bei inline StyleSpecification-Objekten
+    // kann style.load synchron feuern, bevor map.once() registriert ist.
+    pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
 
     map.setStyle(buildRasterStyle(baseStyle))
-
-    // Kameraposition nach Stilwechsel wiederherstellen
-    map.once('style.load', () => {
-      map.setCenter(center)
-      map.setZoom(zoom)
-    })
 
     // Persist baseStyle change to viewport
     const stored = loadViewport()
