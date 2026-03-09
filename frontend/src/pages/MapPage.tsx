@@ -10,6 +10,11 @@ import ColorPicker from '@/components/ColorPicker'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import {
+  HEATMAP_SOURCE_ID,
+  addHeatmapLayers as addHeatmapGlowLayers,
+  removeHeatmapLayers,
+} from '@/lib/mapHeatmap'
 import { useTheme } from '@/lib/theme'
 import { useAuthImage } from '@/hooks/useAuthImage'
 import { useModal } from '@/lib/modal'
@@ -706,15 +711,11 @@ export default function MapPage() {
         pendingCameraRestoreRef.current = null
       }
       map.resize()
+      // Nur aufräumen — Layer werden ausschließlich vom useEffect (styleVersion-Dep)
+      // aufgebaut. Verhindert doppeltes addSource→removeSource→addSource, was bei
+      // Client-Side Navigation zu gecancelten Tile-Requests und Lücken führte.
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
-      if (viewModeRef.current === 'terra_incognita') {
-        if (terraIncognitaRef.current?.rings?.length) {
-          addTerraIncognitaLayers(map, terraIncognitaRef.current.rings)
-        }
-      } else {
-        addOverlayLayers(map, filtersRef.current, viewModeRef.current, teleportRef.current, samplingRef.current, currentUserIdRef.current)
-      }
       setStyleVersion(v => v + 1)
     })
 
@@ -2607,21 +2608,13 @@ export default function MapPage() {
   )
 }
 
-const HEATMAP_LAYER_IDS = [
-  'heatmap-glow-outer',
-  'heatmap-glow-mid',
-  'heatmap-base',
-  'heatmap-bright',
-  'heatmap-hot',
-  'heatmap-tracks-glow',
-  'heatmap-lines',
-] as const
+const TRACKS_LAYER_IDS = ['heatmap-tracks-glow', 'heatmap-lines'] as const
 
 function removeOverlayLayers(map: maplibregl.Map) {
-  for (const id of HEATMAP_LAYER_IDS) {
+  removeHeatmapLayers(map)
+  for (const id of TRACKS_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
-  if (map.getSource('heatmap')) map.removeSource('heatmap')
 }
 
 // ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
@@ -2777,21 +2770,6 @@ function buildLineColor(filters: MapFilterState): string | maplibregl.Expression
   ] as unknown as maplibregl.ExpressionSpecification
 }
 
-/** Erzeugt aus einer Hex-Farbe die 5 Glow-Stufen fuer den Heatmap-Modus. */
-function deriveHeatmapGlowColors(hex: string): [string, string, string, string, string] {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  const toHex = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')
-  const rgb = (rr: number, gg: number, bb: number) => `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`
-  return [
-    rgb(r * 0.15, g * 0.15, b * 0.15),   // glow-outer: sehr dunkel
-    rgb(r * 0.35, g * 0.35, b * 0.35),   // glow-mid: dunkel
-    hex,                                   // base: Original
-    rgb(r + (255 - r) * 0.35, g + (255 - g) * 0.25, b * 0.6),  // bright: heller/waermer
-    rgb(r + (255 - r) * 0.7, g + (255 - g) * 0.7, b + (255 - b) * 0.5),  // hot: sehr hell
-  ]
-}
 
 function addOverlayLayers(
   map: maplibregl.Map,
@@ -2804,14 +2782,17 @@ function addOverlayLayers(
   // Layer und Source vollständig entfernen und neu aufbauen.
   // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
   removeOverlayLayers(map)
-  map.addSource('heatmap', {
-    type: 'vector',
-    tiles: [buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)],
-    minzoom: 0,
-    maxzoom: 14,
-  })
+
+  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)
 
   if (viewMode === 'tracks') {
+    map.addSource(HEATMAP_SOURCE_ID, {
+      type: 'vector',
+      tiles: [tileUrl],
+      minzoom: 0,
+      maxzoom: 14,
+    })
+
     const lineColor = buildLineColor(filters)
     const opacity = Math.pow(filters.opacity / 100, 2)
     const glowOpacity = opacity * 0.35
@@ -2820,7 +2801,7 @@ function addOverlayLayers(
     map.addLayer({
       id: 'heatmap-tracks-glow',
       type: 'line',
-      source: 'heatmap',
+      source: HEATMAP_SOURCE_ID,
       'source-layer': 'heatmap_lines',
       paint: {
         'line-color': '#F97316',
@@ -2834,7 +2815,7 @@ function addOverlayLayers(
     map.addLayer({
       id: 'heatmap-lines',
       type: 'line',
-      source: 'heatmap',
+      source: HEATMAP_SOURCE_ID,
       'source-layer': 'heatmap_lines',
       paint: {
         'line-color': lineColor,
@@ -2845,66 +2826,6 @@ function addOverlayLayers(
   } else {
     // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
     // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
-    const [cOuter, cMid, cBase, cBright, cHot] = deriveHeatmapGlowColors(filters.heatmapColor)
-    map.addLayer({
-      id: 'heatmap-glow-outer',
-      type: 'line',
-      source: 'heatmap',
-      'source-layer': 'heatmap_lines',
-      paint: {
-        'line-color': cOuter,
-        'line-width': 16,
-        'line-opacity': 0.10,
-        'line-blur': 8,
-      },
-    })
-    map.addLayer({
-      id: 'heatmap-glow-mid',
-      type: 'line',
-      source: 'heatmap',
-      'source-layer': 'heatmap_lines',
-      paint: {
-        'line-color': cMid,
-        'line-width': 9,
-        'line-opacity': 0.15,
-        'line-blur': 4,
-      },
-    })
-    map.addLayer({
-      id: 'heatmap-base',
-      type: 'line',
-      source: 'heatmap',
-      'source-layer': 'heatmap_lines',
-      paint: {
-        'line-color': cBase,
-        'line-width': 4,
-        'line-opacity': 0.28,
-        'line-blur': 0,
-      },
-    })
-    map.addLayer({
-      id: 'heatmap-bright',
-      type: 'line',
-      source: 'heatmap',
-      'source-layer': 'heatmap_lines',
-      paint: {
-        'line-color': cBright,
-        'line-width': 2,
-        'line-opacity': 0.20,
-        'line-blur': 0,
-      },
-    })
-    map.addLayer({
-      id: 'heatmap-hot',
-      type: 'line',
-      source: 'heatmap',
-      'source-layer': 'heatmap_lines',
-      paint: {
-        'line-color': cHot,
-        'line-width': 1,
-        'line-opacity': 0.12,
-        'line-blur': 0,
-      },
-    })
+    addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor)
   }
 }
