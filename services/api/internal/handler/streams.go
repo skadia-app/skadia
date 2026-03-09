@@ -76,6 +76,11 @@ func applyFusionSources(
 			slog.Warn("applyFusionSources: load source streams failed", "src_id", srcID, "error", err)
 			continue
 		}
+		// Baked-Check: Quelle gehört zu dieser Aktivität → Streams bereits direkt kopiert.
+		srcAct, _ := db.GetActivity(ctx, srcID)
+		if srcAct != nil && srcAct.ParentID != nil && *srcAct.ParentID == selfID {
+			continue
+		}
 		sourceStreams[srcID] = ss
 	}
 
