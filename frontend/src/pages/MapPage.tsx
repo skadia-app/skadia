@@ -2622,36 +2622,26 @@ function removeOverlayLayers(map: maplibregl.Map) {
 
 // ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
 // Statt MapLibre line-blur (zoom-abhängig, Spike-Artifacts an Vertices):
-// Offscreen-Canvas mit ctx.filter='blur()' + destination-out schneidet
-// erkundete Flächen weich aus dem Fog heraus. Das Resultat wird als
-// geo-referenziertes MapLibre-Raster-Image über die Karte gelegt.
-// Kein Pixelraster, kein Vertex-Artifact, zoom-konsistenter Weichzeichner.
+// GeoJSON-basierter Fog-of-War: Donut-Polygon (Welt minus erkundete Fläche).
+// Vollständig GPU-gerendert als MapLibre-Fill-Layer — kein Canvas, kein CPU-Blur,
+// kein Re-Render bei Pan/Zoom. Performance: ~0ms auf moveend/zoomend.
 
-const TERRA_INCOGNITA_LAYER_IDS = ['terra-incognita-fog-layer'] as const
-const FOG_CANVAS_SIZE = 1024  // Pixel (quadratisch)
-// Geographische Breite der weichen Rand-Zone in Metern.
-// Zoom-adaptiv: bei wenig Zoom = kleinere Pixelbreite,
-// damit der Blur nicht das gesamte Polygon erodiert.
-const FOG_EDGE_METERS = 600
+const TERRA_INCOGNITA_LAYER_IDS = [
+  'terra-incognita-fog-fill',
+  'terra-incognita-fog-edge',
+] as const
 
-// Modul-globaler State (kein React-State nötig, da außerhalb der Komponente)
+// Maximale Fog-Deckkraft (0–1). 0.88 = leicht transparent für natürlicheres Aussehen.
+const FOG_MAX_OPACITY = 0.88
+
+// Modul-globaler State
 let terraAnimRafId: number | null = null
-let fogUpdateTimer: ReturnType<typeof setTimeout> | null = null
 let fogExploredGeometry: GeoJSON.Geometry | null = null
-let fogMoveHandlerCleanup: (() => void) | null = null
 
 function removeTerraIncognitaLayers(map: maplibregl.Map) {
   if (terraAnimRafId !== null) {
     cancelAnimationFrame(terraAnimRafId)
     terraAnimRafId = null
-  }
-  if (fogUpdateTimer !== null) {
-    clearTimeout(fogUpdateTimer)
-    fogUpdateTimer = null
-  }
-  if (fogMoveHandlerCleanup) {
-    fogMoveHandlerCleanup()
-    fogMoveHandlerCleanup = null
   }
   fogExploredGeometry = null
   for (const id of TERRA_INCOGNITA_LAYER_IDS) {
@@ -2661,153 +2651,80 @@ function removeTerraIncognitaLayers(map: maplibregl.Map) {
 }
 
 /**
- * Rendert das erkundete Polygon auf ein Offscreen-Canvas und gibt es als
- * data-URL zurück. Das Canvas umfasst die aktuelle Karten-Viewport-Region
- * erweitert um 50% in jede Richtung (Puffer gegen Pan-Flicker).
- *
- * Technik:
- *  1. Canvas mit Fog-Farbe (#eef1f7) füllen.
- *  2. Pass 1: Zoom-adaptiver Blur (FOG_EDGE_METERS → Pixel) + destination-out:
- *     erzeugt weichen Außenrand. Blur-Radius skaliert mit Viewport-Breite.
- *  3. Pass 2: Kein Blur + destination-out: schneidet das Polygon-Innere
- *     vollständig frei — verhindert Erosion bei kleinem Zoom.
- *
- * Gibt die Canvas-Koordinaten (geo-referenziert) zurück.
+ * Baut ein GeoJSON-FeatureCollection mit einem Donut-Polygon:
+ * Außenring = Weltrechteck, Löcher = erkundete Flächen.
+ * PostGIS liefert Außenringe in CCW-Richtung (GeoJSON-Standard).
+ * Als Loch (innerer Ring) müssen sie CW sein → reversieren.
  */
-function buildFogCanvas(
-  map: maplibregl.Map,
-  exploredGeometry: GeoJSON.Geometry,
-): { dataURL: string; coords: [[number, number], [number, number], [number, number], [number, number]] } {
-  const bounds = map.getBounds()
-  const sw = bounds.getSouthWest()
-  const ne = bounds.getNorthEast()
-  // Viewport um 50% erweitern → Pan-Puffer
-  const lngPad = (ne.lng - sw.lng) * 0.5
-  const latPad = (ne.lat - sw.lat) * 0.5
-  const wLng = sw.lng - lngPad
-  const eLng = ne.lng + lngPad
-  const sLat = sw.lat - latPad
-  const nLat = ne.lat + latPad
-  const lngSpan = eLng - wLng
-  const latSpan = nLat - sLat
-
-  const project = (lng: number, lat: number): [number, number] => [
-    ((lng - wLng) / lngSpan) * FOG_CANVAS_SIZE,
-    ((nLat - lat) / latSpan) * FOG_CANVAS_SIZE,
+function buildFogGeoJSON(exploredGeometry: GeoJSON.Geometry): GeoJSON.FeatureCollection {
+  // Weltrechteck CCW (Standard GeoJSON exterior)
+  const worldRing: GeoJSON.Position[] = [
+    [-180, -85.051], [180, -85.051], [180, 85.051], [-180, 85.051], [-180, -85.051],
   ]
+  const reverseRing = (r: GeoJSON.Position[]): GeoJSON.Position[] => [...r].reverse()
+  const holes: GeoJSON.Position[][] = []
 
-  const canvas = document.createElement('canvas')
-  canvas.width = FOG_CANVAS_SIZE
-  canvas.height = FOG_CANVAS_SIZE
-  const ctx = canvas.getContext('2d')!
-
-  // Schritt 1: Fog-Farbe füllen (leicht bläuliches Weiß = Wolken)
-  ctx.fillStyle = '#eef1f7'
-  ctx.fillRect(0, 0, FOG_CANVAS_SIZE, FOG_CANVAS_SIZE)
-
-  // Zoom-adaptiver Blur: FOG_EDGE_METERS in Canvas-Pixel umrechnen.
-  // Viewport-Breite in Metern bestimmt den Maßstab.
-  const avgLat = (nLat + sLat) / 2
-  const metersPerDegreeLng = Math.cos((avgLat * Math.PI) / 180) * 111320
-  const viewportWidthM = lngSpan * metersPerDegreeLng
-  const metersPerPx = viewportWidthM / FOG_CANVAS_SIZE
-  // Clamp: min 2px (zu klein = harter Rand), max 80px (zu groß = zu viel Erosion)
-  const blurPx = Math.max(2, Math.min(80, FOG_EDGE_METERS / metersPerPx))
-
-  const drawRings = (rings: GeoJSON.Position[][]) => {
-    ctx.beginPath()
-    for (const ring of rings) {
-      if (ring.length < 2) continue
-      const [sx, sy] = project(ring[0][0], ring[0][1])
-      ctx.moveTo(sx, sy)
-      for (let i = 1; i < ring.length; i++) {
-        const [x, y] = project(ring[i][0], ring[i][1])
-        ctx.lineTo(x, y)
-      }
-      ctx.closePath()
-    }
-    ctx.fill('evenodd')
-  }
-
-  const drawExplored = () => {
-    if (exploredGeometry.type === 'Polygon') {
-      drawRings(exploredGeometry.coordinates)
-    } else if (exploredGeometry.type === 'MultiPolygon') {
-      for (const poly of exploredGeometry.coordinates) drawRings(poly)
+  if (exploredGeometry.type === 'Polygon') {
+    // Nur der Außenring wird als Loch eingefügt (Innenringe sind irrelevant)
+    holes.push(reverseRing(exploredGeometry.coordinates[0]))
+  } else if (exploredGeometry.type === 'MultiPolygon') {
+    for (const poly of exploredGeometry.coordinates) {
+      holes.push(reverseRing(poly[0]))
     }
   }
-
-  // Pass 1: Weicher Außenrand — Blur-Version schneidet sanft außerhalb des Polygons.
-  // Blur vor destination-out: das gezeichnete Polygon "wächst" nach außen,
-  // sodass die Fog-Grenze soft ausläuft.
-  ctx.save()
-  ctx.filter = `blur(${blurPx}px)`
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = 'rgba(0,0,0,1)'
-  drawExplored()
-  ctx.restore()
-
-  // Pass 2: Sauberes Interior-Cut — ohne Blur, schneidet das Polygon-Innere
-  // vollständig durch. Verhindert, dass Blur bei kleinem Viewport-Polygon
-  // das Zentrum nicht vollständig freigibt.
-  ctx.save()
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = 'rgba(0,0,0,1)'
-  drawExplored()
-  ctx.restore()
 
   return {
-    dataURL: canvas.toDataURL('image/png'),
-    coords: [
-      [wLng, nLat], // top-left
-      [eLng, nLat], // top-right
-      [eLng, sLat], // bottom-right
-      [wLng, sLat], // bottom-left
-    ],
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [worldRing, ...holes] },
+      properties: {},
+    }],
   }
 }
 
 /**
- * Aktualisiert die Fog-Canvas-ImageSource für den aktuellen Viewport.
- * Erstellt die Source beim ersten Aufruf, nutzt updateImage() danach.
- */
-function updateFogCanvas(map: maplibregl.Map) {
-  if (!fogExploredGeometry) return
-  const { dataURL, coords } = buildFogCanvas(map, fogExploredGeometry)
-
-  if (map.getSource('terra-incognita-fog')) {
-    ;(map.getSource('terra-incognita-fog') as maplibregl.ImageSource).updateImage({
-      url: dataURL,
-      coordinates: coords,
-    })
-  }
-}
-
-/**
- * Fügt den Canvas-basierten Fog-Overlay hinzu.
- * Self-cleaning: ruft intern removeTerraIncognitaLayers() auf.
+ * Fügt den GeoJSON-basierten Fog-Overlay hinzu.
+ * Kein Canvas, kein Re-Render bei Pan/Zoom — MapLibre rendert alles in WebGL.
  *
  * Ablauf:
- *  1. Canvas rendern + als MapLibre ImageSource einfügen (opacity 0)
- *  2. RAF-Animation blendet den Raster-Layer sanft ein
- *  3. moveend/zoomend Handler aktualisiert den Canvas debounced
+ *  1. Donut-Polygon (Welt − erkundete Fläche) als GeoJSON-Source laden
+ *  2. Fill-Layer (Hauptnebel) + Edge-Layer (weicher Randstrich) hinzufügen
+ *  3. RAF-Animation blendet sanft ein (easeInOutQuad, 1.8s)
  */
 function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
   removeTerraIncognitaLayers(map)
   fogExploredGeometry = exploredGeometry
 
-  const { dataURL, coords } = buildFogCanvas(map, exploredGeometry)
+  const fogData = buildFogGeoJSON(exploredGeometry)
 
-  map.addSource('terra-incognita-fog', {
-    type: 'image',
-    url: dataURL,
-    coordinates: coords,
-  })
+  map.addSource('terra-incognita-fog', { type: 'geojson', data: fogData })
+
+  // Hauptnebel: Fill-Layer (GPU-Fill, kein CPU-Overhead)
   map.addLayer({
-    id: 'terra-incognita-fog-layer',
-    type: 'raster',
+    id: 'terra-incognita-fog-fill',
+    type: 'fill',
     source: 'terra-incognita-fog',
-    paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 },
+    paint: {
+      'fill-color': '#d8e2f0',
+      'fill-opacity': 0,
+      'fill-antialias': true,
+    },
+  })
+
+  // Weiche Randzone: schmaler Line-Layer mit leichtem Blur entlang der Polygon-Grenze.
+  // Breite/Blur sind in Screen-Pixeln, werden also mit Zoom größer — das ist gewünscht
+  // (bei hohem Zoom = mehr Detail = weichere, breitere Kante).
+  map.addLayer({
+    id: 'terra-incognita-fog-edge',
+    type: 'line',
+    source: 'terra-incognita-fog',
+    paint: {
+      'line-color': '#d8e2f0',
+      'line-width': ['interpolate', ['exponential', 2], ['zoom'], 6, 4, 12, 20, 16, 60],
+      'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 6, 3, 12, 15, 16, 45],
+      'line-opacity': 0,
+    },
   })
 
   // Einblend-Animation (easeInOutQuad, 1.8s)
@@ -2816,27 +2733,15 @@ function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.
   const startTs = performance.now()
   function animate(ts: number) {
     const p = Math.min((ts - startTs) / DURATION, 1)
-    if (map.getLayer('terra-incognita-fog-layer'))
-      map.setPaintProperty('terra-incognita-fog-layer', 'raster-opacity', ease(p))
+    const e = ease(p)
+    if (map.getLayer('terra-incognita-fog-fill'))
+      map.setPaintProperty('terra-incognita-fog-fill', 'fill-opacity', e * FOG_MAX_OPACITY)
+    if (map.getLayer('terra-incognita-fog-edge'))
+      map.setPaintProperty('terra-incognita-fog-edge', 'line-opacity', e)
     if (p < 1) terraAnimRafId = requestAnimationFrame(animate)
     else terraAnimRafId = null
   }
   terraAnimRafId = requestAnimationFrame(animate)
-
-  // Canvas bei Viewport-Änderungen neu rendern (debounced 200ms)
-  const onViewportChange = () => {
-    if (fogUpdateTimer) clearTimeout(fogUpdateTimer)
-    fogUpdateTimer = setTimeout(() => {
-      updateFogCanvas(map)
-      fogUpdateTimer = null
-    }, 200)
-  }
-  map.on('moveend', onViewportChange)
-  map.on('zoomend', onViewportChange)
-  fogMoveHandlerCleanup = () => {
-    map.off('moveend', onViewportChange)
-    map.off('zoomend', onViewportChange)
-  }
 }
 
 function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {
