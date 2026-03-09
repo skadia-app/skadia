@@ -150,7 +150,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	h.recomputeJob.mu.Lock()
 	if h.recomputeJob.running {
 		h.recomputeJob.mu.Unlock()
-		writeError(w, http.StatusConflict, "Conflict", "a recompute job is already running", r.URL.Path)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 

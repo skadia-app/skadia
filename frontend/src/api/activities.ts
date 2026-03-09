@@ -99,6 +99,7 @@ export interface ReprocessFilter {
 }
 
 export interface ReprocessResult {
+  status?: 'already_running'
   processed: number
   errors: number
   total: number

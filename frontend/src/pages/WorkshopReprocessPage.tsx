@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { useToast } from '@/lib/toast'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
@@ -29,11 +30,17 @@ export default function WorkshopReprocessPage() {
     enabled: mode === 'selection',
   })
 
+  const { addToast } = useToast()
+
   const mutation = useMutation({
     mutationFn: (filter?: ReprocessFilter) => reprocessAllActivities(filter),
     onSuccess: (data) => {
-      setResult(data)
       setShowConfirm(false)
+      if (data.status === 'already_running') {
+        addToast({ type: 'warning', title: 'Job läuft bereits', message: 'Ein Recompute-Job ist bereits aktiv.' })
+      } else {
+        setResult(data)
+      }
     },
     onError: () => {
       setShowConfirm(false)
