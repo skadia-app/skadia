@@ -476,7 +476,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	var total int
 	if err := db.Pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 %s`, countFilterSQL), countArgs...,
+		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 AND parent_id IS NULL %s`, countFilterSQL), countArgs...,
 	).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
@@ -514,6 +514,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					SELECT %s
 					FROM activities
 					WHERE user_id = $1
+						AND parent_id IS NULL
 						AND (%s, id) %s ($2, $3)
 						%s
 					ORDER BY %s
@@ -533,6 +534,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				SELECT %s
 				FROM activities
 				WHERE user_id = $1
+					AND parent_id IS NULL
 					AND %s IS NULL
 					AND id %s $2
 					%s
@@ -557,6 +559,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					SELECT %s
 					FROM activities
 					WHERE user_id = $1
+						AND parent_id IS NULL
 						%s
 						%s
 					ORDER BY %s
@@ -578,6 +581,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			SELECT %s
 			FROM activities
 			WHERE user_id = $1
+			AND parent_id IS NULL
 			%s
 			ORDER BY %s
 			LIMIT $%d`, selectCols, filterSQL, orderClause, limitIdx)
@@ -2595,13 +2599,19 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
-			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt`,
+			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
+			enable_peaks, enable_lifts, enable_settlements, enable_commute,
+			enable_borders, enable_water, enable_forests, enable_surfaces,
+			enable_stops, enable_intervals, enable_ascents, enable_embeddings`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
 		&s.EnableStopDetection, &s.EnableClimbDetection, &s.EnableCommuteDetection,
 		&s.EnableAutoNaming, &s.EnableLapDetection, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
 		&s.RoundTripThresholdM, &s.OCRInvoicePrompt, &s.OCRGearPrompt,
+		&s.EnablePeaks, &s.EnableLifts, &s.EnableSettlements, &s.EnableCommute,
+		&s.EnableBorders, &s.EnableWater, &s.EnableForests, &s.EnableSurfaces,
+		&s.EnableStops, &s.EnableIntervals, &s.EnableAscents, &s.EnableEmbeddings,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -2617,8 +2627,14 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_stop_detection, enable_climb_detection, enable_commute_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
-			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
+			enable_peaks, enable_lifts, enable_settlements, enable_commute,
+			enable_borders, enable_water, enable_forests, enable_surfaces,
+			enable_stops, enable_intervals, enable_ascents, enable_embeddings
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
 			enable_weather_enrichment = $3,
@@ -2631,11 +2647,26 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			climb_min_elevation_m = $10,
 			round_trip_threshold_m = $11,
 			ocr_invoice_prompt = $12,
-			ocr_gear_prompt = $13`,
+			ocr_gear_prompt = $13,
+			enable_peaks = $14,
+			enable_lifts = $15,
+			enable_settlements = $16,
+			enable_commute = $17,
+			enable_borders = $18,
+			enable_water = $19,
+			enable_forests = $20,
+			enable_surfaces = $21,
+			enable_stops = $22,
+			enable_intervals = $23,
+			enable_ascents = $24,
+			enable_embeddings = $25`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
 		s.RoundTripThresholdM, s.OCRInvoicePrompt, s.OCRGearPrompt,
+		s.EnablePeaks, s.EnableLifts, s.EnableSettlements, s.EnableCommute,
+		s.EnableBorders, s.EnableWater, s.EnableForests, s.EnableSurfaces,
+		s.EnableStops, s.EnableIntervals, s.EnableAscents, s.EnableEmbeddings,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)

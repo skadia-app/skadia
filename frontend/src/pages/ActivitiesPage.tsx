@@ -89,8 +89,9 @@ const EXPORT_FORMATS: [ExportFormat, string][] = [
   ['fit', 'FIT'],
 ]
 
-function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: () => void }) {
+function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string; sportType: string; onClose: () => void }) {
   const [open, setOpen] = useState(false)
+  const isMultisport = sportType === 'multisport'
 
   const handleExport = async (format: ExportFormat) => {
     try {
@@ -109,6 +110,10 @@ function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: (
     }
   }
 
+  const formats: [ExportFormat, string][] = isMultisport
+    ? [['zip', 'ZIP (Originaldateien)']]
+    : EXPORT_FORMATS
+
   return (
     <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button className="w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer">
@@ -123,8 +128,8 @@ function ExportSubMenu({ activityId, onClose }: { activityId: string; onClose: (
         </svg>
       </button>
       {open && (
-        <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-50 py-1">
-          {EXPORT_FORMATS.map(([fmt, label]) => (
+        <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[160px] z-50 py-1">
+          {formats.map(([fmt, label]) => (
             <button
               key={fmt}
               onClick={() => handleExport(fmt)}
@@ -439,7 +444,7 @@ function ActivityContextMenu({
         </svg>
         In neuem Tab öffnen
       </a>
-      <ExportSubMenu activityId={state.activityId} onClose={onClose} />
+      <ExportSubMenu activityId={state.activityId} sportType={state.sportType} onClose={onClose} />
       <button
         onClick={() => { onRecompute([state.activityId]); onClose() }}
         className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
@@ -526,8 +531,8 @@ export default function ActivitiesPage() {
     if (!childrenMap[id]) {
       const resp = await apiFetch(`/api/v1/activities/${id}/children`)
       if (resp.ok) {
-        const data = await resp.json() as Activity[]
-        setChildrenMap(prev => ({ ...prev, [id]: data }))
+        const json = await resp.json() as { children: Activity[] }
+        setChildrenMap(prev => ({ ...prev, [id]: json.children ?? [] }))
       }
     }
   }
@@ -1113,25 +1118,49 @@ export default function ActivitiesPage() {
                 />
                 {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
                   (childrenMap[activity.id] ?? []).map(child => (
-                    <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30">
+                    <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800/50 transition-colors"
+                      onClick={() => { saveLastActivity(child.id); setLastActivityId(child.id); window.location.href = `/activities/${child.id}` }}
+                    >
+                      {/* Indent-Marker */}
                       <td className="py-1.5 pl-3 pr-2 w-8">
                         <div className="w-4 h-4 border-l-2 border-b-2 border-neutral-300 dark:border-neutral-600 ml-2" />
                       </td>
-                      <td colSpan={6} className="py-1.5 pr-2">
-                        <a
-                          href={`/activities/${child.id}`}
-                          className="flex items-center gap-2 hover:underline text-sm text-neutral-700 dark:text-neutral-300 no-underline"
-                          onClick={e => { e.stopPropagation(); saveLastActivity(child.id); setLastActivityId(child.id) }}
-                        >
-                          <SportIcon sport={child.sport_type} subType={child.sub_type} className="w-4 h-4 shrink-0" />
-                          <span className="font-medium">{child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}</span>
-                          <span className="text-neutral-400 text-xs ml-auto flex items-center gap-1">
-                            {child.elapsed_time_s != null && <span>{formatDuration(child.elapsed_time_s)}</span>}
-                            {child.elapsed_time_s != null && child.distance_m != null && <span>·</span>}
-                            {child.distance_m != null && <span>{formatDistance(child.distance_m)}</span>}
+                      {/* Titel + Sport + Datum — colSpan=3 */}
+                      <td colSpan={3} className="py-1.5 px-4">
+                        <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+                          <SportIcon sport={child.sport_type} subType={child.sub_type} className="w-4 h-4 shrink-0 text-neutral-400" />
+                          <span className="font-medium truncate">
+                            {child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}
                           </span>
-                        </a>
+                        </div>
                       </td>
+                      {/* Distanz */}
+                      <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+                        {formatDistance(child.distance_m)}
+                      </td>
+                      {/* Zeit */}
+                      <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+                        {formatDuration(child.elapsed_time_s ?? 0)}
+                      </td>
+                      {/* Höhenmeter */}
+                      <td className="py-1.5 px-4">
+                        {(formatElevationGain(child.elevation_gain_m) ?? formatElevationLoss(child.elevation_loss_m)) ? (
+                          <div className="flex items-center justify-end gap-1 tabular-nums text-xs">
+                            <span className="inline-block w-[4rem] text-right text-emerald-600 dark:text-emerald-500">
+                              {formatElevationGain(child.elevation_gain_m) ?? ''}
+                            </span>
+                            <span className="text-neutral-300 dark:text-neutral-700 w-3 text-center">
+                              {formatElevationGain(child.elevation_gain_m) && formatElevationLoss(child.elevation_loss_m) ? '/' : ''}
+                            </span>
+                            <span className="inline-block w-[4rem] text-right text-rose-500 dark:text-rose-400">
+                              {formatElevationLoss(child.elevation_loss_m) ?? ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-right text-neutral-400 dark:text-neutral-600 text-xs">—</div>
+                        )}
+                      </td>
+                      {/* 3-Punkt-Platzhalter */}
                       <td className="w-8" />
                     </tr>
                   ))
@@ -1328,20 +1357,22 @@ function ActivityRow({
       onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
       className={rowClass}
     >
-      {/* Checkbox + optional Multisport-Chevron */}
+      {/* Checkbox */}
       <td className="py-3 pl-3 pr-2 w-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
-            className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
-            aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
-          />
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
+          className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+          aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
+        />
+      </td>
+      <td className={`px-4 py-3 ${titleClass}`}>
+        <div className="flex items-center gap-1.5">
           {isMultisport && (
             <button
               onClick={e => { e.stopPropagation(); onExpand?.(activity.id) }}
-              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors shrink-0"
               title="Disziplinen anzeigen"
             >
               <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
@@ -1349,12 +1380,12 @@ function ActivityRow({
               </svg>
             </button>
           )}
+          <span>
+            {activity.title ?? activity.title_auto ?? (
+              <span className="text-neutral-400 font-normal italic">Kein Titel</span>
+            )}
+          </span>
         </div>
-      </td>
-      <td className={`px-4 py-3 ${titleClass}`}>
-        {activity.title ?? activity.title_auto ?? (
-          <span className="text-neutral-400 font-normal italic">Kein Titel</span>
-        )}
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">

@@ -3,8 +3,21 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchGeoTags } from '@/api/enrichment'
 import type { GeoTag } from '@/api/types'
 
+// Maps enrichment module name → GeoTag group keys it produces
+const MODULE_TO_GEO_GROUPS: Record<string, string[]> = {
+  peaks:       ['summit', 'pass'],
+  lifts:       ['lift'],
+  settlements: ['settlement'],
+  borders:     ['border'],
+  water:       ['water', 'still_water', 'flowing_water'],
+  forests:     ['forest'],
+  commute:     ['commute'],
+  stops:       ['gastronomy'],
+}
+
 interface GeoTagsListProps {
   activityId: string
+  hiddenModules?: Set<string>
 }
 
 interface CategoryConfig {
@@ -152,7 +165,7 @@ function getConfig(groupKey: string): CategoryConfig {
   }
 }
 
-export default function GeoTagsList({ activityId }: GeoTagsListProps) {
+export default function GeoTagsList({ activityId, hiddenModules }: GeoTagsListProps) {
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: tags, isLoading } = useQuery({
@@ -162,10 +175,21 @@ export default function GeoTagsList({ activityId }: GeoTagsListProps) {
 
   if (isLoading || !tags || tags.length === 0) return null
 
-  // Group tags by normalized category key
+  // Compute which GeoTag group keys are hidden by module visibility
+  const hiddenGroupKeys = new Set<string>()
+  if (hiddenModules) {
+    for (const [moduleName, groups] of Object.entries(MODULE_TO_GEO_GROUPS)) {
+      if (hiddenModules.has(moduleName)) {
+        for (const g of groups) hiddenGroupKeys.add(g)
+      }
+    }
+  }
+
+  // Group tags by normalized category key, filtering hidden ones
   const grouped = new Map<string, GeoTag[]>()
   for (const tag of tags) {
     const key = getGroupKey(tag.category)
+    if (hiddenGroupKeys.has(key)) continue
     if (!grouped.has(key)) grouped.set(key, [])
     grouped.get(key)!.push(tag)
   }
@@ -174,6 +198,8 @@ export default function GeoTagsList({ activityId }: GeoTagsListProps) {
   const sortedGroups = [...grouped.entries()].sort(
     (a, b) => getConfig(a[0]).order - getConfig(b[0]).order
   )
+
+  if (sortedGroups.length === 0) return null
 
   return (
     <div>

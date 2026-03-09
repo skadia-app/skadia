@@ -103,12 +103,24 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
         await msg.ack()
         return
 
+    # enabled_modules: empty list (or missing) means all modules run.
+    # Non-empty list means only the listed modules run (backwards-compatible).
+    enabled_modules: list[str] = data.get("enabled_modules") or []
+
     sem = _user_semaphores[user_id]
     async with sem:
         _metrics["active_tasks"] += 1
         try:
             pool = await get_pool()
             for step_name, step_fn in steps:
+                if enabled_modules and step_name not in enabled_modules:
+                    logger.info(
+                        "Skipping module %s for activity %s: not in enabled_modules %s",
+                        step_name,
+                        activity_id,
+                        enabled_modules,
+                    )
+                    continue
                 try:
                     await publish_progress(
                         nc, activity_id, step_name, "running", user_id=user_id

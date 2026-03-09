@@ -131,6 +131,15 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
 
 // ── Exported types ─────────────────────────────────────────────────────────────
 
+export interface SplitMarker {
+  /** Elapsed minutes from start of merged stream */
+  elapsedMin: number
+  /** Distance in km from start of merged stream */
+  distanceKm: number
+  /** Label shown above the line, e.g. "🏊→🚴" */
+  label: string
+}
+
 export interface ZoomRange {
   startKm: number
   endKm: number
@@ -157,6 +166,9 @@ interface Props {
   onZoomChange?: (range: ZoomRange | null) => void
   sunriseAt?: string | null
   sunsetAt?: string | null
+  splitMarkers?: SplitMarker[]
+  /** Initial X-axis mode. Defaults to 'distance'. Pass 'time' for indoor/no-GPS activities. */
+  defaultXMode?: XMode
 }
 
 function computeSunMarkLines(
@@ -194,10 +206,10 @@ function computeSunMarkLines(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
-  const [xMode, setXMode] = useState<XMode>('distance')
+  const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
 
   const sunMarkLines = useMemo(
     () => computeSunMarkLines(streams, data, xMode, sunriseAt, sunsetAt),
@@ -362,6 +374,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     onRegister: registerChart,
     onUnregister: unregisterChart,
     xMode,
+    splitMarkers,
   }
 
   const panels: React.ReactNode[] = []
@@ -453,13 +466,14 @@ interface ChartPanelProps {
   showGradient?: boolean
   xMode: XMode
   sunMarkLines?: SunMarkLine[]
+  splitMarkers?: SplitMarker[]
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   markLines = 'none', altitudeSmartY, showGradient, xMode,
-  sunMarkLines,
+  sunMarkLines, splitMarkers,
 }: ChartPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -480,8 +494,8 @@ function ChartPanel({
       if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
     }
 
-    // Extra top padding for sunrise/sunset icons above the chart
-    const gridTop = (sunMarkLines && sunMarkLines.length > 0) ? 34 : 8
+    // Extra top padding for sunrise/sunset icons or split marker labels above the chart
+    const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
 
     // ── Mark lines ──────────────────────────────────────────────────────────
     const mlData: Record<string, unknown>[] = []
@@ -500,6 +514,23 @@ function ChartPanel({
           name: sm.label,
           label: { show: false },
           lineStyle: { type: 'dashed', color: sm.color, width: 1.5 },
+        })
+      }
+    }
+
+    // Split marker lines for multisport transitions
+    if (splitMarkers && splitMarkers.length > 0) {
+      for (const marker of splitMarkers) {
+        mlData.push({
+          xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+          lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+          label: {
+            show: true,
+            position: 'insideStartTop',
+            formatter: marker.label,
+            fontSize: 10,
+            color: '#94a3b8',
+          },
         })
       }
     }
@@ -745,7 +776,7 @@ function ChartPanel({
       chart.dispose()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, field, xMode])
+  }, [data, field, xMode, splitMarkers])
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">

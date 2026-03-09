@@ -693,6 +693,68 @@ type EnrichmentSettings struct {
 	RoundTripThresholdM     float64 `json:"round_trip_threshold_m"`
 	OCRInvoicePrompt        *string `json:"ocr_invoice_prompt,omitempty"`
 	OCRGearPrompt           *string `json:"ocr_gear_prompt,omitempty"`
+
+	// Stage-2 module flags (Migration 000116).
+	// Each flag controls whether the corresponding ML enrichment module runs.
+	// Default: true (all modules enabled for new and existing users).
+	EnablePeaks       bool `json:"enable_peaks"`
+	EnableLifts       bool `json:"enable_lifts"`
+	EnableSettlements bool `json:"enable_settlements"`
+	EnableCommute     bool `json:"enable_commute"`
+	EnableBorders     bool `json:"enable_borders"`
+	EnableWater       bool `json:"enable_water"`
+	EnableForests     bool `json:"enable_forests"`
+	EnableSurfaces    bool `json:"enable_surfaces"`
+	EnableStops       bool `json:"enable_stops"`
+	EnableIntervals   bool `json:"enable_intervals"`
+	EnableAscents     bool `json:"enable_ascents"`
+	EnableEmbeddings  bool `json:"enable_embeddings"`
+}
+
+// EnabledModules returns the list of Stage-2 module names that are currently
+// enabled. An empty slice means every module is enabled (backwards-compat
+// default). This list is embedded directly in the NATS Stage2ReadyEvent so
+// that the ML service can skip disabled modules without a DB round-trip.
+func (s *EnrichmentSettings) EnabledModules() []string {
+	type flag struct {
+		name    string
+		enabled bool
+	}
+	flags := []flag{
+		{"peaks", s.EnablePeaks},
+		{"lifts", s.EnableLifts},
+		{"settlements", s.EnableSettlements},
+		{"commute", s.EnableCommute},
+		{"borders", s.EnableBorders},
+		{"water", s.EnableWater},
+		{"forests", s.EnableForests},
+		{"surfaces", s.EnableSurfaces},
+		{"stops", s.EnableStops},
+		{"intervals", s.EnableIntervals},
+		{"ascents", s.EnableAscents},
+		{"embeddings", s.EnableEmbeddings},
+	}
+
+	// If all modules are enabled return nil so the NATS message stays small
+	// and the ML service applies its default (run all).
+	allEnabled := true
+	for _, f := range flags {
+		if !f.enabled {
+			allEnabled = false
+			break
+		}
+	}
+	if allEnabled {
+		return nil
+	}
+
+	var enabled []string
+	for _, f := range flags {
+		if f.enabled {
+			enabled = append(enabled, f.name)
+		}
+	}
+	return enabled
 }
 
 // Gear represents a piece of equipment.

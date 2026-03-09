@@ -185,6 +185,19 @@ export interface EnrichmentSettings {
   round_trip_threshold_m: number
   ocr_invoice_prompt?: string | null
   ocr_gear_prompt?: string | null
+  // Stage-2 ML module toggles (optional for backward-compat; default true when absent)
+  enable_peaks?: boolean
+  enable_lifts?: boolean
+  enable_settlements?: boolean
+  enable_commute?: boolean
+  enable_borders?: boolean
+  enable_water?: boolean
+  enable_forests?: boolean
+  enable_surfaces?: boolean
+  enable_stops?: boolean
+  enable_intervals?: boolean
+  enable_ascents?: boolean
+  enable_embeddings?: boolean
 }
 
 export interface Climb {

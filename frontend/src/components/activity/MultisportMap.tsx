@@ -46,10 +46,13 @@ interface FeatureCollection {
 interface Props {
   activityId: string
   className?: string
+  hoveredActivityId?: string | null
 }
 
-export function MultisportMap({ activityId, className }: Props) {
+export function MultisportMap({ activityId, className, hoveredActivityId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const featureIdsRef = useRef<{ sourceId: string; activityId: string }[]>([])
 
   useEffect(() => {
     const el = containerRef.current
@@ -73,6 +76,8 @@ export function MultisportMap({ activityId, className }: Props) {
       center: [10, 48],
       attributionControl: false,
     })
+
+    mapRef.current = map
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
@@ -105,6 +110,7 @@ export function MultisportMap({ activityId, className }: Props) {
       })
 
       // Add one source+layer pair per child track so each gets its own color.
+      featureIdsRef.current = []
       data.features.forEach((feature, i) => {
         const sourceId = `ms-track-${i}`
         const color = colorForSport(feature.properties.sport_type)
@@ -135,6 +141,8 @@ export function MultisportMap({ activityId, className }: Props) {
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: { 'line-color': color, 'line-width': 3 },
         })
+
+        featureIdsRef.current.push({ sourceId, activityId: feature.properties.activity_id })
       })
 
       if (!bounds.isEmpty()) {
@@ -142,8 +150,28 @@ export function MultisportMap({ activityId, className }: Props) {
       }
     })
 
-    return () => { map.remove() }
+    return () => {
+      mapRef.current = null
+      featureIdsRef.current = []
+      map.remove()
+    }
   }, [activityId])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    featureIdsRef.current.forEach(({ sourceId, activityId }) => {
+      const isHovered = hoveredActivityId == null || activityId === hoveredActivityId
+      const lineOpacity = isHovered ? 1 : 0.15
+      const glowOpacity = isHovered ? 0.22 : 0.05
+      if (map.getLayer(`${sourceId}-line`)) {
+        map.setPaintProperty(`${sourceId}-line`, 'line-opacity', lineOpacity)
+      }
+      if (map.getLayer(`${sourceId}-glow`)) {
+        map.setPaintProperty(`${sourceId}-glow`, 'line-opacity', glowOpacity)
+      }
+    })
+  }, [hoveredActivityId])
 
   return (
     <div ref={containerRef} className={className ?? 'h-80 w-full rounded-lg overflow-hidden'} />

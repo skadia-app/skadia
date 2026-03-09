@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -295,6 +296,13 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch format {
+	case "zip":
+		if activity.SportType != "multisport" {
+			writeError(w, http.StatusBadRequest, "Bad Request", "zip export only available for multisport activities", r.URL.Path)
+			return
+		}
+		exportMultisportZip(h, w, r, activity)
+		return
 	case "original":
 		exportOriginal(h, w, r, activity)
 	case "gpx":
@@ -736,6 +744,61 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 	if err := enc.Encode(fit); err != nil {
 		slog.Warn("FIT export encode failed", "activity_id", activity.ID, "error", err)
 	}
+}
+
+// exportMultisportZip packages the original files of all child activities into a single ZIP.
+func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, parent *model.Activity) {
+	children, err := h.DB.GetChildActivities(r.Context(), parent.ID)
+	if err != nil || len(children) == 0 {
+		writeError(w, http.StatusNotFound, "Not Found", "no child activities found", r.URL.Path)
+		return
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	for i, child := range children {
+		if child.FileHash == nil || strings.HasSuffix(*child.FileHash, "-missing") {
+			continue
+		}
+		ext := "fit"
+		if child.OriginalFileFormat != nil && *child.OriginalFileFormat != "" {
+			ext = *child.OriginalFileFormat
+		} else if child.OriginalFilename != nil {
+			parts := strings.Split(*child.OriginalFilename, ".")
+			if len(parts) > 1 {
+				ext = strings.ToLower(parts[len(parts)-1])
+			}
+		}
+		s3Key := fmt.Sprintf("%s/%s.%s", child.UserID, *child.FileHash, ext)
+		data, _, err := h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
+		if err != nil {
+			slog.Warn("multisport zip: child download failed", "child_id", child.ID, "key", s3Key, "error", err)
+			continue
+		}
+		entryName := fmt.Sprintf("%02d_%s_%s.%s", i+1, child.StartedAt.Format("2006-01-02"), child.SportType, ext)
+		fw, err := zw.Create(entryName)
+		if err != nil {
+			slog.Error("multisport zip: create entry failed", "name", entryName, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create zip entry", r.URL.Path)
+			return
+		}
+		if _, err := fw.Write(data); err != nil {
+			slog.Error("multisport zip: write entry failed", "name", entryName, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to write zip entry", r.URL.Path)
+			return
+		}
+	}
+
+	if err := zw.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to finalize zip", r.URL.Path)
+		return
+	}
+
+	filename := fmt.Sprintf("multisport-%s.zip", parent.StartedAt.Format("2006-01-02"))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Write(buf.Bytes())
 }
 
 // exportMultiSessionFIT writes a multi-session FIT file for a multisport parent activity.

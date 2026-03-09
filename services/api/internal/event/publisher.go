@@ -67,9 +67,16 @@ func (p *Publisher) PublishActivityUploaded(event ActivityUploadedEvent) error {
 
 // Stage2ReadyEvent is emitted after Stage 1 enrichment completes,
 // signalling the ML service to begin Stage 2 processing.
+//
+// EnabledModules lists the Stage-2 module names that should run.
+// An empty (nil) slice means every module is enabled — the ML service
+// applies that as its default for backwards compatibility.
+// When one or more modules are disabled in the user's enrichment settings
+// only the remaining module names are included in this slice.
 type Stage2ReadyEvent struct {
-	ActivityID string `json:"activity_id"`
-	UserID     string `json:"user_id"`
+	ActivityID     string   `json:"activity_id"`
+	UserID         string   `json:"user_id"`
+	EnabledModules []string `json:"enabled_modules,omitempty"`
 }
 
 func (p *Publisher) PublishStage2Ready(event Stage2ReadyEvent) error {

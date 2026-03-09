@@ -340,9 +340,20 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
 	if len(pub) > 0 && pub[0] != nil {
+		// Fetch user's module flags so the ML service can skip disabled modules.
+		// On error we fall back to nil (= all modules enabled) to stay backwards-compatible.
+		var enabledModules []string
+		if enrichSettings, err := db.GetEnrichmentSettings(ctx, userID); err != nil {
+			slog.Warn("stage1: could not load enrichment settings, enabling all stage-2 modules",
+				"user_id", userID, "error", err)
+		} else {
+			enabledModules = enrichSettings.EnabledModules()
+		}
+
 		if err := pub[0].PublishStage2Ready(event.Stage2ReadyEvent{
-			ActivityID: activityID,
-			UserID:     userID,
+			ActivityID:     activityID,
+			UserID:         userID,
+			EnabledModules: enabledModules,
 		}); err != nil {
 			slog.Warn("stage1: failed to publish stage2 event", "activity_id", activityID, "error", err)
 		}

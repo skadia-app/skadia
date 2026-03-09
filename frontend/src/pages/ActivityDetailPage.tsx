@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -13,7 +13,7 @@ import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
 import { SportIcon } from '@/components/SportIcon'
-import ActivityCharts, { type ZoomRange } from '@/components/ActivityCharts'
+import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
@@ -46,7 +46,19 @@ import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap } from '@/components/activity/MultisportMap'
+import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
+
+function getSportEmoji(sportType: string): string {
+  const map: Record<string, string> = {
+    swimming: '🏊', open_water_swimming: '🏊',
+    cycling: '🚴', mountain_biking: '🚴',
+    running: '🏃', trail_running: '🏃',
+    transition: '⚡',
+    walking: '🚶', hiking: '🚶',
+  }
+  return map[sportType] ?? '●'
+}
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -126,6 +138,66 @@ export default function ActivityDetailPage() {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
+  const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
+
+  // Load child streams for multisport combined chart
+  const { data: childStreams } = useQuery({
+    queryKey: ['multisport-streams', id, childActivities?.map(c => c.id)],
+    queryFn: async () => {
+      if (!childActivities || childActivities.length === 0) return null
+      const results = await Promise.all(
+        childActivities.map(child => fetchActivityStreams(child.id))
+      )
+      return results // StreamPoint[][] — one array per child
+    },
+    enabled: !!id && activity?.sport_type === 'multisport' && !!childActivities && childActivities.length > 0,
+  })
+
+  // Compute merged streams + split markers for multisport combined chart
+  const multisportChartData = useMemo(() => {
+    if (!childStreams || !childActivities || childStreams.length === 0) return null
+
+    const pairs = childActivities
+      .map((child, i) => ({ child, streams: childStreams[i] ?? [] }))
+      .filter(p => p.streams.length > 0)
+      .sort((a, b) => new Date(a.child.started_at).getTime() - new Date(b.child.started_at).getTime())
+
+    if (pairs.length === 0) return null
+
+    const merged: StreamPoint[] = []
+    let distanceOffset = 0
+    const splitMarkers: SplitMarker[] = []
+
+    const t0 = new Date(pairs[0].streams[0].time).getTime()
+
+    for (let i = 0; i < pairs.length; i++) {
+      const { streams: childStream } = pairs[i]
+
+      if (i > 0 && merged.length > 0) {
+        const prevSport = pairs[i - 1].child.sport_type
+        const currSport = pairs[i].child.sport_type
+        const elapsedMin = (new Date(childStream[0].time).getTime() - t0) / 60000
+        const distKm = distanceOffset / 1000
+        const label = `${getSportEmoji(prevSport)}→${getSportEmoji(currSport)}`
+        splitMarkers.push({ elapsedMin, distanceKm: distKm, label })
+      }
+
+      for (const point of childStream) {
+        const adjustedPoint: StreamPoint = { ...point }
+        if (point.distance_m != null) {
+          adjustedPoint.distance_m = point.distance_m + distanceOffset
+        }
+        merged.push(adjustedPoint)
+      }
+
+      const lastPoint = childStream[childStream.length - 1]
+      if (lastPoint?.distance_m != null) {
+        distanceOffset += lastPoint.distance_m
+      }
+    }
+
+    return { merged, splitMarkers }
+  }, [childStreams, childActivities])
 
   // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
   const { data: allTagsForLocation = [] } = useQuery({
@@ -170,7 +242,7 @@ export default function ActivityDetailPage() {
       </div>
 
       {/* Header */}
-      <ActivityHeader activity={activity} />
+      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} />
 
       {/* Tags (user + enrichment) in one row */}
       <div className="flex flex-wrap items-center gap-2">
@@ -195,6 +267,7 @@ export default function ActivityDetailPage() {
           <MultisportMap
             activityId={activity.id}
             className="h-80 w-full rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800"
+            hoveredActivityId={hoveredChildId}
           />
 
           {/* Aggregated totals */}
@@ -226,11 +299,27 @@ export default function ActivityDetailPage() {
             <MultisportSectionWithUngroup
               activity={activity}
               children={childActivities}
+              onHoverChild={setHoveredChildId}
               onUngrouped={() => {
                 queryClient.invalidateQueries({ queryKey: ['activities'] })
                 queryClient.invalidateQueries({ queryKey: ['activity', id] })
               }}
             />
+          )}
+
+          {/* Kombinierte Zeitreihen-Datenströme */}
+          {multisportChartData && multisportChartData.merged.length > 0 && (
+            <ActivityCharts
+              streams={multisportChartData.merged}
+              onHover={() => {}}
+              splitMarkers={multisportChartData.splitMarkers}
+              defaultXMode={childActivities?.some(c => c.has_gps) ? 'distance' : 'time'}
+            />
+          )}
+
+          {/* Enrichments aus Kindaktivitäten */}
+          {childActivities && childActivities.length > 0 && (
+            <MultisportEnrichments childActivities={childActivities} />
           )}
         </div>
       )}
@@ -294,11 +383,11 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Geo Tags */}
-      <GeoTagsList activityId={activity.id} />
+      {/* Geo Tags (nicht für Multisport-Parent — Enrichments werden oben in der Multisport-Sektion gezeigt) */}
+      {activity.sport_type !== 'multisport' && <GeoTagsList activityId={activity.id} hiddenModules={hiddenModules} />}
 
-      {/* Standort (nur für Indoor-Aktivitäten ohne GPS) */}
-      {!activity.has_gps && (
+      {/* Standort (nur für Indoor-Aktivitäten ohne GPS, nicht für Multisport-Parent) */}
+      {!activity.has_gps && activity.sport_type !== 'multisport' && (
         <ActivityLocationTagSection
           activityId={activity.id}
           currentTags={activity.tags ?? []}
@@ -307,23 +396,25 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Map */}
-      <TrackMap
-        streams={streams ?? []}
-        hoverIndex={hoverIndex}
-        sportColor={sportColor(activity.sport_type)}
-        hasGps={activity.has_gps}
-        zoomRange={zoomRange}
-        onMaximize={() => setMapFullscreen(true)}
-        geoTags={geoTags}
-        stops={stops}
-        locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
-          ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
-          : undefined}
-      />
+      {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
+      {activity.sport_type !== 'multisport' && (
+        <TrackMap
+          streams={streams ?? []}
+          hoverIndex={hoverIndex}
+          sportColor={sportColor(activity.sport_type)}
+          hasGps={activity.has_gps}
+          zoomRange={zoomRange}
+          onMaximize={() => setMapFullscreen(true)}
+          geoTags={geoTags}
+          stops={stops}
+          locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
+            ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
+            : undefined}
+        />
+      )}
 
       {/* Map fullscreen overlay */}
-      {mapFullscreen && streams && streams.length > 0 && (
+      {activity.sport_type !== 'multisport' && mapFullscreen && streams && streams.length > 0 && (
         <MapFullscreen
           streams={streams}
           sportColor={sportColor(activity.sport_type)}
@@ -342,6 +433,7 @@ export default function ActivityDetailPage() {
           onZoomChange={setZoomRange}
           sunriseAt={activity.sunrise_at}
           sunsetAt={activity.sunset_at}
+          defaultXMode={!activity.has_gps ? 'time' : 'distance'}
         />
       )}
 
@@ -365,7 +457,7 @@ export default function ActivityDetailPage() {
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
 
       {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
-      {activity.has_gps && <ClimbsSection activityId={activity.id} />}
+      {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} />}
 
       {/* Intervalltraining */}
       <IntervalSection activityId={activity.id} />
@@ -393,14 +485,19 @@ export default function ActivityDetailPage() {
         />
       ) : null}
 
-      {/* Stopps */}
-      <StopsSection activityId={activity.id} />
+      {/* Stopps (nicht für Multisport-Parent) */}
+      {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} />}
 
-      {/* Untergrund */}
-      <SurfacesSection activityId={activity.id} />
+      {/* Untergrund (nicht für Multisport-Parent) */}
+      {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && <SurfacesSection activityId={activity.id} />}
 
       {/* Enrichment-Modul-Status */}
-      <EnrichmentStatusSection activityId={activity.id} enrichmentStatus={activity.enrichment_status} />
+      <EnrichmentStatusSection
+        activityId={activity.id}
+        enrichmentStatus={activity.enrichment_status}
+        hiddenModules={hiddenModules}
+        onToggleModule={toggleModule}
+      />
 
       {/* Erkannte Runden */}
       <DetectedLapsTable activityId={activity.id} />
@@ -554,14 +651,32 @@ function ReprocessScopeModal({
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function ActivityHeader({ activity }: { activity: Activity }) {
+function ActivityHeader({ activity, childCount }: { activity: Activity; childCount: number }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [exportOpen, setExportOpen] = useState(false)
   const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
+
+  // Per-activity module visibility (persisted in localStorage)
+  const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(`skadia-hidden-modules-${activity.id}`)
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch { return new Set() }
+  })
+  const toggleModule = (name: string) => {
+    setHiddenModules(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      try { localStorage.setItem(`skadia-hidden-modules-${activity.id}`, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
+  const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [trimDialogOpen, setTrimDialogOpen] = useState(false)
   const [splitDialogOpen, setSplitDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
@@ -574,6 +689,7 @@ function ActivityHeader({ activity }: { activity: Activity }) {
     function handleOutside(e: MouseEvent) {
       if (reprocessMenuRef.current && !reprocessMenuRef.current.contains(e.target as Node)) {
         setReprocessMenuOpen(false)
+        setMultisportConfirm(false)
       }
     }
     document.addEventListener('mousedown', handleOutside)
@@ -583,10 +699,8 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
     try {
-      // Pass only the path relative to the API base (without /api/v1 prefix)
-      // so apiDownload() can add the prefix correctly.
       const { blob, filename } = await apiDownload(`/activities/${activity.id}/export?format=${format}`)
-      const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit' }
+      const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit', zip: '.zip' }
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
@@ -594,7 +708,6 @@ function ActivityHeader({ activity }: { activity: Activity }) {
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      // Delay revoking so the browser has time to initiate the download.
       setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
     } catch (err) {
       console.error('Export fehlgeschlagen', err)
@@ -612,8 +725,14 @@ function ActivityHeader({ activity }: { activity: Activity }) {
   const reprocessMutation = useMutation({
     mutationFn: () => reprocessActivity(activity.id),
     onMutate: () => setReprocessState('loading'),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['activity', activity.id], updated)
+    onSuccess: (result) => {
+      if (result && 'job_id' in result) {
+        // 202 Accepted: multisport background job started — progress visible in header
+        setReprocessState('idle')
+        setMultisportConfirm(false)
+        return
+      }
+      queryClient.setQueryData(['activity', activity.id], result)
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
       setReprocessState('success')
@@ -782,19 +901,27 @@ function ActivityHeader({ activity }: { activity: Activity }) {
           &#8595; Export
         </button>
         {exportOpen && (
-          <div className="absolute right-0 mt-1 w-48 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
-            <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg">
-              Original herunterladen
-            </button>
-            <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
-              Als GPX exportieren
-            </button>
-            <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
-              Als TCX exportieren
-            </button>
-            <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg">
-              Als FIT exportieren
-            </button>
+          <div className="absolute right-0 mt-1 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
+            {activity.sport_type === 'multisport' ? (
+              <button onClick={() => handleExport('zip')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg">
+                ZIP (Originaldateien)
+              </button>
+            ) : (
+              <>
+                <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg">
+                  Original herunterladen
+                </button>
+                <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                  Als GPX exportieren
+                </button>
+                <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                  Als TCX exportieren
+                </button>
+                <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg">
+                  Als FIT exportieren
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -824,33 +951,79 @@ function ActivityHeader({ activity }: { activity: Activity }) {
         {/* Dropdown menu */}
         {reprocessMenuOpen && !isReprocessing && (
           <div className="absolute right-0 mt-1 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
-            <button
-              onClick={() => {
-                setReprocessMenuOpen(false)
-                reprocessMutation.mutate()
-              }}
-              className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
-                         hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg transition-colors"
-            >
-              <span className="font-medium">Alles</span>
-              <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-                Vollständig neu verarbeiten
-              </span>
-            </button>
-            <div className="border-t border-neutral-100 dark:border-neutral-800" />
-            <button
-              onClick={() => {
-                setReprocessMenuOpen(false)
-                setReprocessScopeOpen(true)
-              }}
-              className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
-                         hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg transition-colors"
-            >
-              <span className="font-medium">Details auswählen</span>
-              <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-                Nur bestimmte Bereiche
-              </span>
-            </button>
+            {activity.sport_type === 'multisport' ? (
+              multisportConfirm ? (
+                <div className="px-4 py-3 space-y-2">
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                    Alle {childCount} Disziplinen + Zusammenfassung neu berechnen?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setReprocessMenuOpen(false)
+                        setMultisportConfirm(false)
+                        reprocessMutation.mutate()
+                      }}
+                      className="flex-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white
+                                 hover:bg-accent-600 transition-colors cursor-pointer"
+                    >
+                      OK
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReprocessMenuOpen(false)
+                        setMultisportConfirm(false)
+                      }}
+                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700
+                                 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setMultisportConfirm(true)}
+                  className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                >
+                  <span className="font-medium">Alles neu berechnen</span>
+                  <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                    Alle Disziplinen + Zusammenfassung
+                  </span>
+                </button>
+              )
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setReprocessMenuOpen(false)
+                    reprocessMutation.mutate()
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg transition-colors"
+                >
+                  <span className="font-medium">Alles</span>
+                  <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                    Vollständig neu verarbeiten
+                  </span>
+                </button>
+                <div className="border-t border-neutral-100 dark:border-neutral-800" />
+                <button
+                  onClick={() => {
+                    setReprocessMenuOpen(false)
+                    setReprocessScopeOpen(true)
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg transition-colors"
+                >
+                  <span className="font-medium">Details auswählen</span>
+                  <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                    Nur bestimmte Bereiche
+                  </span>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1792,10 +1965,12 @@ function ZoneDistributionChart({ distribution }: { distribution: ZoneDistributio
 function MultisportSectionWithUngroup({
   activity,
   children,
+  onHoverChild,
   onUngrouped,
 }: {
   activity: Activity
   children: Activity[]
+  onHoverChild?: (id: string | null) => void
   onUngrouped: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -1853,7 +2028,7 @@ function MultisportSectionWithUngroup({
         )}
       </div>
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-      <MultisportSection children={children} />
+      <MultisportSection children={children} onHoverChild={onHoverChild} />
     </div>
   )
 }

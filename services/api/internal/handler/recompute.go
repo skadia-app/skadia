@@ -62,6 +62,51 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Multisport parent: reprocess all children asynchronously via background job.
+	if activity.SportType == "multisport" {
+		children, err := h.DB.GetChildActivities(r.Context(), id)
+		if err != nil {
+			slog.Error("reprocess multisport: get children failed", "id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
+			return
+		}
+		parentID := id
+		parentName := activity.Title
+		if parentName == nil {
+			auto := "Multisport"
+			parentName = &auto
+		}
+		jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "recompute_multisport", &parentID, parentName, int64(len(children)+1))
+		if err != nil {
+			slog.Error("reprocess multisport: create job failed", "id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create background job", r.URL.Path)
+			return
+		}
+
+		go func() {
+			ctx := context.Background()
+			for i, child := range children {
+				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil); err != nil {
+					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
+					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+					return
+				}
+			}
+			_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "Zusammenfassen")
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(len(children)))
+			if aggrErr := h.DB.AggregateParentMetrics(ctx, parentID); aggrErr != nil {
+				slog.Warn("reprocess multisport: aggregate failed", "id", parentID, "error", aggrErr)
+			}
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
+			slog.Info("reprocess multisport: done", "id", parentID, "children", len(children))
+		}()
+
+		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+		return
+	}
+
 	if err := h.reprocessActivity(r.Context(), id, userID, nil); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)

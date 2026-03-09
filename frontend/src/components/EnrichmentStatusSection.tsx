@@ -1,12 +1,44 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchEnrichmentStatus, type EnrichmentModuleStatus } from '@/api/enrichment'
+import { fetchEnrichmentStatus, fetchEnrichmentSettings, type EnrichmentModuleStatus } from '@/api/enrichment'
 import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
+import type { EnrichmentSettings } from '@/api/types'
+
+// Maps stage-2 module names to the corresponding API field in EnrichmentSettings.
+// A module is globally disabled when the field is explicitly false (default: true/absent = enabled).
+const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> = {
+  peaks:       'enable_peaks',
+  lifts:       'enable_lifts',
+  settlements: 'enable_settlements',
+  commute:     'enable_commute',
+  borders:     'enable_borders',
+  water:       'enable_water',
+  forests:     'enable_forests',
+  surfaces:    'enable_surfaces',
+  stops:       'enable_stops',
+  intervals:   'enable_intervals',
+  ascents:     'enable_ascents',
+  embeddings:  'enable_embeddings',
+}
+
+function buildGloballyDisabled(settings: EnrichmentSettings | undefined): Set<string> {
+  if (!settings) return new Set()
+  const disabled = new Set<string>()
+  for (const [moduleName, field] of Object.entries(MODULE_API_FIELD)) {
+    if (field && settings[field] === false) {
+      disabled.add(moduleName)
+    }
+  }
+  return disabled
+}
 
 interface Props {
   activityId: string
   enrichmentStatus: string
+  hiddenModules: Set<string>
+  onToggleModule: (name: string) => void
 }
 
 const MODULE_META: Record<string, { label: string; icon: string }> = {
@@ -24,54 +56,37 @@ const MODULE_META: Record<string, { label: string; icon: string }> = {
   embeddings:  { label: 'Embeddings',     icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a3 3 0 110 6 3 3 0 010-6z' },
 }
 
-const STATUS_STYLES: Record<string, { bg: string; ring: string; dot: string; label: string }> = {
-  completed: {
-    bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-    ring: 'ring-emerald-200 dark:ring-emerald-800',
-    dot: 'bg-emerald-500',
-    label: 'Daten vorhanden',
-  },
-  error: {
-    bg: 'bg-red-50 dark:bg-red-950/30',
-    ring: 'ring-red-200 dark:ring-red-800',
-    dot: 'bg-red-500',
-    label: 'Fehler',
-  },
-  no_data: {
-    bg: 'bg-neutral-50 dark:bg-neutral-900/30',
-    ring: 'ring-neutral-200 dark:ring-neutral-800',
-    dot: 'bg-neutral-400',
-    label: 'Keine Daten',
-  },
-  pending: {
-    bg: 'bg-amber-50 dark:bg-amber-950/30',
-    ring: 'ring-amber-200 dark:ring-amber-800',
-    dot: 'bg-amber-500 animate-pulse',
-    label: 'Ausstehend',
-  },
-}
-
-export default function EnrichmentStatusSection({ activityId, enrichmentStatus }: Props) {
+export default function EnrichmentStatusSection({ activityId, enrichmentStatus, hiddenModules, onToggleModule }: Props) {
   const [collapsed, setCollapsed] = useState(true)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
+  const { data: enrichmentConfig } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+    staleTime: 60_000, // settings rarely change — avoid repeated fetches per activity
+  })
+  const globallyDisabled = buildGloballyDisabled(enrichmentConfig)
+
   const { data, isLoading } = useQuery({
     queryKey: ['enrichment-status', activityId],
     queryFn: () => fetchEnrichmentStatus(activityId),
-    enabled: enrichmentStatus !== 'pending',
     refetchInterval: enrichmentStatus === 'processing' ? 5000 : false,
   })
 
   const recomputeMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (moduleName?: string) =>
       apiClient(`/activities/${activityId}/recompute`, {
         method: 'POST',
         body: { scope: ['geo'] },
       }),
-    onSuccess: () => {
+    onSuccess: (_data, moduleName) => {
       queryClient.invalidateQueries({ queryKey: ['enrichment-status', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['geo-tags', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['stops', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['surfaces', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['climbs', activityId] })
       addToast({ type: 'success', title: 'Geo-Enrichment gestartet' })
     },
     onError: () => {
@@ -79,12 +94,25 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus }
     },
   })
 
-  if (enrichmentStatus === 'pending') return null
+  const handleTileClick = (module: EnrichmentModuleStatus) => {
+    if (globallyDisabled.has(module.name)) return // can't activate globally disabled modules
+    if (hiddenModules.has(module.name)) {
+      // Unhide: remove from hidden set (data already exists in DB)
+      onToggleModule(module.name)
+    } else if (module.status === 'completed') {
+      // Hide from view
+      onToggleModule(module.name)
+    } else {
+      // no_data or error: trigger recompute
+      recomputeMutation.mutate(module.name)
+    }
+  }
+
   if (isLoading || !data) return null
 
   const modules = data.modules
   const errorCount = modules.filter(m => m.status === 'error').length
-  const completedCount = modules.filter(m => m.status === 'completed').length
+  const completedCount = modules.filter(m => m.status === 'completed' && !hiddenModules.has(m.name)).length
 
   return (
     <div>
@@ -113,58 +141,136 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus }
         <div className="space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             {modules.map(m => (
-              <ModuleTile key={m.name} module={m} />
+              <ModuleTile
+                key={m.name}
+                module={m}
+                hidden={hiddenModules.has(m.name)}
+                globallyDisabled={globallyDisabled.has(m.name)}
+                computing={recomputeMutation.isPending}
+                onClick={() => handleTileClick(m)}
+              />
             ))}
           </div>
 
-          {errorCount > 0 && (
-            <button
-              onClick={() => recomputeMutation.mutate()}
-              disabled={recomputeMutation.isPending}
-              className="text-sm px-3 py-1.5 rounded-md bg-accent-DEFAULT/10 text-accent-DEFAULT
-                         hover:bg-accent-DEFAULT/20 transition-colors disabled:opacity-50"
-            >
-              {recomputeMutation.isPending ? 'Wird gestartet...' : 'Geo-Enrichment erneut ausführen'}
-            </button>
-          )}
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
+            Aktive Module werden in der Detailansicht angezeigt. Inaktive Module können durch Klick neu berechnet werden.{' '}
+            {globallyDisabled.size > 0 && (
+              <Link to="/settings" className="text-accent-DEFAULT hover:underline">
+                {globallyDisabled.size === 1 ? '1 Modul ist' : `${globallyDisabled.size} Module sind`} global deaktiviert.
+              </Link>
+            )}
+          </p>
         </div>
       )}
     </div>
   )
 }
 
-function ModuleTile({ module }: { module: EnrichmentModuleStatus }) {
+function ModuleTile({
+  module,
+  hidden,
+  globallyDisabled,
+  computing,
+  onClick,
+}: {
+  module: EnrichmentModuleStatus
+  hidden: boolean
+  globallyDisabled: boolean
+  computing: boolean
+  onClick: () => void
+}) {
   const meta = MODULE_META[module.name] ?? { label: module.name, icon: '' }
-  const style = STATUS_STYLES[module.status] ?? STATUS_STYLES.no_data
+
+  const isCompleted = module.status === 'completed'
+  const isError = module.status === 'error'
+  const isPending = module.status === 'pending'
+
+  let bg: string
+  let ring: string
+  let dotColor: string
+  let titleColor: string
+  let tooltip: string
+
+  if (globallyDisabled) {
+    bg = 'bg-neutral-50/50 dark:bg-neutral-900/10'
+    ring = 'ring-neutral-100 dark:ring-neutral-800/30'
+    dotColor = 'bg-neutral-200 dark:bg-neutral-700'
+    titleColor = 'text-neutral-350 dark:text-neutral-600 opacity-50'
+    tooltip = 'Global deaktiviert — in Einstellungen aktivieren'
+  } else if (hidden) {
+    bg = 'bg-neutral-50 dark:bg-neutral-900/20'
+    ring = 'ring-neutral-150 dark:ring-neutral-800/50'
+    dotColor = 'bg-neutral-200 dark:bg-neutral-700'
+    titleColor = 'text-neutral-400 dark:text-neutral-600 line-through'
+    tooltip = 'Ausgeblendet — klicken zum Einblenden'
+  } else if (isCompleted) {
+    bg = 'bg-emerald-50 dark:bg-emerald-950/30'
+    ring = 'ring-emerald-200 dark:ring-emerald-800'
+    dotColor = 'bg-emerald-500'
+    titleColor = 'text-neutral-700 dark:text-neutral-300'
+    tooltip = 'Daten vorhanden — klicken zum Ausblenden'
+  } else if (isError) {
+    bg = 'bg-red-50 dark:bg-red-950/30'
+    ring = 'ring-red-200 dark:ring-red-800'
+    dotColor = 'bg-red-500'
+    titleColor = 'text-neutral-700 dark:text-neutral-300'
+    tooltip = module.error ?? 'Fehler — klicken zum Neu berechnen'
+  } else if (isPending) {
+    bg = 'bg-amber-50 dark:bg-amber-950/30'
+    ring = 'ring-amber-200 dark:ring-amber-800'
+    dotColor = 'bg-amber-500 animate-pulse'
+    titleColor = 'text-neutral-700 dark:text-neutral-300'
+    tooltip = 'Ausstehend'
+  } else {
+    bg = 'bg-neutral-50 dark:bg-neutral-900/30'
+    ring = 'ring-neutral-200 dark:ring-neutral-800'
+    dotColor = 'bg-neutral-300 dark:bg-neutral-600'
+    titleColor = 'text-neutral-500 dark:text-neutral-500'
+    tooltip = 'Keine Daten — klicken zum Berechnen'
+  }
+
+  const canClick = !computing && !isPending && !globallyDisabled
+  const cursorClass = canClick
+    ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-110 active:scale-[0.98]'
+    : 'cursor-default'
 
   return (
-    <div
-      className={`relative flex items-center gap-2 px-3 py-2 rounded-lg ring-1 ${style.bg} ${style.ring}`}
-      title={module.status === 'error' ? module.error : style.label}
+    <button
+      type="button"
+      disabled={!canClick}
+      onClick={canClick ? onClick : undefined}
+      title={tooltip}
+      className={`relative flex items-center gap-2 px-3 py-2 rounded-lg ring-1 text-left transition-all ${bg} ${ring} ${cursorClass} disabled:cursor-default`}
     >
-      {/* Status dot */}
-      <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${style.dot}`} />
+      <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
 
-      {/* Module icon */}
-      <svg className="w-4 h-4 shrink-0 text-neutral-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <svg
+        className={`w-4 h-4 shrink-0 text-neutral-500 dark:text-neutral-400 ${globallyDisabled ? 'opacity-40' : ''}`}
+        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}
+      >
         <path strokeLinecap="round" strokeLinejoin="round" d={meta.icon} />
       </svg>
 
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-neutral-700 dark:text-neutral-300 truncate">
+        <div className={`text-xs font-medium truncate transition-colors ${titleColor}`}>
           {meta.label}
         </div>
-        {module.status === 'completed' && module.count > 0 && (
+        {!hidden && !globallyDisabled && isCompleted && module.count > 0 && (
           <div className="text-[10px] text-neutral-500 dark:text-neutral-500">
             {module.count} Treffer
           </div>
         )}
-        {module.status === 'error' && (
+        {!hidden && !globallyDisabled && isError && (
           <div className="text-[10px] text-red-500 truncate" title={module.error}>
             {module.error}
           </div>
         )}
+        {globallyDisabled && (
+          <div className="text-[10px] text-neutral-400 dark:text-neutral-600">
+            global aus
+          </div>
+        )}
       </div>
-    </div>
+    </button>
   )
 }

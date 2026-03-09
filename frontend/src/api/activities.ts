@@ -85,8 +85,8 @@ export async function updateActivity(id: string, data: Partial<Pick<Activity, 't
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
-export async function reprocessActivity(id: string): Promise<Activity> {
-  return apiClient<Activity>(`/activities/${id}/recompute`, { method: 'POST' })
+export async function reprocessActivity(id: string): Promise<Activity | { job_id: string }> {
+  return apiClient<Activity | { job_id: string }>(`/activities/${id}/recompute`, { method: 'POST' })
 }
 
 export interface ReprocessFilter {
@@ -111,7 +111,7 @@ export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<
   })
 }
 
-export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit'
+export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit' | 'zip'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 

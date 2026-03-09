@@ -12,6 +12,8 @@ import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHe
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
+import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
+import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
@@ -88,50 +90,45 @@ function OSMStatusSection() {
   )
 }
 
-// Stage-2 ML enrichment module configuration stored in localStorage.
-// These settings are advisory — the ML service will read them in a future backend feature.
+// Stage-2 ML enrichment module configuration — backed by /settings/enrichment API.
 const STAGE2_MODULES = [
-  { key: 'peaks',       label: 'Gipfel & Pässe',       description: 'Erkennt besuchte Gipfel und Bergsättel' },
-  { key: 'forests',     label: 'Wälder',               description: 'Erkennt durchquerte Waldgebiete' },
-  { key: 'water',       label: 'Gewässer',              description: 'Erkennt Seen und Fließgewässer entlang der Route' },
-  { key: 'settlements', label: 'Ortschaften',           description: 'Erkennt durchquerte Siedlungen' },
-  { key: 'borders',     label: 'Grenzüberquerungen',   description: 'Erkennt überquerte Ländergrenzen' },
-  { key: 'stops',       label: 'Stopps & Einkehr',      description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)' },
-  { key: 'lifts',       label: 'Lifte / Seilbahnen',   description: 'Erkennt Gondelbahnen und Sessellifte' },
-  { key: 'surfaces',    label: 'Untergrundtypen',       description: 'Erkennt Asphalt, Schotter, Trail etc.' },
-  { key: 'ascents',     label: 'Anstiege',              description: 'Erkennt und klassifiziert Anstiege' },
-  { key: 'commute',     label: 'Pendelrouten',          description: 'Erkennt regelmäßig genutzte Routen' },
+  { key: 'peaks',       apiField: 'enable_peaks'       as const, label: 'Gipfel & Pässe',      description: 'Erkennt besuchte Gipfel und Bergsättel' },
+  { key: 'forests',     apiField: 'enable_forests'     as const, label: 'Wälder',              description: 'Erkennt durchquerte Waldgebiete' },
+  { key: 'water',       apiField: 'enable_water'       as const, label: 'Gewässer',             description: 'Erkennt Seen und Fließgewässer entlang der Route' },
+  { key: 'settlements', apiField: 'enable_settlements' as const, label: 'Ortschaften',          description: 'Erkennt durchquerte Siedlungen' },
+  { key: 'borders',     apiField: 'enable_borders'     as const, label: 'Grenzüberquerungen',  description: 'Erkennt überquerte Ländergrenzen' },
+  { key: 'stops',       apiField: 'enable_stops'       as const, label: 'Stopps & Einkehr',     description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)' },
+  { key: 'lifts',       apiField: 'enable_lifts'       as const, label: 'Lifte / Seilbahnen',  description: 'Erkennt Gondelbahnen und Sessellifte' },
+  { key: 'surfaces',    apiField: 'enable_surfaces'    as const, label: 'Untergrundtypen',      description: 'Erkennt Asphalt, Schotter, Trail etc.' },
+  { key: 'ascents',     apiField: 'enable_ascents'     as const, label: 'Anstiege',             description: 'Erkennt und klassifiziert Anstiege' },
+  { key: 'commute',     apiField: 'enable_commute'     as const, label: 'Pendelrouten',         description: 'Erkennt regelmäßig genutzte Routen' },
 ] as const
 
-type Stage2Key = typeof STAGE2_MODULES[number]['key']
-type Stage2Settings = Record<Stage2Key, boolean>
-
-const STAGE2_STORAGE_KEY = 'skadia-enrichment-settings'
-
-function loadStage2Settings(): Stage2Settings {
-  try {
-    const raw = localStorage.getItem(STAGE2_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      // Ensure all keys are present — new modules default to true
-      const result = {} as Stage2Settings
-      for (const m of STAGE2_MODULES) result[m.key] = parsed[m.key] !== false
-      return result
-    }
-  } catch {
-    // ignore parse errors
-  }
-  // Default: all enabled
-  return Object.fromEntries(STAGE2_MODULES.map(m => [m.key, true])) as Stage2Settings
-}
-
 function Stage2EnrichmentSection() {
-  const [settings, setSettings] = useState<Stage2Settings>(loadStage2Settings)
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
 
-  function toggle(key: Stage2Key) {
-    const next = { ...settings, [key]: !settings[key] }
-    setSettings(next)
-    try { localStorage.setItem(STAGE2_STORAGE_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+  const { data: settings, isLoading, isError } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+  })
+
+  const mutation = useMutation({
+    mutationFn: (patch: Parameters<typeof updateEnrichmentSettings>[0]) =>
+      updateEnrichmentSettings(patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['enrichment-settings'], updated)
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] })
+      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
+    },
+  })
+
+  function toggle(apiField: typeof STAGE2_MODULES[number]['apiField']) {
+    if (!settings) return
+    const current = settings[apiField] !== false // default true when field absent
+    mutation.mutate({ [apiField]: !current })
   }
 
   return (
@@ -143,28 +140,39 @@ function Stage2EnrichmentSection() {
         </p>
       </div>
 
+      {isError && (
+        <p className="text-sm text-red-500 dark:text-red-400">
+          Einstellungen konnten nicht geladen werden.
+        </p>
+      )}
+
       <div className="space-y-2">
-        {STAGE2_MODULES.map(({ key, label, description }) => (
-          <div key={key} className="flex items-center justify-between gap-4 py-1">
-            <div className="min-w-0 flex-1">
-              <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+        {STAGE2_MODULES.map(({ apiField, label, description }) => {
+          const enabled = settings ? (settings[apiField] !== false) : true
+          const isPending = mutation.isPending
+          return (
+            <div key={apiField} className="flex items-center justify-between gap-4 py-1">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+              </div>
+              <button
+                onClick={() => toggle(apiField)}
+                disabled={isLoading || isPending}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
+                role="switch"
+                aria-checked={enabled}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
-            <button
-              onClick={() => toggle(key)}
-              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-              style={{ backgroundColor: settings[key] ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
-              role="switch"
-              aria-checked={settings[key]}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings[key] ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
