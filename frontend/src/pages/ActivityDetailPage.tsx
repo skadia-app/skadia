@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -25,6 +25,7 @@ import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
 import ActivityPhotoSection from '@/components/ActivityPhotoSection'
+import { uploadActivityPhoto } from '@/api/activityPhotos'
 import LapTable from '@/components/LapTable'
 import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
@@ -157,6 +158,52 @@ export default function ActivityDetailPage() {
     })
   }
 
+  // Drag & drop photo upload — page-level
+  const [isDraggingPhotos, setIsDraggingPhotos] = useState(false)
+  const dragCounter = useRef(0)
+
+  const handleDragEnter = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    dragCounter.current += 1
+    if (dragCounter.current === 1) setIsDraggingPhotos(true)
+  }, [])
+
+  const handleDragLeave = useCallback((_e: DragEvent) => {
+    dragCounter.current -= 1
+    if (dragCounter.current === 0) setIsDraggingPhotos(false)
+  }, [])
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+  }, [])
+
+  const handleDrop = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    dragCounter.current = 0
+    setIsDraggingPhotos(false)
+    if (!id) return
+    const files = e.dataTransfer?.files
+    if (!files || files.length === 0) return
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+    Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(id, f))).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['activity-photos', id] })
+    })
+  }, [id, queryClient])
+
+  useEffect(() => {
+    window.addEventListener('dragenter', handleDragEnter)
+    window.addEventListener('dragleave', handleDragLeave)
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('drop', handleDrop)
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter)
+      window.removeEventListener('dragleave', handleDragLeave)
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('drop', handleDrop)
+    }
+  }, [handleDragEnter, handleDragLeave, handleDragOver, handleDrop])
+
   // Load child streams for multisport combined chart
   const { data: childStreams } = useQuery({
     queryKey: ['multisport-streams', id, childActivities?.map(c => c.id)],
@@ -240,6 +287,18 @@ export default function ActivityDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Drag & drop overlay */}
+      {isDraggingPhotos && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-4 text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 opacity-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18M3.75 3h16.5A.75.75 0 0121 3.75v13.5a.75.75 0 01-.75.75H3.75A.75.75 0 013 17.25V3.75A.75.75 0 013.75 3z" />
+            </svg>
+            <span className="text-2xl font-semibold tracking-wide">Fotos hier ablegen</span>
+          </div>
+        </div>
+      )}
+
       {/* Back link */}
       <div className="flex items-center gap-4 flex-wrap">
         <Link
