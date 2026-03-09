@@ -2620,142 +2620,198 @@ function removeOverlayLayers(map: maplibregl.Map) {
   if (map.getSource('heatmap')) map.removeSource('heatmap')
 }
 
-const TERRA_INCOGNITA_LAYER_IDS = [
-  'terra-incognita-overlay',
-  'terra-incognita-cloud-1',
-  'terra-incognita-cloud-2',
-  'terra-incognita-cloud-3',
-  'terra-incognita-cloud-4',
-] as const
+// ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
+// Statt MapLibre line-blur (zoom-abhängig, Spike-Artifacts an Vertices):
+// Offscreen-Canvas mit ctx.filter='blur()' + destination-out schneidet
+// erkundete Flächen weich aus dem Fog heraus. Das Resultat wird als
+// geo-referenziertes MapLibre-Raster-Image über die Karte gelegt.
+// Kein Pixelraster, kein Vertex-Artifact, zoom-konsistenter Weichzeichner.
 
-// Laufende RAF-Animation — wird beim Entfernen der Layer abgebrochen.
+const TERRA_INCOGNITA_LAYER_IDS = ['terra-incognita-fog-layer'] as const
+const FOG_CANVAS_SIZE = 1024  // Pixel (quadratisch)
+const FOG_BLUR_PX = 20        // Canvas-Blur-Radius in Pixeln
+
+// Modul-globaler State (kein React-State nötig, da außerhalb der Komponente)
 let terraAnimRafId: number | null = null
+let fogUpdateTimer: ReturnType<typeof setTimeout> | null = null
+let fogExploredGeometry: GeoJSON.Geometry | null = null
+let fogMoveHandlerCleanup: (() => void) | null = null
 
 function removeTerraIncognitaLayers(map: maplibregl.Map) {
   if (terraAnimRafId !== null) {
     cancelAnimationFrame(terraAnimRafId)
     terraAnimRafId = null
   }
+  if (fogUpdateTimer !== null) {
+    clearTimeout(fogUpdateTimer)
+    fogUpdateTimer = null
+  }
+  if (fogMoveHandlerCleanup) {
+    fogMoveHandlerCleanup()
+    fogMoveHandlerCleanup = null
+  }
+  fogExploredGeometry = null
   for (const id of TERRA_INCOGNITA_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
-  if (map.getSource('terra-incognita')) map.removeSource('terra-incognita')
-  if (map.getSource('terra-incognita-explored')) map.removeSource('terra-incognita-explored')
+  if (map.getSource('terra-incognita-fog')) map.removeSource('terra-incognita-fog')
 }
 
 /**
- * Add terra incognita overlay: weißer Wolken-Nebel über unerkundeten Regionen.
+ * Rendert das erkundete Polygon auf ein Offscreen-Canvas und gibt es als
+ * data-URL zurück. Das Canvas umfasst die aktuelle Karten-Viewport-Region
+ * erweitert um 50% in jede Richtung (Puffer gegen Pan-Flicker).
  *
- * Aufbau (WebGL GPU-gerendert via MapLibre):
- *  1. Fill-Layer: opake weiße Wolkenmasse über dem gesamten unerkundeten Bereich.
- *  2. Feather-Layer (4×): Line-Layer mit gestaffeltem line-blur auf dem Rand des
- *     erkundeten Polygons. Die Wolkenfarbe "läuft" in die erkundete Fläche aus
- *     und erzeugt einen weichen, natürlichen Wolkenrand — kein harter Schnitt.
- *     Je weiter vom Rand, desto transparenter die ausgelaufene Wolke.
+ * Technik:
+ *  1. Canvas mit Fog-Farbe (#eef1f7) füllen.
+ *  2. ctx.filter='blur()' + destination-out: erkundete Flächen werden
+ *     mit weichem Blur aus dem Fog herausgeschnitten.
+ *     Zentrum = vollständig transparent, Randzone = weicher Gradient.
  *
- * Diese Funktion ist self-cleaning: ruft intern removeTerraIncognitaLayers() auf.
+ * Gibt die Canvas-Koordinaten (geo-referenziert) zurück.
  */
-function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
-  // World-covering polygon (outer ring, counter-clockwise = RFC 7946 exterior)
-  const worldRing: GeoJSON.Position[] = [
-    [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85],
+function buildFogCanvas(
+  map: maplibregl.Map,
+  exploredGeometry: GeoJSON.Geometry,
+): { dataURL: string; coords: [[number, number], [number, number], [number, number], [number, number]] } {
+  const bounds = map.getBounds()
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+  // Viewport um 50% erweitern → Pan-Puffer
+  const lngPad = (ne.lng - sw.lng) * 0.5
+  const latPad = (ne.lat - sw.lat) * 0.5
+  const wLng = sw.lng - lngPad
+  const eLng = ne.lng + lngPad
+  const sLat = sw.lat - latPad
+  const nLat = ne.lat + latPad
+  const lngSpan = eLng - wLng
+  const latSpan = nLat - sLat
+
+  const project = (lng: number, lat: number): [number, number] => [
+    ((lng - wLng) / lngSpan) * FOG_CANVAS_SIZE,
+    ((nLat - lat) / latSpan) * FOG_CANVAS_SIZE,
   ]
 
-  // PostGIS ST_AsGeoJSON returns exterior rings as CCW (RFC 7946).
-  // GeoJSON holes (interior rings) must be CW → reverse the ring.
-  const toHoleRing = (ring: GeoJSON.Position[]): GeoJSON.Position[] => ring.slice().reverse()
+  const canvas = document.createElement('canvas')
+  canvas.width = FOG_CANVAS_SIZE
+  canvas.height = FOG_CANVAS_SIZE
+  const ctx = canvas.getContext('2d')!
 
-  const holes: GeoJSON.Position[][] = []
-  if (exploredGeometry.type === 'Polygon' && exploredGeometry.coordinates.length > 0) {
-    holes.push(toHoleRing(exploredGeometry.coordinates[0]))
-  } else if (exploredGeometry.type === 'MultiPolygon') {
-    for (const poly of exploredGeometry.coordinates) {
-      if (poly.length > 0) holes.push(toHoleRing(poly[0]))
+  // Schritt 1: Fog-Farbe füllen (leicht bläuliches Weiß = Wolken)
+  ctx.fillStyle = '#eef1f7'
+  ctx.fillRect(0, 0, FOG_CANVAS_SIZE, FOG_CANVAS_SIZE)
+
+  // Schritt 2: Erkundete Flächen weich ausschneiden
+  // blur() weicht die Kanten des gezeichneten Polygons auf; destination-out
+  // entfernt Alpha proportional zur Blur-Intensität → perfekter Gradient.
+  ctx.save()
+  ctx.filter = `blur(${FOG_BLUR_PX}px)`
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = 'rgba(0,0,0,1)'
+
+  const drawRings = (rings: GeoJSON.Position[][]) => {
+    ctx.beginPath()
+    for (const ring of rings) {
+      if (ring.length < 2) continue
+      const [sx, sy] = project(ring[0][0], ring[0][1])
+      ctx.moveTo(sx, sy)
+      for (let i = 1; i < ring.length; i++) {
+        const [x, y] = project(ring[i][0], ring[i][1])
+        ctx.lineTo(x, y)
+      }
+      ctx.closePath()
     }
+    ctx.fill('evenodd')
   }
 
-  const fogPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
-    type: 'Feature',
-    properties: {},
-    geometry: { type: 'Polygon', coordinates: [worldRing, ...holes] },
+  if (exploredGeometry.type === 'Polygon') {
+    drawRings(exploredGeometry.coordinates)
+  } else if (exploredGeometry.type === 'MultiPolygon') {
+    for (const poly of exploredGeometry.coordinates) drawRings(poly)
   }
+  ctx.restore()
 
-  // Defensive Bereinigung: verhindert "Source already exists"-Fehler.
+  return {
+    dataURL: canvas.toDataURL('image/png'),
+    coords: [
+      [wLng, nLat], // top-left
+      [eLng, nLat], // top-right
+      [eLng, sLat], // bottom-right
+      [wLng, sLat], // bottom-left
+    ],
+  }
+}
+
+/**
+ * Aktualisiert die Fog-Canvas-ImageSource für den aktuellen Viewport.
+ * Erstellt die Source beim ersten Aufruf, nutzt updateImage() danach.
+ */
+function updateFogCanvas(map: maplibregl.Map) {
+  if (!fogExploredGeometry) return
+  const { dataURL, coords } = buildFogCanvas(map, fogExploredGeometry)
+
+  if (map.getSource('terra-incognita-fog')) {
+    ;(map.getSource('terra-incognita-fog') as maplibregl.ImageSource).updateImage({
+      url: dataURL,
+      coordinates: coords,
+    })
+  }
+}
+
+/**
+ * Fügt den Canvas-basierten Fog-Overlay hinzu.
+ * Self-cleaning: ruft intern removeTerraIncognitaLayers() auf.
+ *
+ * Ablauf:
+ *  1. Canvas rendern + als MapLibre ImageSource einfügen (opacity 0)
+ *  2. RAF-Animation blendet den Raster-Layer sanft ein
+ *  3. moveend/zoomend Handler aktualisiert den Canvas debounced
+ */
+function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
   removeTerraIncognitaLayers(map)
+  fogExploredGeometry = exploredGeometry
 
-  // Source 1: Fog-Polygon (Welt minus Erkundetes = Wolkenfläche)
-  map.addSource('terra-incognita', {
-    type: 'geojson',
-    data: fogPolygon,
-  })
+  const { dataURL, coords } = buildFogCanvas(map, exploredGeometry)
 
-  // Source 2: Erkundetes Polygon (für weichen Wolkenrand)
-  map.addSource('terra-incognita-explored', {
-    type: 'geojson',
-    data: { type: 'Feature', properties: {}, geometry: exploredGeometry } as GeoJSON.Feature,
-  })
-
-  // Alle Layer starten bei opacity 0 — werden per RAF animiert.
-  map.addLayer({
-    id: 'terra-incognita-overlay',
-    type: 'fill',
-    source: 'terra-incognita',
-    paint: { 'fill-color': '#eef1f7', 'fill-opacity': 0 },
+  map.addSource('terra-incognita-fog', {
+    type: 'image',
+    url: dataURL,
+    coordinates: coords,
   })
   map.addLayer({
-    id: 'terra-incognita-cloud-1',
-    type: 'line',
-    source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 120, 'line-opacity': 0, 'line-blur': 60 },
-  })
-  map.addLayer({
-    id: 'terra-incognita-cloud-2',
-    type: 'line',
-    source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 65, 'line-opacity': 0, 'line-blur': 32 },
-  })
-  map.addLayer({
-    id: 'terra-incognita-cloud-3',
-    type: 'line',
-    source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 30, 'line-opacity': 0, 'line-blur': 15 },
-  })
-  map.addLayer({
-    id: 'terra-incognita-cloud-4',
-    type: 'line',
-    source: 'terra-incognita-explored',
-    paint: { 'line-color': '#eef1f7', 'line-width': 12, 'line-opacity': 0, 'line-blur': 6 },
+    id: 'terra-incognita-fog-layer',
+    type: 'raster',
+    source: 'terra-incognita-fog',
+    paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 },
   })
 
-  // Wolken-Animation: äußere Feather-Layer ziehen zuerst rein, Wolkenmasse füllt nach.
-  // Gestaffelte Startzeitpunkte erzeugen das "Wolken rollen herein"-Gefühl.
-  const DURATION = 2200
-  const TARGET = { overlay: 0.92, c1: 0.55, c2: 0.70, c3: 0.82, c4: 0.90 }
-  // Easing: langsamer Start, schnelle Mitte, sanftes Ausklingen
+  // Einblend-Animation (easeInOutQuad, 1.8s)
+  const DURATION = 1800
   const ease = (t: number) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
-  // Berechnet Fortschritt eines gestaffelten Layers (delay = 0..1, startet erst ab delay*DURATION)
-  const stagger = (p: number, delay: number) => ease(Math.max(0, (p - delay) / (1 - delay)))
-
   const startTs = performance.now()
   function animate(ts: number) {
     const p = Math.min((ts - startTs) / DURATION, 1)
-
-    // Feather-Layer von außen nach innen (c1 → c4), Körper zuletzt
-    if (map.getLayer('terra-incognita-cloud-1'))
-      map.setPaintProperty('terra-incognita-cloud-1', 'line-opacity', stagger(p, 0.00) * TARGET.c1)
-    if (map.getLayer('terra-incognita-cloud-2'))
-      map.setPaintProperty('terra-incognita-cloud-2', 'line-opacity', stagger(p, 0.08) * TARGET.c2)
-    if (map.getLayer('terra-incognita-cloud-3'))
-      map.setPaintProperty('terra-incognita-cloud-3', 'line-opacity', stagger(p, 0.16) * TARGET.c3)
-    if (map.getLayer('terra-incognita-cloud-4'))
-      map.setPaintProperty('terra-incognita-cloud-4', 'line-opacity', stagger(p, 0.22) * TARGET.c4)
-    if (map.getLayer('terra-incognita-overlay'))
-      map.setPaintProperty('terra-incognita-overlay', 'fill-opacity', stagger(p, 0.30) * TARGET.overlay)
-
+    if (map.getLayer('terra-incognita-fog-layer'))
+      map.setPaintProperty('terra-incognita-fog-layer', 'raster-opacity', ease(p))
     if (p < 1) terraAnimRafId = requestAnimationFrame(animate)
     else terraAnimRafId = null
   }
   terraAnimRafId = requestAnimationFrame(animate)
+
+  // Canvas bei Viewport-Änderungen neu rendern (debounced 200ms)
+  const onViewportChange = () => {
+    if (fogUpdateTimer) clearTimeout(fogUpdateTimer)
+    fogUpdateTimer = setTimeout(() => {
+      updateFogCanvas(map)
+      fogUpdateTimer = null
+    }, 200)
+  }
+  map.on('moveend', onViewportChange)
+  map.on('zoomend', onViewportChange)
+  fogMoveHandlerCleanup = () => {
+    map.off('moveend', onViewportChange)
+    map.off('zoomend', onViewportChange)
+  }
 }
 
 function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {
