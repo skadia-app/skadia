@@ -51,7 +51,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   }, [selectedIndex, photos.length])
 
   // Streams are fetched lazily when the geo-assign overlay is opened
-  const { data: streams, isLoading: streamsLoading } = useQuery<StreamPoint[]>({
+  const { data: streams } = useQuery<StreamPoint[]>({
     queryKey: ['activity-streams', activityId],
     queryFn: () => fetchActivityStreams(activityId),
     enabled: showGeoAssign,
@@ -199,7 +199,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
 
       {/* Geo-assignment overlay */}
       {showGeoAssign && (
-        streamsLoading ? (
+        !streams ? (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-neutral-950/95">
             <div className="flex flex-col items-center gap-3 text-neutral-400">
               <div className="w-6 h-6 border-2 border-neutral-500 border-t-accent-DEFAULT rounded-full animate-spin" />

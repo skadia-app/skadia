@@ -385,10 +385,6 @@ export default function ActivityDetailPage() {
               activity={activity}
               children={childActivities}
               onHoverChild={setHoveredChildId}
-              onUngrouped={() => {
-                queryClient.invalidateQueries({ queryKey: ['activities'] })
-                queryClient.invalidateQueries({ queryKey: ['activity', id] })
-              }}
             />
           )}
 
@@ -757,6 +753,8 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
 
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
   const [multisportConfirm, setMultisportConfirm] = useState(false)
+  const [ungroupConfirm, setUngroupConfirm] = useState(false)
+  const [ungroupLoading, setUngroupLoading] = useState(false)
   const [trimDialogOpen, setTrimDialogOpen] = useState(false)
   const [splitDialogOpen, setSplitDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
@@ -957,7 +955,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         )}
       </div>
 
-      {/* Edit Button — not applicable for multisport parents (no own GPS stream) */}
+      {/* Edit Button — trim/split/merge not applicable for multisport parents */}
       {activity.sport_type !== 'multisport' && (
         <Link
           to={`/activities/${activity.id}/edit`}
@@ -965,6 +963,52 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         >
           &#9998; Bearbeiten
         </Link>
+      )}
+      {/* Rename + Ungroup buttons — only for multisport parents */}
+      {activity.sport_type === 'multisport' && (
+        <>
+          <button
+            onClick={() => { setTitleDraft(activity.title ?? ''); setEditing(true) }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 cursor-pointer"
+          >
+            &#9998; Umbenennen
+          </button>
+          {ungroupConfirm ? (
+            <div className="inline-flex items-center gap-1.5 mt-1">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">Wirklich auflösen?</span>
+              <button
+                onClick={async () => {
+                  setUngroupLoading(true)
+                  const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
+                  setUngroupLoading(false)
+                  if (resp.ok) {
+                    queryClient.invalidateQueries({ queryKey: ['activities'] })
+                    queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                    navigate('/activities')
+                  }
+                  setUngroupConfirm(false)
+                }}
+                disabled={ungroupLoading}
+                className="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 cursor-pointer transition-colors"
+              >
+                {ungroupLoading ? '…' : 'Ja'}
+              </button>
+              <button
+                onClick={() => setUngroupConfirm(false)}
+                className="px-2 py-1 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Nein
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setUngroupConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 transition-colors mt-1 cursor-pointer"
+            >
+              Gruppe auflösen
+            </button>
+          )}
+        </>
       )}
 
       {/* Non-destructive edit operations — not applicable for multisport parents */}
@@ -2119,68 +2163,16 @@ function MultisportSectionWithUngroup({
   activity,
   children,
   onHoverChild,
-  onUngrouped,
 }: {
   activity: Activity
   children: Activity[]
   onHoverChild?: (id: string | null) => void
-  onUngrouped: () => void
 }) {
-  const [confirming, setConfirming] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleUngroup() {
-    setLoading(true)
-    setError(null)
-    try {
-      const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
-      if (!resp.ok) {
-        const text = await resp.text()
-        setError(`Fehler ${resp.status}: ${text}`)
-        setLoading(false)
-        return
-      }
-      onUngrouped()
-    } catch (e) {
-      setError(String(e))
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
-          Multisport-Disziplinen
-        </h3>
-        {!confirming ? (
-          <button
-            onClick={() => setConfirming(true)}
-            className="text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
-          >
-            Gruppe auflösen
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-neutral-500">Wirklich auflösen?</span>
-            <button
-              onClick={() => setConfirming(false)}
-              className="text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
-            >
-              Nein
-            </button>
-            <button
-              onClick={handleUngroup}
-              disabled={loading}
-              className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50 cursor-pointer"
-            >
-              {loading ? 'Wird aufgelöst...' : 'Ja, auflösen'}
-            </button>
-          </div>
-        )}
-      </div>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+        Multisport-Disziplinen
+      </h3>
       <MultisportSection children={children} onHoverChild={onHoverChild} />
     </div>
   )

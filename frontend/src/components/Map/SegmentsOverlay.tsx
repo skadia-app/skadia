@@ -86,11 +86,15 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
         popupRef.current.remove()
         popupRef.current = null
       }
-      if (map.getLayer(dotLayerId)) map.removeLayer(dotLayerId)
-      if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId)
-      if (map.getLayer(trailLayerId)) map.removeLayer(trailLayerId)
-      if (map.getLayer(favoriteLayerId)) map.removeLayer(favoriteLayerId)
-      if (map.getSource(sourceId)) map.removeSource(sourceId)
+      try {
+        if (map.getLayer(dotLayerId)) map.removeLayer(dotLayerId)
+        if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId)
+        if (map.getLayer(trailLayerId)) map.removeLayer(trailLayerId)
+        if (map.getLayer(favoriteLayerId)) map.removeLayer(favoriteLayerId)
+        if (map.getSource(sourceId)) map.removeSource(sourceId)
+      } catch {
+        // map may already be removed/unmounted
+      }
     }
 
     if (!enabled || !map.isStyleLoaded()) {
