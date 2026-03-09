@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
+import { getFusionQueue } from '@/api/importWizard'
 import type { Activity } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
 import { apiDownload } from '@/api/client'
@@ -144,7 +145,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
   )
 }
 
-// ── ZIP-Untermenü (multi-select) ─────────────────────────────────────────────
+// ── ZIP-Eintrag (multi-select Kontextmenü) ────────────────────────────────────
 function ZipSubMenu({
   ids,
   onZip,
@@ -156,49 +157,31 @@ function ZipSubMenu({
   onClose: () => void
   zipLoading: boolean
 }) {
-  const [open, setOpen] = useState(false)
   return (
-    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button
-        disabled={zipLoading}
-        className="w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
-      >
-        <span className="flex items-center gap-2">
-          <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          {zipLoading ? 'Lädt…' : 'Als ZIP herunterladen'}
-        </span>
-        <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
-      {open && !zipLoading && (
-        <div className="absolute left-full top-0 ml-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg min-w-[120px] z-50 py-1">
-          {EXPORT_FORMATS.map(([fmt, label]) => (
-            <button
-              key={fmt}
-              onClick={() => { onZip(ids, fmt); onClose() }}
-              className="w-full text-left block px-3 py-2 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <button
+      disabled={zipLoading}
+      onClick={() => { onZip(ids, 'original'); onClose() }}
+      className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
+    >
+      <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+      {zipLoading ? 'Lädt…' : 'Als ZIP herunterladen'}
+    </button>
   )
 }
 
-// ── ZIP-Dropdown für Bulk-Aktionsleiste ──────────────────────────────────────
+// ── ZIP-Button / Format-Dropdown für Bulk-Aktionsleiste ──────────────────────
 function ZipDropdown({
   ids,
   loading,
   onDownload,
+  showFormats,
 }: {
   ids: string[]
   loading: boolean
   onDownload: (ids: string[], format: ExportFormat) => void
+  showFormats: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -212,6 +195,18 @@ function ZipDropdown({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
+  if (!showFormats) {
+    return (
+      <button
+        onClick={() => onDownload(ids, 'original')}
+        disabled={loading}
+        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50"
+      >
+        {loading ? 'Lädt…' : 'Herunterladen'}
+      </button>
+    )
+  }
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -219,7 +214,7 @@ function ZipDropdown({
         disabled={loading}
         className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1 disabled:opacity-50"
       >
-        {loading ? 'Lädt…' : 'ZIP'}
+        {loading ? 'Lädt…' : 'Herunterladen'}
         <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -696,11 +691,20 @@ export default function ActivitiesPage() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC'
   }
 
+  // ── Fusionskandidaten-Badge ───────────────────────────────────────────────
+  const { data: fusionEntries = [] } = useQuery({
+    queryKey: ['fusion-queue'],
+    queryFn: () => getFusionQueue(50),
+    staleTime: 60_000,
+  })
+  const fusionCount = fusionEntries.length
+
   // ── Paginierter Modus ────────────────────────────────────────────────────
-  const { data: pageData, isLoading: pageLoading } = useQuery({
+  const { data: pageData, isLoading: pageLoading, isFetching: pageFetching } = useQuery({
     queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
     queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
     enabled: !isInfinite,
+    placeholderData: keepPreviousData,
   })
 
   useEffect(() => {
@@ -722,12 +726,14 @@ export default function ActivitiesPage() {
     hasNextPage,
     isFetchingNextPage,
     isLoading: infiniteLoading,
+    isFetching: infiniteFetching,
   } = useInfiniteQuery({
     queryKey: ['activities-infinite', infiniteKey, effectiveSortBy, effectiveSortDir, filterKey],
     queryFn: ({ pageParam }) => fetchActivities(pageParam as string | undefined, 20, effectiveSortBy, effectiveSortDir, apiFilters),
     initialPageParam: infiniteInitialCursor as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: isInfinite,
+    placeholderData: keepPreviousData,
   })
 
   useEffect(() => {
@@ -862,6 +868,7 @@ export default function ActivitiesPage() {
     : (pageData?.activities ?? [])
 
   const isLoading = isInfinite ? infiniteLoading : pageLoading
+  const isFetching = isInfinite ? infiniteFetching : pageFetching
   const totalPages = total != null && pageSize > 0
     ? Math.ceil(total / pageSize)
     : null
@@ -880,7 +887,9 @@ export default function ActivitiesPage() {
   const someSelected = selectedIds.size > 0 && !allOnPageSelected
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (isLoading && activities.length === 0) {
+  // Nur beim allerersten Laden (keine Daten vorhanden) den Vollbild-Ladeindikator zeigen.
+  // Beim Suchen/Filtern bleiben vorherige Daten via keepPreviousData sichtbar.
+  if (isLoading && activities.length === 0 && !isFetching) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivitäten...</div>
   }
 
@@ -922,6 +931,13 @@ export default function ActivitiesPage() {
             clearSelection()
             queryClient.invalidateQueries({ queryKey: ['activities'] })
           }}
+          hasChildren={
+            deleteIds.length === 1 &&
+            (() => {
+              const act = activities.find(a => a.id === deleteIds[0])
+              return !!(act && (act.sport_type === 'multisport' || act.fusion_sources != null))
+            })()
+          }
         />
       )}
       {openTabsItems && (
@@ -941,21 +957,37 @@ export default function ActivitiesPage() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-baseline gap-3">
+        <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Aktivitäten</h1>
           {total != null && (
             <span className="text-sm text-neutral-400">
               {`${total.toLocaleString('de-DE')} gesamt`}
             </span>
           )}
+          {fusionCount > 0 && (
+            <Link
+              to="/workshop/fusion"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
+              {fusionCount} Fusionskandidat{fusionCount !== 1 ? 'en' : ''}
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
           {/* Suche (server-side, debounced) */}
           <div className="relative">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
-            </svg>
+            {isFetching && activities.length > 0 ? (
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            ) : (
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+            )}
             <input
               type="text"
               value={searchInput}
@@ -1216,6 +1248,10 @@ export default function ActivitiesPage() {
             ids={[...selectedIds]}
             loading={zipLoading}
             onDownload={handleZipDownload}
+            showFormats={
+              selectedIds.size === 1 &&
+              activities.find(a => selectedIds.has(a.id))?.sport_type !== 'multisport'
+            }
           />
           <button
             onClick={() => setGroupModalIds([...selectedIds])}

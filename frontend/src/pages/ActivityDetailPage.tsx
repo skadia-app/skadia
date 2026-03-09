@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
@@ -46,9 +46,10 @@ import TrimDialog from '@/components/TrimDialog'
 import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
-import { MultisportMap } from '@/components/activity/MultisportMap'
+import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
+import { revertFusion } from '@/api/fusion'
 
 function getSportEmoji(sportType: string): string {
   const map: Record<string, string> = {
@@ -140,6 +141,7 @@ export default function ActivityDetailPage() {
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
+  const multisportMapRef = useRef<MultisportMapHandle>(null)
 
   // Per-activity module visibility (persisted in localStorage)
   const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
@@ -341,6 +343,7 @@ export default function ActivityDetailPage() {
         <div className="space-y-4">
           {/* Combined map */}
           <MultisportMap
+            ref={multisportMapRef}
             activityId={activity.id}
             className="h-80 w-full rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800"
             hoveredActivityId={hoveredChildId}
@@ -387,7 +390,16 @@ export default function ActivityDetailPage() {
           {multisportChartData && multisportChartData.merged.length > 0 && (
             <ActivityCharts
               streams={multisportChartData.merged}
-              onHover={() => {}}
+              onHover={useCallback((index: number | null) => {
+                if (index == null) {
+                  multisportMapRef.current?.setHoverPoint(null)
+                  return
+                }
+                const pt = multisportChartData.merged[index]
+                if (pt?.lat != null && pt?.lng != null) {
+                  multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
+                }
+              }, [multisportChartData.merged])}
               splitMarkers={multisportChartData.splitMarkers}
               defaultXMode={childActivities?.some(c => c.has_gps) ? 'distance' : 'time'}
             />
@@ -729,6 +741,7 @@ function ReprocessScopeModal({
 
 function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }: { activity: Activity; childCount: number; hiddenModules: Set<string>; onToggleModule: (name: string) => void }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -826,6 +839,14 @@ function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }:
     },
   })
 
+  const revertFusionMutation = useMutation({
+    mutationFn: () => revertFusion(activity.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activities'] })
+      navigate('/activities')
+    },
+  })
+
   useEffect(() => {
     if (editing) inputRef.current?.focus()
   }, [editing])
@@ -908,39 +929,51 @@ function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }:
             <span className="text-neutral-400 dark:text-neutral-600">{activity.start_city}</span>
           )}
         </div>
+        {activity.fusion_sources && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+              ⚡ Fusion Ergebnis
+            </span>
+            <button
+              onClick={() => revertFusionMutation.mutate()}
+              disabled={revertFusionMutation.isPending}
+              className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Fusion rückgängig
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Edit Button */}
-      <Link
-        to={`/activities/${activity.id}/edit`}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-      >
-        &#9998; Bearbeiten
-      </Link>
+      {/* Edit Button — not applicable for multisport parents (no own GPS stream) */}
+      {activity.sport_type !== 'multisport' && (
+        <Link
+          to={`/activities/${activity.id}/edit`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+        >
+          &#9998; Bearbeiten
+        </Link>
+      )}
 
-      {/* Non-destructive edit operations */}
-      <button
-        onClick={() => setTrimDialogOpen(true)}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-        title="Anfang oder Ende der Aktivitat abschneiden"
-      >
-        &#9986; Trimmen
-      </button>
-      <button
-        onClick={() => setSplitDialogOpen(true)}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-        title="Aktivitat an einem Zeitpunkt aufteilen"
-      >
-        &#10178; Aufteilen
-      </button>
-      <Link
-        to={`/fusion?target=${activity.id}`}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-        title="Aktivitäten fusionieren — GPS, HR, Power aus mehreren Quellen kombinieren"
-      >
-        &#10240; Fusionieren
-      </Link>
-
+      {/* Non-destructive edit operations — not applicable for multisport parents */}
+      {activity.sport_type !== 'multisport' && (
+        <>
+          <button
+            onClick={() => setTrimDialogOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+            title="Anfang oder Ende der Aktivitat abschneiden"
+          >
+            &#9986; Trimmen
+          </button>
+          <button
+            onClick={() => setSplitDialogOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
+            title="Aktivitat an einem Zeitpunkt aufteilen"
+          >
+            &#10178; Aufteilen
+          </button>
+        </>
+      )}
       {/* Trim / Split / Merge dialogs */}
       {trimDialogOpen && (
         <TrimDialog activity={activity} onClose={() => setTrimDialogOpen(false)} />
