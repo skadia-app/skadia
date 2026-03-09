@@ -201,8 +201,9 @@ export async function mergeActivities(id: string, req: MergeRequest): Promise<Ac
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 /** Delete a single activity. */
-export async function deleteActivity(id: string): Promise<void> {
-  await apiClient<void>(`/activities/${id}`, { method: 'DELETE' })
+export async function deleteActivity(id: string, sources?: 'restore' | 'delete'): Promise<void> {
+  const url = sources ? `/activities/${id}?sources=${sources}` : `/activities/${id}`
+  await apiClient<void>(url, { method: 'DELETE' })
 }
 
 /** Bulk-delete multiple activities. Returns the number deleted. */

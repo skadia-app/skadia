@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -8,18 +8,25 @@ import {
 } from '@/api/fusion'
 import { fetchActivityStreams } from '@/api/activities'
 import type { StreamPoint } from '@/api/types'
-import FusionMap, { type TrackInfo } from '@/components/fusion/FusionMap'
+import FusionMap, { type TrackInfo, type FusionMapHandle } from '@/components/fusion/FusionMap'
 import FusionFieldTable from '@/components/fusion/FusionFieldTable'
-import FusionStreamPreview, { type StreamData } from '@/components/fusion/FusionStreamPreview'
+import FusionStreamPreview, { type StreamData, type HoverGpsPoint } from '@/components/fusion/FusionStreamPreview'
+import FusionMaximizeOverlay from '@/components/fusion/FusionMaximizeOverlay'
 import { useToast } from '@/lib/toast'
 
 const TRACK_COLORS = ['#EF4444', '#3B82F6', '#22C55E'] as const
-const TRACK_LABELS = ['Target A', 'Quelle B', 'Quelle C'] as const
+const TRACK_LABELS = ['Kandidat A', 'Kandidat B', 'Kandidat C'] as const
 
 function streamToGPS(points: StreamPoint[]): Array<{ lat: number; lng: number }> {
   return points
     .filter(p => p.lat != null && p.lng != null)
     .map(p => ({ lat: p.lat!, lng: p.lng! }))
+}
+
+function streamToGPSIndexed(points: StreamPoint[]): Array<{ elapsed: number; lat: number; lng: number }> {
+  return points
+    .map((p, i) => (p.lat != null && p.lng != null ? { elapsed: i, lat: p.lat, lng: p.lng } : null))
+    .filter((p): p is { elapsed: number; lat: number; lng: number } => p !== null)
 }
 
 function streamToHR(points: StreamPoint[]): Array<[number, number]> {
@@ -46,12 +53,60 @@ function streamToPower(points: StreamPoint[]): Array<[number, number]> {
   return result
 }
 
+function streamToAltitude(points: StreamPoint[]): Array<[number, number]> {
+  let elapsed = 0
+  const result: Array<[number, number]> = []
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].altitude_m != null) {
+      result.push([elapsed, points[i].altitude_m!])
+    }
+    elapsed++
+  }
+  return result
+}
+
+function streamToSpeed(points: StreamPoint[]): Array<[number, number]> {
+  let elapsed = 0
+  const result: Array<[number, number]> = []
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].speed_ms != null) {
+      result.push([elapsed, points[i].speed_ms!])
+    }
+    elapsed++
+  }
+  return result
+}
+
+function streamToCadence(points: StreamPoint[]): Array<[number, number]> {
+  let elapsed = 0
+  const result: Array<[number, number]> = []
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].cadence != null) {
+      result.push([elapsed, points[i].cadence!])
+    }
+    elapsed++
+  }
+  return result
+}
+
+function streamToTemperature(points: StreamPoint[]): Array<[number, number]> {
+  let elapsed = 0
+  const result: Array<[number, number]> = []
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].temperature_c != null) {
+      result.push([elapsed, points[i].temperature_c!])
+    }
+    elapsed++
+  }
+  return result
+}
+
 interface ActivityInfo {
   id: string
   label: string
+  color: string
   candidate: FusionCandidate | null
   isTarget: boolean
-  color: string
 }
 
 export default function FusionPage() {
@@ -59,20 +114,47 @@ export default function FusionPage() {
   const navigate = useNavigate()
   const { addToast } = useToast()
   const targetId = searchParams.get('target') ?? ''
+  const initialSource = searchParams.get('source')
 
-  const [selectedSources, setSelectedSources] = useState<string[]>([])
+  const [selectedSources, setSelectedSources] = useState<string[]>(
+    initialSource ? [initialSource] : []
+  )
   const [fieldMap, setFieldMap] = useState<Record<string, string>>({})
   const [tagsMerge, setTagsMerge] = useState(false)
   const [titleSource, setTitleSource] = useState<string | null>(null)
   const [gpsPrimarySource, setGpsPrimarySource] = useState('')
   const [gpsExtendTrack, setGpsExtendTrack] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
+  const [showMaximize, setShowMaximize] = useState(false)
+  const fusionMapRef = useRef<FusionMapHandle>(null)
+  const handleHoverGps = useCallback((points: HoverGpsPoint[] | null) => {
+    fusionMapRef.current?.setHoverPoints(points)
+  }, [])
 
   const { data: candidates = [], isLoading: loadingCandidates } = useQuery({
     queryKey: ['fusion-candidates', targetId],
     queryFn: () => fetchFusionCandidates(targetId),
     enabled: !!targetId,
   })
+
+  // Auto-select fields based on richest candidate when ?source= is provided and no field selections made yet
+  useEffect(() => {
+    if (candidates.length === 0 || Object.keys(fieldMap).length > 0) return
+    const richer = candidates.reduce((best, c) => {
+      const score = [c.has_hr, c.has_power, c.has_altitude, c.has_cadence, c.has_temperature].filter(Boolean).length
+      const bestScore = [best?.has_hr, best?.has_power, best?.has_altitude, best?.has_cadence, best?.has_temperature].filter(Boolean).length
+      return score > bestScore ? c : best
+    }, candidates[0])
+    if (!richer) return
+    const auto: Record<string, string> = {}
+    if (richer.has_hr) auto['hr'] = richer.id
+    if (richer.has_power) auto['power'] = richer.id
+    if (richer.has_altitude) auto['altitude'] = richer.id
+    if (richer.has_cadence) auto['cadence'] = richer.id
+    if (richer.has_temperature) auto['temperature'] = richer.id
+    if (richer.has_gps) auto['gps'] = richer.id
+    setFieldMap(auto)
+  }, [candidates])
 
   // Fetch streams for target + selected sources
   const allIds = [targetId, ...selectedSources].slice(0, 3)
@@ -106,7 +188,7 @@ export default function FusionPage() {
   // Build track info for map
   const tracks: TrackInfo[] = allIds.map((id, i) => ({
     activityId: id,
-    label: TRACK_LABELS[i] ?? `Quelle ${i + 1}`,
+    label: TRACK_LABELS[i] ?? `Kandidat ${i + 1}`,
     color: TRACK_COLORS[i] ?? '#888888',
     stream: streamsByID[id] ? streamToGPS(streamsByID[id]) : [],
   }))
@@ -116,20 +198,25 @@ export default function FusionPage() {
     const pts = streamsByID[id] ?? []
     return {
       activityId: id,
-      label: TRACK_LABELS[i] ?? `Quelle ${i + 1}`,
+      label: TRACK_LABELS[i] ?? `Kandidat ${i + 1}`,
       color: TRACK_COLORS[i] ?? '#888888',
       hrData: streamToHR(pts),
       powerData: streamToPower(pts),
+      altitudeData: streamToAltitude(pts),
+      speedData: streamToSpeed(pts),
+      cadenceData: streamToCadence(pts),
+      temperatureData: streamToTemperature(pts),
+      gpsPoints: streamToGPSIndexed(pts),
     }
   })
 
   // Build activities info for field table
   const activities: ActivityInfo[] = allIds.map((id, i) => ({
     id,
-    label: TRACK_LABELS[i] ?? `Quelle ${i + 1}`,
+    label: TRACK_LABELS[i] ?? `Kandidat ${i + 1}`,
+    color: TRACK_COLORS[i] ?? '#888888',
     candidate: id === targetId ? null : (candidates.find(c => c.id === id) ?? null),
     isTarget: id === targetId,
-    color: TRACK_COLORS[i] ?? '#888888',
   }))
 
   const handleSourceChange = (slotIndex: number, value: string) => {
@@ -151,7 +238,7 @@ export default function FusionPage() {
     if (!targetId || selectedSources.length === 0) return
     setIsMerging(true)
     try {
-      await executeFusionMerge(targetId, {
+      const result = await executeFusionMerge(targetId, {
         sources: selectedSources,
         field_map: fieldMap,
         gps_fusion_config:
@@ -169,7 +256,7 @@ export default function FusionPage() {
         title: 'Fusion abgeschlossen',
         message: 'Die Aktivität wurde erfolgreich fusioniert.',
       })
-      navigate(`/activities/${targetId}`)
+      navigate(`/activities/${result.id}`)
     } catch (err) {
       console.error('Fusion failed:', err)
       addToast({
@@ -211,10 +298,10 @@ export default function FusionPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link
-              to={`/activities/${targetId}`}
+              to="/workshop/fusion"
               className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
             >
-              ← Zur Aktivität
+              ← Fusionskandidaten
             </Link>
           </div>
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
@@ -240,9 +327,9 @@ export default function FusionPage() {
               style={{ backgroundColor: TRACK_COLORS[0] }}
             />
             <div className="flex-1 text-sm text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700">
-              <span className="font-medium">Target A</span>
+              <span className="font-medium">Kandidat A</span>
               <span className="text-neutral-400 ml-2 font-mono text-xs">{targetId.slice(0, 8)}…</span>
-              <span className="ml-2 text-xs text-neutral-400">(diese Aktivität wird modifiziert)</span>
+              <span className="ml-2 text-xs text-neutral-400">(Aus den Kandidaten wird eine neue Aktivität erstellt — Originale bleiben erhalten)</span>
             </div>
           </div>
 
@@ -294,11 +381,21 @@ export default function FusionPage() {
       {/* Karte + Stream-Vorschau (side by side on large screens) */}
       {selectedSources.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="h-64 lg:h-72">
-            <FusionMap tracks={tracks} />
+          <div className="relative h-64 lg:h-72">
+            <FusionMap ref={fusionMapRef} tracks={tracks} />
+            <button
+              onClick={() => setShowMaximize(true)}
+              title="Vergrößern"
+              className="absolute top-2 left-2 z-10 cursor-pointer bg-white dark:bg-neutral-800 rounded-md p-1.5 shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
+            >
+              {/* Maximize SVG Icon: 4 Pfeile nach außen */}
+              <svg className="w-4 h-4 text-neutral-600 dark:text-neutral-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            </button>
           </div>
           <div>
-            <FusionStreamPreview streams={streamPreviews} />
+            <FusionStreamPreview streams={streamPreviews} onHoverGps={handleHoverGps} />
           </div>
         </div>
       )}
@@ -337,7 +434,7 @@ export default function FusionPage() {
                   >
                     {allIds.map((id, i) => (
                       <option key={id} value={id}>
-                        {TRACK_LABELS[i] ?? `Quelle ${i + 1}`}
+                        {TRACK_LABELS[i] ?? `Kandidat ${i + 1}`}
                       </option>
                     ))}
                   </select>
@@ -373,6 +470,14 @@ export default function FusionPage() {
             {isMerging ? 'Fusion läuft…' : 'Fusion ausführen'}
           </button>
         </div>
+      )}
+
+      {showMaximize && (
+        <FusionMaximizeOverlay
+          tracks={tracks}
+          streams={streamPreviews}
+          onClose={() => setShowMaximize(false)}
+        />
       )}
     </div>
   )

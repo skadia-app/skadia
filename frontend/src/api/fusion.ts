@@ -33,9 +33,20 @@ export async function fetchFusionCandidates(activityId: string): Promise<FusionC
   return apiClient<FusionCandidate[]>(`/activities/${activityId}/fusion-candidates`)
 }
 
-export async function executeFusionMerge(targetId: string, req: FusionMergeRequest): Promise<unknown> {
-  return apiClient<unknown>(`/activities/${targetId}/fusion-merge`, {
+export interface FusionMergeResponse {
+  id: string  // ID der neuen merged Aktivität
+}
+
+export async function executeFusionMerge(
+  targetId: string,
+  req: FusionMergeRequest,
+): Promise<FusionMergeResponse> {
+  return apiClient<FusionMergeResponse>(`/activities/${targetId}/fusion-merge`, {
     method: 'POST',
     body: req,
   })
+}
+
+export async function revertFusion(activityId: string): Promise<void> {
+  return apiClient<void>(`/activities/${activityId}/revert-fusion`, { method: 'POST' })
 }
