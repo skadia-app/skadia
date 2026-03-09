@@ -1,6 +1,6 @@
 import { Fragment, useRef, useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone } from '@/api/tags'
 import type { Tag, TagActivity } from '@/api/tags'
 import ZoneEditor from '@/components/ZoneEditor'
@@ -560,9 +560,20 @@ function TagActivitiesPanel({ tag, onClose }: { tag: Tag; onClose: () => void })
 
 export default function TagsPage() {
   const queryClient = useQueryClient()
+  const location = useLocation()
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // Open edit form when navigated to with ?edit=<tagId>
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const editId = params.get('edit')
+    if (editId) {
+      setEditingId(editId)
+      setShowForm(false)
+    }
+  }, [location.search])
 
   const [expandedActivitiesId, setExpandedActivitiesId] = useState<string | null>(null)
 
@@ -762,7 +773,7 @@ export default function TagsPage() {
                     )}
                   </td>
                 </tr>
-                {expandedActivitiesId === tag.id && (
+                {(expandedActivitiesId === tag.id || editingId === tag.id) && (
                   <TagActivitiesPanel
                     tag={tag}
                     onClose={() => setExpandedActivitiesId(null)}

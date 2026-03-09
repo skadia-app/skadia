@@ -2386,8 +2386,12 @@ export default function MapPage() {
               {/* Tag name + color */}
               <div className="px-4 pt-3 pb-2 flex items-center gap-3 flex-shrink-0 border-b border-neutral-100 dark:border-neutral-800">
                 <span
-                  className="inline-block px-3 py-1 rounded-full text-sm font-semibold"
+                  className="inline-block px-3 py-1 rounded-full text-sm font-semibold cursor-pointer hover:opacity-80 transition-opacity"
                   style={{ backgroundColor: selectedLocationTag.color, color: selectedLocationTag.text_color }}
+                  onClick={() => {
+                    navigate(`/workshop/tags?edit=${selectedLocationTag.id}`)
+                    setSelectedLocationTagId(null)
+                  }}
                 >
                   {selectedLocationTag.name}
                 </span>
