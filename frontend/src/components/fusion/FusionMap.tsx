@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { buildRasterStyle } from '@/lib/mapStyles'
@@ -19,9 +19,37 @@ interface FusionMapProps {
   tracks: TrackInfo[]
 }
 
-export default function FusionMap({ tracks }: FusionMapProps) {
+export interface FusionMapHandle {
+  setHoverPoints: (points: Array<{ lat: number; lng: number; color: string }> | null) => void
+}
+
+const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap({ tracks }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const hoverMarkersRef = useRef<maplibregl.Marker[]>([])
+
+  useImperativeHandle(ref, () => ({
+    setHoverPoints(points) {
+      hoverMarkersRef.current.forEach(m => m.remove())
+      hoverMarkersRef.current = []
+      if (!points || points.length === 0) return
+      const map = mapRef.current
+      if (!map) return
+      points.forEach(point => {
+        const el = document.createElement('div')
+        el.style.width = '10px'
+        el.style.height = '10px'
+        el.style.borderRadius = '50%'
+        el.style.backgroundColor = 'white'
+        el.style.border = `2px solid ${point.color}`
+        el.style.boxShadow = `0 0 4px ${point.color}`
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([point.lng, point.lat])
+          .addTo(map)
+        hoverMarkersRef.current.push(marker)
+      })
+    },
+  }), [])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -44,10 +72,13 @@ export default function FusionMap({ tracks }: FusionMapProps) {
         map.fitBounds(bounds, { padding: 40, maxZoom: 16 })
       }
 
-      tracks.forEach(track => {
+      tracks.forEach((track, idx) => {
         if (track.stream.length === 0) return
         const sourceId = `track-${track.activityId}`
         const layerId = `track-line-${track.activityId}`
+
+        const lineWidth = idx === 0 ? 5 : idx === 1 ? 3 : 2
+        const lineOpacity = idx === 0 ? 0.9 : idx === 1 ? 0.85 : 0.8
 
         const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
           type: 'Feature',
@@ -65,8 +96,8 @@ export default function FusionMap({ tracks }: FusionMapProps) {
           source: sourceId,
           paint: {
             'line-color': track.color,
-            'line-width': 3,
-            'line-opacity': 0.85,
+            'line-width': lineWidth,
+            'line-opacity': lineOpacity,
           },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
@@ -74,6 +105,8 @@ export default function FusionMap({ tracks }: FusionMapProps) {
     })
 
     return () => {
+      hoverMarkersRef.current.forEach(m => m.remove())
+      hoverMarkersRef.current = []
       map.remove()
       mapRef.current = null
     }
@@ -85,17 +118,39 @@ export default function FusionMap({ tracks }: FusionMapProps) {
     const map = mapRef.current
     if (!map || !map.loaded()) return
 
-    tracks.forEach(track => {
+    tracks.forEach((track, idx) => {
       const sourceId = `track-${track.activityId}`
+      const layerId = `track-line-${track.activityId}`
       const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined
-      if (source && track.stream.length > 0) {
-        source.setData({
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: track.stream.map(p => [p.lng, p.lat]),
+
+      if (track.stream.length === 0) return
+
+      const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: track.stream.map(p => [p.lng, p.lat]),
+        },
+      }
+
+      if (source) {
+        source.setData(geojson)
+      } else {
+        // New track added after map init — add source + layer
+        const lineWidth = idx === 0 ? 5 : idx === 1 ? 3 : 2
+        const lineOpacity = idx === 0 ? 0.9 : idx === 1 ? 0.85 : 0.8
+        map.addSource(sourceId, { type: 'geojson', data: geojson })
+        map.addLayer({
+          id: layerId,
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': track.color,
+            'line-width': lineWidth,
+            'line-opacity': lineOpacity,
           },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
       }
     })
@@ -134,4 +189,6 @@ export default function FusionMap({ tracks }: FusionMapProps) {
       )}
     </div>
   )
-}
+})
+
+export default FusionMap
