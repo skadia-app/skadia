@@ -15,8 +15,11 @@ import (
 //   ring[3] = ST_Buffer(union, +R*0.3)
 //   ring[4] = ST_Buffer(union, +R*0.6)   → outermost fog boundary
 //
-// Only ONE expensive ST_Union is performed; the 4 extra ST_Buffer calls
-// operate on the already-merged result (single polygon) and are fast (~50ms each).
+// The union uses a divide-and-conquer strategy: 8 partial unions via
+// ST_UnaryUnion(ST_Collect()) (O(n log n) per bucket), then one final
+// merge of 8 results. This is dramatically faster than a naive ST_Union
+// aggregate (O(n²)). The 4 extra ST_Buffer calls operate on the already-
+// merged single polygon and are fast (~50ms each).
 //
 // The frontend stacks 5 fill layers with additive alpha compositing to create
 // a smooth fog gradient. The configured radius sits at ~50% opacity.
@@ -40,13 +43,25 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 			WHERE user_id = $1
 			%s
 		),
-		merged AS (
-			SELECT ST_Union(
-				ST_Buffer(geom::geography, $2)::geometry
-			) AS geom
+		buffered AS (
+			SELECT ST_Buffer(geom::geography, $2)::geometry AS geom,
+			       ntile(8) OVER () AS bucket
 			FROM snapped
 			WHERE geom IS NOT NULL
 				AND ST_NumPoints(geom) >= 2
+		),
+		-- Divide-and-conquer: 8 Partial-Unions (je ~125 Geometrien),
+		-- dann 1 Final-Union über 8 Ergebnisse.
+		-- ST_UnaryUnion(ST_Collect()) nutzt Cascaded Union mit Spatial Index
+		-- → O(n log n) statt O(n²) pro Bucket.
+		partial AS (
+			SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+			FROM buffered
+			GROUP BY bucket
+		),
+		merged AS (
+			SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+			FROM partial
 		)
 		SELECT
 			COALESCE(NULLIF(ST_AsGeoJSON(ST_Buffer(geom::geography, -$2 * 0.30)::geometry, 4), 'null'), '%s'),
