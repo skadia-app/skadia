@@ -326,7 +326,7 @@ export default function ActivityDetailPage() {
       </div>
 
       {/* Header */}
-      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} hiddenModules={hiddenModules} onToggleModule={toggleModule} />
+      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} />
 
       {/* Tags (user + enrichment) in one row */}
       <div className="flex flex-wrap items-center gap-2">
@@ -745,7 +745,7 @@ function ReprocessScopeModal({
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function ActivityHeader({ activity, childCount, hiddenModules, onToggleModule }: { activity: Activity; childCount: number; hiddenModules: Set<string>; onToggleModule: (name: string) => void }) {
+function ActivityHeader({ activity, childCount }: { activity: Activity; childCount: number }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { addToast } = useToast()

@@ -439,7 +439,7 @@ function ActivityContextMenu({
         </svg>
         In neuem Tab öffnen
       </a>
-      <ExportSubMenu activityId={state.activityId} sportType={state.sportType} onClose={onClose} />
+      <ExportSubMenu activityId={state.activityId} sportType={state.sportType ?? ''} onClose={onClose} />
       <button
         onClick={() => { onRecompute([state.activityId]); onClose() }}
         className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"

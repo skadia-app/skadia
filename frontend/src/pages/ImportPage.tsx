@@ -607,7 +607,6 @@ function ImportPanel({
   dirLabel,
   dirHint,
   dirPlaceholder,
-  detectFn,
   startFn,
   pollFn,
   scanZipFn,

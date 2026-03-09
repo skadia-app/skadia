@@ -75,12 +75,12 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
   })
 
   const recomputeMutation = useMutation({
-    mutationFn: (moduleName?: string) =>
+    mutationFn: (_moduleName?: string) =>
       apiClient(`/activities/${activityId}/recompute`, {
         method: 'POST',
         body: { scope: ['geo'] },
       }),
-    onSuccess: (_data, moduleName) => {
+    onSuccess: (_data, _moduleName) => {
       queryClient.invalidateQueries({ queryKey: ['enrichment-status', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
       queryClient.invalidateQueries({ queryKey: ['geo-tags', activityId] })
