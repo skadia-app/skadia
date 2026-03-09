@@ -21,7 +21,9 @@ func (db *DB) GetTerraIncognitaCoverage(ctx context.Context, userID string, bbox
 
 	query := fmt.Sprintf(`
 		WITH snapped AS (
-			SELECT ST_SnapToGrid(geom, 0.002) AS geom
+			-- ST_SimplifyPreserveTopology statt ST_SnapToGrid:
+			-- 0.0001° ≈ 8m Toleranz (lat 47°) — glatte Kurven statt 200m-Pixelraster.
+			SELECT ST_SimplifyPreserveTopology(geom, 0.0001) AS geom
 			FROM heatmap_lines
 			WHERE user_id = $1
 			%s

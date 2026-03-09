@@ -1851,7 +1851,7 @@ export default function MapPage() {
 
           {/* Lade-Indikator — erscheint während Tiles/API laden */}
           {(isMapTilesLoading || (viewMode === 'terra_incognita' && terraIncognitaFetching)) && (
-            <div className="flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-white/92 dark:bg-neutral-800/92 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md pointer-events-none">
+            <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md pointer-events-none">
               <div className="w-3 h-3 rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-orange-500 animate-spin flex-shrink-0" />
               <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
                 {viewMode === 'tracks' && 'Tracks werden geladen'}
@@ -1868,8 +1868,8 @@ export default function MapPage() {
 
           {/* Terra Incognita Flächen-Badge — erst sichtbar nachdem Ladevorgang abgeschlossen */}
           {viewMode === 'terra_incognita' && terraIncognitaData && !isMapTilesLoading && !terraIncognitaFetching && (
-            <div className="flex justify-center px-4 py-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
-              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
+            <div className="flex justify-center px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
                 {terraIncognitaData.area_km2.toFixed(1)} km² entdeckt
               </span>
             </div>
@@ -2620,22 +2620,33 @@ function removeOverlayLayers(map: maplibregl.Map) {
   if (map.getSource('heatmap')) map.removeSource('heatmap')
 }
 
-const TERRA_INCOGNITA_LAYER_IDS = ['terra-incognita-overlay'] as const
+const TERRA_INCOGNITA_LAYER_IDS = [
+  'terra-incognita-overlay',
+  'terra-incognita-cloud-1',
+  'terra-incognita-cloud-2',
+  'terra-incognita-cloud-3',
+  'terra-incognita-cloud-4',
+] as const
 
 function removeTerraIncognitaLayers(map: maplibregl.Map) {
   for (const id of TERRA_INCOGNITA_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
   if (map.getSource('terra-incognita')) map.removeSource('terra-incognita')
+  if (map.getSource('terra-incognita-explored')) map.removeSource('terra-incognita-explored')
 }
 
 /**
- * Add terra incognita overlay: a world-covering polygon with explored area
- * cut out as holes → unexplored regions appear as semi-transparent dark overlay.
+ * Add terra incognita overlay: weißer Wolken-Nebel über unerkundeten Regionen.
  *
- * Diese Funktion ist self-cleaning: sie ruft intern removeTerraIncognitaLayers() auf,
- * bevor sie Source und Layer hinzufügt. Aufrufer müssen removeTerraIncognitaLayers()
- * nicht vorher aufrufen.
+ * Aufbau (WebGL GPU-gerendert via MapLibre):
+ *  1. Fill-Layer: opake weiße Wolkenmasse über dem gesamten unerkundeten Bereich.
+ *  2. Feather-Layer (4×): Line-Layer mit gestaffeltem line-blur auf dem Rand des
+ *     erkundeten Polygons. Die Wolkenfarbe "läuft" in die erkundete Fläche aus
+ *     und erzeugt einen weichen, natürlichen Wolkenrand — kein harter Schnitt.
+ *     Je weiter vom Rand, desto transparenter die ausgelaufene Wolke.
+ *
+ * Diese Funktion ist self-cleaning: ruft intern removeTerraIncognitaLayers() auf.
  */
 function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.Geometry) {
   // World-covering polygon (outer ring, counter-clockwise = RFC 7946 exterior)
@@ -2647,45 +2658,75 @@ function addTerraIncognitaLayers(map: maplibregl.Map, exploredGeometry: GeoJSON.
   // GeoJSON holes (interior rings) must be CW → reverse the ring.
   const toHoleRing = (ring: GeoJSON.Position[]): GeoJSON.Position[] => ring.slice().reverse()
 
-  // Extract holes from the explored area geometry
   const holes: GeoJSON.Position[][] = []
   if (exploredGeometry.type === 'Polygon' && exploredGeometry.coordinates.length > 0) {
-    // The exterior ring of the explored polygon becomes a hole in the overlay
     holes.push(toHoleRing(exploredGeometry.coordinates[0]))
   } else if (exploredGeometry.type === 'MultiPolygon') {
-    // Each polygon's exterior ring becomes a hole
     for (const poly of exploredGeometry.coordinates) {
-      if (poly.length > 0) {
-        holes.push(toHoleRing(poly[0]))
-      }
+      if (poly.length > 0) holes.push(toHoleRing(poly[0]))
     }
   }
 
-  const unexploredPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+  const fogPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
     type: 'Feature',
     properties: {},
-    geometry: {
-      type: 'Polygon',
-      coordinates: [worldRing, ...holes],
-    },
+    geometry: { type: 'Polygon', coordinates: [worldRing, ...holes] },
   }
 
-  // Defensive Bereinigung: verhindert "Source already exists"-Fehler bei
-  // doppeltem Aufruf (z.B. durch style.load-Handler + React-Effect gleichzeitig).
+  // Defensive Bereinigung: verhindert "Source already exists"-Fehler.
   removeTerraIncognitaLayers(map)
+
+  // Source 1: Fog-Polygon (Welt minus Erkundetes = Wolkenfläche)
   map.addSource('terra-incognita', {
     type: 'geojson',
-    data: unexploredPolygon,
+    data: fogPolygon,
   })
 
+  // Source 2: Erkundetes Polygon (für weichen Wolkenrand)
+  map.addSource('terra-incognita-explored', {
+    type: 'geojson',
+    data: { type: 'Feature', properties: {}, geometry: exploredGeometry } as GeoJSON.Feature,
+  })
+
+  // Layer 1: Wolkenmasse — opake weiße Basis über unerkundeten Gebieten
   map.addLayer({
     id: 'terra-incognita-overlay',
     type: 'fill',
     source: 'terra-incognita',
     paint: {
-      'fill-color': '#1a1a2e',
-      'fill-opacity': 0.6,
+      'fill-color': '#eef1f7',
+      'fill-opacity': 0.92,
     },
+  })
+
+  // Layer 2–5: Wolkenrand-Auslauf (cloud dissolve effect)
+  // Jeder Layer ist ein Line-Layer auf dem Rand des erkundeten Polygons.
+  // Die Wolkenfarbe läuft durch line-blur in die erkundete Fläche aus —
+  // von dickem Wolkenrand (innen) bis zum transparenten Auslauf (außen).
+  // GPU-gerendert: kein Pixelraster, echter Farbverlauf.
+  map.addLayer({
+    id: 'terra-incognita-cloud-1',
+    type: 'line',
+    source: 'terra-incognita-explored',
+    paint: { 'line-color': '#eef1f7', 'line-width': 120, 'line-opacity': 0.55, 'line-blur': 60 },
+  })
+  map.addLayer({
+    id: 'terra-incognita-cloud-2',
+    type: 'line',
+    source: 'terra-incognita-explored',
+    paint: { 'line-color': '#eef1f7', 'line-width': 65, 'line-opacity': 0.70, 'line-blur': 32 },
+  })
+  map.addLayer({
+    id: 'terra-incognita-cloud-3',
+    type: 'line',
+    source: 'terra-incognita-explored',
+    paint: { 'line-color': '#eef1f7', 'line-width': 30, 'line-opacity': 0.82, 'line-blur': 15 },
+  })
+  map.addLayer({
+    id: 'terra-incognita-cloud-4',
+    type: 'line',
+    source: 'terra-incognita-explored',
+    paint: { 'line-color': '#eef1f7', 'line-width': 12, 'line-opacity': 0.90, 'line-blur': 6 },
   })
 }
 
