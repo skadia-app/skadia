@@ -487,6 +487,9 @@ func main() {
 
 			// Routing (BRouter proxy)
 			r.Post("/routing/route", h.RouteViabrouter)
+
+			// Planned Routes
+			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
 		})
 	})
 
