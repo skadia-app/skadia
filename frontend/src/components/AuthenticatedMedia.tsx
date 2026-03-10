@@ -66,23 +66,26 @@ export default function AuthenticatedMedia({ photo, className, objectFit = 'cont
   }, [mediaBlob])
 
   if (isVideo) {
-    // Derive aspect ratio from known dimensions so the element fills the lightbox
-    // correctly even before the src blob URL has been fetched (avoiding the tiny
-    // default browser video size while the file is still downloading).
-    const aspectRatio =
-      photo.video_width && photo.video_height
-        ? `${photo.video_width} / ${photo.video_height}`
-        : '16 / 9'
+    // Set width/height HTML attributes from the stored video dimensions so the
+    // element has its correct intrinsic size before the src blob URL loads.
+    // Without these, the browser uses the poster thumbnail's small size (~200px)
+    // as the intrinsic dimensions, causing the element to render tiny in the
+    // lightbox. max-w-full / max-h-full CSS then scales the 1920×1080 intrinsic
+    // size down to fit the container correctly.
+    const intrinsicW = photo.video_width ?? 1920
+    const intrinsicH = photo.video_height ?? 1080
 
     return (
       <video
         src={objectUrl || undefined}
         poster={posterUrl || undefined}
+        width={intrinsicW}
+        height={intrinsicH}
         controls
         playsInline
         preload="metadata"
         className={className}
-        style={{ objectFit: objectFit ?? 'contain', aspectRatio }}
+        style={objectFit ? { objectFit } : undefined}
       />
     )
   }
