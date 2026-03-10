@@ -26,6 +26,81 @@ postgres:
       schema: public
       function: amenities_mvt
 
+  tables:
+    # Trail-Netz für Routing-Overlay (Full-Modus: osm_trails befüllt)
+    osm_trails:
+      schema: public
+      table: osm_trails
+      geometry_column: geom
+      srid: 4326
+      id_column: id
+      minzoom: 10
+      maxzoom: 22
+      properties:
+        highway: text
+        surface: text
+        tracktype: text
+        sac_scale: text
+        mtb_scale: text
+        name: text
+        oneway: boolean
+        bridge: boolean
+        tunnel: boolean
+        is_lift: boolean
+        length_m: float8
+        avg_slope: float8
+
+# Basemap-Tiles (Full-Modus, PgOSM Flex Tabellen im osm-Schema)
+# Nur aktiv wenn PgOSM Flex importiert wurde (osm-Schema existiert)
+# postgres:
+#   tables:
+#     basemap_roads:
+#       schema: osm
+#       table: road_line
+#       geometry_column: geom
+#       srid: 4326
+#       id_column: osm_id
+#       minzoom: 8
+#       maxzoom: 22
+#       properties:
+#         highway: varchar
+#         name: varchar
+#         surface: varchar
+#         oneway: varchar
+#     basemap_buildings:
+#       schema: osm
+#       table: building_polygon
+#       geometry_column: geom
+#       srid: 4326
+#       id_column: osm_id
+#       minzoom: 13
+#       maxzoom: 22
+#       properties:
+#         building: varchar
+#         name: varchar
+#     basemap_landuse:
+#       schema: osm
+#       table: landuse_polygon
+#       geometry_column: geom
+#       srid: 4326
+#       id_column: osm_id
+#       minzoom: 8
+#       maxzoom: 22
+#       properties:
+#         landuse: varchar
+#         natural: varchar
+#     basemap_water:
+#       schema: osm
+#       table: water_polygon
+#       geometry_column: geom
+#       srid: 4326
+#       id_column: osm_id
+#       minzoom: 6
+#       maxzoom: 22
+#       properties:
+#         water: varchar
+#         name: varchar
+
 # Lokale Base-Map MBTiles/PMTiles
 mbtiles:
   paths:
