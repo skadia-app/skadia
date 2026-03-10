@@ -489,7 +489,13 @@ func main() {
 			r.Post("/routing/route", h.RouteViabrouter)
 			r.Post("/routes/suggest", h.SuggestRoutes)
 
-			// Planned Routes
+			// Planned Routes (CRUD)
+			r.Get("/routes", h.ListRoutes)
+			r.Post("/routes", h.CreateRoute)
+			r.Get("/routes/{id}", h.GetRoute)
+			r.Patch("/routes/{id}", h.UpdateRoute)
+			r.Delete("/routes/{id}", h.DeleteRoute)
+			r.Post("/routes/{id}/duplicate", h.DuplicateRoute)
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
 			r.Put("/routes/{id}/tags", h.SetRouteTags)
 			r.Post("/routes/{id}/tags/{tagId}", h.AddRouteTag)
