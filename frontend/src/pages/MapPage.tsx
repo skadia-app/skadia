@@ -7,6 +7,12 @@ import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
 import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import ColorPicker from '@/components/ColorPicker'
+import RoutePlannerPanel from '@/components/route-planner/RoutePlannerPanel'
+import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDialog'
+import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
+import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
+import { useRoutePlanner } from '@/hooks/useRoutePlanner'
+import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
@@ -506,7 +512,63 @@ export default function MapPage() {
   } | null>(null)
   const [showIndoorAssign, setShowIndoorAssign] = useState(false)
   const locationTagsRef = useRef<Tag[]>([])
-  const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // ── Route Planner ─────────────────────────────────────────────────────────
+  // Activated via toolbar button or URL param ?planner=1 (e.g. from RoutesPage)
+  const searchParams = new URLSearchParams(location.search)
+  const [plannerActive, setPlannerActive] = useState(() => searchParams.get('planner') === '1')
+  const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showProfileChart, setShowProfileChart] = useState(false)
+
+  const planner = useRoutePlanner()
+
+  // Clear URL param after reading it (avoid re-activating on back-navigation)
+  useEffect(() => {
+    if (searchParams.get('planner') === '1') {
+      navigate('/map', { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When planner is deactivated: clear route state and hide sub-panels
+  const handlePlannerClose = useCallback(() => {
+    setPlannerActive(false)
+    setShowSuggestionDialog(false)
+    setShowSaveDialog(false)
+    setShowProfileChart(false)
+    planner.clear()
+  }, [planner])
+
+  // Show profile chart automatically when segments are available
+  useEffect(() => {
+    if (planner.segments.length > 0 && planner.elevationProfile) {
+      setShowProfileChart(true)
+    }
+  }, [planner.segments.length, planner.elevationProfile])
+
+  // Build RoutePlannerState for useRouteEditor
+  const routeEditorState = useMemo(() => ({
+    waypoints: planner.waypoints,
+    segments: planner.segments,
+    addWaypoint: (latlng: [number, number]) => void planner.addWaypoint(latlng),
+    moveWaypoint: planner.moveWaypoint,
+    removeWaypoint: planner.removeWaypoint,
+    insertWaypoint: (afterId: string, latlng: [number, number]) => {
+      // Find the waypoint after which we insert
+      const idx = planner.waypoints.findIndex(w => w.id === afterId)
+      if (idx >= 0 && idx < planner.waypoints.length - 1) {
+        void planner.addWaypoint(latlng)
+      } else {
+        void planner.addWaypoint(latlng)
+      }
+    },
+    setWaypointType: (_id: string, _type: import('@/api/routes').RouteWaypoint['type']) => {
+      // type assignment is managed automatically by useRoutePlanner
+    },
+  }), [planner])
+
+  // Register MapLibre click handlers for route editing
+  useRouteEditor(mapRef, routeEditorState, plannerActive)
 
   // Drag-to-merge: dialog state
   const [tagMergeDialog, setTagMergeDialog] = useState<{
@@ -520,6 +582,7 @@ export default function MapPage() {
   const [styleVersion, setStyleVersion] = useState(0)
 
   const queryClient = useQueryClient()
+  const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // Cleanup locationSyncTimers on unmount
   useEffect(() => () => {
@@ -1950,6 +2013,28 @@ export default function MapPage() {
 
         {/* Toggle buttons for custom maps + photos + segments + indoor */}
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
+          {/* Route Planner toggle button */}
+          <button
+            onClick={() => {
+              if (plannerActive) {
+                handlePlannerClose()
+              } else {
+                setPlannerActive(true)
+              }
+            }}
+            title="Routenplaner"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
+              plannerActive
+                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            {/* Route icon (arrow path) */}
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 00.025 1.06l4.146 3.958H6.375a5.375 5.375 0 000 10.75H9.75a.75.75 0 000-1.5H6.375a3.875 3.875 0 010-7.75h10.003l-4.146 3.957a.75.75 0 001.036 1.085l5.5-5.25a.75.75 0 000-1.085l-5.5-5.25a.75.75 0 00-1.061.025z" clipRule="evenodd" />
+            </svg>
+            Planer
+          </button>
           <button
             onClick={() => setShowIndoorAssign(!showIndoorAssign)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
@@ -2022,6 +2107,122 @@ export default function MapPage() {
             onAssigned={() => {
               queryClient.invalidateQueries({ queryKey: ['activities'] })
               queryClient.invalidateQueries({ queryKey: ['tags'] })
+            }}
+          />
+        )}
+
+        {/* Route Planner Panel — sidebar on the left, above the map */}
+        {plannerActive && (
+          <RoutePlannerPanel
+            waypoints={planner.waypoints}
+            segments={planner.segments}
+            profile={planner.profile}
+            showHeatmap={viewMode === 'heatmap'}
+            totalDistanceM={planner.totals.distance_m}
+            totalElevationGain={planner.totals.elevation_gain}
+            totalElevationLoss={planner.totals.elevation_loss}
+            estimatedTimeMin={undefined}
+            onProfileChange={planner.setProfileAndRecalculate}
+            onRemoveWaypoint={planner.removeWaypoint}
+            onMoveWaypointUp={(id) => {
+              const idx = planner.waypoints.findIndex(w => w.id === id)
+              if (idx <= 0) return
+              const reordered = [...planner.waypoints]
+              ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
+              planner.reorderWaypoints(reordered)
+            }}
+            onMoveWaypointDown={(id) => {
+              const idx = planner.waypoints.findIndex(w => w.id === id)
+              if (idx < 0 || idx >= planner.waypoints.length - 1) return
+              const reordered = [...planner.waypoints]
+              ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
+              planner.reorderWaypoints(reordered)
+            }}
+            onToggleSegmentMode={(waypointId) => {
+              const segIdx = planner.segments.findIndex(s => s.from_waypoint === waypointId)
+              if (segIdx >= 0) planner.toggleOffroad(segIdx)
+            }}
+            onToggleHeatmap={(enabled) => {
+              const map = mapRef.current
+              if (!map) return
+              const nextMode: ViewMode = enabled ? 'heatmap' : 'tracks'
+              removeOverlayLayers(map)
+              removeTerraIncognitaLayers(map)
+              if (filtersRef.current.sportTypes.size > 0) {
+                addOverlayLayers(map, filtersRef.current, nextMode, teleportRef.current, samplingRef.current, currentUserIdRef.current)
+              }
+              setViewMode(nextMode)
+            }}
+            onClearRoute={planner.clear}
+            onSave={() => setShowSaveDialog(true)}
+            onSuggest={() => setShowSuggestionDialog(true)}
+            onClose={handlePlannerClose}
+            editingRoute={planner.editingRouteId != null ? null : null}
+            isSaving={planner.isSaving}
+          />
+        )}
+
+        {/* Route Profile Chart — bottom panel when planner has elevation data */}
+        {plannerActive && showProfileChart && planner.elevationProfile && planner.elevationProfile.length > 0 && (
+          <div className="absolute bottom-16 left-4 right-4 z-10 max-w-2xl mx-auto">
+            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Höhenprofil</span>
+                <button
+                  onClick={() => setShowProfileChart(false)}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+                  aria-label="Höhenprofil schließen"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+              <RouteProfileChart
+                profile={planner.elevationProfile}
+                totalDistanceM={planner.totals.distance_m}
+                segments={planner.segments}
+                height={140}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Route Suggestion Dialog */}
+        {showSuggestionDialog && (() => {
+          const map = mapRef.current
+          const center = map ? map.getCenter() : { lat: 47.5, lng: 11.0 }
+          return (
+            <RouteSuggestionDialog
+              start={[center.lat, center.lng]}
+              onClose={() => setShowSuggestionDialog(false)}
+              onResult={(fc) => {
+                // Load first suggested route's waypoints into the planner
+                const feature = fc.features[0]
+                if (feature?.geometry?.type === 'LineString') {
+                  const coords = (feature.geometry as GeoJSON.LineString).coordinates
+                  if (coords.length >= 2) {
+                    planner.clear()
+                    void planner.addWaypoint([coords[0][1], coords[0][0]])
+                    void planner.addWaypoint([coords[coords.length - 1][1], coords[coords.length - 1][0]])
+                  }
+                }
+              }}
+            />
+          )
+        })()}
+
+        {/* Route Save Dialog */}
+        {showSaveDialog && (
+          <RouteSaveDialog
+            waypoints={planner.waypoints}
+            segments={planner.segments}
+            currentProfile={planner.profile}
+            editingRouteId={planner.editingRouteId}
+            onClose={() => setShowSaveDialog(false)}
+            onSaved={(saved) => {
+              planner.loadRoute(saved)
+              setShowSaveDialog(false)
             }}
           />
         )}
