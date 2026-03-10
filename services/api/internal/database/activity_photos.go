@@ -13,17 +13,21 @@ func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (m
 		INSERT INTO activity_photos
 			(user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 			 original_filename, content_type, file_size_bytes, file_hash,
-			 taken_at, lat, lng, location_source)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			 taken_at, lat, lng, location_source,
+			 is_video, duration_s, video_width, video_height)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		          original_filename, content_type, file_size_bytes, file_hash,
-		          taken_at, lat, lng, location_source, created_at
+		          taken_at, lat, lng, location_source, created_at,
+		          is_video, duration_s, video_width, video_height
 	`, p.UserID, p.ActivityID, p.S3Bucket, p.S3Key, p.S3KeyThumb, p.S3KeyPreview,
 		p.OriginalFilename, p.ContentType, p.FileSizeBytes, p.FileHash,
 		p.TakenAt, p.Lat, p.Lng, p.LocationSource,
+		p.IsVideo, p.DurationS, p.VideoWidth, p.VideoHeight,
 	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.S3Bucket, &out.S3Key, &out.S3KeyThumb, &out.S3KeyPreview,
 		&out.OriginalFilename, &out.ContentType, &out.FileSizeBytes, &out.FileHash,
-		&out.TakenAt, &out.Lat, &out.Lng, &out.LocationSource, &out.CreatedAt)
+		&out.TakenAt, &out.Lat, &out.Lng, &out.LocationSource, &out.CreatedAt,
+		&out.IsVideo, &out.DurationS, &out.VideoWidth, &out.VideoHeight)
 	return out, err
 }
 
@@ -31,7 +35,8 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		       original_filename, content_type, file_size_bytes, file_hash,
-		       taken_at, lat, lng, location_source, created_at
+		       taken_at, lat, lng, location_source, created_at,
+		       is_video, duration_s, video_width, video_height
 		FROM activity_photos
 		WHERE activity_id = $1 AND user_id = $2
 		ORDER BY COALESCE(taken_at, created_at)
@@ -45,7 +50,8 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 		var p model.ActivityPhoto
 		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 			&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
-			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt); err != nil {
+			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
+			&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight); err != nil {
 			return nil, err
 		}
 		photos = append(photos, p)
@@ -61,11 +67,13 @@ func (db *DB) GetActivityPhoto(ctx context.Context, id, userID string) (model.Ac
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		       original_filename, content_type, file_size_bytes, file_hash,
-		       taken_at, lat, lng, location_source, created_at
+		       taken_at, lat, lng, location_source, created_at,
+		       is_video, duration_s, video_width, video_height
 		FROM activity_photos WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
-		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt)
+		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
+		&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight)
 	return p, err
 }
 
@@ -77,11 +85,13 @@ func (db *DB) UpdateActivityPhotoLocation(ctx context.Context, id, userID string
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		          original_filename, content_type, file_size_bytes, file_hash,
-		          taken_at, lat, lng, location_source, created_at
+		          taken_at, lat, lng, location_source, created_at,
+		          is_video, duration_s, video_width, video_height
 	`, id, userID, lat, lng, takenAt, locationSource,
 	).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
-		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt)
+		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
+		&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight)
 	return p, err
 }
 
@@ -107,7 +117,8 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		       original_filename, content_type, file_size_bytes, file_hash,
-		       taken_at, lat, lng, location_source, created_at
+		       taken_at, lat, lng, location_source, created_at,
+		       is_video, duration_s, video_width, video_height
 		FROM activity_photos WHERE user_id = $1
 		ORDER BY created_at
 	`, userID)
@@ -120,7 +131,8 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 		var p model.ActivityPhoto
 		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 			&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
-			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt); err != nil {
+			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
+			&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight); err != nil {
 			return nil, err
 		}
 		photos = append(photos, p)

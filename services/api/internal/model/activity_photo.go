@@ -19,6 +19,11 @@ type ActivityPhoto struct {
 	Lng              *float64   `json:"lng"`
 	LocationSource   *string    `json:"location_source"`
 	CreatedAt        time.Time  `json:"created_at"`
+	// Video-Metadaten (nur befüllt wenn is_video=true)
+	IsVideo     bool     `json:"is_video"`
+	DurationS   *float64 `json:"duration_s,omitempty"`   // Video-Länge in Sekunden
+	VideoWidth  *int     `json:"video_width,omitempty"`
+	VideoHeight *int     `json:"video_height,omitempty"`
 	// Computed URLs (nicht in DB)
 	ThumbURL   string `json:"thumb_url,omitempty"`
 	PreviewURL string `json:"preview_url,omitempty"` // large preview (2048/4K) or same as full_url
