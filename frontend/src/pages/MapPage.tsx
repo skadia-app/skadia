@@ -34,6 +34,7 @@ import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, c
 import { fetchActivity, updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { fetchTerraIncognita, type TerraIncognitaCoverage } from '@/api/terraIncognita'
+import { useToast } from '@/lib/toast'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -522,6 +523,7 @@ export default function MapPage() {
   const [showProfileChart, setShowProfileChart] = useState(false)
 
   const planner = useRoutePlanner()
+  const { addToast } = useToast()
 
   // Clear URL param after reading it (avoid re-activating on back-navigation)
   useEffect(() => {
@@ -1895,19 +1897,37 @@ export default function MapPage() {
 
         {/* Base style switcher */}
         <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
-          {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => (
-            <button
-              key={key}
-              onClick={() => setBaseStyle(key)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                baseStyle === key
-                  ? 'bg-accent-DEFAULT text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              {BASE_STYLES[key].label}
-            </button>
-          ))}
+          {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
+            const isLocal = key === 'local'
+            const localAvailable = planner.capabilities?.offline_map ?? false
+            const disabled = isLocal && !localAvailable
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  if (disabled) {
+                    addToast({
+                      type: 'info',
+                      title: 'Lokale Karten nicht verfügbar',
+                      message: 'Aktiviere lokale Kartendaten in den Einstellungen.',
+                    })
+                    return
+                  }
+                  setBaseStyle(key)
+                }}
+                title={disabled ? 'Lokale Kartendaten nicht verfügbar. Aktiviere sie in den Einstellungen.' : undefined}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  disabled
+                    ? 'opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300'
+                    : baseStyle === key
+                      ? 'bg-accent-DEFAULT text-white cursor-pointer'
+                      : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
+                }`}
+              >
+                {BASE_STYLES[key].label}
+              </button>
+            )
+          })}
         </div>
 
         {/* View mode toggle + Lade-Indikator + Terra-Incognita-Badge
@@ -2014,19 +2034,25 @@ export default function MapPage() {
         {/* Toggle buttons for custom maps + photos + segments + indoor */}
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
           {/* Route Planner toggle button */}
+          {(() => {
+            const plannerAvailable = (planner.capabilities?.routing ?? false) && (planner.capabilities?.offline_map ?? false)
+            return (
           <button
             onClick={() => {
+              if (!plannerAvailable) return
               if (plannerActive) {
                 handlePlannerClose()
               } else {
                 setPlannerActive(true)
               }
             }}
-            title="Routenplaner"
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
-              plannerActive
-                ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            title={plannerAvailable ? 'Routenplaner' : 'Routenplaner benötigt lokale Kartendaten und pgRouting. Aktiviere diese in den Einstellungen.'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors ${
+              !plannerAvailable
+                ? 'opacity-50 cursor-not-allowed bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600'
+                : plannerActive
+                  ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT cursor-pointer'
+                  : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
             }`}
           >
             {/* Route icon (arrow path) */}
@@ -2035,6 +2061,8 @@ export default function MapPage() {
             </svg>
             Planer
           </button>
+            )
+          })()}
           <button
             onClick={() => setShowIndoorAssign(!showIndoorAssign)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
