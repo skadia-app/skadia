@@ -979,14 +979,21 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
               <button
                 onClick={async () => {
                   setUngroupLoading(true)
-                  const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
-                  setUngroupLoading(false)
-                  if (resp.ok) {
-                    queryClient.invalidateQueries({ queryKey: ['activities'] })
-                    queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-                    navigate('/activities')
+                  try {
+                    const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
+                    if (resp.ok) {
+                      queryClient.invalidateQueries({ queryKey: ['activities'] })
+                      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                      navigate('/activities')
+                    } else {
+                      addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: `Server antwortete mit Status ${resp.status}`, duration: 0 })
+                    }
+                  } catch (err) {
+                    addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 })
+                  } finally {
+                    setUngroupLoading(false)
+                    setUngroupConfirm(false)
                   }
-                  setUngroupConfirm(false)
                 }}
                 disabled={ungroupLoading}
                 className="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 cursor-pointer transition-colors"

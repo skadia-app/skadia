@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/auth'
+import { apiClient } from '@/api/client'
 
 interface Notification {
   id: string
@@ -22,14 +24,19 @@ const CATEGORY_ICONS: Record<string, string> = {
 export default function NotificationCenter() {
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
 
-  useEffect(() => {
-    fetchUnreadCount()
-    const interval = setInterval(fetchUnreadCount, 30_000)
-    return () => clearInterval(interval)
-  }, [])
+  const UNREAD_KEY = ['notifications', 'unread-count'] as const
+
+  const { data: unreadData } = useQuery({
+    queryKey: UNREAD_KEY,
+    queryFn: () => apiClient<{ unread_count: number }>('/notifications/unread-count'),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  })
+
+  const unreadCount = unreadData?.unread_count ?? 0
 
   // Close on click outside
   useEffect(() => {
@@ -41,24 +48,13 @@ export default function NotificationCenter() {
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
-  async function fetchUnreadCount() {
-    try {
-      const res = await apiFetch('/api/v1/notifications/unread-count')
-      if (!res.ok) return
-      const data = await res.json() as { unread_count: number }
-      setUnreadCount(data.unread_count)
-    } catch {
-      // silently ignore
-    }
-  }
-
   async function fetchNotifications() {
     try {
       const res = await apiFetch('/api/v1/notifications?limit=30')
       if (!res.ok) return
       const data = await res.json() as { items: Notification[]; unread_count: number }
       setNotifications(data.items ?? [])
-      setUnreadCount(data.unread_count)
+      queryClient.setQueryData(UNREAD_KEY, { unread_count: data.unread_count })
     } catch {
       // silently ignore
     }
@@ -67,7 +63,7 @@ export default function NotificationCenter() {
   async function markAllRead() {
     try {
       await apiFetch('/api/v1/notifications/read-all', { method: 'POST' })
-      setUnreadCount(0)
+      queryClient.setQueryData(UNREAD_KEY, { unread_count: 0 })
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
     } catch {
       // silently ignore

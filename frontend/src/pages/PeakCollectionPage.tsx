@@ -42,6 +42,10 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 export default function PeakCollectionPage() {
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -448,9 +452,9 @@ function addMarkers(map: maplibregl.Map, peaks: PeakVisit[]): maplibregl.Marker[
     const popup = new maplibregl.Popup({ offset: 16, closeButton: false })
       .setHTML(`
         <div style="font-family: system-ui; font-size: 13px;">
-          <strong>${peak.name}</strong><br/>
-          ${peak.elevation_m != null ? `${Math.round(peak.elevation_m)} m` : ''}
-          ${peak.visit_count > 1 ? ` &middot; ${peak.visit_count}x besucht` : ''}
+          <strong>${escapeHtml(peak.name)}</strong><br/>
+          ${peak.elevation_m != null ? `${escapeHtml(String(Math.round(peak.elevation_m)))} m` : ''}
+          ${peak.visit_count > 1 ? ` &middot; ${escapeHtml(String(peak.visit_count))}x besucht` : ''}
         </div>
       `)
 

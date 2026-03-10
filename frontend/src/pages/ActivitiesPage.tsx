@@ -1151,7 +1151,7 @@ export default function ActivitiesPage() {
                 {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
                   (childrenMap[activity.id] ?? []).map(child => (
                     <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800/50 transition-colors"
-                      onClick={() => { saveLastActivity(child.id); setLastActivityId(child.id); window.location.href = `/activities/${child.id}` }}
+                      onClick={() => { saveLastActivity(child.id); setLastActivityId(child.id); navigate(`/activities/${child.id}`) }}
                     >
                       {/* Indent-Marker */}
                       <td className="py-1.5 pl-3 pr-2 w-8">

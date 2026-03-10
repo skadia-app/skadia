@@ -41,6 +41,7 @@ const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap
       return (d.baseStyle as BaseStyle) ?? 'osm'
     } catch { return 'osm' }
   })
+  const prevBaseStyleRef = useRef<BaseStyle>(baseStyle)
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
   const [styleVersion, setStyleVersion] = useState(0)
@@ -176,7 +177,8 @@ const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap
   // Style switcher effect
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || prevBaseStyleRef.current === baseStyle) return
+    prevBaseStyleRef.current = baseStyle
     pendingCameraRestoreRef.current = {
       center: map.getCenter() as LngLatLike,
       zoom: map.getZoom(),
@@ -191,12 +193,13 @@ const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap
     removeHeatmapLayers(map)
     if (showHeatmap && userId) {
       // Insert heatmap BEFORE first track layer so track appears on top
-      const firstTrackLayerId = tracks.length > 0
-        ? `track-line-${tracks[0].activityId}`
+      const currentTracks = tracksRef.current
+      const firstTrackLayerId = currentTracks.length > 0
+        ? `track-line-${currentTracks[0].activityId}`
         : undefined
       addHeatmapLayers(map, buildHeatmapTileUrl(userId), heatmapColor, firstTrackLayerId)
     }
-  }, [showHeatmap, heatmapColor, styleVersion, userId, tracks])
+  }, [showHeatmap, heatmapColor, styleVersion, userId])
 
   // Update track data when tracks change
   useEffect(() => {

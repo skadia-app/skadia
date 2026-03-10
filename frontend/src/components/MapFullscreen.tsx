@@ -162,6 +162,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
   const [styleVersion, setStyleVersion] = useState(0)
   const pendingCameraRestoreRef = useRef<{ center: LngLatLike; zoom: number } | null>(null)
+  const prevBaseStyleRef = useRef<BaseStyle>(baseStyle)
   const initialFitDoneRef = useRef(false)
 
   const { data: meData } = useQuery({
@@ -302,7 +303,8 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
   // ── Style switcher effect ─────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || prevBaseStyleRef.current === baseStyle) return
+    prevBaseStyleRef.current = baseStyle
     pendingCameraRestoreRef.current = {
       center: map.getCenter() as LngLatLike,
       zoom: map.getZoom(),

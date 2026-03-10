@@ -21,7 +21,7 @@ import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
-import { apiDownload } from '@/api/client'
+import { apiClient, apiDownload } from '@/api/client'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
@@ -598,14 +598,14 @@ export default function MapPage() {
 
   const { data: meData } = useQuery({
     queryKey: ['me'],
-    queryFn: () => fetch('/api/v1/me', { credentials: 'include' }).then(r => r.json()) as Promise<{ user_id: string }>,
+    queryFn: () => apiClient<{ user_id: string }>('/me'),
     staleTime: Infinity,
   })
   const currentUserId = meData?.user_id ?? ''
 
   const { data: visitedPoisGeoJSON } = useQuery({
     queryKey: ['visited-pois'],
-    queryFn: () => fetch('/api/v1/geo/visited-pois', { credentials: 'include' }).then(r => r.json()) as Promise<GeoJSON.FeatureCollection>,
+    queryFn: () => apiClient<GeoJSON.FeatureCollection>('/geo/visited-pois'),
     enabled: overlayState.showVisitedPois,
   })
 
@@ -804,7 +804,7 @@ export default function MapPage() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
@@ -2611,10 +2611,10 @@ export default function MapPage() {
 const TRACKS_LAYER_IDS = ['heatmap-tracks-glow', 'heatmap-lines'] as const
 
 function removeOverlayLayers(map: maplibregl.Map) {
-  removeHeatmapLayers(map)
   for (const id of TRACKS_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)
   }
+  removeHeatmapLayers(map)
 }
 
 // ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
