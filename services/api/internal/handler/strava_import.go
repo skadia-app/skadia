@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -45,6 +46,10 @@ func (h *Handler) DetectStravaModules(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
 		return
 	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
+		return
+	}
 
 	src := strava.NewDirSource(req.SourcePath)
 	registry := h.buildStravaRegistry()
@@ -75,6 +80,10 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SourcePath == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
+		return
+	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
 		return
 	}
 
@@ -239,6 +248,10 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourcePath == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path required", r.URL.Path)
+		return
+	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
 		return
 	}
 

@@ -89,6 +89,9 @@ func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string
 		}
 		values = append(values, v)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get eddington data: %w", err)
+	}
 	if values == nil {
 		values = []float64{}
 	}
@@ -179,6 +182,9 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 		}
 		result = append(result, row)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get distribution: %w", err)
+	}
 	if result == nil {
 		result = []DistributionRow{}
 	}
@@ -225,6 +231,9 @@ func (db *DB) GetYearlyOverview(ctx context.Context, userID string) ([]YearlyOve
 		}
 		result = append(result, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get yearly overview: %w", err)
+	}
 	if result == nil {
 		result = []YearlyOverviewRow{}
 	}
@@ -253,6 +262,9 @@ func (db *DB) GetActiveDays(ctx context.Context, userID string) ([]time.Time, er
 			return nil, fmt.Errorf("scan active day: %w", err)
 		}
 		days = append(days, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get active days: %w", err)
 	}
 	if days == nil {
 		days = []time.Time{}

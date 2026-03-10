@@ -611,6 +611,9 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		a.NeedsClassification = a.SportType == "unknown"
 		activities = append(activities, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activities: %w", err)
+	}
 
 	result := &model.ActivityList{
 		Activities: activities,
@@ -824,6 +827,9 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 		}
 		streams = append(streams, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get streams: %w", err)
+	}
 	if streams == nil {
 		streams = []model.StreamResponse{}
 	}
@@ -857,6 +863,9 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 		}
 		streams = append(streams, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get stream points: %w", err)
+	}
 	return streams, nil
 }
 
@@ -878,6 +887,9 @@ func (db *DB) ListActivityIDsForUser(ctx context.Context, userID string) ([]stri
 			return nil, fmt.Errorf("scan activity id: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activity ids: %w", err)
 	}
 	return ids, nil
 }
@@ -937,6 +949,7 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 		}
 		if productName != nil {
 			s.ProductName = *productName
+
 		}
 		if batteryStatus != nil {
 			s.BatteryStatus = *batteryStatus
@@ -950,6 +963,9 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 		}
 
 		sensors = append(sensors, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get sensors: %w", err)
 	}
 	if sensors == nil {
 		sensors = []model.SensorResponse{}
@@ -1194,6 +1210,9 @@ func (db *DB) ListActivityIDsFiltered(ctx context.Context, userID string, filter
 			}
 			ids = append(ids, id)
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("list filtered ids: %w", err)
+		}
 		return ids, nil
 	}
 
@@ -1241,6 +1260,9 @@ func (db *DB) ListActivityIDsFiltered(ctx context.Context, userID string, filter
 			return nil, fmt.Errorf("scan id: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list filtered ids: %w", err)
 	}
 	return ids, nil
 }
@@ -1417,6 +1439,9 @@ func (db *DB) ListActivitiesWithLocalPath(ctx context.Context, userID string) ([
 		}
 		activities = append(activities, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activities with local path: %w", err)
+	}
 	return activities, nil
 }
 
@@ -1474,6 +1499,9 @@ func (db *DB) ListHotfolderImports(ctx context.Context, userID string, limit int
 			return nil, fmt.Errorf("scan hotfolder import: %w", err)
 		}
 		imports = append(imports, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list hotfolder imports: %w", err)
 	}
 	if imports == nil {
 		imports = []model.HotfolderImport{}
@@ -1790,6 +1818,9 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 		}
 		zones = append(zones, z)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list privacy zones: %w", err)
+	}
 	if zones == nil {
 		zones = []model.PrivacyZone{}
 	}
@@ -2051,6 +2082,9 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 		}
 		tags = append(tags, t)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get geo tags: %w", err)
+	}
 	if tags == nil {
 		tags = []model.GeoTag{}
 	}
@@ -2088,6 +2122,9 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
 		tags = append(tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
 	}
 	if tags == nil {
 		tags = []model.Tag{}
@@ -2150,6 +2187,9 @@ func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, er
 			return nil, fmt.Errorf("scan activity id: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get tag activity ids: %w", err)
 	}
 	return ids, nil
 }
@@ -2337,6 +2377,9 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 		}
 		tags = append(tags, t)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get tags by activity: %w", err)
+	}
 	if tags == nil {
 		tags = []model.Tag{}
 	}
@@ -2364,6 +2407,9 @@ func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]mod
 			return nil, fmt.Errorf("scan tag activity: %w", err)
 		}
 		activities = append(activities, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get tag activities: %w", err)
 	}
 	if activities == nil {
 		activities = []model.TagActivity{}
@@ -2400,6 +2446,9 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 			return nil, fmt.Errorf("scan auto tag: %w", err)
 		}
 		tags = append(tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get auto tags: %w", err)
 	}
 	if tags == nil {
 		tags = []model.Tag{}
@@ -2730,6 +2779,9 @@ func (db *DB) ListActivitiesForBackfill(ctx context.Context, userID string) ([]B
 		}
 		activities = append(activities, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activities for backfill: %w", err)
+	}
 	return activities, nil
 }
 
@@ -2812,6 +2864,10 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 			continue
 		}
 		tags = append(tags, t)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		rows.Close()
+		return 0, fmt.Errorf("load tags for migration: %w", rowsErr)
 	}
 	rows.Close()
 
@@ -3064,6 +3120,9 @@ func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from
 			return nil, err
 		}
 		result = append(result, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return result, nil
 }

@@ -112,6 +112,9 @@ func (db *DB) GetYearProgression(ctx context.Context, userID string, metric stri
 		}
 		result = append(result, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get year progression: %w", err)
+	}
 	if result == nil {
 		result = []YearProgressionRow{}
 	}
@@ -157,6 +160,9 @@ func (db *DB) GetTrainingVolume(ctx context.Context, userID string, granularity 
 			return nil, fmt.Errorf("scan training volume: %w", err)
 		}
 		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get training volume: %w", err)
 	}
 	if result == nil {
 		result = []TrainingVolumeRow{}
@@ -205,6 +211,9 @@ func (db *DB) GetZoneDistribution(ctx context.Context, userID string, zoneType s
 			return nil, fmt.Errorf("scan zone distribution: %w", err)
 		}
 		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get zone distribution: %w", err)
 	}
 	if result == nil {
 		result = []ZoneDistributionRow{}

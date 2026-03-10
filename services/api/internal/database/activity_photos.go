@@ -50,6 +50,9 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 		}
 		photos = append(photos, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return photos, nil
 }
 
@@ -122,6 +125,9 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 		}
 		photos = append(photos, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return photos, nil
 }
 
@@ -153,6 +159,9 @@ func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhot
 			return nil, err
 		}
 		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return entries, nil
 }

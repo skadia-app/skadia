@@ -30,24 +30,35 @@ func (db *DB) GetTimeInZones(ctx context.Context, activityID string) ([]model.Ti
 		}
 		zones = append(zones, z)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get time in zones: %w", err)
+	}
 	return zones, nil
 }
 
-// SaveTimeInZones upserts time-in-zone data for an activity.
+// SaveTimeInZones upserts time-in-zone data for an activity using a batch for efficiency.
 func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, zones []model.TimeInZoneData) error {
+	if len(zones) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
 	for _, z := range zones {
 		var zoneHigh *float64
 		if z.ZoneHigh > 0 {
 			zoneHigh = &z.ZoneHigh
 		}
-		_, err := db.Pool.Exec(ctx,
+		batch.Queue(
 			`INSERT INTO activity_time_in_zone (activity_id, zone_type, zone_index, zone_high, seconds)
 			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (activity_id, zone_type, zone_index) DO UPDATE
 			 SET zone_high = EXCLUDED.zone_high, seconds = EXCLUDED.seconds`,
 			activityID, z.ZoneType, z.ZoneIndex, zoneHigh, z.Seconds,
 		)
-		if err != nil {
+	}
+	br := db.Pool.SendBatch(ctx, batch)
+	defer br.Close()
+	for range zones {
+		if _, err := br.Exec(); err != nil {
 			return fmt.Errorf("save time in zone: %w", err)
 		}
 	}
@@ -97,6 +108,9 @@ func (db *DB) GetPowerStreamsForPeriod(ctx context.Context, userID string, from,
 		}
 		result[actID] = append(result[actID], power)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get power streams: %w", err)
+	}
 	return result, nil
 }
 
@@ -134,6 +148,9 @@ func (db *DB) GetSportTypeStats(ctx context.Context, userID string) ([]SportType
 			return nil, fmt.Errorf("scan sport type stat: %w", err)
 		}
 		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get sport type stats: %w", err)
 	}
 	return result, nil
 }

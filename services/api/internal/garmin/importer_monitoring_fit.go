@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -162,12 +163,7 @@ func readZipEntry(f *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	defer rc.Close()
-	buf := make([]byte, f.UncompressedSize64)
-	_, err = rc.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
+	return io.ReadAll(rc)
 }
 
 // readFITFileType reads the file_id.type field from the FIT binary header.

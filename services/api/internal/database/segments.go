@@ -176,6 +176,9 @@ LEFT JOIN LATERAL (
 		}
 		segments = append(segments, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list segments: %w", err)
+	}
 	if segments == nil {
 		segments = []model.Segment{}
 	}
@@ -519,6 +522,9 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		}
 		efforts = append(efforts, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get segment efforts: %w", err)
+	}
 	if efforts == nil {
 		efforts = []model.SegmentEffort{}
 	}
@@ -564,6 +570,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 			return nil, fmt.Errorf("scan effort: %w", err)
 		}
 		efforts = append(efforts, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get activity segment efforts: %w", err)
 	}
 	if efforts == nil {
 		efforts = []model.SegmentEffort{}
@@ -688,6 +697,9 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		}
 		result = append(result, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
+	}
 	return result, nil
 }
 
@@ -780,6 +792,9 @@ func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GP
 			return nil, fmt.Errorf("scan GPS stream point: %w", err)
 		}
 		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get GPS stream points: %w", err)
 	}
 	return points, nil
 }
@@ -904,6 +919,9 @@ func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]s
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list segment IDs: %w", err)
+	}
 	return ids, nil
 }
 
@@ -955,6 +973,9 @@ func (db *DB) GetDetectedLaps(ctx context.Context, activityID string) ([]model.D
 			return nil, fmt.Errorf("scan detected lap: %w", err)
 		}
 		laps = append(laps, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get detected laps: %w", err)
 	}
 	if laps == nil {
 		laps = []model.DetectedLap{}
@@ -1075,6 +1096,9 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 			return nil, fmt.Errorf("scan activity id: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
 	}
 	return ids, nil
 }

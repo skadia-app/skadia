@@ -192,8 +192,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			data.OriginalName = activityName
 		}
 		if description != "" {
-			// store in source device field temporarily – we'll update title via DB
-			_ = description
+			slog.Debug("strava activities: activity description (not yet stored)", "description", description)
 		}
 
 		// Numeric fields from CSV
@@ -503,7 +502,7 @@ func detectStravaFormat(data []byte, lowerName string) string {
 		}
 	}
 	// XML-based
-	content := strings.ToLower(string(data[:minInt(len(data), 1024)]))
+	content := strings.ToLower(string(data[:min(len(data), 1024)]))
 	if strings.Contains(content, "<gpx") {
 		return "gpx"
 	}
@@ -772,9 +771,3 @@ func mapStravaWeatherCondition(code int) string {
 	}
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

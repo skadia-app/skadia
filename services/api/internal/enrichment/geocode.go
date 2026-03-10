@@ -3,8 +3,14 @@ package enrichment
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	osmBoundariesExists bool
+	osmBoundariesOnce   sync.Once
 )
 
 // GeoResult holds reverse geocoding results.
@@ -18,15 +24,21 @@ type GeoResult struct {
 // ReverseGeocode finds city/state/country for a point using OSM boundaries.
 // Returns empty result if no OSM data is available.
 func ReverseGeocode(ctx context.Context, pool *pgxpool.Pool, lat, lng float64) (*GeoResult, error) {
-	// Check if osm_boundaries table exists
-	var exists bool
-	err := pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
-			WHERE table_name = 'osm_boundaries'
-		)`,
-	).Scan(&exists)
-	if err != nil || !exists {
+	// Check if osm_boundaries table exists — cached via sync.Once to avoid
+	// per-request information_schema queries.
+	osmBoundariesOnce.Do(func() {
+		var exists bool
+		err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.tables
+				WHERE table_name = 'osm_boundaries'
+			)`,
+		).Scan(&exists)
+		if err == nil {
+			osmBoundariesExists = exists
+		}
+	})
+	if !osmBoundariesExists {
 		return nil, nil
 	}
 

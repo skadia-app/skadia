@@ -44,6 +44,10 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
 		return
 	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
+		return
+	}
 
 	src := garmin.NewDirSource(req.SourcePath)
 	registry := h.buildGarminRegistry()
@@ -74,6 +78,10 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SourcePath == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
+		return
+	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
 		return
 	}
 
@@ -238,6 +246,10 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourcePath == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "source_path required", r.URL.Path)
+		return
+	}
+	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
 		return
 	}
 

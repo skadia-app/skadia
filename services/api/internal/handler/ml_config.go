@@ -38,6 +38,13 @@ func (h *Handler) GetMLSystemSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// validMLSystemSettingKeys is the allowlist of accepted system-level ML setting keys.
+var validMLSystemSettingKeys = map[string]bool{
+	"nightly_feature_engineering": true,
+	"nightly_tsfm_analysis":       true,
+	"nightly_changepoint_detection": true,
+}
+
 // PutMLSystemSetting updates a single ML system setting.
 //
 // PUT /api/v1/settings/ml/{key}
@@ -45,6 +52,10 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 	if key == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
+		return
+	}
+	if !validMLSystemSettingKeys[key] {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
 		return
 	}
 
@@ -105,6 +116,15 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// validMLUserSettingKeys is the allowlist of accepted user-level ML setting keys.
+var validMLUserSettingKeys = map[string]bool{
+	"chat_profile":     true,
+	"notify_enrichment": true,
+	"notify_anomaly":   true,
+	"notify_gear":      true,
+	"notify_chat":      true,
+}
+
 // PutMLUserSetting upserts a single ML user setting.
 //
 // PUT /api/v1/settings/ml/user/{key}
@@ -113,6 +133,10 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 	if key == "" {
 		writeError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
+		return
+	}
+	if !validMLUserSettingKeys[key] {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
 		return
 	}
 

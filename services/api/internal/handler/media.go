@@ -24,10 +24,29 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restrict to skadia-media bucket and validate key contains userID as a path segment.
-	// S3 keys follow patterns like: "tag-covers/{userID}/...", "gear/{userID}/...",
-	// "marker-images/{userID}/...", "activity-photos/{userID}/...", "{userID}/..."
-	if bucket != "skadia-media" || (!strings.HasPrefix(key, userID+"/") && !strings.Contains(key, "/"+userID+"/")) {
+	// Restrict to skadia-media bucket and validate key against an explicit allowlist of
+	// known path prefixes that include the userID.
+	// S3 key patterns: "{userID}/...", "tag-covers/{userID}/...", "gear/{userID}/...",
+	// "marker-images/{userID}/...", "activity-photos/{userID}/..."
+	if bucket != "skadia-media" {
+		writeError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+		return
+	}
+	allowedPrefixes := []string{
+		userID + "/",
+		"tag-covers/" + userID + "/",
+		"gear/" + userID + "/",
+		"marker-images/" + userID + "/",
+		"activity-photos/" + userID + "/",
+	}
+	hasAccess := false
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			hasAccess = true
+			break
+		}
+	}
+	if !hasAccess {
 		writeError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
 		return
 	}

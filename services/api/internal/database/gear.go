@@ -114,6 +114,9 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 		}
 		items = append(items, g)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list gear: %w", err)
+	}
 	if items == nil {
 		items = []model.Gear{}
 	}
@@ -318,6 +321,9 @@ func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearCo
 		}
 		items = append(items, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list components: %w", err)
+	}
 	if items == nil {
 		items = []model.GearComponent{}
 	}
@@ -505,6 +511,9 @@ func (db *DB) GetComponentHistory(ctx context.Context, componentID string) ([]mo
 		}
 		items = append(items, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get component history: %w", err)
+	}
 	if items == nil {
 		items = []model.ComponentAssignment{}
 	}
@@ -558,6 +567,9 @@ func (db *DB) listChainMembers(ctx context.Context, groupID string) ([]model.Cha
 			return nil, fmt.Errorf("scan chain member: %w", err)
 		}
 		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list chain members: %w", err)
 	}
 	if items == nil {
 		items = []model.ChainRotationMember{}
@@ -721,6 +733,9 @@ func (db *DB) ListServiceEvents(ctx context.Context, componentID string) ([]mode
 		}
 		items = append(items, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list service events: %w", err)
+	}
 	if items == nil {
 		items = []model.GearServiceEvent{}
 	}
@@ -787,6 +802,9 @@ func (db *DB) ListComponentPresets(ctx context.Context, gearType string) ([]mode
 		}
 		items = append(items, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list component presets: %w", err)
+	}
 	if items == nil {
 		items = []model.ComponentTypePreset{}
 	}
@@ -830,6 +848,9 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 			return nil, fmt.Errorf("scan maintenance alert: %w", err)
 		}
 		alerts = append(alerts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get maintenance alerts: %w", err)
 	}
 	if alerts == nil {
 		alerts = []model.MaintenanceAlert{}
@@ -878,6 +899,9 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
 		items = append(items, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list rules: %w", err)
 	}
 	if items == nil {
 		items = []model.AutomationRule{}
@@ -1274,6 +1298,9 @@ func (db *DB) getSegmentEffortsForActivity(ctx context.Context, activityID strin
 			"rank":           rank,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -1368,6 +1395,9 @@ func (db *DB) ListBikeSetups(ctx context.Context, gearID string) ([]model.BikeSe
 			return nil, fmt.Errorf("scan bike setup: %w", err)
 		}
 		items = append(items, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list bike setups: %w", err)
 	}
 	if items == nil {
 		items = []model.BikeSetup{}
@@ -1535,6 +1565,9 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 		}
 		docs = append(docs, d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list gear documents: %w", err)
+	}
 	if docs == nil {
 		docs = []model.GearDocument{}
 	}
@@ -1554,6 +1587,9 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list component documents: %w", err)
 	}
 	if docs == nil {
 		docs = []model.GearDocument{}
@@ -1594,6 +1630,9 @@ func (db *DB) GetGearDocumentsByGearIDs(ctx context.Context, gearIDs []string) (
 			return nil, fmt.Errorf("scan gear preview doc: %w", err)
 		}
 		result[gearID] = docID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get gear preview docs: %w", err)
 	}
 	return result, nil
 }
@@ -1762,8 +1801,13 @@ func (db *DB) FindGearDuplicates(ctx context.Context, userID string) ([][2]strin
 	var pairs [][2]string
 	for rows.Next() {
 		var a, b string
-		_ = rows.Scan(&a, &b)
+		if err := rows.Scan(&a, &b); err != nil {
+			return nil, err
+		}
 		pairs = append(pairs, [2]string{a, b})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return pairs, nil
 }

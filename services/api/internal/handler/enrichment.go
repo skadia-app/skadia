@@ -67,7 +67,7 @@ func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		weather, err := enrichment.FetchWeather(a.Lat, a.Lng, a.StartedAt)
+		weather, err := enrichment.FetchWeather(r.Context(), a.Lat, a.Lng, a.StartedAt)
 		if err != nil {
 			slog.Warn("weather fetch failed", "activity_id", a.ID, "error", err)
 			errors++

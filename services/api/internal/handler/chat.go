@@ -42,6 +42,10 @@ func (rl *chatRateLimiter) Allow(userID string, maxPerMin int) bool {
 			recent = append(recent, t)
 		}
 	}
+	// Cleanup: remove map entry entirely when no recent requests remain, preventing unbounded growth.
+	if len(recent) == 0 {
+		delete(rl.counts, userID)
+	}
 	if len(recent) >= maxPerMin {
 		rl.counts[userID] = recent
 		return false

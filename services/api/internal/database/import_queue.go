@@ -38,7 +38,7 @@ func (db *DB) ListImportQueue(ctx context.Context, userID, status string) ([]Imp
 		query += ` AND status = $2`
 		args = append(args, status)
 	}
-	query += ` ORDER BY created_at DESC`
+	query += ` ORDER BY created_at DESC LIMIT 1000`
 
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {

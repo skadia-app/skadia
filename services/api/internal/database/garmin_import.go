@@ -30,7 +30,7 @@ func (db *DB) CreateGarminImportJob(ctx context.Context, userID, sourcePath stri
 func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map[string]interface{}, error) {
 	row := db.Pool.QueryRow(ctx,
 		`SELECT id, user_id, status, source_path, total_modules, completed_modules,
-		        current_module, module_results, errors, started_at, completed_at, created_at
+		        current_module, errors, started_at, completed_at, created_at
 		 FROM garmin_import_jobs
 		 WHERE id = $1 AND user_id = $2`,
 		jobID, userID,
@@ -44,7 +44,6 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 		totalModules     int
 		completedModules int
 		currentModule    *string
-		moduleResults    []byte
 		errors           []byte
 		startedAt        *time.Time
 		completedAt      *time.Time
@@ -53,7 +52,7 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 
 	err := row.Scan(
 		&id, &uid, &status, &sourcePath, &totalModules, &completedModules,
-		&currentModule, &moduleResults, &errors, &startedAt, &completedAt, &createdAt,
+		&currentModule, &errors, &startedAt, &completedAt, &createdAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("job not found")
@@ -63,9 +62,6 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 	}
 
 	var parsedErrors []string
-	if len(moduleResults) > 0 {
-		_ = moduleResults
-	}
 	if len(errors) > 0 {
 		_ = json.Unmarshal(errors, &parsedErrors)
 	}

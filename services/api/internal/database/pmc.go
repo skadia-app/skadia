@@ -34,6 +34,9 @@ func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time
 		}
 		days = append(days, d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get pmc range: %w", err)
+	}
 	if days == nil {
 		days = []model.PMCDay{}
 	}
@@ -111,6 +114,9 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 			return nil, fmt.Errorf("scan daily tss: %w", err)
 		}
 		result[day.Format("2006-01-02")] = tss
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get daily tss: %w", err)
 	}
 	return result, nil
 }

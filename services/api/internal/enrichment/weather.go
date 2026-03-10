@@ -1,8 +1,10 @@
 package enrichment
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"time"
@@ -29,15 +31,19 @@ type openMeteoResponse struct {
 }
 
 // FetchWeather fetches historical weather from Open-Meteo archive API.
-func FetchWeather(lat, lng float64, t time.Time) (*WeatherResult, error) {
+func FetchWeather(ctx context.Context, lat, lng float64, t time.Time) (*WeatherResult, error) {
 	date := t.Format("2006-01-02")
 	url := fmt.Sprintf(
 		"https://archive-api.open-meteo.com/v1/archive?latitude=%.4f&longitude=%.4f&start_date=%s&end_date=%s&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
 		lat, lng, date, date,
 	)
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetch weather: create request: %w", err)
+	}
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch weather: %w", err)
 	}
@@ -48,7 +54,7 @@ func FetchWeather(lat, lng float64, t time.Time) (*WeatherResult, error) {
 	}
 
 	var data openMeteoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
 		return nil, fmt.Errorf("decode weather response: %w", err)
 	}
 

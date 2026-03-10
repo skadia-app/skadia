@@ -138,6 +138,9 @@ func (db *DB) GetLaps(ctx context.Context, activityID string) ([]model.LapRespon
 		}
 		result = append(result, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get laps: %w", err)
+	}
 	if result == nil {
 		result = []model.LapResponse{}
 	}
@@ -238,6 +241,9 @@ func (db *DB) GetSplits(ctx context.Context, activityID string) ([]model.SplitRe
 			r.SplitType = *splitType
 		}
 		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get splits: %w", err)
 	}
 	if result == nil {
 		result = []model.SplitResponse{}
@@ -345,6 +351,9 @@ func (db *DB) GetSplitSummaries(ctx context.Context, activityID string) ([]model
 		}
 		result = append(result, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get split summaries: %w", err)
+	}
 	if result == nil {
 		result = []model.SplitSummaryResponse{}
 	}
@@ -439,6 +448,9 @@ func (db *DB) GetLengths(ctx context.Context, activityID string) ([]model.Length
 		}
 		result = append(result, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get lengths: %w", err)
+	}
 	if result == nil {
 		result = []model.LengthResponse{}
 	}
@@ -515,6 +527,9 @@ func (db *DB) GetClimbProEvents(ctx context.Context, activityID string) ([]model
 			r.EventType = *eventType
 		}
 		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get climb pro events: %w", err)
 	}
 	if result == nil {
 		result = []model.ClimbProEventResponse{}

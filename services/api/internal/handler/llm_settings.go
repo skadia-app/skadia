@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/template"
@@ -86,6 +87,12 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSRF protection: validate api_base host before making outbound requests.
+	if parsed, err := url.Parse(apiBase); err != nil || isInternalHost(parsed.Hostname()) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid or internal api_base URL", r.URL.Path)
+		return
+	}
+
 	// Query Ollama /api/tags
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(apiBase + "/api/tags")
@@ -143,6 +150,20 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	).Replace(req.APIBase)
 	if testAPIBase != req.APIBase {
 		result.Warning = "localhost wurde für den Test automatisch zu host.containers.internal übersetzt (Container-Netzwerk)."
+	}
+
+	// SSRF protection: validate the (possibly translated) api_base host.
+	// host.containers.internal is explicitly allowed as it is the canonical way
+	// to reach llama-server running on the host from inside a container.
+	if parsed, err := url.Parse(testAPIBase); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid api_base URL", r.URL.Path)
+		return
+	} else if h := parsed.Hostname(); h != "host.containers.internal" && isInternalHost(h) {
+		result.Success = false
+		result.Message = "api_base verweist auf eine interne Adresse (SSRF-Schutz)"
+		result.LatencyMs = time.Since(start).Milliseconds()
+		writeJSON(w, http.StatusOK, result)
+		return
 	}
 
 	switch req.BackendType {

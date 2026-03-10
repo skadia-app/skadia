@@ -72,7 +72,9 @@ func extractZipEntry(f *zip.File, destDir string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, rc)
+	// Limit per-entry extraction size to defend against zip bomb attacks.
+	const maxEntrySize = 500 << 20 // 500 MB
+	_, err = io.Copy(out, io.LimitReader(rc, maxEntrySize))
 	return err
 }
 

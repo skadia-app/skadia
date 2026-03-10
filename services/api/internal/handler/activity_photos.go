@@ -55,12 +55,9 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Content-Type pruefen
-	ct := header.Header.Get("Content-Type")
-	if ct == "" {
-		ct = "image/jpeg"
-	}
-	if !strings.HasPrefix(ct, "image/") {
+	// Quick pre-check on client-supplied Content-Type (before reading body).
+	ctFromHeader := header.Header.Get("Content-Type")
+	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") {
 		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
 		return
 	}
@@ -73,12 +70,14 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Magic-byte detection: validate actual file content regardless of client-supplied header.
+	// Magic-byte detection: determine actual content type from file bytes,
+	// ignoring the client-supplied header to prevent content-type spoofing.
 	sniff := data
 	if len(sniff) > 512 {
 		sniff = sniff[:512]
 	}
-	if detected := http.DetectContentType(sniff); !strings.HasPrefix(detected, "image/") {
+	ct := http.DetectContentType(sniff)
+	if !strings.HasPrefix(ct, "image/") {
 		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
 		return
 	}

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,9 @@ func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
 			return nil, fmt.Errorf("scan user id: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active user ids: %w", err)
 	}
 	return ids, nil
 }
@@ -124,33 +128,51 @@ func (db *DB) SetUserProfileFieldsIfNull(ctx context.Context, userID string, imp
 		return nil
 	}
 	if imp.Gender != "" {
-		db.Pool.Exec(ctx, `UPDATE users SET gender = $2 WHERE id = $1 AND (gender IS NULL OR gender = '')`, userID, imp.Gender)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET gender = $2 WHERE id = $1 AND (gender IS NULL OR gender = '')`, userID, imp.Gender); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set gender", "err", err)
+		}
 	}
 	if imp.AgeYears > 0 {
 		year := time.Now().Year() - imp.AgeYears
 		birthDate := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
-		db.Pool.Exec(ctx, `UPDATE users SET birth_date = $2 WHERE id = $1 AND birth_date IS NULL`, userID, birthDate)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET birth_date = $2 WHERE id = $1 AND birth_date IS NULL`, userID, birthDate); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set birth_date", "err", err)
+		}
 	}
 	if imp.HeightCm > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET height_cm = $2 WHERE id = $1 AND height_cm IS NULL`, userID, imp.HeightCm)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET height_cm = $2 WHERE id = $1 AND height_cm IS NULL`, userID, imp.HeightCm); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set height_cm", "err", err)
+		}
 	}
 	if imp.WeightKg > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET weight_kg = $2 WHERE id = $1 AND weight_kg IS NULL`, userID, imp.WeightKg)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET weight_kg = $2 WHERE id = $1 AND weight_kg IS NULL`, userID, imp.WeightKg); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set weight_kg", "err", err)
+		}
 	}
 	if imp.RestingHR > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET resting_hr_bpm = $2 WHERE id = $1 AND resting_hr_bpm IS NULL`, userID, imp.RestingHR)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET resting_hr_bpm = $2 WHERE id = $1 AND resting_hr_bpm IS NULL`, userID, imp.RestingHR); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set resting_hr_bpm", "err", err)
+		}
 	}
 	if imp.MaxHRDetected > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET max_hr_detected_bpm = $2 WHERE id = $1 AND (max_hr_detected_bpm IS NULL OR max_hr_detected_bpm < $2)`, userID, imp.MaxHRDetected)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET max_hr_detected_bpm = $2 WHERE id = $1 AND (max_hr_detected_bpm IS NULL OR max_hr_detected_bpm < $2)`, userID, imp.MaxHRDetected); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set max_hr_detected_bpm", "err", err)
+		}
 	}
 	if imp.LTHR > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET lthr_bpm = $2 WHERE id = $1 AND lthr_bpm IS NULL`, userID, imp.LTHR)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET lthr_bpm = $2 WHERE id = $1 AND lthr_bpm IS NULL`, userID, imp.LTHR); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set lthr_bpm", "err", err)
+		}
 	}
 	if imp.FTP > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET ftp_w = $2 WHERE id = $1 AND ftp_w IS NULL`, userID, imp.FTP)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET ftp_w = $2 WHERE id = $1 AND ftp_w IS NULL`, userID, imp.FTP); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set ftp_w", "err", err)
+		}
 	}
 	if imp.MaxHR > 0 {
-		db.Pool.Exec(ctx, `UPDATE users SET max_hr_detected_bpm = $2 WHERE id = $1 AND (max_hr_detected_bpm IS NULL OR max_hr_detected_bpm < $2)`, userID, imp.MaxHR)
+		if _, err := db.Pool.Exec(ctx, `UPDATE users SET max_hr_detected_bpm = $2 WHERE id = $1 AND (max_hr_detected_bpm IS NULL OR max_hr_detected_bpm < $2)`, userID, imp.MaxHR); err != nil {
+			slog.Warn("SetUserProfileFieldsIfNull: failed to set max_hr_detected_bpm (MaxHR)", "err", err)
+		}
 	}
 	return nil
 }

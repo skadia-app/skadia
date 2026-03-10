@@ -128,7 +128,8 @@ func main() {
 	// Handler
 	mlCallbackSecret := os.Getenv("ML_CALLBACK_SECRET")
 	if mlCallbackSecret == "" {
-		slog.Warn("ML_CALLBACK_SECRET not set — ML callback endpoint unauthenticated")
+		// Log at Error level so it is clearly visible in logs; no os.Exit to allow dev startup.
+		slog.Error("SECURITY: ML_CALLBACK_SECRET is not set — the /internal/ml-callback endpoint is unauthenticated and must be secured before production deployment")
 	}
 
 	h := &handler.Handler{

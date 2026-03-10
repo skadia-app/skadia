@@ -3,6 +3,7 @@ package fusion
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -222,9 +223,5 @@ func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID strin
 }
 
 func sortTimes(times []time.Time) {
-	for i := 1; i < len(times); i++ {
-		for j := i; j > 0 && times[j].Before(times[j-1]); j-- {
-			times[j], times[j-1] = times[j-1], times[j]
-		}
-	}
+	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
 }

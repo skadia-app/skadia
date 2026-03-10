@@ -16,10 +16,7 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 		WHERE a.user_id = $1
 		  AND a.is_fusion_source = FALSE
 		  AND a.fusion_sources IS NULL
-		  AND EXISTS (
-		      SELECT 1 FROM activity_streams s
-		      WHERE s.activity_id = a.id AND s.lat IS NOT NULL
-		  )
+		  AND a.has_gps = TRUE
 		ORDER BY a.started_at DESC
 		LIMIT $2`,
 		userID, limit,
@@ -31,8 +28,13 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 	var ids []string
 	for rows.Next() {
 		var id string
-		_ = rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return ids, nil
 }
@@ -113,8 +115,13 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		_ = rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
 		candidateIDs = append(candidateIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return candidateIDs, nil
 }

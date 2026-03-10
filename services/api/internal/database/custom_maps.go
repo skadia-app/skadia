@@ -32,6 +32,9 @@ func (db *DB) ListCustomMaps(ctx context.Context, userID string) ([]model.Custom
 		}
 		maps = append(maps, m)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return maps, nil
 }
 
@@ -96,6 +99,9 @@ func (db *DB) ListCustomMapMarkers(ctx context.Context, mapID, userID string) ([
 			return nil, err
 		}
 		markers = append(markers, mk)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return markers, nil
 }
