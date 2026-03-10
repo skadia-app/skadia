@@ -342,11 +342,18 @@ func main() {
 			// Geo
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
 
+			// DEM Elevation
+			r.Post("/elevation/query", h.QueryElevation)
+			r.Post("/elevation/profile", h.ElevationProfile)
+
 			// Entdeckungskarte
 			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
 
 			// Peaks Collection
 			r.Get("/peaks/collection", h.GetPeakCollection)
+
+			// Trails
+			r.Post("/trails/build-topology", h.BuildTrailTopology)
 
 			// Segments
 			r.Get("/segments", h.ListSegments)
@@ -474,6 +481,9 @@ func main() {
 			r.Get("/notifications/unread-count", h.GetUnreadCount)
 			r.Post("/notifications/read-all", h.MarkAllNotificationsRead)
 			r.Post("/notifications/{id}/read", h.MarkNotificationRead)
+
+			// Routing (BRouter proxy)
+			r.Post("/routing/route", h.RouteViabrouter)
 		})
 	})
 
