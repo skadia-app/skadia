@@ -15,6 +15,62 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// RouteFromActivityWaypoints returns waypoints derived from an activity's GPS track
+// WITHOUT saving a route to the database. Used by "Open in Route Planner" button.
+// GET /api/v1/routes/from-activity/{activityId}/waypoints
+func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	activityID := chi.URLParam(r, "activityId")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("route waypoints from activity: get activity failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if !activity.HasGPS {
+		writeError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
+		return
+	}
+
+	gpsPoints, err := h.DB.GetActivityGPSStream(r.Context(), activityID)
+	if err != nil {
+		slog.Error("route waypoints from activity: load GPS stream failed", "id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
+		return
+	}
+	if len(gpsPoints) < 2 {
+		writeError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
+		return
+	}
+
+	simplified := rdpSimplifyGPSPoints(gpsPoints, 50)
+	waypoints := make([]model.RouteWaypoint, len(simplified))
+	for i, p := range simplified {
+		wpType := "via"
+		if i == 0 {
+			wpType = "start"
+		} else if i == len(simplified)-1 {
+			wpType = "end"
+		}
+		waypoints[i] = model.RouteWaypoint{
+			ID:     uuid.New().String(),
+			LatLng: [2]float64{p.Lat, p.Lng},
+			Type:   wpType,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"waypoints": waypoints})
+}
+
 // RouteFromActivity creates a new planned route from an existing activity's GPS track.
 // POST /api/v1/routes/from-activity/{activityId}
 func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {

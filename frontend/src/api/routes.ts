@@ -262,6 +262,13 @@ export async function createRouteFromActivity(
   return apiClient(`/routes/from-activity/${activityId}`, { method: 'POST' })
 }
 
+// Returns waypoints derived from an activity GPS track WITHOUT saving a route to DB.
+export async function getWaypointsFromActivity(
+  activityId: string | number,
+): Promise<{ waypoints: RouteWaypoint[] }> {
+  return apiClient(`/routes/from-activity/${activityId}/waypoints`)
+}
+
 // === Route Suggestion ===
 
 export interface RouteSuggestion {

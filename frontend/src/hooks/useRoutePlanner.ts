@@ -313,6 +313,18 @@ export function useRoutePlanner() {
     })
   }, [])
 
+  // Load waypoints into the planner without creating/linking a saved route.
+  const loadWaypoints = useCallback((waypoints: RouteWaypoint[]) => {
+    setState(s => ({
+      ...s,
+      waypoints,
+      segments: [],
+      isCalculating: false,
+      calculationError: null,
+      editingRouteId: null,
+    }))
+  }, [])
+
   // ── Clear ───────────────────────────────────────────────────────────────────
 
   const clear = useCallback(() => {
@@ -426,6 +438,7 @@ export function useRoutePlanner() {
 
     // Route lifecycle
     loadRoute,
+    loadWaypoints,
     clear,
 
     // React Query: save

@@ -50,7 +50,7 @@ import { MultisportMap, type MultisportMapHandle } from '@/components/activity/M
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
-import { createRouteFromActivity } from '@/api/routes'
+import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
@@ -762,6 +762,11 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [splitDialogOpen, setSplitDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
+  const { data: routingCapabilities } = useQuery({
+    queryKey: ['routing-capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 5 * 60 * 1000,
+  })
   const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -968,13 +973,13 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           &#9998; Bearbeiten
         </Link>
       )}
-      {/* Open in Route Planner — only for GPS activities */}
-      {activity.has_gps && activity.sport_type !== 'multisport' && (
+      {/* Open in Route Planner — only when routing + offline map are available */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && routingCapabilities?.routing && routingCapabilities?.offline_map && (
         <button
           onClick={async () => {
             setOpenInPlannerLoading(true)
             try {
-              const result = await createRouteFromActivity(activity.id)
+              const result = await getWaypointsFromActivity(activity.id)
               navigate('/map', { state: { plannerWaypoints: result.waypoints } })
             } catch (err) {
               addToast({
@@ -1417,7 +1422,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
               </span>
             </div>
           </div>
-          {!isElevationCorrected ? (
+          {!isElevationCorrected && routingCapabilities?.dem_correction ? (
             <button
               onClick={() => elevationCorrectionMutation.mutate()}
               disabled={elevationCorrectionMutation.isPending}
@@ -1430,7 +1435,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
               {elevationCorrectionMutation.isPending ? spinnerIcon : correctIcon}
               DEM-Korrektur anwenden
             </button>
-          ) : (
+          ) : isElevationCorrected ? (
             <button
               onClick={() => elevationResetMutation.mutate()}
               disabled={elevationResetMutation.isPending}
@@ -1443,7 +1448,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
               {elevationResetMutation.isPending ? spinnerIcon : resetIcon}
               Auf GPS zurücksetzen
             </button>
-          )}
+          ) : null}
         </div>
 
         {/* Distance — XOR-Swap: nur EIN Button sichtbar */}

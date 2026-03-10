@@ -532,6 +532,17 @@ export default function MapPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load waypoints from navigation state (e.g. "Open in Route Planner" from ActivityDetailPage)
+  useEffect(() => {
+    const waypoints = (location.state as { plannerWaypoints?: import('@/api/routes').RouteWaypoint[] } | null)?.plannerWaypoints
+    if (waypoints && waypoints.length >= 2) {
+      setPlannerActive(true)
+      planner.loadWaypoints(waypoints)
+      // Clear location state so back-navigation doesn't re-load the waypoints
+      navigate('/map', { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // When planner is deactivated: clear route state and hide sub-panels
   const handlePlannerClose = useCallback(() => {
     setPlannerActive(false)
