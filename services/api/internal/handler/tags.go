@@ -554,6 +554,37 @@ func (h *Handler) DeleteTagZone(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteOrphanTag removes an orphan tag name (not in tags table) from all activities.tags TEXT[].
+// DELETE /api/v1/tags/orphan   body: {"name": "tagname"}
+func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		return
+	}
+
+	affected, err := h.DB.DeleteOrphanTag(r.Context(), userID, req.Name)
+	if err != nil {
+		slog.Error("delete orphan tag failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete orphan tag", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int64{"affected": affected})
+}
+
 // SeedDefaultTags creates the default autotag definitions if they don't exist.
 func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

@@ -1,8 +1,9 @@
 import { Fragment, useRef, useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
-import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone } from '@/api/tags'
+import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone, deleteOrphanTag, seedDefaultTags } from '@/api/tags'
 import type { Tag, TagActivity } from '@/api/tags'
+import { migrateTagConditions } from '@/api/rules'
 import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
 import { format } from 'date-fns'
@@ -626,6 +627,46 @@ export default function TagsPage() {
     },
   })
 
+  const migrateMut = useMutation({
+    mutationFn: migrateTagConditions,
+    onSuccess: (result) => {
+      if (result.migrated > 0) {
+        queryClient.invalidateQueries({ queryKey: ['tags'] })
+        queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
+      }
+    },
+  })
+
+  const deleteOrphanMut = useMutation({
+    mutationFn: (name: string) => deleteOrphanTag(name),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }) },
+  })
+
+  // Auto-seed default tags on first load (creates Rundtour, weather tags etc.)
+  const hasSeed = useRef(false)
+  useEffect(() => {
+    if (hasSeed.current) return
+    hasSeed.current = true
+    seedDefaultTags().then(() => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+    }).catch(() => { /* ignore */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-migrate tag conditions to automation rules on first load
+  const hasMigrated = useRef(false)
+  useEffect(() => {
+    if (!tags || hasMigrated.current) return
+    const hasConditions = tags.some(t => {
+      const cLen = t.conditions ? JSON.stringify(t.conditions).length : 0
+      const cgLen = t.condition_groups ? JSON.stringify(t.condition_groups).length : 0
+      return cLen > 2 || cgLen > 2
+    })
+    if (hasConditions) {
+      hasMigrated.current = true
+      migrateMut.mutate()
+    }
+  }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Tags...</div>
   }
@@ -645,6 +686,14 @@ export default function TagsPage() {
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Tags</h1>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => migrateMut.mutate()}
+            disabled={migrateMut.isPending}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 disabled:opacity-50 transition-colors"
+            title="Tag-Bedingungen in Automatisierungsregeln umwandeln"
+          >
+            {migrateMut.isPending ? 'Migriere...' : 'Tags migrieren'}
+          </button>
           <Link
             to="/workshop/rules?new=1"
             className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
@@ -672,7 +721,7 @@ export default function TagsPage() {
       )}
 
       {/* Tags list */}
-      {allTags.length > 0 ? (
+      {allTags.filter(t => t.category !== 'orphan').length > 0 ? (
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -684,7 +733,7 @@ export default function TagsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-              {allTags.map((tag) => (
+              {allTags.filter(t => t.category !== 'orphan').map((tag) => (
                 <Fragment key={tag.id}>
                 <tr className="group even:bg-neutral-50/50 dark:even:bg-neutral-800/20">
                   <td className="px-4 py-3">
@@ -842,7 +891,7 @@ export default function TagsPage() {
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Quell-Tag wählen —</option>
-                {allTags.filter(t => !t.is_system && t.id !== mergeTargetId).map(t => (
+                {allTags.filter(t => t.category !== 'orphan' && !t.is_system && t.id !== mergeTargetId).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
@@ -857,7 +906,7 @@ export default function TagsPage() {
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Ziel-Tag wählen —</option>
-                {allTags.filter(t => t.id !== mergeSourceId).map(t => (
+                {allTags.filter(t => t.category !== 'orphan' && t.id !== mergeSourceId).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
@@ -902,6 +951,59 @@ export default function TagsPage() {
           </button>
         </div>
       )}
+      {/* Orphan tags: tag names in activities but not in tags table */}
+      {allTags.filter(t => t.category === 'orphan').length > 0 && (
+        <div className="border border-amber-200 dark:border-amber-800 rounded-xl p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Verwaiste Tags</h2>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+              Diese Tag-Namen sind in Aktivitäten vorhanden, haben aber keinen entsprechenden Eintrag in der Tag-Verwaltung.
+              Sie stammen oft aus älteren Importen oder gelöschten Tags.
+            </p>
+          </div>
+          <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-neutral-800">
+                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Tag</th>
+                  <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Aktivitäten</th>
+                  <th className="text-right px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
+                {allTags.filter(t => t.category === 'orphan').map(tag => (
+                  <tr key={`orphan-${tag.name}`} className="group even:bg-neutral-50/50 dark:even:bg-neutral-800/20">
+                    <td className="px-4 py-3">
+                      <span
+                        className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
+                        style={{ backgroundColor: '#9CA3AF', color: '#FFFFFF' }}
+                      >
+                        {tag.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {tag.activity_count}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => deleteOrphanMut.mutate(tag.name)}
+                          disabled={deleteOrphanMut.isPending}
+                          className="px-2.5 py-1 rounded-md text-xs font-medium text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 transition-colors cursor-pointer"
+                          title="Aus allen Aktivitäten entfernen"
+                        >
+                          Entfernen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirm dialog */}
       {deleteConfirmId && (() => {
         const tagToDelete = allTags.find(t => t.id === deleteConfirmId)

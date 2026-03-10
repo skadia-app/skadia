@@ -2145,6 +2145,40 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 		}
 	}
 
+	// Append orphan tags: tag names in activities.tags TEXT[] with no tags table entry
+	orphanRows, orphanErr := db.Pool.Query(ctx, `
+		SELECT unnested.name, COUNT(DISTINCT a.id) AS activity_count
+		FROM activities a
+		CROSS JOIN LATERAL unnest(a.tags) AS unnested(name)
+		WHERE a.user_id = $1
+		  AND unnested.name != ''
+		  AND NOT EXISTS (
+		      SELECT 1 FROM tags t
+		      WHERE t.user_id = $1 AND lower(t.name) = lower(unnested.name)
+		  )
+		GROUP BY unnested.name
+		ORDER BY activity_count DESC, unnested.name ASC`,
+		userID,
+	)
+	if orphanErr == nil {
+		for orphanRows.Next() {
+			var name string
+			var count int
+			if scanErr := orphanRows.Scan(&name, &count); scanErr == nil {
+				tags = append(tags, model.Tag{
+					ID:            "",
+					UserID:        userID,
+					Name:          name,
+					Color:         "#9CA3AF",
+					TextColor:     "#FFFFFF",
+					Category:      "orphan",
+					ActivityCount: count,
+				})
+			}
+		}
+		orphanRows.Close()
+	}
+
 	return tags, nil
 }
 
@@ -2458,31 +2492,60 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 	return tags, nil
 }
 
-// SeedDefaultAutoTags creates the default autotag definitions (Nacht, Frost) if they don't exist.
+// SeedDefaultAutoTags creates the default autotag definitions if they don't exist.
 func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
 	frostConditions := []byte(`{"operator":"OR","rules":[{"field":"temperature_min_c","op":"lt","value":0},{"field":"temperature_avg_c","op":"lt","value":0}]}`)
+	rundtourConditions := []byte(`{"operator":"AND","rules":[{"field":"is_round_trip","op":"eq","value":true}]}`)
 	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
 	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
+	rundtourDesc := "Automatisch bei Aktivitaeten die als Rundtour erkannt wurden"
 
-	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
-		VALUES ($1, 'Nacht', '#1E293B', '#E2E8F0', true, $2, $3)
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID, nachtConditions, nachtDesc,
-	)
-	if err != nil {
-		return fmt.Errorf("seed Nacht autotag: %w", err)
+	// Custom auto-tags
+	seeds := []struct {
+		name, color, textColor string
+		conditions             []byte
+		desc                   string
+	}{
+		{"Nacht", "#1E293B", "#E2E8F0", nachtConditions, nachtDesc},
+		{"Frost", "#38BDF8", "#0C4A6E", frostConditions, frostDesc},
+		{"Rundtour", "#10B981", "#FFFFFF", rundtourConditions, rundtourDesc},
+	}
+	for _, s := range seeds {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
+			VALUES ($1, $2, $3, $4, true, $5, $6)
+			ON CONFLICT (user_id, name) DO NOTHING`,
+			userID, s.name, s.color, s.textColor, s.conditions, s.desc,
+		); err != nil {
+			return fmt.Errorf("seed %s autotag: %w", s.name, err)
+		}
 	}
 
-	_, err = db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
-		VALUES ($1, 'Frost', '#38BDF8', '#0C4A6E', true, $2, $3)
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID, frostConditions, frostDesc,
-	)
-	if err != nil {
-		return fmt.Errorf("seed Frost autotag: %w", err)
+	// Weather system tags
+	weatherTags := []struct{ name, color string }{
+		{"Sonnig", "#FCD34D"},
+		{"Bewölkt", "#9CA3AF"},
+		{"Regen", "#3B82F6"},
+		{"Schnee", "#F3F4F6"},
+		{"Nebel", "#D1D5DB"},
+		{"Gewitter", "#7C3AED"},
+	}
+	weatherDesc := "Automatisch erkannt aus Wetterdaten"
+	for _, w := range weatherTags {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, $2, $3, '#FFFFFF', 'weather', true, false, $4)
+			ON CONFLICT (user_id, name) DO NOTHING`,
+			userID, w.name, w.color, weatherDesc,
+		); err != nil {
+			return fmt.Errorf("seed weather tag %s: %w", w.name, err)
+		}
+	}
+
+	// Auto-migrate any tag conditions to automation rules (idempotent: conditions cleared after migration)
+	if _, err := db.MigrateTagConditionsToRules(ctx, userID); err != nil {
+		slog.Warn("seed: auto-migrate tag conditions failed (non-fatal)", "user_id", userID, "error", err)
 	}
 
 	return nil
@@ -2837,14 +2900,19 @@ func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model
 }
 
 // MigrateTagConditionsToRules converts tag auto-conditions into automation rules.
+// Handles both the new flat-array format AND the old autotag object format
+// {"operator":"AND/OR","rules":[{"field":"...","op":"...","value":...}]}.
 func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (int, error) {
+	// Use a broad filter: any tag that has non-null, non-trivial conditions or condition_groups.
+	// We avoid jsonb_array_length because conditions may be a JSON object (autotag format), not an array.
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, name, conditions, conditions_logic, condition_groups
 		 FROM tags
 		 WHERE user_id = $1
-		   AND (conditions IS NOT NULL OR condition_groups IS NOT NULL)
-		   AND (jsonb_array_length(COALESCE(conditions, '[]'::jsonb)) > 0
-		        OR jsonb_array_length(COALESCE(condition_groups, '[]'::jsonb)) > 0)`,
+		   AND (
+		     (conditions IS NOT NULL AND conditions::text NOT IN ('null','[]','{}',''))
+		     OR (condition_groups IS NOT NULL AND condition_groups::text NOT IN ('null','[]','{}',''))
+		   )`,
 		userID,
 	)
 	if err != nil {
@@ -2882,18 +2950,34 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 		actionsJSON, _ := json.Marshal([]any{action})
 
 		conditions := tag.conditions
-		if len(conditions) == 0 {
-			conditions = json.RawMessage(`[]`)
-		}
 		condLogic := tag.conditionsLogic
 		if condLogic == "" {
 			condLogic = "and"
 		}
 
+		// Detect and unwrap old autotag format: {"operator":"AND/OR","rules":[...]}
+		// The new rules engine expects a flat JSON array of conditions.
+		if len(conditions) > 0 && conditions[0] == '{' {
+			var autoFmt struct {
+				Operator string          `json:"operator"`
+				Rules    json.RawMessage `json:"rules"`
+			}
+			if jsonErr := json.Unmarshal(conditions, &autoFmt); jsonErr == nil && len(autoFmt.Rules) > 2 {
+				conditions = autoFmt.Rules
+				if autoFmt.Operator != "" {
+					condLogic = strings.ToLower(autoFmt.Operator)
+				}
+			}
+		}
+		if len(conditions) == 0 {
+			conditions = json.RawMessage(`[]`)
+		}
+
 		ruleName := "Auto: " + tag.name
 		_, err := db.Pool.Exec(ctx,
 			`INSERT INTO automation_rules (user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions)
-			 VALUES ($1, $2, true, 0, $3, $4, $5, $6)`,
+			 VALUES ($1, $2, true, 0, $3, $4, $5, $6)
+			 ON CONFLICT DO NOTHING`,
 			userID, ruleName, conditions, condLogic, tag.conditionGroups, actionsJSON,
 		)
 		if err != nil {
@@ -2910,6 +2994,21 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 		count++
 	}
 	return count, nil
+}
+
+// DeleteOrphanTag removes a tag name from all activities.tags TEXT[] for a user.
+// Used to clean up orphan tag names that have no corresponding tags table entry.
+func (db *DB) DeleteOrphanTag(ctx context.Context, userID, tagName string) (int64, error) {
+	result, err := db.Pool.Exec(ctx, `
+		UPDATE activities
+		SET tags = array_remove(tags, $2), updated_at = NOW()
+		WHERE user_id = $1 AND $2 = ANY(tags)`,
+		userID, tagName,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete orphan tag: %w", err)
+	}
+	return result.RowsAffected(), nil
 }
 
 // GetActivityStops returns detected stops for an activity.

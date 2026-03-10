@@ -283,12 +283,20 @@ ALL_TOOL_DEFINITIONS = [
                     },
                     "days": {
                         "type": "integer",
-                        "description": "Lookback window in days (default 365)",
+                        "description": "Rolling lookback window in days from today (default 365). For specific year queries use date_from/date_to instead.",
                         "default": 365,
+                    },
+                    "date_from": {
+                        "type": "string",
+                        "description": "Start date filter ISO 8601 (YYYY-MM-DD). Overrides 'days' if set. Use for specific year/period queries.",
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "End date filter ISO 8601 (YYYY-MM-DD, inclusive). Use together with date_from for specific year/period queries.",
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max results (default 20)",
+                        "description": "Max features returned (default 20). Does NOT affect total_count in the response — total_count always reflects ALL matching features.",
                         "default": 20,
                     },
                     "sport_type": {
@@ -935,9 +943,12 @@ async def _get_gear_stats(pool, user_id, gear_id=None, gear_type=None):
 async def _query_geo_features(
     pool, user_id,
     feature_type=None, min_elevation=None, days=365, limit=20, sport_type=None,
-    activity_ids=None,
+    activity_ids=None, date_from=None, date_to=None,
 ):
-    since = date.today() - timedelta(days=days)
+    if date_from:
+        since = date.fromisoformat(date_from)
+    else:
+        since = date.today() - timedelta(days=days)
 
     # Map user-facing feature_type to DB category names
     _FEATURE_TO_CATEGORY = {
@@ -954,18 +965,27 @@ async def _query_geo_features(
         feature_type = _FEATURE_TO_CATEGORY.get(feature_type, feature_type)
 
     if feature_type == "gastronomy":
-        table_join = (
-            "JOIN activities a ON a.id = s.activity_id "
-            "WHERE a.user_id = $1 AND a.started_at >= $2 AND s.poi_type IN "
-            "('restaurant','alpine_hut','cafe','biergarten','fast_food','pub','bar')"
-        )
+        gastro_conditions = [
+            "a.user_id = $1", "a.started_at >= $2",
+            "s.poi_type IN ('restaurant','alpine_hut','cafe','biergarten','fast_food','pub','bar')"
+        ]
         params: list = [user_id, since]
+        if date_to:
+            params.append(date.fromisoformat(date_to))
+            gastro_conditions.append(f"a.started_at <= ${len(params)}")
+        table_join = (
+            "JOIN activities a ON a.id = s.activity_id WHERE "
+            + " AND ".join(gastro_conditions)
+        )
         select = "s.poi_name AS name, s.poi_type AS subtype, ST_Y(s.location) AS lat, ST_X(s.location) AS lng, s.duration_s"
         from_clause = "activity_stops s"
     else:
         conditions = ["a.user_id = $1", "a.started_at >= $2"]
         params = [user_id, since]
 
+        if date_to:
+            params.append(date.fromisoformat(date_to))
+            conditions.append(f"a.started_at <= ${len(params)}")
         if feature_type:
             params.append(feature_type)
             conditions.append(f"gt.category = ${len(params)}")
@@ -985,6 +1005,9 @@ async def _query_geo_features(
         select = "gt.name, gt.category, gt.ele, gt.lat, gt.lng, a.started_at::date AS activity_date, a.title AS activity_title"
         from_clause = "activity_geo_tags gt"
 
+    count_query = f"SELECT COUNT(*) FROM {from_clause} {table_join}"
+    total_count = await pool.fetchval(count_query, *params)
+
     query = (
         f"SELECT {select} FROM {from_clause} {table_join} "
         f"ORDER BY {'gt.ele DESC NULLS LAST' if feature_type != 'gastronomy' else 's.duration_s DESC'} "
@@ -992,7 +1015,7 @@ async def _query_geo_features(
     )
     rows = await pool.fetch(query, *params)
     data = [dict(r) for r in rows]
-    return {"feature_type": feature_type, "count": len(data), "features": data}
+    return {"feature_type": feature_type, "total_count": total_count, "features": data, "note": f"Showing {len(data)} of {total_count} total matches"}
 
 
 async def _query_segments(pool, user_id, query=None, include_efforts=True, days=365, limit=5):

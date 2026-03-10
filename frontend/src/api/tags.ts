@@ -239,3 +239,14 @@ export async function upsertTagZone(tagId: string, zone: Omit<TagZone, 'id' | 't
 export async function deleteTagZone(tagId: string): Promise<void> {
   await apiClient<void>(`/tag-zones/${tagId}`, { method: 'DELETE' })
 }
+
+/**
+ * Remove an orphan tag name from all activities.tags TEXT[] for the current user.
+ * Orphan tags are tag names that appear in activities but have no corresponding tags table entry.
+ */
+export async function deleteOrphanTag(name: string): Promise<{ affected: number }> {
+  return apiClient<{ affected: number }>('/tags/orphan', {
+    method: 'DELETE',
+    body: { name },
+  })
+}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fetchRules, createRule, updateRule, deleteRule, applyRules, migrateTagConditions } from '@/api/rules'
+import { fetchRules, createRule, updateRule, deleteRule, applyRules } from '@/api/rules'
 import type { AutomationRule } from '@/api/types'
 import RuleEditor from '@/components/RuleEditor'
 
@@ -18,7 +18,6 @@ export default function AutomationRulesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<{ applied: number; errors: number } | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
-  const [migrateResult, setMigrateResult] = useState<{ migrated: number } | null>(null)
 
   // Build initial rule data from URL params
   const initialRuleData: Partial<AutomationRule> | undefined = urlNew && (urlTagName || urlTagId)
@@ -64,15 +63,6 @@ export default function AutomationRulesPage() {
     },
   })
 
-  const migrateMutation = useMutation({
-    mutationFn: migrateTagConditions,
-    onSuccess: (result) => {
-      setMigrateResult(result)
-      queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
-      setTimeout(() => setMigrateResult(null), 6000)
-    },
-  })
-
   const toggleMutation = useMutation({
     mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => updateRule(id, { is_active }),
     onSuccess: () => {
@@ -106,14 +96,6 @@ export default function AutomationRulesPage() {
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Automatisierungsregeln</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => migrateMutation.mutate()}
-            disabled={migrateMutation.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 disabled:opacity-50 transition-colors"
-            title="Tag-Bedingungen (z.B. 'Frost', 'Nacht') in Automatisierungsregeln umwandeln"
-          >
-            {migrateMutation.isPending ? 'Migriere...' : 'Tags migrieren'}
-          </button>
-          <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
@@ -134,16 +116,6 @@ export default function AutomationRulesPage() {
           <span className="text-emerald-700 dark:text-emerald-400">
             {applyResult.applied} Regel(n) angewendet
             {applyResult.errors > 0 && `, ${applyResult.errors} Fehler`}
-          </span>
-        </div>
-      )}
-
-      {migrateResult && (
-        <div className="rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm">
-          <span className="text-blue-700 dark:text-blue-400">
-            {migrateResult.migrated === 0
-              ? 'Keine Tag-Bedingungen gefunden (bereits migriert oder keine vorhanden).'
-              : `${migrateResult.migrated} Tag-Bedingung(en) in Automatisierungsregeln umgewandelt.`}
           </span>
         </div>
       )}

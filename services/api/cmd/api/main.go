@@ -240,6 +240,7 @@ func main() {
 			r.Patch("/tags/{id}", h.UpdateTag)
 			r.Delete("/tags/{id}", h.DeleteTag)
 			r.Post("/tags/seed-defaults", h.SeedDefaultTags)
+			r.Delete("/tags/orphan", h.DeleteOrphanTag)
 			r.Get("/tags/{id}/activities", h.GetTagActivities)
 			r.Post("/tags/{id}/assign-activities", h.AssignActivitiesToTag)
 			r.Delete("/tags/{id}/activities", h.UnassignActivitiesFromTag)
