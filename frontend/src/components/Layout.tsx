@@ -7,6 +7,7 @@ import NotificationCenter from '@/components/NotificationCenter'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/photos', label: 'Fotos' },
   { to: '/activities', label: 'Aktivitäten' },
   { to: '/map', label: 'Karte' },
   { to: '/calendar', label: 'Kalender' },

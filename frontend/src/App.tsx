@@ -14,6 +14,7 @@ import { ModalContainer } from '@/components/Modal'
 
 // Lazy-loaded pages (route-based code splitting)
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
+const PhotoGalleryPage = lazy(() => import('@/pages/PhotoGalleryPage'))
 const ActivitiesPage = lazy(() => import('@/pages/ActivitiesPage'))
 const ActivityDetailPage = lazy(() => import('@/pages/ActivityDetailPage'))
 const MapPage = lazy(() => import('@/pages/MapPage'))
@@ -107,6 +108,7 @@ export default function App() {
                       <Route path="/" element={<Layout />}>
                         <Route index element={<Navigate to="/dashboard" replace />} />
                         <Route path="dashboard" element={<DashboardPage />} />
+                        <Route path="photos" element={<PhotoGalleryPage />} />
                         <Route path="activities" element={<ActivitiesPage />} />
                         <Route path="activities/compare" element={<ActivityComparisonPage />} />
                         <Route path="fusion" element={<FusionPage />} />
