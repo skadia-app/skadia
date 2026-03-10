@@ -2039,7 +2039,10 @@ export default function MapPage() {
             return (
           <button
             onClick={() => {
-              if (!plannerAvailable) return
+              if (!plannerAvailable) {
+                addToast({ type: 'info', title: 'Routenplaner nicht verfügbar', message: 'Benötigt lokale Kartendaten und pgRouting. Aktiviere diese in den Einstellungen.' })
+                return
+              }
               if (plannerActive) {
                 handlePlannerClose()
               } else {
