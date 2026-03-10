@@ -199,6 +199,7 @@ func main() {
 			r.Delete("/activities/{id}", h.DeleteActivity)
 			r.Delete("/activities", h.DeleteActivities)
 			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
+			r.Post("/activities/{id}/correct-elevation", h.CorrectActivityElevation)
 			r.Get("/activities/{id}/streams", h.GetStreams)
 			r.Get("/activities/{id}/sensors", h.GetSensors)
 			r.Get("/activities/{id}/laps", h.GetLaps)

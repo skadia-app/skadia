@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os/exec"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -216,6 +218,90 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 3)
 
 	slog.Info("dem import: post-import maintenance complete", "job_id", jobID, "source", source)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+}
+
+// CorrectActivityElevation applies DEM-based elevation correction to an existing
+// activity in the background.
+//
+// POST /api/v1/activities/{id}/correct-elevation
+//
+// Response: 202 Accepted  { "job_id": "<uuid>", "status": "started" }
+//
+// The job queries dem.get_elevation() from the PostGIS DEM raster for every
+// GPS-bearing stream point, updates altitude_m in activity_streams where the
+// DEM value deviates by less than 50 m from the recorded value, and sets
+// activities.elevation_source = 'dem'.
+func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	activityID := chi.URLParam(r, "id")
+
+	// Ownership check.
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	activityName := activity.Title
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_correction", &activityID, &activityName, 1)
+	if err != nil {
+		slog.Error("correct-elevation: failed to insert background job", "activity_id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		return
+	}
+
+	go h.runElevationCorrectionJob(jobID, activityID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		"job_id": jobID,
+		"status": "started",
+	})
+}
+
+func (h *Handler) runElevationCorrectionJob(jobID, activityID string) {
+	ctx := context.Background()
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("elevation correction job panicked", "panic", rec, "job_id", jobID)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		}
+	}()
+
+	slog.Info("elevation correction: starting", "job_id", jobID, "activity_id", activityID)
+
+	corrected, source, err := h.DB.CorrectActivityElevationFromDEM(ctx, activityID)
+	if err != nil {
+		slog.Error("elevation correction: DEM query failed", "error", err, "activity_id", activityID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		return
+	}
+
+	if corrected == 0 {
+		slog.Info("elevation correction: no points corrected (no DEM data or no GPS)", "activity_id", activityID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, false)
+		return
+	}
+
+	// Update elevation_source on the activity.
+	fields := map[string]any{"elevation_source": "dem"}
+	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
+		slog.Error("elevation correction: failed to update elevation_source", "error", err, "activity_id", activityID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		return
+	}
+
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
+	slog.Info("elevation correction: complete", "job_id", jobID, "activity_id", activityID,
+		"corrected", corrected, "source", source)
 	h.DB.CompleteBackgroundJob(ctx, jobID, false)
 }
 
