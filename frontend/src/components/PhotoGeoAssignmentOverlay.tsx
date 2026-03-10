@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { patchActivityPhotoLocation, type ActivityPhoto } from '@/api/activityPhotos'
+import { patchActivityPhotoLocation, isVideoPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 
@@ -341,11 +341,11 @@ export default function PhotoGeoAssignmentOverlay({
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-neutral-100">
-            Fotos auf Karte zuweisen
+            Fotos &amp; Videos auf Karte zuweisen
           </span>
           {pending.length > 0 && (
             <span className="text-xs text-neutral-400">
-              {pending.length} {pending.length === 1 ? 'Foto' : 'Fotos'} ohne Position
+              {pending.length} {pending.length === 1 ? 'Medium' : 'Medien'} ohne Position
             </span>
           )}
           {patchMutation.isPending && (
@@ -355,7 +355,7 @@ export default function PhotoGeoAssignmentOverlay({
         <div className="flex items-center gap-2">
           {assigned.length > 0 && (
             <span className="text-xs text-green-400">
-              {assigned.length} {assigned.length === 1 ? 'Foto' : 'Fotos'} positioniert
+              {assigned.length} {assigned.length === 1 ? 'Medium' : 'Medien'} positioniert
             </span>
           )}
           <button
@@ -418,42 +418,53 @@ export default function PhotoGeoAssignmentOverlay({
               <svg className="w-8 h-8 text-green-500" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
-              <span className="text-xs text-neutral-400 text-center">Alle Fotos positioniert</span>
+              <span className="text-xs text-neutral-400 text-center">Alle Medien positioniert</span>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">
-              {pending.map(photo => (
-                <div
-                  key={photo.id}
-                  draggable
-                  onDragStart={e => handleThumbnailDragStart(e, photo.id)}
-                  onDragEnd={handleThumbnailDragEnd}
-                  className="relative rounded-lg overflow-hidden border border-neutral-700 hover:border-accent-DEFAULT transition-colors cursor-grab active:cursor-grabbing select-none"
-                  title={`${photo.original_filename} — auf Karte ziehen`}
-                >
-                  <AuthenticatedImage
-                    src={photo.thumb_url}
-                    alt={photo.original_filename}
-                    className="w-full h-28 object-contain bg-neutral-950 pointer-events-none"
-                  />
-                  {/* Drag handle hint */}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/30">
-                    <svg className="w-6 h-6 text-white drop-shadow" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 3a1 1 0 00-1 1v1.586l-.293-.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l2-2a1 1 0 00-1.414-1.414L11 5.586V4a1 1 0 00-1-1zM5.293 11.293a1 1 0 011.414 0L10 14.586l3.293-3.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  {/* Filename label */}
-                  <div className="absolute bottom-0 inset-x-0 bg-black/60 px-1.5 py-0.5">
-                    <p className="text-[10px] text-white truncate">{photo.original_filename}</p>
-                  </div>
-                  {/* Pending save indicator */}
-                  {patchMutation.isPending && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              {pending.map(photo => {
+                const isVid = isVideoPhoto(photo)
+                return (
+                  <div
+                    key={photo.id}
+                    draggable
+                    onDragStart={e => handleThumbnailDragStart(e, photo.id)}
+                    onDragEnd={handleThumbnailDragEnd}
+                    className="relative rounded-lg overflow-hidden border border-neutral-700 hover:border-accent-DEFAULT transition-colors cursor-grab active:cursor-grabbing select-none"
+                    title={`${photo.original_filename} — auf Karte ziehen`}
+                  >
+                    <AuthenticatedImage
+                      src={photo.thumb_url}
+                      alt={photo.original_filename}
+                      className="w-full h-28 object-contain bg-neutral-950 pointer-events-none"
+                    />
+                    {/* Play icon overlay for videos */}
+                    {isVid && (
+                      <div className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center pointer-events-none">
+                        <svg className="w-3 h-3 text-white ml-0.5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                        </svg>
+                      </div>
+                    )}
+                    {/* Drag handle hint */}
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/30">
+                      <svg className="w-6 h-6 text-white drop-shadow" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 00-1 1v1.586l-.293-.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l2-2a1 1 0 00-1.414-1.414L11 5.586V4a1 1 0 00-1-1zM5.293 11.293a1 1 0 011.414 0L10 14.586l3.293-3.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {/* Filename label */}
+                    <div className="absolute bottom-0 inset-x-0 bg-black/60 px-1.5 py-0.5">
+                      <p className="text-[10px] text-white truncate">{photo.original_filename}</p>
+                    </div>
+                    {/* Pending save indicator */}
+                    {patchMutation.isPending && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

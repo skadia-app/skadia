@@ -1,12 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, type ActivityPhoto } from '@/api/activityPhotos'
+import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, isVideoPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
+import AuthenticatedMedia from '@/components/AuthenticatedMedia'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
+
+/** Format seconds as m:ss (e.g. 83 → "1:23") */
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
 
 interface Props {
   activityId: string
@@ -89,7 +97,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
 
   function handleDeletePhoto(photo: ActivityPhoto) {
     openModal({
-      title: `Foto "${photo.original_filename}" löschen?`,
+      title: `${isVideoPhoto(photo) ? 'Video' : 'Foto'} "${photo.original_filename}" löschen?`,
       message: 'Löschen ist nicht rückgängig zu machen.',
       buttons: [
         {
@@ -120,7 +128,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
         onClick={() => setCollapsed(!isCollapsed)}
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
       >
-        <span>Fotos {photos.length > 0 && <span className="text-neutral-400">({photos.length})</span>}</span>
+        <span>Fotos &amp; Videos {photos.length > 0 && <span className="text-neutral-400">({photos.length})</span>}</span>
         <svg
           className={`w-4 h-4 text-neutral-400 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
           viewBox="0 0 20 20"
@@ -135,29 +143,48 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           {/* Thumbnail grid */}
           {photos.length > 0 && (
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 pt-3">
-              {photos.map((photo, index) => (
-                <div key={photo.id} className="relative group aspect-square">
-                  <button
-                    onClick={() => setSelectedIndex(index)}
-                    className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-accent-400 transition-colors"
-                  >
-                    <AuthenticatedImage
-                      src={photo.thumb_url}
-                      alt={photo.original_filename}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                  <button
-                    onClick={() => handleDeletePhoto(photo)}
-                    className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-sm"
-                    title="Foto löschen"
-                  >
-                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
+              {photos.map((photo, index) => {
+                const isVid = isVideoPhoto(photo)
+                return (
+                  <div key={photo.id} className="relative group aspect-square">
+                    <button
+                      onClick={() => setSelectedIndex(index)}
+                      className="w-full h-full rounded-lg overflow-hidden cursor-pointer border border-neutral-200 dark:border-neutral-700 hover:border-accent-400 transition-colors"
+                    >
+                      <AuthenticatedImage
+                        src={photo.thumb_url}
+                        alt={photo.original_filename}
+                        className="w-full h-full object-cover"
+                      />
+                      {/* Play button overlay for videos */}
+                      {isVid && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                            <svg className="w-4 h-4 text-white ml-0.5" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                            </svg>
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                    {/* Duration badge for videos */}
+                    {isVid && photo.duration_s != null && (
+                      <div className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[9px] text-white leading-none pointer-events-none">
+                        {formatDuration(photo.duration_s)}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleDeletePhoto(photo)}
+                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-sm"
+                      title={isVid ? 'Video löschen' : 'Foto löschen'}
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                      </svg>
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -171,7 +198,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 onClick={() => setShowGeoAssign(true)}
                 className="text-xs text-amber-500 hover:text-amber-400 cursor-pointer transition-colors text-left"
               >
-                {photosWithoutPosition.length} {photosWithoutPosition.length === 1 ? 'Foto' : 'Fotos'} ohne Position — Auf Karte zuweisen
+                {photosWithoutPosition.length} {photosWithoutPosition.length === 1 ? 'Medium' : 'Medien'} ohne Position — Auf Karte zuweisen
               </button>
             </div>
           )}
@@ -181,7 +208,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/mp4,video/quicktime,video/x-msvideo,video/webm,video/x-matroska"
               multiple
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}
@@ -191,7 +218,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
               disabled={uploadMutation.isPending}
               className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer disabled:opacity-50"
             >
-              {uploadMutation.isPending ? 'Wird hochgeladen...' : '+ Fotos hochladen'}
+              {uploadMutation.isPending ? 'Wird hochgeladen...' : '+ Fotos / Videos hochladen'}
             </button>
           </div>
         </div>
@@ -259,16 +286,24 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             </div>
           </div>
 
-          {/* Image area */}
+          {/* Media area */}
           <div
             className="relative flex-1 w-full flex items-center justify-center px-14 min-h-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <AuthenticatedImage
-              src={selectedPhoto.preview_url || selectedPhoto.full_url}
-              alt={selectedPhoto.original_filename}
-              className="max-w-full object-contain rounded-lg shadow-2xl"
-            />
+            {isVideoPhoto(selectedPhoto) ? (
+              <AuthenticatedMedia
+                photo={selectedPhoto}
+                objectFit="contain"
+                className="max-w-full max-h-full rounded-lg shadow-2xl"
+              />
+            ) : (
+              <AuthenticatedImage
+                src={selectedPhoto.preview_url || selectedPhoto.full_url}
+                alt={selectedPhoto.original_filename}
+                className="max-w-full object-contain rounded-lg shadow-2xl"
+              />
+            )}
 
             {photos.length > 1 && (
               <>
