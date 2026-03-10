@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { lineStringToSvgPoints } from '@/lib/trackSvg'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
+import StaticTrackMap from '@/components/StaticTrackMap'
 import type { PhotoFeedActivitySummary } from '@/api/photos'
 
 // --- Format helpers ---
@@ -29,29 +29,19 @@ interface Props {
 }
 
 export default function ActivityMiniCard({ activity, photoCount }: Props) {
-  const svgPoints = activity.track_geojson
-    ? lineStringToSvgPoints(activity.track_geojson, 200, 8)
-    : null
-
   const color = sportColor(activity.sport_type)
   const label = sportLabel(activity.sport_type)
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Track SVG oder Placeholder */}
+      {/* Track-Karte oder Placeholder */}
       <div className="rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 aspect-[5/3] relative">
-        {svgPoints ? (
-          <svg viewBox="0 0 200 120" className="w-full h-full" aria-hidden="true">
-            <polyline
-              points={svgPoints}
-              fill="none"
-              stroke={color}
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.85"
-            />
-          </svg>
+        {activity.track_geojson ? (
+          <StaticTrackMap
+            geojsonStr={activity.track_geojson}
+            color={color}
+            className="w-full h-full"
+          />
         ) : activity.lat && activity.lng ? (
           <div className="w-full h-full flex items-center justify-center">
             <svg className="w-8 h-8 text-neutral-400" viewBox="0 0 24 24" fill="currentColor">
