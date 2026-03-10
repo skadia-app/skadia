@@ -93,3 +93,6 @@ app.include_router(health_router)
 
 from api.forecast import router as forecast_router
 app.include_router(forecast_router)
+
+from api.embed import router as embed_router
+app.include_router(embed_router)
