@@ -248,7 +248,7 @@ export async function getIsochrone(
 // === Route from Activity ===
 
 export async function createRouteFromActivity(
-  activityId: number,
+  activityId: string | number,
 ): Promise<{ waypoints: [number, number][] }> {
   return apiClient(`/routes/from-activity/${activityId}`, { method: 'POST' })
 }

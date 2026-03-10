@@ -150,9 +150,6 @@ export default function RouteProfileChart({
     }
   }, [points])
 
-  // Gradient definition id (unique per instance in case of multiple charts)
-  const gradientId = 'route-profile-gradient'
-
   // ── Init / destroy chart ──────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return
@@ -305,11 +302,13 @@ export default function RouteProfileChart({
 
     const handleOut = () => onHoverFraction(null)
 
-    chart.on('mousemove', handleMove as Parameters<typeof chart.on>[1])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chart.on('mousemove', handleMove as any)
     chart.on('mouseout', handleOut)
 
     return () => {
-      chart.off('mousemove', handleMove as Parameters<typeof chart.off>[1])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      chart.off('mousemove', handleMove as any)
       chart.off('mouseout', handleOut)
     }
   }, [points, totalDistanceM, onHoverFraction])

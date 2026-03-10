@@ -33,15 +33,6 @@ function formatTime(minutes: number): string {
   return `${h} h ${min} min`
 }
 
-// Icons as inline SVGs
-function DragHandleIcon() {
-  return (
-    <svg className="w-4 h-4 text-neutral-400" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M7 2a1 1 0 011 1v1h4V3a1 1 0 112 0v1h1a1 1 0 010 2h-1v1h1a1 1 0 010 2h-1v1h1a1 1 0 010 2h-1v1a1 1 0 11-2 0v-1H8v1a1 1 0 11-2 0v-1H5a1 1 0 010-2h1v-1H5a1 1 0 010-2h1V8H5a1 1 0 010-2h1V5H5a1 1 0 010-2h1V2a1 1 0 011-1z" />
-    </svg>
-  )
-}
-
 function WaypointIcon({ type }: { type: RouteWaypoint['type'] }) {
   if (type === 'start') {
     return (
@@ -218,7 +209,6 @@ export default function RoutePlannerPanel({
   const [collapsed, setCollapsed] = useState(false)
 
   const hasRoute = waypoints.length >= 2
-  const selectedProfile = ROUTING_PROFILES.find(p => p.value === profile)
 
   const handleClear = useCallback(() => {
     if (waypoints.length > 0) {
