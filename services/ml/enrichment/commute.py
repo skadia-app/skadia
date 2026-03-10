@@ -63,32 +63,33 @@ async def enrich_commute(pool: asyncpg.Pool, activity_id: str, user_id: str) -> 
         if home_center is None or work_center is None:
             return False
 
-        # Update commute_clusters table
-        await conn.execute(
-            "DELETE FROM commute_clusters WHERE user_id = $1", user_id
-        )
-        await conn.execute(
-            """
-            INSERT INTO commute_clusters
-                (user_id, cluster_label, center, radius_m, point_count)
-            VALUES ($1, 0, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
-            """,
-            user_id,
-            home_center[0],
-            home_center[1],
-            int(np.sum(start_clusters.labels_ == _largest_label(start_clusters.labels_))),
-        )
-        await conn.execute(
-            """
-            INSERT INTO commute_clusters
-                (user_id, cluster_label, center, radius_m, point_count)
-            VALUES ($1, 1, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
-            """,
-            user_id,
-            work_center[0],
-            work_center[1],
-            int(np.sum(end_clusters.labels_ == _largest_label(end_clusters.labels_))),
-        )
+        # Update commute_clusters table (wrapped in transaction to prevent partial writes)
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM commute_clusters WHERE user_id = $1", user_id
+            )
+            await conn.execute(
+                """
+                INSERT INTO commute_clusters
+                    (user_id, cluster_label, center, radius_m, point_count)
+                VALUES ($1, 0, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
+                """,
+                user_id,
+                home_center[0],
+                home_center[1],
+                int(np.sum(start_clusters.labels_ == _largest_label(start_clusters.labels_))),
+            )
+            await conn.execute(
+                """
+                INSERT INTO commute_clusters
+                    (user_id, cluster_label, center, radius_m, point_count)
+                VALUES ($1, 1, ST_SetSRID(ST_MakePoint($3, $2), 4326), 300, $4)
+                """,
+                user_id,
+                work_center[0],
+                work_center[1],
+                int(np.sum(end_clusters.labels_ == _largest_label(end_clusters.labels_))),
+            )
 
         # Check current activity
         current = await conn.fetchrow(

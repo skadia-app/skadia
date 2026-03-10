@@ -151,7 +151,7 @@ async def predict(req: ForecastRequest):
 async def _predict_chronos(values: np.ndarray, horizon: int) -> np.ndarray:
     """Forecast using Chronos-2."""
     from models.tsfm import get_chronos
-    pipeline = get_chronos()
+    pipeline = await get_chronos()
     if pipeline is None:
         raise HTTPException(status_code=501, detail="Chronos-2 model not available")
 
@@ -167,7 +167,7 @@ async def _predict_chronos(values: np.ndarray, horizon: int) -> np.ndarray:
 async def _predict_ttm(values: np.ndarray, horizon: int) -> np.ndarray:
     """Forecast using TTM R2."""
     from models.tsfm import get_ttm
-    model = get_ttm()
+    model = await get_ttm()
     if model is None:
         raise HTTPException(status_code=501, detail="TTM model not available")
 
@@ -195,7 +195,7 @@ async def _predict_ttm(values: np.ndarray, horizon: int) -> np.ndarray:
 async def detect_anomalies(req: AnomalyRequest):
     """Detect anomalies in a time-series metric using TSPulse R1."""
     from models.tsfm import get_tspulse
-    model = get_tspulse()
+    model = await get_tspulse()
     if model is None:
         raise HTTPException(status_code=501, detail="TSPulse model not available")
 

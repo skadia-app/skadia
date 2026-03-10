@@ -905,7 +905,7 @@ async def _search_routes(pool, user_id, location_name=None, activity_id=None, sp
     if location_name:
         params.append(f"%{location_name}%")
         conditions.append(
-            f"(a.start_city ILIKE ${len(params)} OR a.start_location ILIKE ${len(params)})"
+            f"(a.start_city ILIKE ${len(params)} OR a.start_region ILIKE ${len(params)})"
         )
     if sport_type:
         params.append(sport_type)

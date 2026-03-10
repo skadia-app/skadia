@@ -28,9 +28,9 @@ async def cluster_activities(conn, user_id: str) -> list:
             SELECT
                 a.id,
                 COALESCE(a.elapsed_time_s, 0)                   AS elapsed_s,
-                COALESCE(a.avg_heart_rate_bpm, 0)               AS avg_hr,
+                COALESCE(a.avg_heart_rate, 0)                   AS avg_hr,
                 COALESCE(u.effective_max_hr, 190)               AS max_hr,
-                COALESCE(a.total_elevation_gain_m, 0)           AS elevation_m,
+                COALESCE(a.elevation_gain_m, 0)                 AS elevation_m,
                 COALESCE(a.avg_power_w, 0)                      AS power_w
             FROM activities a
             LEFT JOIN user_profiles u ON u.user_id = a.user_id

@@ -47,6 +47,7 @@ def get_llm_client() -> Optional[AsyncOpenAI]:
                 base_url=LLM_BASE_URL,
                 api_key=LLM_API_KEY,
             )
-        except Exception:
+        except Exception as e:
+            _config_logger.error("Failed to initialize LLM client: %s", e)
             return None
     return _llm_client

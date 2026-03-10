@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from collections import defaultdict
 
 import nats
@@ -103,6 +104,17 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
         await msg.ack()
         return
 
+    try:
+        uuid.UUID(str(activity_id))
+        uuid.UUID(str(user_id))
+    except (ValueError, AttributeError):
+        logger.warning(
+            "Invalid UUID in NATS message: activity_id=%s user_id=%s",
+            activity_id, user_id,
+        )
+        await msg.ack()
+        return
+
     # enabled_modules: empty list (or missing) means all modules run.
     # Non-empty list means only the listed modules run (backwards-compatible).
     enabled_modules: list[str] = data.get("enabled_modules") or []
@@ -149,8 +161,9 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
             )
             _metrics["errors_total"] += 1
 
-            # Check retry count via metadata
-            retry_count = msg.metadata.num_delivered if hasattr(msg, "metadata") else 0
+            # Check retry count via metadata (metadata attribute may be None or absent)
+            num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", None)
+            retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
             if retry_count >= MAX_RETRIES:
                 logger.error(
                     "Max retries (%d) reached for activity %s, giving up",
@@ -280,7 +293,8 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
             logger.error("document processing failed for %s: %s", doc_id, e)
             _metrics["errors_total"] += 1
 
-            retry_count = msg.metadata.num_delivered if hasattr(msg, "metadata") else 0
+            num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", None)
+            retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
             if retry_count >= MAX_RETRIES:
                 logger.error(
                     "Max retries (%d) reached for document %s, giving up",
@@ -356,7 +370,8 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
             logger.error("analytics: fatal error for user %s: %s", user_id, e)
             _metrics["errors_total"] += 1
 
-            retry_count = msg.metadata.num_delivered if hasattr(msg, "metadata") else 0
+            num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", None)
+            retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
             if retry_count >= MAX_RETRIES:
                 logger.error(
                     "analytics: max retries (%d) reached for user %s, giving up",
