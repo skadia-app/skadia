@@ -747,6 +747,21 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
     await _ensure_stream(js, "SKADIA", ["skadia.>"])
 
     pool = await get_pool()
+
+    # --- Startup cleanup: mark orphaned running jobs as failed ---
+    # Any background_job left in status='running' at startup was interrupted
+    # by a previous container crash/restart and will never complete on its own.
+    try:
+        async with pool.acquire() as conn:
+            n = await conn.execute(
+                "UPDATE background_jobs "
+                "SET status = 'failed', finished_at = NOW() "
+                "WHERE status = 'running' AND job_type = 'photo_clip_embed'",
+            )
+        logger.info("Startup cleanup: marked orphaned photo_clip_embed jobs as failed (%s)", n)
+    except Exception as e:
+        logger.warning("Startup cleanup: failed to mark orphaned jobs: %s", e)
+
     sub_photo = await js.pull_subscribe(
         "skadia.photo.embed",
         durable="ml-photo-embed",
