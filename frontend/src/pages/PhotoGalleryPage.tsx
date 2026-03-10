@@ -280,7 +280,7 @@ function PhotoThumb({
       )}
     >
       <AuthenticatedImage
-        src={photo.thumb_url}
+        src={photo.preview_url}
         alt={photo.original_filename}
         className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
       />

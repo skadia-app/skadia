@@ -225,11 +225,12 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			a.distance_m      AS act_distance_m,
 			a.moving_time_s   AS act_moving_time_s,
 			a.elevation_gain_m AS act_elevation_gain_m,
-			NULL::text        AS act_track_geojson,
+			ST_AsGeoJSON(at.track_simplified) AS act_track_geojson,
 			a.location_lat    AS act_lat,
 			a.location_lng    AS act_lng
 		FROM activity_photos ap
 		LEFT JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
+		LEFT JOIN activity_tracks at ON at.activity_id = a.id
 		WHERE ap.user_id = $1
 		ORDER BY ` + orderExpr + `
 		LIMIT $2 OFFSET $3
