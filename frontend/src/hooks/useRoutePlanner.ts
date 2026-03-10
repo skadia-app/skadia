@@ -230,13 +230,19 @@ export function useRoutePlanner() {
   )
 
   const recalculateAll = useCallback(async () => {
-    setState(s => ({ ...s, segments: [], isCalculating: true, calculationError: null }))
-    const { waypoints, profile } = state
-    for (let i = 0; i < waypoints.length - 1; i++) {
-      await _calculateSegment(waypoints[i], waypoints[i + 1], profile)
+    let currentWaypoints: RouteWaypoint[] = []
+    let currentProfile = ''
+    setState(s => {
+      currentWaypoints = s.waypoints
+      currentProfile = s.profile
+      return { ...s, segments: [], isCalculating: true, calculationError: null }
+    })
+    for (let i = 0; i < currentWaypoints.length - 1; i++) {
+      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfile)
     }
+    setState(s => ({ ...s, isCalculating: false }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.waypoints, state.profile])
+  }, [_calculateSegment])
 
   // ── Offroad toggle ──────────────────────────────────────────────────────────
 
@@ -275,14 +281,18 @@ export function useRoutePlanner() {
 
   const setProfileAndRecalculate = useCallback(
     async (profile: string) => {
-      setState(s => ({ ...s, profile, segments: [] }))
-      const { waypoints } = state
-      for (let i = 0; i < waypoints.length - 1; i++) {
-        await _calculateSegment(waypoints[i], waypoints[i + 1], profile)
+      let currentWaypoints: RouteWaypoint[] = []
+      setState(s => {
+        currentWaypoints = s.waypoints
+        return { ...s, profile, segments: [], isCalculating: true, calculationError: null }
+      })
+      for (let i = 0; i < currentWaypoints.length - 1; i++) {
+        await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profile)
       }
+      setState(s => ({ ...s, isCalculating: false }))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.waypoints],
+    [_calculateSegment],
   )
 
   const setSportType = useCallback((sportType: string) => {

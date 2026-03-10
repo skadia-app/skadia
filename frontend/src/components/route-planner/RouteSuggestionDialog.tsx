@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { suggestRoute, type RouteSuggestionParams } from '@/api/routes'
+import { suggestRoute, type RouteSuggestionParams, type RouteSuggestion } from '@/api/routes'
 import { useAccentColor } from '@/lib/accentColor'
 import { useToast } from '@/lib/toast'
 
@@ -61,8 +61,8 @@ export interface RouteSuggestionDialogProps {
   /** Current map center — used as start point */
   start: [number, number]
   onClose: () => void
-  /** Called with the returned GeoJSON FeatureCollection (3 suggested routes) */
-  onResult: (result: GeoJSON.FeatureCollection) => void
+  /** Called with the returned route suggestions */
+  onResult: (suggestions: RouteSuggestion[]) => void
 }
 
 export default function RouteSuggestionDialog({
@@ -124,6 +124,15 @@ export default function RouteSuggestionDialog({
     if (!isNaN(n) && n >= 100 && n <= 3000) setElevationHm(n)
   }
 
+  // M3: Escape key to close dialog
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   const mutation = useMutation({
     mutationFn: () => {
       const effectiveLandscape = preferUnknown
@@ -137,6 +146,7 @@ export default function RouteSuggestionDialog({
         target_elevation_gain: elevationHm,
         sport_type: sportType,
         profile: PROFILE_MAP[sportType] ?? 'trekking',
+        prefer_unknown: preferUnknown || undefined,
         landscape_prefs: effectiveLandscape,
         surface_prefs: {
           trail,
@@ -147,7 +157,7 @@ export default function RouteSuggestionDialog({
       return suggestRoute(params)
     },
     onSuccess: (result) => {
-      onResult(result)
+      onResult(result.suggestions)
       onClose()
     },
     onError: (err) => {

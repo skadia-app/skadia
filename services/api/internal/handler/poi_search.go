@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 // POIResult is a point-of-interest search result returned to the client.
@@ -20,6 +22,12 @@ type POIResult struct {
 // SearchPOIs handles GET /api/v1/search/pois?q=...&types=...&limit=...
 // Searches peaks and amenities using pg_trgm similarity matching.
 func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		return
+	}
+
 	q := r.URL.Query().Get("q")
 	if len(q) < 2 {
 		writeError(w, http.StatusBadRequest, "Bad Request", "query too short (min 2 chars)", r.URL.Path)
@@ -33,19 +41,31 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var results []POIResult
+	var peakErr, amenityErr error
 
 	if typesStr == "" || strings.Contains(typesStr, "peak") || strings.Contains(typesStr, "volcano") || strings.Contains(typesStr, "saddle") {
 		peaks, err := h.DB.SearchPeaks(r.Context(), q, limit)
-		if err == nil {
+		if err != nil {
+			slog.Error("SearchPOIs: SearchPeaks failed", "error", err, "query", q)
+			peakErr = err
+		} else {
 			results = append(results, poiRowsToResults(peaks)...)
 		}
 	}
 
 	if typesStr == "" || containsAnyAmenityType(typesStr) {
 		amenities, err := h.DB.SearchAmenities(r.Context(), q, typesStr, limit)
-		if err == nil {
+		if err != nil {
+			slog.Error("SearchPOIs: SearchAmenities failed", "error", err, "query", q)
+			amenityErr = err
+		} else {
 			results = append(results, poiRowsToResults(amenities)...)
 		}
+	}
+
+	if peakErr != nil && amenityErr != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "POI search failed", r.URL.Path)
+		return
 	}
 
 	if len(results) > limit {

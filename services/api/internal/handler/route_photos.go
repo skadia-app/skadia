@@ -106,18 +106,31 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("route-photos/%s/%s/%s%s", userID, routeID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("route-photos/%s/%s/%s_thumb.jpg", userID, routeID, hash)
 
+	// Track uploaded S3 keys for cleanup on failure.
+	var uploadedKeys []string
+	cleanupS3 := func() {
+		for _, key := range uploadedKeys {
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
+				slog.Warn("s3 orphan cleanup failed", "key", key, "error", delErr)
+			}
+		}
+	}
+
 	// Upload original.
 	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
 		slog.Error("s3 upload route photo failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
 		return
 	}
+	uploadedKeys = append(uploadedKeys, s3Key)
 
 	// Upload thumbnail.
 	if thumbData != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
 			slog.Warn("s3 upload route thumb failed", "error", err)
 			s3KeyThumb = s3Key
+		} else {
+			uploadedKeys = append(uploadedKeys, s3KeyThumb)
 		}
 	} else {
 		s3KeyThumb = s3Key
@@ -131,6 +144,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("s3 upload route preview failed", "error", err)
 		} else {
 			s3KeyPreview = &key
+			uploadedKeys = append(uploadedKeys, key)
 		}
 	}
 
@@ -147,6 +161,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	saved, err := h.DB.InsertRoutePhoto(r.Context(), photo)
 	if err != nil {
 		slog.Error("insert route photo failed", "error", err)
+		cleanupS3()
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
 		return
 	}
@@ -177,7 +192,7 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucket := mediaBucketName()
-	s3Key, s3KeyThumb, s3KeyPreview, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID)
+	s3Key, s3KeyThumb, s3KeyPreview, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
 	if err != nil {
 		slog.Error("delete route photo failed", "error", err)
 		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)

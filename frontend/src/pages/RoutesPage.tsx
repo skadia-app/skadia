@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -369,6 +369,11 @@ export default function RoutesPage() {
     searchTimerRef.current = setTimeout(() => setSearch(value), 300)
   }, [])
 
+  // M4: Clean up debounce timer on unmount
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [])
+
   const queryParams = useMemo(
     () => ({
       sort: sortBy,
@@ -436,7 +441,15 @@ export default function RoutesPage() {
   const handleExportGPX = useCallback(
     async (route: PlannedRoute) => {
       try {
-        await exportRouteGPX(route.id)
+        const { blob, filename } = await exportRouteGPX(route.id)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename || `route-${route.id}.gpx`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
         addToast({ type: 'success', title: 'GPX-Export erfolgreich' })
       } catch {
         addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })

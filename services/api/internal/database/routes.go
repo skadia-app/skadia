@@ -340,8 +340,9 @@ func (db *DB) RemoveRouteTag(ctx context.Context, routeID, tagID string) error {
 // user's 20 most recent activities.
 //
 // A value of 1.0 means the user matches the Tobler hiking-function baseline
-// exactly. Values > 1.0 indicate a faster-than-baseline athlete; values < 1.0
-// indicate a slower one. If no qualifying activities are found, or if the
+// exactly. Values > 1.0 indicate the user is slower than baseline (takes more
+// time per km); values < 1.0 indicate a faster athlete. If no qualifying
+// activities are found, or if the
 // computed factor is non-positive, 1.0 is returned (safe fallback).
 //
 // The Tobler speed used here treats the average slope of each activity

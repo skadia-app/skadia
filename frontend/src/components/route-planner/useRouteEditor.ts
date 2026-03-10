@@ -284,7 +284,7 @@ export function useRouteEditor(
 
     if (routeSrc) routeSrc.setData(buildRouteGeoJSON(planner.segments))
     if (wpSrc)    wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
-  })
+  }, [active, planner.segments, planner.waypoints])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────
   useEffect(() => {

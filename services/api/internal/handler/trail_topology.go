@@ -23,7 +23,7 @@ func (h *Handler) BuildTrailTopology(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "trail_topology_build", nil, &jobName, 4)
 	if err != nil {
 		slog.Error("failed to insert trail topology job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 

@@ -9,38 +9,65 @@ import (
 
 // ElevationPoint represents a single point in an elevation profile.
 type ElevationPoint struct {
-	Fraction  float64 `json:"fraction"`
-	Elevation float64 `json:"elevation"`
-	Lat       float64 `json:"lat"`
-	Lng       float64 `json:"lng"`
+	Fraction  float64  `json:"fraction"`
+	Elevation *float64 `json:"elevation"` // nil when no DEM coverage
+	Lat       float64  `json:"lat"`
+	Lng       float64  `json:"lng"`
 }
 
 // GetElevation queries DEM elevation for a list of [lng, lat] points using the
 // dem.get_elevation() PostgreSQL function from Migration 000130.
 // Returns the elevations in the same order as the input points, along with the
-// data source identifier of the best-resolution raster tile at the last queried
-// point.
+// data source identifier of the best-resolution DEM raster tile.
+// Uses a single batch query via unnest to avoid N+1 roundtrips.
 func (db *DB) GetElevation(ctx context.Context, points [][2]float64) ([]float64, string, error) {
-	elevations := make([]float64, len(points))
-	source := "none"
+	if len(points) == 0 {
+		return nil, "none", nil
+	}
 
+	// Detect best available DEM source with a single query.
+	var source string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT CASE
+			WHEN EXISTS (SELECT 1 FROM dem.raster_tiles WHERE source LIKE 'lidar_%') THEN 'lidar'
+			WHEN EXISTS (SELECT 1 FROM dem.raster_tiles WHERE source = 'eea10') THEN 'eea10'
+			WHEN EXISTS (SELECT 1 FROM dem.raster_tiles LIMIT 1) THEN
+				(SELECT source FROM dem.raster_tiles ORDER BY resolution_m ASC LIMIT 1)
+			ELSE 'none'
+		END
+	`).Scan(&source)
+	if err != nil || source == "none" {
+		return make([]float64, len(points)), "none", err
+	}
+
+	// Build parallel arrays for the batch query. Input points are [lng, lat].
+	lngs := make([]float64, len(points))
+	lats := make([]float64, len(points))
 	for i, p := range points {
+		lngs[i] = p[0]
+		lats[i] = p[1]
+	}
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT COALESCE(dem.get_elevation(ST_SetSRID(ST_MakePoint(lng, lat), 4326)), 0)
+		FROM unnest($1::float8[], $2::float8[]) WITH ORDINALITY AS t(lng, lat, ord)
+		ORDER BY ord
+	`, lngs, lats)
+	if err != nil {
+		return nil, source, fmt.Errorf("batch elevation query: %w", err)
+	}
+	defer rows.Close()
+
+	elevations := make([]float64, 0, len(points))
+	for rows.Next() {
 		var elev float64
-		var src string
-		err := db.Pool.QueryRow(ctx, `
-			SELECT dem.get_elevation(ST_SetSRID(ST_MakePoint($1, $2), 4326)),
-			       COALESCE((
-			           SELECT source FROM dem.raster_tiles
-			           WHERE ST_Intersects(rast, ST_SetSRID(ST_MakePoint($1, $2), 4326))
-			           ORDER BY resolution_m ASC LIMIT 1
-			       ), 'none')
-		`, p[0], p[1]).Scan(&elev, &src)
-		if err != nil {
-			// Gracefully skip points where DEM data is unavailable.
-			continue
+		if err := rows.Scan(&elev); err != nil {
+			return nil, source, fmt.Errorf("scan elevation: %w", err)
 		}
-		elevations[i] = elev
-		source = src
+		elevations = append(elevations, elev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, source, fmt.Errorf("batch elevation rows: %w", err)
 	}
 	return elevations, source, nil
 }
@@ -135,31 +162,67 @@ func (db *DB) CorrectActivityElevationFromDEM(ctx context.Context, activityID st
 		return 0, "none", nil
 	}
 
-	// 2. Query DEM elevation per GPS point via PostGIS and apply correction.
+	// 2. Collect GPS-bearing points and their indices for a single batch DEM query.
 	source = "none"
 	corrected = 0
+
+	type gpsIdx struct {
+		streamIdx int
+		lat, lng  float64
+	}
+	gpsPoints := make([]gpsIdx, 0, len(streams))
 	for i := range streams {
 		if streams[i].Lat == nil || streams[i].Lng == nil {
 			continue
 		}
+		gpsPoints = append(gpsPoints, gpsIdx{streamIdx: i, lat: *streams[i].Lat, lng: *streams[i].Lng})
+	}
+	if len(gpsPoints) == 0 {
+		return 0, "none", nil
+	}
+
+	// Build parallel arrays for unnest batch query.
+	lats := make([]float64, len(gpsPoints))
+	lngs := make([]float64, len(gpsPoints))
+	for i, p := range gpsPoints {
+		lats[i] = p.lat
+		lngs[i] = p.lng
+	}
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			COALESCE(dem.get_elevation(ST_SetSRID(ST_MakePoint(lng, lat), 4326)), -9999),
+			COALESCE((
+				SELECT source FROM dem.raster_tiles
+				WHERE ST_Intersects(rast, ST_SetSRID(ST_MakePoint(lng, lat), 4326))
+				ORDER BY resolution_m ASC LIMIT 1
+			), 'none')
+		FROM unnest($1::float8[], $2::float8[]) WITH ORDINALITY AS t(lng, lat, ord)
+		ORDER BY ord
+	`, lngs, lats)
+	if err != nil {
+		return 0, "none", fmt.Errorf("batch DEM correction query: %w", err)
+	}
+	defer rows.Close()
+
+	idx := 0
+	for rows.Next() {
 		var demElev float64
 		var src string
-		qErr := db.Pool.QueryRow(ctx, `
-			SELECT dem.get_elevation(ST_SetSRID(ST_MakePoint($1, $2), 4326)),
-			       COALESCE((
-			           SELECT source FROM dem.raster_tiles
-			           WHERE ST_Intersects(rast, ST_SetSRID(ST_MakePoint($1, $2), 4326))
-			           ORDER BY resolution_m ASC LIMIT 1
-			       ), 'none')
-		`, *streams[i].Lng, *streams[i].Lat).Scan(&demElev, &src)
-		if qErr != nil {
-			// DEM tile missing for this point — keep current altitude.
+		if err := rows.Scan(&demElev, &src); err != nil {
+			return 0, "none", fmt.Errorf("scan DEM correction row: %w", err)
+		}
+		si := gpsPoints[idx].streamIdx
+		idx++
+
+		// Skip points with no DEM coverage (sentinel value).
+		if demElev == -9999 || src == "none" {
 			continue
 		}
 
 		// Reject correction when deviation exceeds threshold (barometer may be more precise).
-		if streams[i].AltitudeM != nil {
-			diff := demElev - *streams[i].AltitudeM
+		if streams[si].AltitudeM != nil {
+			diff := demElev - *streams[si].AltitudeM
 			if diff < 0 {
 				diff = -diff
 			}
@@ -169,9 +232,12 @@ func (db *DB) CorrectActivityElevationFromDEM(ctx context.Context, activityID st
 		}
 
 		v := demElev
-		streams[i].AltitudeM = &v
+		streams[si].AltitudeM = &v
 		source = src
 		corrected++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, "none", fmt.Errorf("batch DEM correction rows: %w", err)
 	}
 
 	if corrected == 0 {

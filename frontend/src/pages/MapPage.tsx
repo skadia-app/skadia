@@ -2196,9 +2196,11 @@ export default function MapPage() {
             <RouteSuggestionDialog
               start={[center.lat, center.lng]}
               onClose={() => setShowSuggestionDialog(false)}
-              onResult={(fc) => {
+              onResult={(suggestions) => {
                 // Load first suggested route's waypoints into the planner
-                const feature = fc.features[0]
+                const first = suggestions[0]
+                if (!first) return
+                const feature = first.geojson.features[0]
                 if (feature?.geometry?.type === 'LineString') {
                   const coords = (feature.geometry as GeoJSON.LineString).coordinates
                   if (coords.length >= 2) {

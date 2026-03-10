@@ -7,15 +7,15 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// GetRoutePhotos returns all photos for a route, ordered by sort_order.
-func (db *DB) GetRoutePhotos(ctx context.Context, routeID string) ([]model.RoutePhoto, error) {
+// GetRoutePhotos returns all photos for a route owned by the given user, ordered by sort_order.
+func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]model.RoutePhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, route_id, user_id, file_hash, s3_key, s3_key_thumb, s3_key_preview,
 			original_name, width, height, sort_order, created_at
 		FROM route_photos
-		WHERE route_id = $1
+		WHERE route_id = $1 AND user_id = $2
 		ORDER BY sort_order ASC, created_at ASC
-	`, routeID)
+	`, routeID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get route photos: %w", err)
 	}
@@ -68,14 +68,15 @@ func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (mod
 	return saved, nil
 }
 
-// DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID can be deleted.
+// DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID and
+// belonging to the specified routeID can be deleted.
 // Returns the S3 keys so the caller can clean up storage.
-func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, err error) {
+func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, err error) {
 	err = db.Pool.QueryRow(ctx, `
 		DELETE FROM route_photos
-		WHERE id = $1 AND user_id = $2
+		WHERE id = $1 AND user_id = $2 AND route_id = $3
 		RETURNING s3_key, s3_key_thumb, s3_key_preview
-	`, photoID, userID).Scan(&s3Key, &s3KeyThumb, &s3KeyPreview)
+	`, photoID, userID, routeID).Scan(&s3Key, &s3KeyThumb, &s3KeyPreview)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("delete route photo: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 
 	"github.com/go-chi/chi/v5"
@@ -231,7 +232,7 @@ func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "dem_import", nil, &jobName, 3)
 	if err != nil {
 		slog.Error("dem import: failed to insert background job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 
@@ -381,12 +382,9 @@ func (h *Handler) runElevationCorrectionJob(jobID, activityID string) {
 // runVacuumAnalyzeDEM führt VACUUM ANALYZE über ein psql-Subprocess aus,
 // da VACUUM nicht innerhalb einer pgx-Transaktion ausgeführt werden kann.
 func runVacuumAnalyzeDEM(ctx context.Context) error {
-	dbURL := ""
-	// DATABASE_URL aus Umgebung lesen (wird beim API-Start gesetzt)
+	// DATABASE_URL aus Umgebung lesen (wird beim API-Start gesetzt).
 	// Fallback: leerer String → psql nutzt PGDATABASE etc.
-	if url, ok := ctx.Value(struct{}{}).(string); ok {
-		dbURL = url
-	}
+	dbURL := os.Getenv("DATABASE_URL")
 
 	args := []string{"-c", "VACUUM ANALYZE dem.raster_tiles;"}
 	if dbURL != "" {

@@ -79,10 +79,8 @@ export default function RouteSaveDialog({
         saved = await createRoute(payload)
       }
 
-      // Sync tags separately
-      if (metadata.tag_ids.length > 0) {
-        await setRouteTags(saved.id, metadata.tag_ids)
-      }
+      // Sync tags separately (always call to allow clearing)
+      await setRouteTags(saved.id, metadata.tag_ids)
 
       return saved
     },

@@ -108,7 +108,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if req.TargetDistanceM <= 0 {
 		req.TargetDistanceM = 10000 // default 10 km
 	}
-	if req.Profile == "" {
+	if !validBRouterProfiles[req.Profile] {
 		req.Profile = "hiking-sac2"
 	}
 
@@ -372,6 +372,11 @@ func (h *Handler) routeViaBRouterRaw(ctx context.Context, waypoints [][2]float64
 		return nil, false, fmt.Errorf("at least 2 waypoints required")
 	}
 
+	// Validate profile against allowlist.
+	if !validBRouterProfiles[profile] {
+		profile = "hiking-sac2"
+	}
+
 	brouterURL := h.brouterBaseURL()
 	if brouterURL == "" {
 		return h.straightLineGeoJSON(waypoints), true, nil
@@ -390,9 +395,11 @@ func (h *Handler) routeViaBRouterRaw(ctx context.Context, waypoints [][2]float64
 	)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	//nolint:noctx // dedicated timeout via http.Client.Timeout; ctx passed for structured cancellation is unused
-	_ = ctx
-	resp, err := client.Get(queryURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("create request: %w", err)
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		slog.Warn("SuggestRoutes: BRouter unavailable, using straight-line fallback", "error", err)
 		return h.straightLineGeoJSON(waypoints), true, nil

@@ -12,6 +12,19 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// validBRouterProfiles is the allowlist of BRouter routing profiles.
+// Any profile not in this map is replaced with the default "hiking-sac2".
+var validBRouterProfiles = map[string]bool{
+	"hiking-sac2":      true,
+	"trekking":         true,
+	"safety":           true,
+	"cycling-road":     true,
+	"cycling-mountain": true,
+	"cycling-gravel":   true,
+	"running":          true,
+	"walking":          true,
+}
+
 // RouteRequest is the request body for POST /api/v1/routing/route.
 type RouteRequest struct {
 	// Waypoints is a list of [longitude, latitude] pairs (at least 2).
@@ -45,8 +58,14 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 waypoints required", r.URL.Path)
 		return
 	}
-	if req.Profile == "" {
+	if !validBRouterProfiles[req.Profile] {
 		req.Profile = "hiking-sac2"
+	}
+	if req.Alternatives < 0 {
+		req.Alternatives = 0
+	}
+	if req.Alternatives > 5 {
+		req.Alternatives = 5
 	}
 
 	brouterURL := h.brouterBaseURL()
@@ -71,7 +90,13 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(queryURL) //nolint:noctx // dedicated timeout via http.Client.Timeout
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL, nil)
+	if err != nil {
+		slog.Warn("BRouter: failed to create request", "error", err)
+		h.straightLineFallback(w, req.Waypoints)
+		return
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		slog.Warn("BRouter request failed, using straight-line fallback",
 			"error", err,

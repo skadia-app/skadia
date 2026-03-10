@@ -102,6 +102,7 @@ export interface RouteSuggestionParams {
   target_elevation_gain: number
   sport_type: string
   profile: string
+  prefer_unknown?: boolean  // Terra Incognita bias
   landscape_prefs: {
     forest: number    // 0-10
     water: number     // 0-10
@@ -257,14 +258,22 @@ export async function getIsochrone(
 
 export async function createRouteFromActivity(
   activityId: string | number,
-): Promise<{ waypoints: [number, number][] }> {
+): Promise<PlannedRoute> {
   return apiClient(`/routes/from-activity/${activityId}`, { method: 'POST' })
 }
 
 // === Route Suggestion ===
 
+export interface RouteSuggestion {
+  variant: number
+  profile: string
+  via_point?: [number, number]
+  geojson: GeoJSON.FeatureCollection
+  is_fallback: boolean
+}
+
 export async function suggestRoute(
   params: RouteSuggestionParams,
-): Promise<GeoJSON.FeatureCollection> {
+): Promise<{ suggestions: RouteSuggestion[] }> {
   return apiClient('/routes/suggest', { method: 'POST', body: params })
 }

@@ -1377,7 +1377,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
   })
 
   const elevationSource = activity.elevation_source ?? 'device'
-  const distanceSource = (activity as any).distance_source ?? 'device'
+  const distanceSource = activity.distance_source ?? 'device'
   const isElevationCorrected = elevationSource === 'dem'
   const isDistanceCorrected = distanceSource === 'computed'
 

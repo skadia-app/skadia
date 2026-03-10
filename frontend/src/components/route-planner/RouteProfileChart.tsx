@@ -54,10 +54,10 @@ function buildProfile(
   if (raw.length < 2) return []
 
   // Pre-compute offroad fraction ranges from segments
+  const totalM = segments.reduce((s, sg) => s + sg.distance_m, 0) || totalDistanceM
   let coveredFraction = 0
   const offroadRanges: Array<{ start: number; end: number }> = []
   for (const seg of segments) {
-    const totalM = segments.reduce((s, sg) => s + sg.distance_m, 0) || totalDistanceM
     const len = totalM > 0 ? seg.distance_m / totalM : 0
     if (seg.mode === 'offroad') {
       offroadRanges.push({ start: coveredFraction, end: coveredFraction + len })

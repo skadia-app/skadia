@@ -3,6 +3,9 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // POIRow is a generic point-of-interest result from OSM tables.
@@ -48,19 +51,37 @@ func (db *DB) SearchPeaks(ctx context.Context, query string, limit int) ([]POIRo
 }
 
 // SearchAmenities searches osm_amenities by name using pg_trgm similarity.
-// The types parameter is currently unused for filtering (all amenity types are searched).
+// When types is non-empty (comma-separated), results are filtered to matching subtypes.
 func (db *DB) SearchAmenities(ctx context.Context, query, types string, limit int) ([]POIRow, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT name,
-			COALESCE(subtype, type, 'amenity') AS type,
-			NULL::double precision AS ele,
-			ST_Y(geom) AS lat, ST_X(geom) AS lng,
-			osm_id
-		FROM osm_amenities
-		WHERE name IS NOT NULL AND name % $1
-		ORDER BY similarity(name, $1) DESC
-		LIMIT $2
-	`, query, limit)
+	var rows pgx.Rows
+	var err error
+
+	if types != "" {
+		typeList := strings.Split(types, ",")
+		rows, err = db.Pool.Query(ctx, `
+			SELECT name,
+				COALESCE(subtype, type, 'amenity') AS type,
+				NULL::double precision AS ele,
+				ST_Y(geom) AS lat, ST_X(geom) AS lng,
+				osm_id
+			FROM osm_amenities
+			WHERE name IS NOT NULL AND name % $1 AND subtype = ANY($3)
+			ORDER BY similarity(name, $1) DESC
+			LIMIT $2
+		`, query, limit, typeList)
+	} else {
+		rows, err = db.Pool.Query(ctx, `
+			SELECT name,
+				COALESCE(subtype, type, 'amenity') AS type,
+				NULL::double precision AS ele,
+				ST_Y(geom) AS lat, ST_X(geom) AS lng,
+				osm_id
+			FROM osm_amenities
+			WHERE name IS NOT NULL AND name % $1
+			ORDER BY similarity(name, $1) DESC
+			LIMIT $2
+		`, query, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("search amenities: %w", err)
 	}
