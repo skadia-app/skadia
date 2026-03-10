@@ -492,10 +492,35 @@ async def _process_photo_embed(msg, pool, nc) -> None:
             retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
             if retry_count >= MAX_RETRIES:
                 logger.error(
-                    "photo_embed: max retries (%d) reached for photo %s, giving up",
+                    "photo_embed: max retries (%d) reached for photo %s, giving up — %s",
                     MAX_RETRIES,
                     photo_id,
+                    e,
                 )
+                # Permanently mark as failed so catch-up doesn't re-queue this photo.
+                # Uses enrichment_errors (activity_id scope) to avoid a new migration.
+                try:
+                    async with pool.acquire() as conn:
+                        row = await conn.fetchrow(
+                            "SELECT activity_id FROM activity_photos WHERE id = $1::uuid",
+                            photo_id,
+                        )
+                        if row and row["activity_id"]:
+                            existing = await conn.fetchval(
+                                "SELECT COUNT(*) FROM enrichment_errors "
+                                "WHERE activity_id = $1 AND module = 'clip_embedding'",
+                                row["activity_id"],
+                            )
+                            if not existing:
+                                await conn.execute(
+                                    "INSERT INTO enrichment_errors "
+                                    "(activity_id, module, error_message) "
+                                    "VALUES ($1, 'clip_embedding', $2)",
+                                    row["activity_id"],
+                                    f"Photo {photo_id}: {e}",
+                                )
+                except Exception as db_err:
+                    logger.warning("photo_embed: failed to write enrichment_error: %s", db_err)
                 await msg.ack()
             else:
                 await msg.nak()
@@ -504,17 +529,88 @@ async def _process_photo_embed(msg, pool, nc) -> None:
 
 
 async def _catchup_missing_embeddings(pool, js) -> None:
-    """Every 60 s: publish skadia.photo.embed for photos without a CLIP embedding."""
+    """Every 60 s: publish skadia.photo.embed for photos without a CLIP embedding.
+
+    Also manages a background_jobs entry per user so the UI ActiveJobsIndicator
+    shows progress. Uses INSERT … ON CONFLICT to upsert the job row.
+    """
     while True:
         try:
-            rows = await pool.fetch(
-                "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview "
-                "FROM activity_photos ap "
-                "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
-                "WHERE ap.clip_embedding IS NULL "
-                "AND ues.enable_photo_clip_embedding = true "
-                "LIMIT 50"
-            )
+            async with pool.acquire() as conn:
+                # --- per-user stats (total + missing) ---
+                stats = await conn.fetch(
+                    "SELECT ap.user_id::text AS user_id, "
+                    "COUNT(*) AS total, "
+                    "COUNT(*) FILTER ("
+                    "  WHERE ap.clip_embedding IS NULL "
+                    "  AND ap.content_type LIKE 'image/%' "
+                    "  AND ap.s3_key !~ '\\.(mp4|mov|avi|mkv|webm)$' "
+                    "  AND NOT EXISTS ("
+                    "    SELECT 1 FROM enrichment_errors ee "
+                    "    WHERE ee.activity_id = ap.activity_id AND ee.module = 'clip_embedding'"
+                    "  )"
+                    ") AS missing "
+                    "FROM activity_photos ap "
+                    "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
+                    "WHERE ues.enable_photo_clip_embedding = true "
+                    "GROUP BY ap.user_id"
+                )
+
+                users_with_missing = {
+                    s["user_id"]: {"total": s["total"], "missing": s["missing"]}
+                    for s in stats
+                    if s["missing"] > 0
+                }
+                all_user_ids = {s["user_id"] for s in stats}
+
+                # --- upsert/update background_jobs per user with pending work ---
+                for user_id, counts in users_with_missing.items():
+                    done = counts["total"] - counts["missing"]
+                    total = counts["total"]
+                    # Update existing running job OR insert a new one
+                    updated = await conn.execute(
+                        "UPDATE background_jobs "
+                        "SET progress_current = $2, progress_total = $3 "
+                        "WHERE user_id = $1 AND job_type = 'photo_clip_embed' "
+                        "AND status = 'running'",
+                        user_id, done, total,
+                    )
+                    if updated == "UPDATE 0":
+                        await conn.execute(
+                            "INSERT INTO background_jobs "
+                            "(user_id, job_type, status, progress_current, progress_total) "
+                            "VALUES ($1, 'photo_clip_embed', 'running', $2, $3)",
+                            user_id, done, total,
+                        )
+
+                # --- complete jobs for users whose queue is now empty ---
+                await conn.execute(
+                    "UPDATE background_jobs "
+                    "SET status = 'completed', finished_at = NOW() "
+                    "WHERE job_type = 'photo_clip_embed' AND status = 'running' "
+                    "AND user_id NOT IN (SELECT DISTINCT user_id::text FROM activity_photos "
+                    "WHERE clip_embedding IS NULL)"
+                )
+
+                # --- publish next batch (LIMIT 50) ---
+                # Exclude videos/non-images and permanently failed photos
+                # (marked via enrichment_errors module='clip_embedding').
+                rows = await conn.fetch(
+                    "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview "
+                    "FROM activity_photos ap "
+                    "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
+                    "WHERE ap.clip_embedding IS NULL "
+                    "AND ues.enable_photo_clip_embedding = true "
+                    "AND ap.content_type LIKE 'image/%' "
+                    "AND ap.s3_key !~ '\\.(mp4|mov|avi|mkv|webm)$' "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM enrichment_errors ee "
+                    "  WHERE ee.activity_id = ap.activity_id "
+                    "  AND ee.module = 'clip_embedding'"
+                    ") "
+                    "LIMIT 50"
+                )
+
             if rows:
                 for row in rows:
                     payload = {

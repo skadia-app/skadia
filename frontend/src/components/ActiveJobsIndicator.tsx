@@ -23,6 +23,8 @@ function JobRow({ job }: { job: ActiveJob }) {
     ? 'Alle Aktivitäten neu berechnen'
     : job.job_type === 'photo_preview_recompute'
     ? 'Foto-Vorschauen'
+    : job.job_type === 'photo_clip_embed'
+    ? 'Foto-Indexierung (KI)'
     : `Segment „${job.entity_name ?? 'Segment'}`
 
   const pct =
@@ -36,6 +38,8 @@ function JobRow({ job }: { job: ActiveJob }) {
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
         : job.job_type === 'photo_preview_recompute'
         ? `${job.progress_current} / ${job.progress_total} Thumbnails generiert`
+        : job.job_type === 'photo_clip_embed'
+        ? `${job.progress_current} / ${job.progress_total} Fotos indexiert`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
       : isDataImport && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`
