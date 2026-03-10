@@ -142,14 +142,16 @@ func fetchPhotoTextEmbedding(ctx context.Context, mlURL, text string) ([]float32
 }
 
 // fillFeedPhotoURLs setzt ThumbURL/PreviewURL/FullURL anhand der Photo-ID.
+// Kein /api/v1/-Präfix — wird vom Frontend-API-Client hinzugefügt.
 func fillFeedPhotoURLs(p *model.ActivityPhoto) {
-	p.ThumbURL = fmt.Sprintf("/api/v1/photos/%s/thumb", p.ID)
+	base := "/photos/" + p.ID
+	p.ThumbURL = base + "/thumb"
+	p.FullURL = base + "/full"
 	if p.S3KeyPreview != "" {
-		p.PreviewURL = fmt.Sprintf("/api/v1/photos/%s/preview", p.ID)
+		p.PreviewURL = base + "/preview"
 	} else {
-		p.PreviewURL = fmt.Sprintf("/api/v1/photos/%s/full", p.ID)
+		p.PreviewURL = base + "/full"
 	}
-	p.FullURL = fmt.Sprintf("/api/v1/photos/%s/full", p.ID)
 }
 
 // pgvecLiteral wandelt einen float32-Slice in ein pgvector-Literal um.

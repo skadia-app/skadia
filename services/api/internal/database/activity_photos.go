@@ -202,7 +202,14 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 	if sort == "added" {
 		orderExpr = "ap.created_at DESC"
 	} else {
-		orderExpr = "COALESCE(a.started_at, ap.taken_at, ap.created_at) DESC, ap.activity_id NULLS LAST, COALESCE(ap.taken_at, ap.created_at)"
+		// Aktivitäts-Fotos (activity_id NOT NULL) zuerst, danach nach Datum DESC.
+		// Innerhalb einer Aktivität: nach taken_at sortiert (chronologisch).
+		// Verlinkte Fotos ohne Aktivitäts-Match fallen ans Ende (NULLS LAST).
+		orderExpr = `
+			CASE WHEN ap.activity_id IS NOT NULL AND a.id IS NOT NULL THEN 0 ELSE 1 END,
+			COALESCE(a.started_at, ap.taken_at, ap.created_at) DESC,
+			ap.activity_id NULLS LAST,
+			COALESCE(ap.taken_at, ap.created_at)`
 	}
 
 	q := `
