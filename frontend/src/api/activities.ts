@@ -199,6 +199,33 @@ export async function mergeActivities(id: string, req: MergeRequest): Promise<Ac
   return apiClient<Activity>(`/activities/${id}/merge`, { method: 'POST', body: req })
 }
 
+// ── Data Corrections ──────────────────────────────────────────────────────────
+
+export interface CorrectionJobResponse {
+  job_id: string
+  status: string
+}
+
+/** Apply DEM-based elevation correction to an activity (background job). */
+export async function correctActivityElevation(id: string): Promise<CorrectionJobResponse> {
+  return apiClient<CorrectionJobResponse>(`/activities/${id}/correct-elevation`, { method: 'POST' })
+}
+
+/** Reset GPS altitude by re-parsing the original file (background job). */
+export async function resetActivityElevation(id: string): Promise<CorrectionJobResponse> {
+  return apiClient<CorrectionJobResponse>(`/activities/${id}/reset-elevation`, { method: 'POST' })
+}
+
+/** Recalculate distance from GPS track via Haversine (background job). */
+export async function correctActivityDistance(id: string): Promise<CorrectionJobResponse> {
+  return apiClient<CorrectionJobResponse>(`/activities/${id}/correct-distance`, { method: 'POST' })
+}
+
+/** Reset distance by re-parsing the original file (background job). */
+export async function resetActivityDistance(id: string): Promise<CorrectionJobResponse> {
+  return apiClient<CorrectionJobResponse>(`/activities/${id}/reset-distance`, { method: 'POST' })
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 /** Delete a single activity. */
