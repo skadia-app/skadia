@@ -223,7 +223,7 @@ function RouteCard({
     >
       {/* Mini map */}
       <RouteMiniMap
-        geojson={route.geometry_simplified ?? route.geometry_geojson}
+        geojson={route.geometry_geojson}
         className="h-28 w-full"
       />
 
@@ -408,9 +408,9 @@ export default function RoutesPage() {
 
   const duplicateMut = useMutation({
     mutationFn: duplicateRoute,
-    onSuccess: (newRoute) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
-      addToast({ type: 'success', title: `Route "${newRoute.name}" dupliziert` })
+      addToast({ type: 'success', title: 'Route dupliziert' })
     },
     onError: () => {
       addToast({ type: 'error', title: 'Duplizieren fehlgeschlagen', duration: 0 })
@@ -434,7 +434,7 @@ export default function RoutesPage() {
   const handleExportGPX = useCallback(
     async (route: PlannedRoute) => {
       try {
-        await exportRouteGPX(route.id, route.name)
+        await exportRouteGPX(route.id)
         addToast({ type: 'success', title: 'GPX-Export erfolgreich' })
       } catch {
         addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })

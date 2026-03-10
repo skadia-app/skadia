@@ -47,6 +47,7 @@ export interface PlannedRoute {
   estimated_time_min?: number
   time_override: boolean
   auto_tag: boolean
+  geometry_geojson?: string        // ST_AsGeoJSON — present in list (simplified) and detail
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string
