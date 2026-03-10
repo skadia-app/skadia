@@ -550,6 +550,152 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
+// RecomputePhotoThumbnails regenerates s3_key_thumb for photos where the thumb path
+// currently points to a non-image file (e.g. a raw .mp4 path stored during a buggy
+// Strava import). It also corrects is_video and content_type for such rows.
+// Runs as a background job; returns 202 Accepted immediately.
+func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		return
+	}
+
+	// Filter to only photos whose thumb key ends in a video extension — these are the
+	// broken rows left by the Strava importer bug.
+	var badPhotos []model.ActivityPhoto
+	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
+	for _, p := range photos {
+		dot := strings.LastIndex(p.S3KeyThumb, ".")
+		if dot < 0 {
+			continue
+		}
+		ext := strings.ToLower(p.S3KeyThumb[dot:])
+		if videoExts[ext] {
+			badPhotos = append(badPhotos, p)
+		}
+	}
+
+	if len(badPhotos) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_thumb_recompute", nil, nil, int64(len(badPhotos)))
+	if err != nil {
+		slog.Error("recompute thumbnails: failed to create background job", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		processed := int64(0)
+		anyFailed := false
+
+		for _, photo := range badPhotos {
+			// Download the original file (the raw video).
+			data, _, err := h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
+			if err != nil {
+				slog.Warn("recompute thumbnails: download failed", "photo_id", photo.ID, "key", photo.S3Key, "error", err)
+				anyFailed = true
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			extDot := strings.LastIndex(photo.S3Key, ".")
+			ext := ".mp4" // safe default so ffmpeg always has a hint
+			if extDot >= 0 {
+				ext = photo.S3Key[extDot:]
+			}
+
+			// Generate 200px thumbnail via ffmpeg (first frame).
+			thumbData, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
+			if err != nil || thumbData == nil {
+				slog.Warn("recompute thumbnails: ffmpeg failed", "photo_id", photo.ID, "error", err)
+				anyFailed = true
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			if photo.FileHash == nil {
+				slog.Warn("recompute thumbnails: photo has no file_hash, skipping", "photo_id", photo.ID)
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			// Generate preview (mid-frame) too so both thumbs are fixed in one pass.
+			var midOffset float64
+			if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
+				midOffset = meta.DurationS / 2
+			}
+			previewData, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset)
+
+			thumbKey := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, *photo.FileHash)
+			if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, thumbKey, thumbData, "image/jpeg"); err != nil {
+				slog.Warn("recompute thumbnails: s3 thumb upload failed", "photo_id", photo.ID, "error", err)
+				anyFailed = true
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			previewKey := ""
+			if previewData != nil {
+				pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
+				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, pk, previewData, "image/jpeg"); err == nil {
+					previewKey = pk
+				}
+			}
+
+			// Determine corrected content type from the S3 key extension.
+			ct := photo.ContentType
+			if !strings.HasPrefix(ct, "video/") {
+				ct = videoContentTypeFromExt(ext)
+			}
+
+			if err := h.DB.UpdateActivityPhotoThumbAndMeta(ctx, photo.ID, userID, thumbKey, previewKey, ct, true); err != nil {
+				slog.Warn("recompute thumbnails: db update failed", "photo_id", photo.ID, "error", err)
+				anyFailed = true
+			}
+
+			processed++
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+		}
+
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
+}
+
+// videoContentTypeFromExt returns the MIME type for common video extensions.
+func videoContentTypeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "video/mp4"
+	}
+}
+
 // RecomputePhotoEmbeddings re-queues CLIP embedding computation for all user
 // photos that currently have no embedding stored (clip_embedding IS NULL).
 // Runs as a background job; returns 202 Accepted immediately.

@@ -112,6 +112,22 @@ func (db *DB) UpdateActivityPhotoPreviewKey(ctx context.Context, id, userID, pre
 	return err
 }
 
+// UpdateActivityPhotoThumbAndMeta updates s3_key_thumb, is_video, content_type and
+// optionally s3_key_preview for a single photo. Used by the backfill job to repair
+// rows where a video file's raw S3 key was mistakenly stored as the thumb path.
+func (db *DB) UpdateActivityPhotoThumbAndMeta(ctx context.Context, id, userID, thumbKey, previewKey, contentType string, isVideo bool) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activity_photos
+		SET s3_key_thumb    = $3,
+		    s3_key_preview  = CASE WHEN $4 = '' THEN s3_key_preview ELSE $4 END,
+		    content_type    = $5,
+		    is_video        = $6
+		WHERE id = $1 AND user_id = $2`,
+		id, userID, thumbKey, previewKey, contentType, isVideo,
+	)
+	return err
+}
+
 // ListAllUserPhotos returns all photos for a user (used by recompute-previews job).
 func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
 	rows, err := db.Pool.Query(ctx, `

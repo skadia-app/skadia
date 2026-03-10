@@ -122,11 +122,23 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
 		bucket := "skadia-media"
 
+		// Guard: if content-type detection returned image/* but the file extension is a
+		// known video container, trust the extension. This prevents the bug where a video
+		// file gets stored with content_type=image/jpeg and its raw .mp4 path used as thumb.
+		if !isVideo && isVideoExtension(ext) {
+			isVideo = true
+			contentType = detectMediaContentType(data, relPath) // re-detect with ext fallback
+			if !isVideoContentType(contentType) {
+				// Extension was the stronger signal; pick a safe video content type from ext.
+				contentType = videoContentTypeFromExt(ext)
+			}
+		}
+
 		// Thumbnail (200px) + Preview generieren.
 		// Videos: ffmpeg für beide (Frame 0 → thumb, Videomitte → preview).
 		// HEIC/JXL: ffmpeg, da image.Decode() diese Formate nicht unterstützt.
 		// Andere Bilder: imageutil.Resize().
-		s3KeyThumb := s3Key // fallback: original as thumb
+		s3KeyThumb := s3Key // fallback: original as thumb (overwritten below if thumb generated)
 		s3KeyPreview := ""
 
 		var thumbData []byte
@@ -200,6 +212,15 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			TakenAt:          takenAt,
 			Lat:              lat,
 			Lng:              lng,
+			IsVideo:          isVideo,
+		}
+
+		if isVideo {
+			if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
+				photo.DurationS = &meta.DurationS
+				photo.VideoWidth = &meta.Width
+				photo.VideoHeight = &meta.Height
+			}
 		}
 
 		if lat != nil {
@@ -210,10 +231,6 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			ls := "activity_track"
 			photo.LocationSource = &ls
 		}
-
-		// TODO(agent1/migration-000138): Once ActivityPhoto.IsVideo field is available,
-		// set photo.IsVideo = isVideo here to distinguish videos from images in the DB.
-		// Also set photo.DurationS if video duration can be extracted.
 
 		if params.DB != nil {
 			if _, err := params.DB.InsertActivityPhoto(ctx, photo); err != nil {
@@ -380,4 +397,34 @@ func extractMediaEXIF(data []byte, contentType string) (takenAt *time.Time, lat 
 	}
 
 	return t, lat, lng
+}
+
+// isVideoExtension reports whether the file extension (including the dot) is a known
+// video container format. Used to catch mis-detected content types where http.DetectContentType
+// returns image/* for a video file.
+func isVideoExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm":
+		return true
+	}
+	return false
+}
+
+// videoContentTypeFromExt returns the most specific MIME type for a video extension
+// when content-type sniffing failed.
+func videoContentTypeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "video/mp4"
+	}
 }
