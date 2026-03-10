@@ -29,6 +29,7 @@ from config import (
     CHAT_PROFILE_DEFAULT,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_CONTEXT_WINDOW,
     get_llm_client,
 )
 
@@ -174,6 +175,9 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
         # result may contribute so context doesn't blow up on small models.
         result_char_limit = profile.tool_result_limit * 200
 
+        has_streamed_content = False
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
         hop = 0
         while hop < MAX_HOPS:
             # Last hop: disable tools to force a plain-text answer
@@ -184,6 +188,7 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                 messages=messages,
                 tools=tools_arg,
                 stream=True,
+                stream_options={"include_usage": True},
                 temperature=profile.temperature,
                 top_p=profile.top_p,
                 presence_penalty=profile.presence_penalty,
@@ -196,6 +201,7 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
             tool_call_accum: dict[int, dict] = {}
             tool_call_ids: dict[int, str] = {}
             finish_reason: str | None = None
+            content_buffer = ""  # Buffer to detect <tool_call> in text
 
             async for chunk in response:
                 if not chunk.choices:
@@ -217,10 +223,28 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                                 tool_call_accum[idx]["arguments"] += tc.function.arguments
 
                 if delta.content:
-                    yield _sse("chat.chunk", req.message_id, delta=delta.content)
+                    content_buffer += delta.content
+                    # Don't stream content that might be a <tool_call> block
+                    if "<tool_call>" not in content_buffer and "<function=" not in content_buffer:
+                        has_streamed_content = True
+                        yield _sse("chat.chunk", req.message_id, delta=delta.content)
 
                 if choice.finish_reason:
                     finish_reason = choice.finish_reason
+
+                # Track token usage from final chunk
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    total_prompt_tokens += getattr(chunk.usage, 'prompt_tokens', 0) or 0
+                    total_completion_tokens += getattr(chunk.usage, 'completion_tokens', 0) or 0
+
+            # ── Post-stream: detect text-based tool calls from small models ──
+            text_tool_call = _extract_text_tool_call(content_buffer)
+            if text_tool_call and not tool_call_accum:
+                tool_call_accum[0] = text_tool_call
+                tool_call_ids[0] = "text_call_0"
+                finish_reason = "tool_calls"
+                # Don't count the <tool_call> block as streamed content
+                has_streamed_content = False
 
             # ── Post-stream: decide what to do next ──────────────────────────
             if finish_reason == "tool_calls" and tool_call_accum:
@@ -285,11 +309,15 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                 # "length" or unknown — stop without further hops
                 break
 
-        # MAX_HOPS exhausted without a stop — force a final summary
-        if hop >= MAX_HOPS:
+        # Force a text answer if tools were called but no content was streamed
+        if not has_streamed_content and hop > 0:
             messages.append({
                 "role": "user",
-                "content": "Fasse die bisher gesammelten Daten zusammen.",
+                "content": (
+                    "Du hast Tool-Ergebnisse erhalten aber noch keine Antwort gegeben. "
+                    "Fasse die Ergebnisse jetzt knapp und sachlich zusammen. "
+                    "Wenn keine Daten gefunden wurden, sag das kurz."
+                ),
             })
             final_response = await llm.chat.completions.create(
                 model=LLM_MODEL,
@@ -309,7 +337,16 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
 
         # chat.done is always emitted here — both the normal path (finish_reason="stop")
         # and the forced-summary path (hop >= MAX_HOPS) fall through to this line.
-        yield _sse("chat.done", req.message_id, sources=["llm"])
+        usage = {}
+        if total_prompt_tokens or total_completion_tokens:
+            usage = {
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+                "total_tokens": total_prompt_tokens + total_completion_tokens,
+            }
+        yield _sse("chat.done", req.message_id, sources=["llm"],
+                    hops=hop, context_window=LLM_CONTEXT_WINDOW,
+                    **({"usage": usage} if usage else {}))
 
     except Exception as e:
         logger.warning("LLM chat failed: %s", e)
@@ -319,6 +356,42 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _extract_text_tool_call(content: str) -> dict | None:
+    """Extract tool call from text output of small models.
+
+    Small models sometimes emit tool calls as text instead of using the
+    function-calling protocol, e.g.:
+      <tool_call>
+      <function=run_sql>
+      <parameter=sql>SELECT ...</parameter>
+      </function>
+      </tool_call>
+
+    Returns {"name": ..., "arguments": ...} or None.
+    """
+    import re
+    # Pattern 1: <function=name><parameter=key>value</parameter></function>
+    m = re.search(
+        r"<function=(\w+)>(.*?)</function>",
+        content, re.DOTALL,
+    )
+    if m:
+        func_name = m.group(1)
+        params_block = m.group(2)
+        args = {}
+        for pm in re.finditer(r"<parameter=(\w+)>(.*?)</parameter>", params_block, re.DOTALL):
+            args[pm.group(1)] = pm.group(2).strip()
+        if args:
+            return {"name": func_name, "arguments": json.dumps(args)}
+
+    # Pattern 2: {"name": "tool", "arguments": {...}} (raw JSON in text)
+    m = re.search(r'\{"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\}', content, re.DOTALL)
+    if m:
+        return {"name": m.group(1), "arguments": m.group(2)}
+
+    return None
+
 
 def _compress_old_tool_results(messages: list, current_hop: int) -> None:
     """Truncate tool-result messages from hops that are >= 2 hops old.

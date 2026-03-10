@@ -45,7 +45,7 @@ activity_geo_tags: activity_id UUID, category TEXT, name TEXT, osm_id BIGINT, el
 activity_stops: activity_id UUID, started_at TIMESTAMPTZ, ended_at TIMESTAMPTZ, duration_s INT, location GEOMETRY(Point,4326), name TEXT, poi_type TEXT, poi_name TEXT, poi_osm_id BIGINT
 activity_photos: id UUID, user_id UUID, activity_id UUID, taken_at TIMESTAMPTZ, lat FLOAT8, lng FLOAT8, is_video BOOL, duration_s FLOAT8
 
-IMPORTANT: Always filter by user_id. Never query across users.
+IMPORTANT: Do NOT add user_id filters — Row-Level Security (RLS) handles this automatically. Do NOT use $1/$2 parameter placeholders — write values directly into the query.
 """
 
 
@@ -58,6 +58,28 @@ def validate_sql(sql: str) -> tuple[bool, str]:
     # Quick blocklist check before parsing
     if _BLOCKLIST.search(sql):
         return False, "Zugriff auf Systemtabellen/-funktionen nicht erlaubt (nur SELECT erlaubt)"
+
+    # Reject parameter placeholders ($1, $2, ...) — RLS handles user_id
+    if re.search(r"\$\d+", sql):
+        return False, (
+            "Parameter-Platzhalter ($1, $2, ...) nicht erlaubt. "
+            "Schreibe Werte direkt in die Abfrage. "
+            "user_id-Filter ist NICHT nötig (wird automatisch per RLS angewandt)."
+        )
+
+    # Reject user_id filters — RLS handles this automatically
+    if re.search(r"\buser_id\s*=", sql, re.IGNORECASE):
+        return False, (
+            "user_id-Filter NICHT verwenden! Row-Level Security (RLS) filtert "
+            "automatisch nach dem aktuellen Benutzer. Entferne die WHERE user_id=... Klausel."
+        )
+
+    # Reject current_user/session_user which cause type mismatches with UUID columns
+    if re.search(r"\b(current_user|session_user|current_role)\b", sql, re.IGNORECASE):
+        return False, (
+            "current_user/session_user nicht verwenden — RLS filtert automatisch. "
+            "Entferne den user_id-Filter komplett."
+        )
 
     # Multi-statement check — strip trailing semicolons then look for interior ones
     stripped = sql.strip().rstrip(";")
@@ -73,8 +95,9 @@ def validate_sql(sql: str) -> tuple[bool, str]:
         return False, "Nur einzelne Abfragen erlaubt"
 
     stmt = statements[0]
-    if not isinstance(stmt, exp.Select):
-        return False, "Nur SELECT-Abfragen erlaubt"
+    # Allow SELECT and UNION/INTERSECT/EXCEPT (all are Query subclasses)
+    if not isinstance(stmt, (exp.Select, exp.Union, exp.Intersect, exp.Except)):
+        return False, "Nur SELECT-Abfragen erlaubt (inkl. UNION/INTERSECT/EXCEPT)"
 
     # Check for DML/DDL nodes embedded anywhere in the AST
     for node in stmt.walk():
@@ -83,6 +106,44 @@ def validate_sql(sql: str) -> tuple[bool, str]:
             return False, f"Verbotene Operation: {type(node).__name__}"
 
     return True, ""
+
+
+def _autofix_sql(sql: str) -> str:
+    """Auto-fix common LLM SQL mistakes.
+
+    PostgreSQL's ROUND() only accepts numeric, not float8.
+    LLMs consistently generate ROUND(float_expr, n) which fails.
+    Fix: wrap the first argument in ::numeric cast.
+    """
+    # Fix ROUND(expr, n) → ROUND((expr)::numeric, n)
+    # Match ROUND( ... , digit) patterns — but only when first arg is not already ::numeric
+    import re
+
+    def _fix_round(m):
+        inner = m.group(1).strip()
+        decimals = m.group(2).strip()
+        if "::numeric" in inner:
+            return m.group(0)  # already fixed
+        return f"ROUND(({inner})::numeric, {decimals})"
+
+    # Iteratively fix nested ROUND calls (inner first)
+    prev = None
+    fixed = sql
+    while fixed != prev:
+        prev = fixed
+        fixed = re.sub(
+            r"ROUND\(([^()]+(?:\([^()]*\))?[^()]*),\s*(\d+)\)",
+            _fix_round,
+            fixed,
+            flags=re.IGNORECASE,
+        )
+
+    # Fix common column name hallucinations
+    fixed = re.sub(r"\bduration_s\b", "elapsed_time_s", fixed)
+    # Only fix standalone "elevation" (not "elevation_gain_m" etc.) in geo_tags context
+    fixed = re.sub(r"(?:agt?|gt)\.\belevation\b", lambda m: m.group(0).replace("elevation", "ele"), fixed)
+
+    return fixed
 
 
 async def execute_sql(
@@ -97,6 +158,9 @@ async def execute_sql(
     role will reject it.  The ``SET LOCAL app.current_user_id`` call enables
     row-level security policies on the readonly connection.
     """
+    # Auto-fix common LLM SQL mistakes before validation
+    sql = _autofix_sql(sql)
+
     valid, error = validate_sql(sql)
     if not valid:
         raise ValueError(f"SQL validation failed: {error}")
@@ -105,6 +169,6 @@ async def execute_sql(
     pool = await get_readonly_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
+            await conn.execute("SELECT set_config('app.current_user_id', $1, true)", str(user_id))
             rows = await conn.fetch(sql, timeout=5.0)
             return [dict(r) for r in rows[:max_rows]]

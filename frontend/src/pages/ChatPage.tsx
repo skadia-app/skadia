@@ -237,6 +237,9 @@ export default function ChatPage() {
             summary?: string
             sources?: string[]
             error?: string
+            usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+            hops?: number
+            context_window?: number
           }
           try {
             evt = JSON.parse(data)
@@ -301,7 +304,15 @@ export default function ChatPage() {
               setThinking(null)
               setMessages(prev =>
                 prev.map(m =>
-                  m.id === assistantId ? { ...m, isStreaming: false } : m,
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        isStreaming: false,
+                        ...(evt.usage ? { usage: evt.usage } : {}),
+                        ...(evt.hops != null ? { hops: evt.hops } : {}),
+                        ...(evt.context_window ? { contextWindow: evt.context_window } : {}),
+                      }
+                    : m,
                 ),
               )
               setIsStreaming(false)
