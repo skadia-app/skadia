@@ -144,6 +144,7 @@ func main() {
 			LLMEncryptionKey:   cfg.LLMEncryptionKey,
 			MLServiceURL:       cfg.MLServiceURL,
 			MLCallbackSecret:   mlCallbackSecret,
+			BRouterURL:         cfg.BRouterURL,
 		},
 	}
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
@@ -267,6 +268,8 @@ func main() {
 			r.Put("/settings/enrichment", h.UpdateEnrichmentSettings)
 			r.Get("/settings/import", h.GetImportSettings)
 			r.Put("/settings/import", h.UpdateImportSettings)
+
+			r.Get("/capabilities", h.GetCapabilities)
 
 			r.Get("/gear", h.ListGear)
 			r.Post("/gear", h.CreateGear)

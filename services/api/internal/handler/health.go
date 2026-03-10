@@ -28,6 +28,7 @@ type HandlerConfig struct {
 	LLMEncryptionKey   string
 	MLServiceURL       string // e.g. http://ml:8000
 	MLCallbackSecret   string // ML_CALLBACK_SECRET env var
+	BRouterURL         string // e.g. http://brouter:17777
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

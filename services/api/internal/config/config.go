@@ -41,6 +41,9 @@ type Config struct {
 
 	// ML Service
 	MLServiceURL string // e.g. http://ml:8000
+
+	// Routing
+	BRouterURL string // e.g. http://brouter:17777
 }
 
 func Load() (*Config, error) {
@@ -74,6 +77,8 @@ func Load() (*Config, error) {
 		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
 
 		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
+
+		BRouterURL: os.Getenv("BROUTER_URL"),
 	}
 
 	if cfg.DatabaseURL == "" {
