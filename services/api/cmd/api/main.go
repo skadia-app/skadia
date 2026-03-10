@@ -471,6 +471,14 @@ func main() {
 			r.Get("/notifications/unread-count", h.GetUnreadCount)
 			r.Post("/notifications/read-all", h.MarkAllNotificationsRead)
 			r.Post("/notifications/{id}/read", h.MarkNotificationRead)
+
+			// Planned routes
+			r.Get("/routes", h.ListRoutes)
+			r.Post("/routes", h.CreateRoute)
+			r.Get("/routes/{id}", h.GetRoute)
+			r.Patch("/routes/{id}", h.UpdateRoute)
+			r.Delete("/routes/{id}", h.DeleteRoute)
+			r.Post("/routes/{id}/duplicate", h.DuplicateRoute)
 		})
 	})
 
