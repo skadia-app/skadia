@@ -356,8 +356,7 @@ export default function ChatProfileSettings() {
           label="LLM-Modell"
           value={setting.model}
           options={[
-            { value: 'skadia-default', label: 'skadia-default (Standard-Text)' },
-            { value: 'skadia-vlm', label: 'skadia-vlm (Multimodal)' },
+            { value: 'skadia-default', label: 'skadia-default (Qwen3.5-9B, multimodal)' },
           ]}
           onChange={v => patchSetting({ model: v })}
           disabled={false}

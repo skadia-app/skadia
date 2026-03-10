@@ -2,14 +2,17 @@
 
 Streams responses via SSE for real-time frontend updates.
 
-Pipeline (WP8):
+Pipeline (WP8 + WP3 Multi-Hop):
   1. Load ModelProfile from user settings (or CHAT_PROFILE_DEFAULT)
   2. Route query to domains via router.route_query()
   3. Load skill modules, assemble system prompt via assembler
   4. Filter tools to active domains via get_tools_for_domains()
-  5. LLM call with profile-aware sampling parameters
-  6. Tool execution (existing execute_tool logic)
-  7. Follow-up LLM call with tool results
+  5. ReAct loop (up to MAX_HOPS=5):
+       a. LLM call with profile-aware sampling parameters
+       b. If finish_reason == "tool_calls": execute tools, append results, continue
+       c. If finish_reason == "stop": stream final answer, break
+       d. Last hop: tools disabled to force text answer
+       e. Context compression from hop 3 onwards
 """
 import json
 import logging
@@ -150,7 +153,8 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
             logger.warning("Template query failed: %s", e)
             # Fall through to LLM
 
-    # ── Layer B: LLM with tool-use ─────────────────────────────────────────
+    # ── Layer B: LLM with multi-hop ReAct loop ────────────────────────────
+    MAX_HOPS = 5
     try:
         llm = get_llm_client()
         if llm is None:
@@ -166,55 +170,63 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                 messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": req.message})
 
-        response = await llm.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            tools=tool_definitions if tool_definitions else None,
-            stream=True,
-            temperature=profile.temperature,
-            top_p=profile.top_p,
-            presence_penalty=profile.presence_penalty,
-            max_tokens=profile.max_response_tokens,
-        )
+        # Respect profile.tool_result_limit — cap how many chars each
+        # result may contribute so context doesn't blow up on small models.
+        result_char_limit = profile.tool_result_limit * 200
 
-        # Accumulate tool-call deltas keyed by tc.index.
-        # Streaming splits arguments across many chunks — we must join them
-        # before attempting json.loads().
-        tool_call_accum: dict[int, dict] = {}
-        # Track tool call IDs for the follow-up message
-        tool_call_ids: dict[int, str] = {}
+        hop = 0
+        while hop < MAX_HOPS:
+            # Last hop: disable tools to force a plain-text answer
+            tools_arg = tool_definitions if (tool_definitions and hop < MAX_HOPS - 1) else None
 
-        async for chunk in response:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            delta = choice.delta
+            response = await llm.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                tools=tools_arg,
+                stream=True,
+                temperature=profile.temperature,
+                top_p=profile.top_p,
+                presence_penalty=profile.presence_penalty,
+                max_tokens=profile.max_response_tokens,
+            )
 
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_call_accum:
-                        tool_call_accum[idx] = {"name": "", "arguments": ""}
-                    if tc.id:
-                        tool_call_ids[idx] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_call_accum[idx]["name"] = tc.function.name
-                        if tc.function.arguments:
-                            tool_call_accum[idx]["arguments"] += tc.function.arguments
+            # Accumulate tool-call deltas keyed by tc.index.
+            # Streaming splits arguments across many chunks — we must join them
+            # before attempting json.loads().
+            tool_call_accum: dict[int, dict] = {}
+            tool_call_ids: dict[int, str] = {}
+            finish_reason: str | None = None
 
-            if delta.content:
-                yield _sse("chat.chunk", req.message_id, delta=delta.content)
+            async for chunk in response:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
 
-            # Execute accumulated tool calls once the LLM signals it is done.
-            if choice.finish_reason == "tool_calls" and tool_call_accum:
-                # Build assistant message with tool_calls for the follow-up
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_call_accum:
+                            tool_call_accum[idx] = {"name": "", "arguments": ""}
+                        if tc.id:
+                            tool_call_ids[idx] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_call_accum[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tool_call_accum[idx]["arguments"] += tc.function.arguments
+
+                if delta.content:
+                    yield _sse("chat.chunk", req.message_id, delta=delta.content)
+
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+
+            # ── Post-stream: decide what to do next ──────────────────────────
+            if finish_reason == "tool_calls" and tool_call_accum:
+                # Execute all accumulated tool calls
                 assistant_tool_calls = []
                 tool_results = []
-
-                # Respect profile.tool_result_limit — cap how many chars each
-                # result may contribute so context doesn't blow up on small models.
-                result_char_limit = profile.tool_result_limit * 200
 
                 for idx, entry in sorted(tool_call_accum.items()):
                     tool_name = entry["name"]
@@ -248,10 +260,7 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                         "content": result_str[:result_char_limit],
                     })
 
-                tool_call_accum.clear()
-
-                # Second LLM call: send tool results back so it can
-                # formulate a natural-language answer.
+                # Append assistant tool-call message + tool results to context
                 messages.append({
                     "role": "assistant",
                     "content": None,
@@ -259,28 +268,44 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                 })
                 messages.extend(tool_results)
 
+                hop += 1
+
+                # Context compression starting from hop 3
+                if hop >= 3:
+                    _compress_old_tool_results(messages, hop)
+
                 yield _sse("chat.thinking", req.message_id,
-                           step="Formuliere Antwort...")
+                           step=f"Schritt {hop}/{MAX_HOPS}...")
+                continue  # next hop
 
-                followup = await llm.chat.completions.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    stream=True,
-                    temperature=profile.temperature,
-                    top_p=profile.top_p,
-                    presence_penalty=profile.presence_penalty,
-                    max_tokens=profile.max_response_tokens,
-                )
+            elif finish_reason == "stop":
+                break  # Final answer already streamed
 
-                async for chunk2 in followup:
-                    if not chunk2.choices:
-                        continue
-                    delta2 = chunk2.choices[0].delta
-                    if delta2.content:
-                        yield _sse("chat.chunk", req.message_id,
-                                   delta=delta2.content)
+            else:
+                # "length" or unknown — stop without further hops
+                break
 
-                break  # Done after follow-up
+        # MAX_HOPS exhausted without a stop — force a final summary
+        if hop >= MAX_HOPS:
+            messages.append({
+                "role": "user",
+                "content": "Fasse die bisher gesammelten Daten zusammen.",
+            })
+            final_response = await llm.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                stream=True,
+                temperature=profile.temperature,
+                top_p=profile.top_p,
+                presence_penalty=profile.presence_penalty,
+                max_tokens=profile.max_response_tokens,
+            )
+            async for chunk in final_response:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield _sse("chat.chunk", req.message_id, delta=delta.content)
 
         yield _sse("chat.done", req.message_id, sources=["llm"])
 
@@ -292,6 +317,37 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _compress_old_tool_results(messages: list, current_hop: int) -> None:
+    """Truncate tool-result messages from hops that are >= 2 hops old.
+
+    Walks the message list to find assistant messages that carry tool_calls
+    (each such message marks the boundary of one hop).  Everything before the
+    second-to-last such boundary is considered "old" and any tool-role message
+    there is truncated to 400 characters to prevent context blow-up.
+
+    Args:
+        messages:    The live message list (mutated in-place).
+        current_hop: The hop counter *after* the latest tool execution.
+    """
+    # Find indices of assistant messages that triggered tool calls (hop boundaries)
+    hop_boundaries: list[int] = [
+        i for i, msg in enumerate(messages)
+        if msg.get("role") == "assistant" and msg.get("tool_calls")
+    ]
+
+    # Need at least 3 boundaries before compression makes sense
+    if len(hop_boundaries) < 3:
+        return
+
+    # Compress everything before the second-to-last boundary
+    cutoff = hop_boundaries[-2]
+    for i in range(cutoff):
+        if messages[i].get("role") == "tool":
+            content = messages[i].get("content", "")
+            if isinstance(content, str) and len(content) > 400:
+                messages[i]["content"] = content[:400] + "...[komprimiert]"
+
 
 def _sse(event_type: str, msg_id: str, **kwargs) -> str:
     data = {"type": event_type, "id": msg_id, **kwargs}

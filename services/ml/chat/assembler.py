@@ -36,7 +36,17 @@ ACWR: <0.8 unterbelastet | 0.8-1.3 optimal | >1.5 Verletzungsrisiko
 Laufen/Joggen → running | Radfahren → cycling | Wandern → hiking
 Gehen → walking | Schwimmen → swimming | Trail → trail_running
 MTB → mountain_biking | Ski → alpine_skiing | Langlauf → cross_country_skiing
-Kraft → strength_training | Bergsteigen → mountaineering"""
+Kraft → strength_training | Bergsteigen → mountaineering
+
+## Multi-Schritt
+Wenn eine Frage mehrere Informationsquellen braucht, nutze mehrere Tools nacheinander.
+Beantworte ERST wenn ALLE nötigen Daten abgerufen sind.
+
+## Sportwissenschaft
+- TSB + CTL-Trajektorie: Fällt CTL trotz positivem TSB → Detraining-Falle
+- HRV RMSSD: >1 SD über Baseline an 3+ Tagen = Warnsignal
+- ACWR: 0.8-1.3 optimal, >1.5 erhöhtes Verletzungsrisiko
+- Zonen: GA1 (60-72% HRmax), GA2 (72-82%), EB (82-92%), SB (>92%)"""
 
 SYSTEM_PROMPT_STANDARD = SYSTEM_PROMPT_COMPACT + """
 
@@ -81,7 +91,11 @@ TOOL_GUIDE = """## Werkzeug-Auswahl
 - "Segment / Bestzeit / PR" → query_segments
 - "Ausrüstung / Schuhe / km-Stand" → get_gear_stats
 - "Anomalie / Korrelation / Trend" → get_analytics
-- Zwei Zeiträume vergleichen → compare_periods"""
+- Zwei Zeiträume vergleichen → compare_periods
+- "Gear / Ausrüstung einer Aktivität" → get_gear_for_activity
+- "Rechnung / Dokument / Beleg für Gear" → get_gear_documents
+- "Details zu einer Aktivität (Drill-Down)" → get_activity_detail
+- "Fotos suchen / Bild nach Inhalt" → search_photos_by_content"""
 
 
 def _load_few_shot_library() -> list[dict]:

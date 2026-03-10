@@ -56,9 +56,9 @@ DEFAULT_PROFILES: dict[str, ModelProfile] = {
         reasoning_mode="guided", temperature=0.2, top_p=0.8, top_k=20, presence_penalty=1.5, max_response_tokens=500,
     ),
     "small": ModelProfile(
-        max_tools=6, use_router=True, max_tools_per_turn=1, tool_result_limit=7,
+        max_tools=6, use_router=True, max_tools_per_turn=3, tool_result_limit=12,
         schema_mode="filtered", enable_sql_agent=True, sql_complexity="simple", max_sql_retries=1,
-        few_shot_count=3, system_prompt_mode="compact", max_context_tokens=4000, history_messages=10,
+        few_shot_count=3, system_prompt_mode="compact", max_context_tokens=12000, history_messages=10,
         reasoning_mode="guided", temperature=0.3, top_p=0.8, top_k=20, presence_penalty=1.5, max_response_tokens=1000,
     ),
     "medium": ModelProfile(

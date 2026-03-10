@@ -11,12 +11,6 @@ model_list:
       model: openai/qwen3.5-9b
       api_base: http://host.containers.internal:8181/v1
       api_key: "none"
-  # Kein VLM-Modell mehr — Qwen3.5-9B ist rein text-basiert (kein mmproj erforderlich für Text-Chat)
-  - model_name: skadia-vlm
-    litellm_params:
-      model: openai/qwen3.5-9b
-      api_base: http://host.containers.internal:8181/v1
-      api_key: "none"
   # Ollama-Backend (Fallback)
   - model_name: skadia-ollama-default
     litellm_params:

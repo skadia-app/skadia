@@ -142,6 +142,29 @@ func (p *Publisher) PublishAnalyticsInvalidate(userID string) {
 	slog.Info("event published", "subject", "skadia.analytics.invalidate", "user_id", userID)
 }
 
+// PhotoEmbedEvent is emitted after every photo upload so the ML service
+// can compute a CLIP embedding for the image.
+type PhotoEmbedEvent struct {
+	PhotoID      string `json:"photo_id"`
+	UserID       string `json:"user_id"`
+	S3Bucket     string `json:"s3_bucket"`
+	S3Key        string `json:"s3_key"`
+	S3KeyPreview string `json:"s3_key_preview,omitempty"`
+}
+
+func (p *Publisher) PublishPhotoEmbed(ev PhotoEmbedEvent) error {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("marshal photo embed event: %w", err)
+	}
+	_, err = p.js.Publish("skadia.photo.embed", data)
+	if err != nil {
+		return fmt.Errorf("publish photo embed event: %w", err)
+	}
+	slog.Info("event published", "subject", "skadia.photo.embed", "photo_id", ev.PhotoID)
+	return nil
+}
+
 // JetStream returns the JetStream context for creating consumers.
 func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js

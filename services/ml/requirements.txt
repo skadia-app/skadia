@@ -15,5 +15,7 @@ ruptures>=1.1.9
 sqlglot>=26.0
 pyyaml>=6.0
 torch>=2.10.0
+transformers>=4.49.0
+Pillow>=10.0.0
 granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git
 chronos-forecasting>=2.2.0

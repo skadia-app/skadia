@@ -75,3 +75,7 @@ export async function patchActivityPhotoLocation(
 export async function recomputePhotoPreviews(): Promise<{ job_id: string }> {
   return apiClient('/photos/recompute-previews', { method: 'POST' })
 }
+
+export async function recomputePhotoEmbeddings(): Promise<{ job_id: string; queued: number }> {
+  return apiClient('/photos/recompute-embeddings', { method: 'POST' })
+}

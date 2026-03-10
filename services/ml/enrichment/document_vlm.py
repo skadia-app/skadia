@@ -1,9 +1,9 @@
-"""VLM-Pipeline fuer Gear-Dokumente (Rechnungen, Handbuecher).
+"""LLM-Pipeline fuer Gear-Dokumente (Rechnungen, Handbuecher).
 
 Ablauf:
-1. Text-PDF (is_text_pdf=True): extracted_text -> Qwen3-8B -> JSON
-2. Bild-PDF (is_text_pdf=False): S3-Download -> Qwen3-VL-8B -> JSON
-Graceful Degradation: VLM-8B -> VLM-4B -> Text-only (wenn kein VLM verfuegbar)
+1. Text-PDF (is_text_pdf=True): extracted_text -> Qwen3.5-9B -> JSON
+2. Bild-PDF (is_text_pdf=False): S3-Download -> Qwen3.5-9B (multimodal) -> JSON
+Fallback: Bild-Extraktion fehlgeschlagen + extracted_text vorhanden -> Text-Extraktion
 """
 import json
 import logging
@@ -18,9 +18,8 @@ logger = logging.getLogger(__name__)
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://litellm:4000/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "none")
+# Qwen3.5-9B ist nativ multimodal — ein Modell fuer Text und Bild
 LLM_MODEL = os.getenv("ML_LLM_MODEL", "skadia-default")
-VLM_MODEL = os.getenv("ML_VLM_MODEL", "skadia-vlm")
-VLM_FALLBACK = os.getenv("ML_VLM_MODEL_FALLBACK", "skadia-vlm-fallback")
 
 EXTRACTION_PROMPT = """Du bist ein Assistent zum Extrahieren von Produktinformationen aus Rechnungen.
 Extrahiere alle Produkte aus dem Text und gib das Ergebnis als JSON zurueck.
@@ -97,16 +96,16 @@ async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
 
 
 async def extract_from_image(
-    image_bytes: bytes, model: str = VLM_MODEL, prompt: str = EXTRACTION_PROMPT
+    image_bytes: bytes, prompt: str = EXTRACTION_PROMPT
 ) -> Optional[dict]:
-    """Extrahiere Produktdaten aus Bild-PDF via Qwen3-VL."""
+    """Extrahiere Produktdaten aus Bild-PDF via Qwen3.5-9B (nativ multimodal)."""
     import base64
 
     client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
     b64 = base64.b64encode(image_bytes).decode()
     try:
         response = await client.chat.completions.create(
-            model=model,
+            model=LLM_MODEL,
             messages=[
                 {
                     "role": "user",
@@ -134,10 +133,7 @@ async def extract_from_image(
         if start >= 0 and end > start:
             return json.loads(raw[start:end])
     except Exception as e:
-        logger.warning("VLM extraction with %s failed: %s", model, e)
-        if model == VLM_MODEL:
-            # Fallback auf kleineres VLM
-            return await extract_from_image(image_bytes, VLM_FALLBACK, prompt)
+        logger.warning("image extraction failed: %s", e)
     return None
 
 
@@ -169,9 +165,9 @@ async def process_document(
         if image_bytes:
             result = await extract_from_image(image_bytes, prompt=prompt)
 
-        # Fallback: Falls VLM fehlschlägt aber extracted_text vorhanden
+        # Fallback: Falls Bild-Extraktion fehlschlaegt aber extracted_text vorhanden
         if not result and extracted_text:
-            logger.info("VLM failed, falling back to text extraction for %s", doc_id)
+            logger.info("image extraction failed, falling back to text extraction for %s", doc_id)
             result = await extract_from_text(extracted_text, prompt)
 
     if not result or not result.get("products"):

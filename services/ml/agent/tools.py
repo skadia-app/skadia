@@ -65,6 +65,10 @@ ALL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Partial match on activity title (case-insensitive)",
                     },
+                    "gear_id": {
+                        "type": "string",
+                        "description": "UUID of gear item — filters activities that used this gear",
+                    },
                 },
             },
         },
@@ -279,6 +283,11 @@ ALL_TOOL_DEFINITIONS = [
                         "enum": _SPORT_TYPES,
                         "description": "Limit to activities of this sport (optional)",
                     },
+                    "activity_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter to specific activity UUIDs (for multi-hop: pass IDs from a prior query_activities call)",
+                    },
                 },
             },
         },
@@ -393,6 +402,109 @@ ALL_TOOL_DEFINITIONS = [
                         "default": 10,
                     },
                 },
+            },
+        },
+    },
+
+    # ── 12. get_gear_for_activity ──────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_gear_for_activity",
+            "description": (
+                "Retrieve the gear/equipment used in a specific activity. "
+                "Use for 'Welche Schuhe hatte ich bei dieser Wanderung?', "
+                "'Was habe ich bei meinem letzten Lauf getragen?'. "
+                "Requires an activity_id — first call query_activities to get the ID if unknown."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "activity_id": {
+                        "type": "string",
+                        "description": "UUID of the activity",
+                    },
+                },
+                "required": ["activity_id"],
+            },
+        },
+    },
+
+    # ── 13. get_gear_documents ─────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_gear_documents",
+            "description": (
+                "Retrieve documents (invoices, receipts, manuals) for a specific gear item. "
+                "Use for 'Was haben meine Schuhe gekostet?', 'Rechnung für mein Rad', "
+                "'Garantiebeleg für Uhr'. "
+                "extracted_data JSONB contains parsed invoice data (price, date, vendor). "
+                "Requires a gear_id — first call get_gear_stats to find it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "gear_id": {
+                        "type": "string",
+                        "description": "UUID of the gear item",
+                    },
+                },
+                "required": ["gear_id"],
+            },
+        },
+    },
+
+    # ── 14. get_activity_detail ────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_activity_detail",
+            "description": (
+                "Get full details for a specific activity: all metrics, gear name, "
+                "photo count, geo-tag count, notes, weather. "
+                "Use for drill-down after finding an activity: 'Erzähl mir mehr über diese Aktivität', "
+                "'Details zu meinem letzten Lauf'. "
+                "Do NOT use for lists — use query_activities for that."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "activity_id": {
+                        "type": "string",
+                        "description": "UUID of the activity",
+                    },
+                },
+                "required": ["activity_id"],
+            },
+        },
+    },
+
+    # ── 15. search_photos_by_content ───────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "search_photos_by_content",
+            "description": (
+                "Semantic photo search using SigLIP2 embeddings. Finds photos by visual content. "
+                "Use for 'Hab ich Fotos von Steinböcken?', 'Zeig mir Sonnenuntergang-Fotos', "
+                "'Bilder vom Gipfel', 'Fotos mit Tieren'. "
+                "Supports German and English queries. Returns photos with similarity scores."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Visual content description (e.g. 'Steinbock auf Felsen', 'Sonnenuntergang über Bergen')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -518,6 +630,10 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
         "get_analytics": _get_analytics,
         "search_routes": _search_routes,
         "query_data": _query_data,
+        "get_gear_for_activity": _get_gear_for_activity,
+        "get_gear_documents": _get_gear_documents,
+        "get_activity_detail": _get_activity_detail,
+        "search_photos_by_content": _search_photos_by_content,
         # Legacy aliases kept for backward compatibility
         "get_hrv_trend": _get_hrv_trend_legacy,
         "get_readiness": _get_readiness_legacy,
@@ -542,8 +658,9 @@ _VALID_SORTS = {
 async def _query_activities(
     pool, user_id,
     sport_type=None, days=30, limit=10, sort_by="date",
-    min_distance_km=None, title_search=None,
+    min_distance_km=None, title_search=None, gear_id=None,
 ):
+    from uuid import UUID as UUIDType
     since = date.today() - timedelta(days=days)
     sort_col = _VALID_SORTS.get(sort_by, "started_at")
 
@@ -559,6 +676,9 @@ async def _query_activities(
     if title_search:
         params.append(f"%{title_search}%")
         conditions.append(f"a.title ILIKE ${len(params)}")
+    if gear_id:
+        params.append(UUIDType(gear_id))
+        conditions.append(f"a.gear_id = ${len(params)}")
 
     where = " AND ".join(conditions)
     query = (
@@ -782,6 +902,7 @@ async def _get_gear_stats(pool, user_id, gear_id=None, gear_type=None):
 async def _query_geo_features(
     pool, user_id,
     feature_type=None, min_elevation=None, days=365, limit=20, sport_type=None,
+    activity_ids=None,
 ):
     since = date.today() - timedelta(days=days)
 
@@ -807,6 +928,10 @@ async def _query_geo_features(
         if sport_type:
             params.append(sport_type)
             conditions.append(f"a.sport_type = ${len(params)}")
+        if activity_ids:
+            from uuid import UUID as UUIDType
+            params.append([UUIDType(aid) for aid in activity_ids])
+            conditions.append(f"a.id = ANY(${len(params)}::uuid[])")
 
         where = " AND ".join(conditions)
         table_join = f"JOIN activities a ON a.id = gt.activity_id WHERE {where}"
@@ -991,6 +1116,97 @@ async def _query_data(pool, user_id, table, days=30, limit=30, activity_id=None)
         )
 
     return {"table": table, "rows": [dict(r) for r in rows]}
+
+
+async def _get_gear_for_activity(pool, user_id, activity_id):
+    from uuid import UUID as UUIDType
+    row = await pool.fetchrow(
+        "SELECT g.id, g.name, g.type, g.brand, g.model, "
+        "ROUND((g.total_distance_m / 1000.0)::numeric, 0) AS total_distance_km, "
+        "g.total_activities, g.status "
+        "FROM gear g "
+        "JOIN activities a ON a.gear_id = g.id "
+        "WHERE a.id = $1 AND a.user_id = $2",
+        UUIDType(activity_id), user_id,
+    )
+    if row:
+        return {"gear": dict(row)}
+    return {"gear": None, "note": "No gear assigned to this activity"}
+
+
+async def _get_gear_documents(pool, user_id, gear_id):
+    from uuid import UUID as UUIDType
+    rows = await pool.fetch(
+        "SELECT doc_type, original_filename, extracted_data, processing_status, created_at::date AS date "
+        "FROM gear_documents "
+        "WHERE gear_id = $1 AND user_id = $2 "
+        "ORDER BY created_at",
+        UUIDType(gear_id), user_id,
+    )
+    docs = []
+    for r in rows:
+        doc = dict(r)
+        # Parse extracted_data if string
+        if doc.get("extracted_data") and isinstance(doc["extracted_data"], str):
+            doc["extracted_data"] = json.loads(doc["extracted_data"])
+        docs.append(doc)
+    return {"documents": docs, "count": len(docs)}
+
+
+async def _get_activity_detail(pool, user_id, activity_id):
+    from uuid import UUID as UUIDType
+    row = await pool.fetchrow(
+        "SELECT a.id, a.title, a.sport_type, a.started_at, a.elapsed_time_s, "
+        "a.distance_m, a.elevation_gain_m, a.elevation_loss_m, "
+        "a.avg_heart_rate, a.max_heart_rate, a.avg_speed, a.avg_power_w, "
+        "a.start_city, a.start_region, a.start_country, "
+        "a.training_stress_score, a.notes, a.weather_temp_c, a.weather_description, "
+        "g.name AS gear_name, "
+        "(SELECT COUNT(*) FROM activity_photos ap WHERE ap.activity_id = a.id) AS photo_count, "
+        "(SELECT COUNT(*) FROM activity_geo_tags gt WHERE gt.activity_id = a.id) AS geo_tag_count "
+        "FROM activities a "
+        "LEFT JOIN gear g ON g.id = a.gear_id "
+        "WHERE a.id = $1 AND a.user_id = $2",
+        UUIDType(activity_id), user_id,
+    )
+    if not row:
+        return {"error": "Activity not found"}
+    result = dict(row)
+    # Format distance + duration for readability
+    result["distance_km"] = round((result.pop("distance_m") or 0) / 1000, 2)
+    result["duration"] = _format_duration(result.pop("elapsed_time_s") or 0)
+    return {"activity": result}
+
+
+async def _search_photos_by_content(pool, user_id, query: str, limit: int = 10):
+    # Requires SigLIP2 embedding for the query text
+    try:
+        from services.ml.models.clip import embed_text  # type: ignore
+        text_vec = await embed_text(query)
+    except ImportError:
+        return {"error": "Photo search not available — SigLIP2 model not loaded", "photos": []}
+    except Exception as e:
+        logger.warning("embed_text failed: %s", e)
+        return {"error": f"Embedding error: {e}", "photos": []}
+
+    rows = await pool.fetch(
+        "SELECT ap.id, ap.activity_id, ap.s3_key_thumb, ap.lat, ap.lng, "
+        "ap.taken_at::date AS date, "
+        "1 - (ap.clip_embedding <=> $2::vector) AS similarity, "
+        "a.title AS activity_title "
+        "FROM activity_photos ap "
+        "JOIN activities a ON a.id = ap.activity_id "
+        "WHERE ap.user_id = $1 AND ap.clip_embedding IS NOT NULL "
+        "ORDER BY ap.clip_embedding <=> $2::vector "
+        "LIMIT $3",
+        user_id, str(text_vec), min(int(limit), 50),
+    )
+    photos = []
+    for r in rows:
+        p = dict(r)
+        p["similarity"] = round(float(p["similarity"]), 3)
+        photos.append(p)
+    return {"query": query, "photos": photos, "count": len(photos)}
 
 
 # ── Legacy compatibility wrappers ──────────────────────────────────────────────

@@ -6,16 +6,21 @@
 #
 # Umgebungsvariablen:
 #   LLAMA_MODEL   - Pfad zum GGUF-Modell (relativ zum Projektverzeichnis)
-#                   Default: data/models/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf
+#                   Default: data/models/Qwen3.5-9B-Q4_K_M.gguf
 #   LLAMA_MMPROJ  - Pfad zum Vision-Encoder (mmproj), leer = kein VLM
-#                   Default: data/models/mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf
+#                   Default: data/models/mmproj-Qwen3.5-9B-BF16.gguf
 #   LLAMA_PORT    - Server-Port (Default: 8181)
 #   LLAMA_CTX     - Context Size (Default: 16384, mind. 128K fuer Thinking-Mode)
 #
-# Modelle (HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive):
-#   LLM:    Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf  (~5.3 GB)
-#   mmproj: mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf (~880 MB)
-#   Gesamt: ~6.2 GB auf Vega 56 (8 GB HBM2)
+# Modelle (unsloth/Qwen3.5-9B-GGUF):
+#   LLM:    Qwen3.5-9B-Q4_K_M.gguf  (~5.68 GB)
+#   mmproj: mmproj-BF16.gguf (~922 MB)
+#   Gesamt: ~6.6 GB auf Vega 56 (8 GB HBM2)
+#
+# Download (einmalig):
+#   huggingface-cli download unsloth/Qwen3.5-9B-GGUF \
+#     Qwen3.5-9B-Q4_K_M.gguf mmproj-BF16.gguf \
+#     --local-dir data/models/
 #
 # Sampling-Empfehlungen (Qwen-Autoren):
 #   Thinking-Mode:     --temp 0.6 --top-p 0.95 --top-k 20
@@ -24,8 +29,8 @@
 set -euo pipefail
 
 LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
-LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}"
-LLAMA_MMPROJ="${LLAMA_MMPROJ:-data/models/mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf}"
+LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3.5-9B-Q4_K_M.gguf}"
+LLAMA_MMPROJ="${LLAMA_MMPROJ:-data/models/mmproj-BF16.gguf}"
 LLAMA_PORT="${LLAMA_PORT:-8181}"
 LLAMA_CTX="${LLAMA_CTX:-16384}"
 

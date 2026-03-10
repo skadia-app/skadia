@@ -5,6 +5,7 @@ import os
 import uuid
 from collections import defaultdict
 
+import aioboto3
 import nats
 from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
@@ -39,6 +40,7 @@ MAX_RETRIES = 3
 MAX_CONCURRENT_PER_USER = 2
 MAX_CONCURRENT_ANALYTICS_PER_USER = 1
 MAX_GLOBAL_CONCURRENT = 5
+MAX_CONCURRENT_PHOTO_EMBED = 2
 
 # Global semaphore to prevent resource exhaustion under burst load
 _global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
@@ -52,6 +54,9 @@ _user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
 _analytics_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
     lambda: asyncio.Semaphore(MAX_CONCURRENT_ANALYTICS_PER_USER)
 )
+
+# Global semaphore for photo embedding (CPU/GPU-bound CLIP inference)
+_photo_embed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PHOTO_EMBED)
 
 # Metrics counters
 _metrics = {
@@ -408,6 +413,116 @@ async def _upsert_analytics_cache(conn, user_id: str, cache_key: str, result) ->
     )
 
 
+async def _download_from_s3(bucket: str, key: str) -> bytes:
+    """Download an object from Garage S3 using aioboto3."""
+    session = aioboto3.Session()
+    async with session.client(
+        "s3",
+        endpoint_url=os.getenv("GARAGE_ENDPOINT", "http://garage:3900"),
+        aws_access_key_id=os.getenv("GARAGE_ACCESS_KEY"),
+        aws_secret_access_key=os.getenv("GARAGE_SECRET_KEY"),
+    ) as s3:
+        response = await s3.get_object(Bucket=bucket, Key=key)
+        return await response["Body"].read()
+
+
+async def _process_photo_embed(msg, pool, nc) -> None:
+    """Process a photo embedding request from skadia.photo.embed."""
+    data: dict = {}
+    try:
+        data = json.loads(msg.data.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.error("photo_embed: invalid message payload: %s", msg.data)
+        await msg.ack()
+        return
+
+    photo_id = data.get("photo_id", "")
+    s3_bucket = data.get("s3_bucket", "")
+    if not photo_id or not s3_bucket:
+        logger.error("photo_embed: missing photo_id or s3_bucket in message")
+        await msg.ack()
+        return
+
+    # Prefer preview (smaller), fall back to original
+    image_key = data.get("s3_key_preview") or data.get("s3_key", "")
+    if not image_key:
+        logger.error("photo_embed: no s3_key in message for photo %s", photo_id)
+        await msg.ack()
+        return
+
+    async with _photo_embed_semaphore:
+        _metrics["active_tasks"] += 1
+        try:
+            from models.clip import embed_image  # lazy import to avoid startup overhead
+
+            image_bytes = await _download_from_s3(s3_bucket, image_key)
+            embedding = await embed_image(image_bytes)
+
+            # Store as pgvector literal string
+            vec_str = "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE activity_photos SET clip_embedding = $1::vector WHERE id = $2::uuid",
+                    vec_str,
+                    photo_id,
+                )
+            logger.info("photo_embed: embedding saved for photo %s", photo_id)
+            await msg.ack()
+            _metrics["processed_total"] += 1
+        except Exception as e:
+            logger.error(
+                "photo_embed: failed for photo %s: %s", data.get("photo_id", "?"), e
+            )
+            _metrics["errors_total"] += 1
+
+            num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", None)
+            retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
+            if retry_count >= MAX_RETRIES:
+                logger.error(
+                    "photo_embed: max retries (%d) reached for photo %s, giving up",
+                    MAX_RETRIES,
+                    photo_id,
+                )
+                await msg.ack()
+            else:
+                await msg.nak()
+        finally:
+            _metrics["active_tasks"] -= 1
+
+
+async def _catchup_missing_embeddings(pool, nc) -> None:
+    """Every 60 s: publish skadia.photo.embed for photos without a CLIP embedding."""
+    while True:
+        try:
+            rows = await pool.fetch(
+                "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview "
+                "FROM activity_photos ap "
+                "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
+                "WHERE ap.clip_embedding IS NULL "
+                "AND ues.enable_photo_clip_embedding = true "
+                "LIMIT 50"
+            )
+            if rows:
+                for row in rows:
+                    payload = {
+                        "photo_id": str(row["id"]),
+                        "user_id": str(row["user_id"]),
+                        "s3_bucket": row["s3_bucket"],
+                        "s3_key": row["s3_key"],
+                        "s3_key_preview": row["s3_key_preview"],
+                    }
+                    await nc.publish(
+                        "skadia.photo.embed",
+                        json.dumps(payload).encode(),
+                    )
+                logger.debug(
+                    "photo_embed catch-up: queued %d photo embeddings", len(rows)
+                )
+        except Exception as e:
+            logger.warning("photo_embed catch-up scan failed: %s", e)
+        await asyncio.sleep(60)
+
+
 async def _ensure_stream(js, name: str, subjects: list[str]) -> None:
     """Create a JetStream stream if it doesn't exist."""
     try:
@@ -514,6 +629,32 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
     tasks.append(asyncio.create_task(
         _pull_loop(sub_analytics, lambda msg: _process_analytics_message(msg, nc), "analytics")
     ))
+
+    # --- Photo CLIP embedding ---
+    # Uses the existing SKADIA stream (skadia.> wildcard already covers skadia.photo.embed).
+    await _ensure_stream(js, "SKADIA", ["skadia.>"])
+
+    pool = await get_pool()
+    sub_photo = await js.pull_subscribe(
+        "skadia.photo.embed",
+        durable="ml-photo-embed",
+        config=ConsumerConfig(
+            deliver_policy=DeliverPolicy.ALL,
+            ack_policy=AckPolicy.EXPLICIT,
+            max_deliver=MAX_RETRIES + 1,
+            ack_wait=120,
+        ),
+    )
+    tasks.append(asyncio.create_task(
+        _pull_loop(
+            sub_photo,
+            lambda msg: _process_photo_embed(msg, pool, nc),
+            "photo-embed",
+        )
+    ))
+
+    # Periodic catch-up: re-queue photos whose embedding is still missing
+    tasks.append(asyncio.create_task(_catchup_missing_embeddings(pool, nc)))
 
     logger.info("All NATS pull consumers started (%d tasks)", len(tasks))
     return tasks

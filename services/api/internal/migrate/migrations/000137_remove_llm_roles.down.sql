@@ -1,0 +1,1 @@
+-- No rollback: removed LLM roles (vlm, vlm_fallback, analysis) cannot be meaningfully restored

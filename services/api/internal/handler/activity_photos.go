@@ -15,6 +15,7 @@ import (
 	"github.com/bep/imagemeta"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -176,6 +177,20 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert activity photo failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
 		return
+	}
+
+	// Publish photo embed event for CLIP embedding — best-effort, never fails the request.
+	if h.Events != nil {
+		ev := event.PhotoEmbedEvent{
+			PhotoID:      saved.ID,
+			UserID:       userID,
+			S3Bucket:     bucket,
+			S3Key:        s3Key,
+			S3KeyPreview: saved.S3KeyPreview,
+		}
+		if err := h.Events.PublishPhotoEmbed(ev); err != nil {
+			slog.Warn("failed to publish photo embed event", "photo_id", saved.ID, "err", err)
+		}
 	}
 
 	setPhotoURLs(&saved)
@@ -472,6 +487,62 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// RecomputePhotoEmbeddings re-queues CLIP embedding computation for all user
+// photos that currently have no embedding stored (clip_embedding IS NULL).
+// Runs as a background job; returns 202 Accepted immediately.
+func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	photos, err := h.DB.GetPhotosWithoutEmbedding(r.Context(), userID)
+	if err != nil {
+		slog.Error("recompute embeddings: failed to query photos without embedding", "err", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_embed_backfill", nil, nil, int64(len(photos)))
+	if err != nil {
+		slog.Error("recompute embeddings: failed to create background job", "err", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		published := int64(0)
+		anyFailed := false
+
+		for _, photo := range photos {
+			if h.Events != nil {
+				ev := event.PhotoEmbedEvent{
+					PhotoID:      photo.ID,
+					UserID:       userID,
+					S3Bucket:     photo.S3Bucket,
+					S3Key:        photo.S3Key,
+					S3KeyPreview: photo.S3KeyPreview,
+				}
+				if err := h.Events.PublishPhotoEmbed(ev); err != nil {
+					slog.Warn("recompute embeddings: publish failed", "photo_id", photo.ID, "err", err)
+					anyFailed = true
+				}
+			}
+			published++
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, published)
+		}
+
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"queued": len(photos),
+	})
 }
 
 func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {

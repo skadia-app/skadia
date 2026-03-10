@@ -37,7 +37,7 @@ func (h *Handler) GetLLMConfig(w http.ResponseWriter, r *http.Request) {
 // PutLLMConfigRole saves the configuration for a model role.
 func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 	role := chi.URLParam(r, "role")
-	validRoles := map[string]bool{"default": true, "vlm": true, "vlm_fallback": true, "analysis": true}
+	validRoles := map[string]bool{"default": true}
 	if !validRoles[role] {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
 		return

@@ -340,6 +340,7 @@ func main() {
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
 			r.Get("/photos/{photoID}/preview", h.StreamActivityPhotoPreview)
 			r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
+			r.Post("/photos/recompute-embeddings", h.RecomputePhotoEmbeddings)
 			r.Get("/map/photos", h.ListMapPhotos)
 			r.Get("/media/{bucket}/*", h.ServeMedia)
 

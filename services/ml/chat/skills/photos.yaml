@@ -1,0 +1,15 @@
+name: photos
+description: "Fotos, Bilder, Bildsuche, Tiere, Landschaften"
+tools: [search_photos_by_content]
+schema_excerpt: |
+  activity_photos: clip_embedding vector(1152), lat, lng, taken_at, activity_id
+domain_knowledge: |
+  SigLIP2 semantische Suche: Deutsch und Englisch. Findet Fotos nach Inhalt.
+  Similarity-Score: 0.0-1.0, >0.3 = relevant.
+few_shot_examples:
+  - q: "Hab ich Fotos mit Steinböcken?"
+    tool: search_photos_by_content
+    args: {"query": "Steinbock auf Felsen", "limit": 5}
+  - q: "Zeig mir Sonnenuntergang-Fotos"
+    tool: search_photos_by_content
+    args: {"query": "Sonnenuntergang über Bergen", "limit": 10}

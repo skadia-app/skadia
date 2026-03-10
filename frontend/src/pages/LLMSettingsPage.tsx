@@ -7,16 +7,10 @@ import {
 
 const ROLE_LABELS: Record<string, string> = {
   default: 'Standard-LLM',
-  vlm: 'VLM (Bild-Analyse)',
-  vlm_fallback: 'VLM-Fallback',
-  analysis: 'Erweitertes Analyse-Modell',
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  default: 'Fur Text-Analyse, NL-Abfragen und automatische Aktivitats-Benennung (skadia-default)',
-  vlm: 'Fur Rechnungs-OCR und Foto-Analyse (skadia-vlm)',
-  vlm_fallback: 'Fallback bei VRAM-Knappheit des primaren VLM (skadia-vlm-fallback)',
-  analysis: 'Optionales grosses Modell fur tiefe Analyse (>=24 GB VRAM empfohlen)',
+  default: 'Fur Text-Analyse, NL-Abfragen, Foto-Analyse und automatische Aktivitats-Benennung (skadia-default).',
 }
 
 const BACKEND_OPTIONS = [
@@ -55,7 +49,7 @@ export default function LLMSettingsPage() {
       </div>
 
       <div className="space-y-4">
-        {['default', 'vlm', 'vlm_fallback', 'analysis'].map(role => {
+        {['default'].map(role => {
           const config = configs.find(c => c.role === role)
           return (
             <LLMRoleCard

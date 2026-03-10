@@ -14,8 +14,16 @@ domain_knowledge: |
   - Status: active = in Gebrauch, stored = eingelagert, retired = ausgemustert
 tools:
   - get_gear_stats
+  - get_gear_for_activity
+  - get_gear_documents
 few_shot_examples:
   - q: "Wie viele km haben meine Laufschuhe?"
     tool: get_gear_stats
     args: '{}'
     answer: "3 aktive Laufschuhe: Nike Pegasus 41 (623 km — bald wechseln!), Hoka Mach 6 (234 km), Brooks Ghost 16 (89 km)."
+  - q: "Was haben meine Laufschuhe gekostet?"
+    steps:
+      - tool: get_gear_stats
+        args: {"gear_type": "shoes"}
+      - tool: get_gear_documents
+        args: {"gear_id": "<id from previous step>"}

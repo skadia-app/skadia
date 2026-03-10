@@ -131,6 +131,34 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 	return photos, nil
 }
 
+// GetPhotosWithoutEmbedding returns id, s3_bucket, s3_key and s3_key_preview
+// for all photos of a user that have no CLIP embedding yet.
+// The clip_embedding column is expected to be added via a future migration.
+func (db *DB) GetPhotosWithoutEmbedding(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, s3_bucket, s3_key, COALESCE(s3_key_preview, '') AS s3_key_preview
+		FROM activity_photos
+		WHERE user_id = $1 AND clip_embedding IS NULL
+		ORDER BY created_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	photos := make([]model.ActivityPhoto, 0)
+	for rows.Next() {
+		var p model.ActivityPhoto
+		if err := rows.Scan(&p.ID, &p.S3Bucket, &p.S3Key, &p.S3KeyPreview); err != nil {
+			return nil, err
+		}
+		photos = append(photos, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return photos, nil
+}
+
 func (db *DB) ActivityPhotoExistsByHash(ctx context.Context, userID, hash string) (bool, error) {
 	var exists bool
 	err := db.Pool.QueryRow(ctx,
