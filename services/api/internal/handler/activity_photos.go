@@ -21,7 +21,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-const maxPhotoSize = 20 << 20 // 20 MB
+const maxPhotoSize = 200 << 20 // 200 MB (Videos können größer sein)
 
 func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
@@ -45,7 +45,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
 	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 20 MB)", r.URL.Path)
+		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 200 MB)", r.URL.Path)
 		return
 	}
 
@@ -58,8 +58,8 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Quick pre-check on client-supplied Content-Type (before reading body).
 	ctFromHeader := header.Header.Get("Content-Type")
-	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
+	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") && !strings.HasPrefix(ctFromHeader, "video/") {
+		writeError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
 		return
 	}
 
@@ -78,10 +78,19 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		sniff = sniff[:512]
 	}
 	ct := http.DetectContentType(sniff)
-	if !strings.HasPrefix(ct, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
+
+	// Fallback auf Datei-Extension wenn http.DetectContentType() kein Bild/Video erkennt.
+	// Das ist nötig für HEIC/JXL (geben application/octet-stream zurück) und mancher Videos.
+	if ct == "application/octet-stream" || ct == "application/zip" {
+		ct = contentTypeFromExtension(strings.ToLower(header.Filename))
+	}
+
+	if !strings.HasPrefix(ct, "image/") && !strings.HasPrefix(ct, "video/") {
+		writeError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
 		return
 	}
+
+	isVideo := strings.HasPrefix(ct, "video/")
 
 	// Hash
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
@@ -92,39 +101,73 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// EXIF-Daten extrahieren (GPS + Zeitstempel)
-	takenAt, lat, lng, locationSource := extractExifData(data, ct)
+	// EXIF-Daten extrahieren (GPS + Zeitstempel) — nur für Bilder sinnvoll
+	var takenAt *time.Time
+	var lat, lng *float64
+	var locationSource *string
+	if !isVideo {
+		takenAt, lat, lng, locationSource = extractExifData(data, ct)
 
-	// Falls kein EXIF-GPS: Track-Interpolation versuchen
-	if lat == nil && takenAt != nil && activityID != "" {
-		lat, lng = h.interpolateFromTrack(r.Context(), activityID, userID, *takenAt)
-		if lat != nil {
-			ls := "activity_track"
-			locationSource = &ls
+		// Falls kein EXIF-GPS: Track-Interpolation versuchen
+		if lat == nil && takenAt != nil && activityID != "" {
+			lat, lng = h.interpolateFromTrack(r.Context(), activityID, userID, *takenAt)
+			if lat != nil {
+				ls := "activity_track"
+				locationSource = &ls
+			}
 		}
 	}
 
-	// Thumbnail (200×200) generieren
-	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
+	// Dateiendung für S3-Pfad bestimmen
+	ext := fileExtForContentType(ct, header.Filename)
 
-	// Preview-Thumbnail generieren (Größe aus User-Einstellungen)
+	// Thumbnail generieren (200px):
+	// – Video/HEIC/JXL: via ffmpeg (Frame-Extraktion bzw. Dekodierung)
+	// – andere Bilder: via imageutil.Resize()
+	var thumbData []byte
+	switch {
+	case isVideo:
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200); err == nil {
+			thumbData = td
+		} else {
+			slog.Warn("ffmpeg video thumbnail failed", "filename", header.Filename, "error", err)
+		}
+	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200); err == nil {
+			thumbData = td
+		} else {
+			slog.Warn("ffmpeg image thumbnail failed", "ct", ct, "error", err)
+		}
+	default:
+		thumbData, _ = imageutil.Resize(data, 200, 200, 80)
+	}
+
+	// Preview-Thumbnail generieren (Größe aus User-Einstellungen) — nur für Bilder
 	previewData, s3KeyPreview := []byte(nil), ""
-	if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil {
-		if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-			previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+	if !isVideo {
+		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil {
+			if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+				if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+					// ffmpeg skaliert proportional; maxSize bestimmt die längere Seite
+					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW)
+				} else {
+					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+				}
+			}
+		}
+	}
+
+	// Video-Metadaten via ffprobe lesen
+	var videoMeta *imageutil.VideoMeta
+	if isVideo {
+		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
+			videoMeta = &meta
+		} else {
+			slog.Warn("ffprobe failed", "filename", header.Filename, "error", err)
 		}
 	}
 
 	// S3-Pfade
-	ext := ".jpg"
-	switch {
-	case strings.Contains(ct, "png"):
-		ext = ".png"
-	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
-		ext = ".heic"
-	case strings.Contains(ct, "avif"):
-		ext = ".avif"
-	}
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
 	bucket := "skadia-media"
@@ -146,7 +189,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		s3KeyThumb = s3Key // Original ist bereits klein genug
 	}
 
-	// Upload Preview (2048/4K)
+	// Upload Preview (2048/4K) — nur für Bilder
 	if previewData != nil {
 		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, hash)
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
@@ -170,6 +213,12 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		Lat:              lat,
 		Lng:              lng,
 		LocationSource:   locationSource,
+		IsVideo:          isVideo,
+	}
+	if videoMeta != nil {
+		photo.DurationS = &videoMeta.DurationS
+		photo.VideoWidth = &videoMeta.Width
+		photo.VideoHeight = &videoMeta.Height
 	}
 
 	saved, err := h.DB.InsertActivityPhoto(r.Context(), photo)
@@ -574,6 +623,78 @@ func setPhotoURLs(p *model.ActivityPhoto) {
 	}
 }
 
+
+// contentTypeFromExtension gibt den MIME-Type anhand der Dateiendung zurück.
+// Wird als Fallback genutzt wenn http.DetectContentType() application/octet-stream liefert
+// (z.B. HEIC, JXL, einige Video-Formate).
+func contentTypeFromExtension(filename string) string {
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return "application/octet-stream"
+	}
+	switch filename[dot:] {
+	case ".heic", ".heif":
+		return "image/heic"
+	case ".jxl":
+		return "image/jxl"
+	case ".avif":
+		return "image/avif"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// fileExtForContentType gibt die passende Dateiendung (inkl. Punkt) für einen Content-Type zurück.
+// Wenn der Original-Dateiname eine bekannte Endung hat, wird diese bevorzugt.
+func fileExtForContentType(ct, originalFilename string) string {
+	// Endung aus Originaldateinamen extrahieren wenn vorhanden
+	if dot := strings.LastIndex(originalFilename, "."); dot >= 0 {
+		origExt := strings.ToLower(originalFilename[dot:])
+		switch origExt {
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".tif",
+			".heic", ".heif", ".avif", ".jxl",
+			".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm":
+			return origExt
+		}
+	}
+	// Fallback: aus Content-Type ableiten
+	switch {
+	case strings.Contains(ct, "png"):
+		return ".png"
+	case strings.Contains(ct, "gif"):
+		return ".gif"
+	case strings.Contains(ct, "webp"):
+		return ".webp"
+	case strings.Contains(ct, "heic") || strings.Contains(ct, "heif"):
+		return ".heic"
+	case strings.Contains(ct, "avif"):
+		return ".avif"
+	case strings.Contains(ct, "jxl"):
+		return ".jxl"
+	case strings.Contains(ct, "video/mp4"):
+		return ".mp4"
+	case strings.Contains(ct, "quicktime"):
+		return ".mov"
+	case strings.Contains(ct, "x-msvideo"):
+		return ".avi"
+	case strings.Contains(ct, "x-matroska"):
+		return ".mkv"
+	case strings.Contains(ct, "webm"):
+		return ".webm"
+	default:
+		return ".jpg"
+	}
+}
 
 // extractExifData versucht GPS-Koordinaten und Aufnahmezeit aus EXIF-Metadaten zu lesen.
 // Unterstuetzt JPEG, PNG, TIFF und WebP. Gibt nil-Werte zurueck wenn kein EXIF vorhanden.
