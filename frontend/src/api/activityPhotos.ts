@@ -15,6 +15,16 @@ export interface ActivityPhoto {
   thumb_url: string
   preview_url: string  // large preview (2048/4K) — same as full_url when no preview was generated
   full_url: string
+  // Video fields (optional, only present for video files)
+  is_video?: boolean
+  duration_s?: number | null
+  video_width?: number | null
+  video_height?: number | null
+}
+
+/** Returns true if the given photo is a video based on content_type or is_video flag */
+export function isVideoPhoto(photo: ActivityPhoto): boolean {
+  return photo.is_video === true || (photo.content_type?.startsWith('video/') ?? false)
 }
 
 export interface MapPhotoEntry {
