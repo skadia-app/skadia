@@ -66,6 +66,9 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   })
 
   const photosWithoutPosition = photos.filter(p => p.lat == null || p.lng == null)
+  const photosWithPosition = photos.filter(
+    (p): p is ActivityPhoto & { lat: number; lng: number } => p.lat != null && p.lng != null,
+  )
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadActivityPhoto(activityId, file),
@@ -189,7 +192,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           )}
 
           {/* No-position warning + geo-assign trigger */}
-          {photosWithoutPosition.length > 0 && (
+          {photosWithoutPosition.length > 0 ? (
             <div className="flex items-center gap-2 px-1">
               <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
@@ -201,7 +204,16 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 {photosWithoutPosition.length} {photosWithoutPosition.length === 1 ? 'Medium' : 'Medien'} ohne Position — Auf Karte zuweisen
               </button>
             </div>
-          )}
+          ) : photosWithPosition.length > 0 ? (
+            <div className="flex items-center gap-2 px-1">
+              <button
+                onClick={() => setShowGeoAssign(true)}
+                className="text-xs text-neutral-400 hover:text-neutral-300 cursor-pointer transition-colors"
+              >
+                Positionen bearbeiten
+              </button>
+            </div>
+          ) : null}
 
           {/* Upload button */}
           <div className="pt-1">
@@ -246,6 +258,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
               trackCoords={trackCoords}
               trackTimes={trackTimes}
               unpositionedPhotos={photosWithoutPosition}
+              positionedPhotos={photosWithPosition}
               onClose={() => setShowGeoAssign(false)}
             />
           )

@@ -38,6 +38,7 @@ export default function AuthenticatedImage({ src, alt, className }: Props) {
       src={objectUrl || undefined}
       alt={alt}
       className={className}
+      draggable={false}
     />
   )
 }

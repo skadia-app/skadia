@@ -401,6 +401,47 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Fallback for unrecognised item types (e.g. blob-dragged images, future types)
+// ---------------------------------------------------------------------------
+
+const KNOWN_ITEM_TYPES: string[] = [
+  'image_no_exif',
+  'image_ambiguous',
+  'pdf_untyped',
+  'duplicate',
+  'import_error',
+]
+
+function FallbackItem({ item, onRefresh }: ItemProps) {
+  const dismissMutation = useMutation({
+    mutationFn: () => deleteQueueItem(item.id),
+    onSuccess: onRefresh,
+  })
+
+  return (
+    <div className="space-y-3">
+      {item.filename ? (
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
+          {item.filename}
+        </p>
+      ) : (
+        <p className="text-xs text-neutral-400 italic">Kein Dateiname verfügbar</p>
+      )}
+      <p className="text-xs text-neutral-500">
+        Dieser Eintrag kann nicht automatisch verarbeitet werden.
+      </p>
+      <button
+        onClick={() => dismissMutation.mutate()}
+        disabled={dismissMutation.isPending}
+        className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+      >
+        {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Queue item card
 // ---------------------------------------------------------------------------
 
@@ -430,6 +471,9 @@ function QueueItemCard({ item, onRefresh }: ItemProps) {
       )}
       {item.item_type === 'import_error' && (
         <ImportErrorItem item={item} onRefresh={onRefresh} />
+      )}
+      {!KNOWN_ITEM_TYPES.includes(item.item_type as string) && (
+        <FallbackItem item={item} onRefresh={onRefresh} />
       )}
     </div>
   )

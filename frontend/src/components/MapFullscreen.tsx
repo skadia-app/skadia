@@ -1,6 +1,9 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { useQuery } from '@tanstack/react-query'
+import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
+import { apiDownload } from '@/api/client'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -13,7 +16,6 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { useQuery } from '@tanstack/react-query'
 import type { LngLatLike } from 'maplibre-gl'
 import type { StreamPoint } from '@/api/types'
 import ColorPicker from '@/components/ColorPicker'
@@ -63,6 +65,7 @@ interface Props {
   streams: StreamPoint[]
   sportColor: string
   onClose: () => void
+  activityId?: string
 }
 
 // ── Stream definitions ────────────────────────────────────────────────────────
@@ -138,12 +141,14 @@ function findClosestIdx(arr: number[], target: number): number {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
+export default function MapFullscreen({ streams, sportColor, onClose, activityId }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
+  const photoMarkersRef = useRef<maplibregl.Marker[]>([])
+  const photoBlobUrlsRef = useRef<string[]>([])
 
   const [xMode, setXMode] = useState<XMode>('distance')
   const [isZoomed, setIsZoomed] = useState(false)
@@ -151,6 +156,9 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     // Alle möglichen FieldKeys vorausgewählt — ECharts blendet Serien ohne Daten automatisch aus
     return new Set<FieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
   })
+
+  const [showPhotos, setShowPhotos] = useState(true)
+  const [mapLoaded, setMapLoaded] = useState(false)
 
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(() => {
     try {
@@ -171,6 +179,17 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     staleTime: Infinity,
   })
   const userId = meData?.user_id ?? ''
+
+  const { data: allPhotos = [] } = useQuery({
+    queryKey: ['activity-photos', activityId],
+    queryFn: () => listActivityPhotos(activityId!),
+    enabled: !!activityId,
+    staleTime: 1000 * 60 * 5,
+  })
+  const positionedPhotos = useMemo(
+    () => allPhotos.filter((p): p is ActivityPhoto & { lat: number; lng: number } => p.lat != null && p.lng != null),
+    [allPhotos],
+  )
 
   const data = useMemo(() => buildChartData(streams), [streams])
 
@@ -265,6 +284,7 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
       map.on('load', () => {
         map!.resize()
         addTrackLayers(map!)
+        setMapLoaded(true)
       })
 
       map.on('style.load', () => {
@@ -295,6 +315,10 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     return () => {
       disposed = true
       ro.disconnect()
+      photoMarkersRef.current.forEach(m => m.remove())
+      photoMarkersRef.current = []
+      photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
+      photoBlobUrlsRef.current = []
       map?.remove()
       mapRef.current = null
     }
@@ -327,6 +351,57 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
     setHeatmapColor(hex)
     saveHeatmapColor(hex)
   }
+
+  // ── Photo thumbnail markers ───────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    // Remove existing photo markers + blob URLs
+    photoMarkersRef.current.forEach(m => m.remove())
+    photoMarkersRef.current = []
+    photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
+    photoBlobUrlsRef.current = []
+
+    if (!showPhotos) return
+
+    for (const photo of positionedPhotos) {
+      // NOTE: Do NOT set position:relative on el — that would override
+      // .maplibregl-marker's position:absolute and break zoom-stable positioning.
+      const el = document.createElement('div')
+      el.style.cssText = 'cursor:pointer;'
+
+      const imgBox = document.createElement('div')
+      imgBox.style.cssText =
+        'width:40px;height:30px;border-radius:3px;border:2px solid white;overflow:hidden;background:#444;box-shadow:0 1px 4px rgba(0,0,0,0.4);'
+
+      const tri = document.createElement('div')
+      tri.style.cssText =
+        'width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid white;margin:0 auto;'
+
+      el.appendChild(imgBox)
+      el.appendChild(tri)
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([photo.lng, photo.lat])
+        .addTo(map)
+      photoMarkersRef.current.push(marker)
+
+      // Load thumbnail async
+      const thumbUrl = photo.thumbnail_url ?? photo.preview_url
+      if (thumbUrl) {
+        apiDownload(thumbUrl).then(({ blob }) => {
+          const blobUrl = URL.createObjectURL(blob)
+          photoBlobUrlsRef.current.push(blobUrl)
+          const img = document.createElement('img')
+          img.src = blobUrl
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;'
+          imgBox.innerHTML = ''
+          imgBox.appendChild(img)
+        }).catch(() => {/* ignore */})
+      }
+    }
+  }, [positionedPhotos, mapLoaded, showPhotos])
 
   // ── Move hover marker on map ──────────────────────────────────────────────
   const moveMarker = useCallback((index: number | null) => {
@@ -768,6 +843,25 @@ export default function MapFullscreen({ streams, sportColor, onClose }: Props) {
             )}
           </div>
         </div>
+
+        {/* Photo toggle button (only if activity has positioned photos) */}
+        {positionedPhotos.length > 0 && (
+          <button
+            onClick={() => setShowPhotos(v => !v)}
+            title={showPhotos ? 'Fotos ausblenden' : 'Fotos einblenden'}
+            className={[
+              'absolute top-3 right-[6.5rem] z-10 flex items-center justify-center w-9 h-9',
+              'rounded-lg backdrop-blur-sm shadow-md cursor-pointer transition-colors',
+              showPhotos
+                ? 'bg-accent-DEFAULT text-white'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-700',
+            ].join(' ')}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0l-2.97 2.97zM12 7a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
 
         {/* Close button */}
         <button

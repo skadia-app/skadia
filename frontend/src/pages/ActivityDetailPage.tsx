@@ -25,7 +25,7 @@ import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
 import ActivityPhotoSection from '@/components/ActivityPhotoSection'
-import { uploadActivityPhoto } from '@/api/activityPhotos'
+import { uploadActivityPhoto, listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import LapTable from '@/components/LapTable'
 import SplitTable from '@/components/SplitTable'
 import SwimLengthTable from '@/components/SwimLengthTable'
@@ -489,6 +489,7 @@ export default function ActivityDetailPage() {
       {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
       {activity.sport_type !== 'multisport' && (
         <TrackMap
+          activityId={activity.id}
           streams={streams ?? []}
           hoverIndex={hoverIndex}
           sportColor={sportColor(activity.sport_type)}
@@ -509,6 +510,7 @@ export default function ActivityDetailPage() {
           streams={streams}
           sportColor={sportColor(activity.sport_type)}
           onClose={() => setMapFullscreen(false)}
+          activityId={activity.id}
         />
       )}
 
@@ -1716,7 +1718,8 @@ function splitAtGaps(coords: [number, number][], thresholdM: number): [number, n
   return segments.length > 0 ? segments : [coords]
 }
 
-function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: {
+function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: {
+  activityId?: string
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
@@ -1732,6 +1735,23 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const locationPinMapContainerRef = useRef<HTMLDivElement>(null)
   const locationPinMapRef = useRef<maplibregl.Map | null>(null)
+  const photoMarkersRef = useRef<maplibregl.Marker[]>([])
+  const photoBlobUrlsRef = useRef<string[]>([])
+
+  const [showPhotos, setShowPhotos] = useState(true)
+  const [mapLoaded, setMapLoaded] = useState(false)
+
+  const { data: allPhotos = [] } = useQuery({
+    queryKey: ['activity-photos', activityId],
+    queryFn: () => listActivityPhotos(activityId!),
+    enabled: !!activityId,
+    staleTime: 1000 * 60 * 5,
+  })
+
+  const positionedPhotos = useMemo(
+    () => allPhotos.filter((p): p is ActivityPhoto & { lat: number; lng: number } => p.lat != null && p.lng != null),
+    [allPhotos],
+  )
 
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
@@ -1951,10 +1971,18 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
       const bounds = new maplibregl.LngLatBounds()
       for (const c of coordinates) bounds.extend(c)
       map.fitBounds(bounds, { padding: 40, maxZoom: 15 })
+
+      setMapLoaded(true)
     })
 
     mapRef.current = map
-    return () => { map.remove() }
+    return () => {
+      photoMarkersRef.current.forEach(m => m.remove())
+      photoMarkersRef.current = []
+      photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
+      photoBlobUrlsRef.current = []
+      map.remove()
+    }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
@@ -2015,6 +2043,55 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
       markerRef.current = null
     }
   }, [hoverIndex, streams, hasTrack])
+
+  // Photo thumbnail markers — sync with positionedPhotos + showPhotos toggle
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    // Remove all existing photo markers + revoke blob URLs
+    photoMarkersRef.current.forEach(m => m.remove())
+    photoMarkersRef.current = []
+    photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
+    photoBlobUrlsRef.current = []
+
+    if (!showPhotos || positionedPhotos.length === 0) return
+
+    for (const photo of positionedPhotos) {
+      const el = document.createElement('div')
+      el.style.cssText = 'cursor:pointer;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.5));'
+
+      const imgBox = document.createElement('div')
+      imgBox.style.cssText =
+        'width:40px;height:30px;border-radius:3px;border:2px solid white;overflow:hidden;background:#444;'
+
+      const triangle = document.createElement('div')
+      triangle.style.cssText =
+        'width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid white;margin:0 auto;'
+
+      el.appendChild(imgBox)
+      el.appendChild(triangle)
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([photo.lng, photo.lat])
+        .addTo(map)
+
+      photoMarkersRef.current.push(marker)
+
+      // Load thumbnail with auth
+      apiDownload(photo.thumb_url)
+        .then(({ blob }) => {
+          const blobUrl = URL.createObjectURL(blob)
+          photoBlobUrlsRef.current.push(blobUrl)
+          const img = document.createElement('img')
+          img.src = blobUrl
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover;'
+          imgBox.innerHTML = ''
+          imgBox.appendChild(img)
+        })
+        .catch(() => {})
+    }
+  }, [positionedPhotos, mapLoaded, showPhotos]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart brush selection → grey out full track, highlight selected segment, fit bounds
   useEffect(() => {
@@ -2108,23 +2185,37 @@ function TrackMap({ streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximi
     )
   }
 
+  const btnBase = 'flex items-center justify-center w-8 h-8 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md cursor-pointer transition-colors'
+  const btnActive = 'text-neutral-600 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
+  const btnDimmed = 'text-neutral-400 dark:text-neutral-600 hover:bg-white dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
+
   return (
     <div className="relative rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div ref={mapContainerRef} className="h-[400px] w-full" />
-      {/* Maximize button */}
-      <button
-        onClick={onMaximize}
-        className="absolute top-3 left-3 z-10 flex items-center justify-center w-8 h-8
-                   rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
-                   text-neutral-600 dark:text-neutral-300 shadow-md cursor-pointer
-                   hover:bg-white dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100
-                   transition-colors"
-        title="Karte maximieren"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-          <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
-        </svg>
-      </button>
+      <div className="absolute top-3 left-3 z-10 flex gap-2">
+        {/* Maximize */}
+        <button
+          onClick={onMaximize}
+          className={`${btnBase} ${btnActive}`}
+          title="Karte maximieren"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
+          </svg>
+        </button>
+        {/* Photo toggle — only shown when activity has positioned photos */}
+        {positionedPhotos.length > 0 && (
+          <button
+            onClick={() => setShowPhotos(p => !p)}
+            className={`${btnBase} ${showPhotos ? btnActive : btnDimmed}`}
+            title={showPhotos ? 'Fotos ausblenden' : 'Fotos einblenden'}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+      </div>
     </div>
   )
 }
