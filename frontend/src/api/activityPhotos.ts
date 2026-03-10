@@ -89,3 +89,7 @@ export async function recomputePhotoPreviews(): Promise<{ job_id: string }> {
 export async function recomputePhotoEmbeddings(): Promise<{ job_id: string; queued: number }> {
   return apiClient('/photos/recompute-embeddings', { method: 'POST' })
 }
+
+export async function recomputePhotoThumbnails(): Promise<{ job_id?: string; queued?: number; fixed?: number; status?: string }> {
+  return apiClient('/photos/recompute-thumbnails', { method: 'POST' })
+}

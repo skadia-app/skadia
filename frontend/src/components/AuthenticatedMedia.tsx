@@ -66,6 +66,14 @@ export default function AuthenticatedMedia({ photo, className, objectFit = 'cont
   }, [mediaBlob])
 
   if (isVideo) {
+    // Derive aspect ratio from known dimensions so the element fills the lightbox
+    // correctly even before the src blob URL has been fetched (avoiding the tiny
+    // default browser video size while the file is still downloading).
+    const aspectRatio =
+      photo.video_width && photo.video_height
+        ? `${photo.video_width} / ${photo.video_height}`
+        : '16 / 9'
+
     return (
       <video
         src={objectUrl || undefined}
@@ -74,7 +82,7 @@ export default function AuthenticatedMedia({ photo, className, objectFit = 'cont
         playsInline
         preload="metadata"
         className={className}
-        style={objectFit ? { objectFit } : undefined}
+        style={{ objectFit: objectFit ?? 'contain', aspectRatio }}
       />
     )
   }

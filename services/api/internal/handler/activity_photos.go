@@ -567,17 +567,23 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Filter to only photos whose thumb key ends in a video extension — these are the
-	// broken rows left by the Strava importer bug.
+	// Filter to photos that need repair:
+	// 1. Thumb key ends in a video extension — broken rows from the Strava importer bug.
+	// 2. is_video=true but duration_s is NULL — videos missing metadata (e.g. repaired
+	//    by an older version of this handler that didn't persist video dimensions).
 	var badPhotos []model.ActivityPhoto
 	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
 	for _, p := range photos {
 		dot := strings.LastIndex(p.S3KeyThumb, ".")
-		if dot < 0 {
-			continue
+		if dot >= 0 {
+			ext := strings.ToLower(p.S3KeyThumb[dot:])
+			if videoExts[ext] {
+				badPhotos = append(badPhotos, p)
+				continue
+			}
 		}
-		ext := strings.ToLower(p.S3KeyThumb[dot:])
-		if videoExts[ext] {
+		// Also pick up videos that are already repaired (JPEG thumb) but still lack metadata.
+		if p.IsVideo && p.DurationS == nil {
 			badPhotos = append(badPhotos, p)
 		}
 	}
@@ -634,9 +640,26 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 			}
 
 			// Generate preview (mid-frame) too so both thumbs are fixed in one pass.
+			// Capture video metadata to persist duration/dimensions.
 			var midOffset float64
-			if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
-				midOffset = meta.DurationS / 2
+			var durationS *float64
+			var videoWidth, videoHeight *int
+			if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
+				if meta.DurationS > 0 {
+					d := meta.DurationS
+					durationS = &d
+					if meta.DurationS > 2 {
+						midOffset = meta.DurationS / 2
+					}
+				}
+				if meta.Width > 0 {
+					w := meta.Width
+					videoWidth = &w
+				}
+				if meta.Height > 0 {
+					h2 := meta.Height
+					videoHeight = &h2
+				}
 			}
 			previewData, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset)
 
@@ -663,7 +686,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 				ct = videoContentTypeFromExt(ext)
 			}
 
-			if err := h.DB.UpdateActivityPhotoThumbAndMeta(ctx, photo.ID, userID, thumbKey, previewKey, ct, true); err != nil {
+			if err := h.DB.UpdateActivityPhotoThumbAndMeta(ctx, photo.ID, userID, thumbKey, previewKey, ct, true, durationS, videoWidth, videoHeight); err != nil {
 				slog.Warn("recompute thumbnails: db update failed", "photo_id", photo.ID, "error", err)
 				anyFailed = true
 			}

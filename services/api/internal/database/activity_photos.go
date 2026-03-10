@@ -113,17 +113,21 @@ func (db *DB) UpdateActivityPhotoPreviewKey(ctx context.Context, id, userID, pre
 }
 
 // UpdateActivityPhotoThumbAndMeta updates s3_key_thumb, is_video, content_type and
-// optionally s3_key_preview for a single photo. Used by the backfill job to repair
-// rows where a video file's raw S3 key was mistakenly stored as the thumb path.
-func (db *DB) UpdateActivityPhotoThumbAndMeta(ctx context.Context, id, userID, thumbKey, previewKey, contentType string, isVideo bool) error {
+// optionally s3_key_preview, duration_s, video_width, video_height for a single photo.
+// Used by the backfill job to repair rows where a video file's raw S3 key was mistakenly
+// stored as the thumb path.
+func (db *DB) UpdateActivityPhotoThumbAndMeta(ctx context.Context, id, userID, thumbKey, previewKey, contentType string, isVideo bool, durationS *float64, videoWidth, videoHeight *int) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activity_photos
 		SET s3_key_thumb    = $3,
 		    s3_key_preview  = CASE WHEN $4 = '' THEN s3_key_preview ELSE $4 END,
 		    content_type    = $5,
-		    is_video        = $6
+		    is_video        = $6,
+		    duration_s      = COALESCE($7, duration_s),
+		    video_width     = COALESCE($8, video_width),
+		    video_height    = COALESCE($9, video_height)
 		WHERE id = $1 AND user_id = $2`,
-		id, userID, thumbKey, previewKey, contentType, isVideo,
+		id, userID, thumbKey, previewKey, contentType, isVideo, durationS, videoWidth, videoHeight,
 	)
 	return err
 }

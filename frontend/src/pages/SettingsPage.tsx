@@ -14,7 +14,7 @@ import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
-import { recomputePhotoPreviews, recomputePhotoEmbeddings } from '@/api/activityPhotos'
+import { recomputePhotoPreviews, recomputePhotoEmbeddings, recomputePhotoThumbnails } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
@@ -165,6 +165,23 @@ function PhotoPreviewSection() {
     }
   }
 
+  async function handleRecomputeThumbnails() {
+    try {
+      const result = await recomputePhotoThumbnails()
+      if (result.status === 'ok' && result.fixed === 0) {
+        addToast({ type: 'success', title: 'Keine Videos mit fehlendem Thumbnail gefunden' })
+      } else {
+        addToast({
+          type: 'info',
+          title: 'Video-Thumbnails werden neu generiert',
+          message: `${result.queued} Videos werden verarbeitet — Fortschritt im Header-Indikator sichtbar`,
+        })
+      }
+    } catch {
+      addToast({ type: 'error', title: 'Neuberechnung konnte nicht gestartet werden', duration: 0 })
+    }
+  }
+
   const currentSize = settings?.photo_preview_size ?? '2048'
 
   return (
@@ -219,6 +236,18 @@ function PhotoPreviewSection() {
           </button>
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
             Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRecomputeThumbnails}
+            disabled={isLoading}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Video-Thumbnails reparieren
+          </button>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Generiert JPEG-Vorschaubilder für Videos neu (behebt fehlende Thumbnails nach Import).
           </p>
         </div>
       </div>
