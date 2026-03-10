@@ -13,6 +13,79 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// ResetActivityElevation restores the GPS-recorded altitude values for an activity
+// by re-parsing the original file (streams + metrics scope) and then explicitly
+// setting elevation_source = 'gps'. Runs as a background job.
+//
+// POST /api/v1/activities/{id}/reset-elevation
+//
+// Response: 202 Accepted  { "job_id": "<uuid>", "status": "started" }
+func (h *Handler) ResetActivityElevation(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	activityID := chi.URLParam(r, "id")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil || activity == nil || activity.UserID != userID {
+		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	activityName := activity.Title
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_reset", &activityID, activityName, 2)
+	if err != nil {
+		slog.Error("reset-elevation: failed to insert background job", "activity_id", activityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		return
+	}
+
+	go h.runElevationResetJob(jobID, activityID, userID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		"job_id": jobID,
+		"status": "started",
+	})
+}
+
+func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
+	ctx := context.Background()
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("elevation reset job panicked", "panic", rec, "job_id", jobID)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		}
+	}()
+
+	slog.Info("elevation reset: starting", "job_id", jobID, "activity_id", activityID)
+
+	// Phase 1: Re-parse original file (streams + metrics scope) to restore GPS altitude.
+	scope := map[string]bool{"streams": true, "metrics": true}
+	if err := h.reprocessActivity(ctx, activityID, userID, scope); err != nil {
+		slog.Error("elevation reset: reprocess failed", "error", err, "activity_id", activityID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		return
+	}
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
+
+	// Phase 2: Explicitly mark elevation_source = 'gps'.
+	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"elevation_source": "gps"}); err != nil {
+		slog.Error("elevation reset: failed to update elevation_source", "error", err, "activity_id", activityID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		return
+	}
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 2)
+
+	slog.Info("elevation reset: complete", "job_id", jobID, "activity_id", activityID)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+}
+
 // QueryElevation returns DEM elevations for a list of [lng, lat] coordinate pairs.
 //
 // POST /api/v1/elevation/query
@@ -249,7 +322,7 @@ func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Reques
 	}
 
 	activityName := activity.Title
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_correction", &activityID, &activityName, 1)
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_correction", &activityID, activityName, 1)
 	if err != nil {
 		slog.Error("correct-elevation: failed to insert background job", "activity_id", activityID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
