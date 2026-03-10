@@ -122,19 +122,37 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
 		bucket := "skadia-media"
 
-		// For videos: skip thumbnail/preview generation entirely.
-		// Thumbnails for videos will be generated later by the ML service via CLIP.
-		// For images: generate thumbnail (200×200) and preview.
+		// Thumbnail (200px) + Preview generieren.
+		// Videos: ffmpeg für beide (Frame 0 → thumb, Videomitte → preview).
+		// HEIC/JXL: ffmpeg, da image.Decode() diese Formate nicht unterstützt.
+		// Andere Bilder: imageutil.Resize().
 		s3KeyThumb := s3Key // fallback: original as thumb
 		s3KeyPreview := ""
 
 		var thumbData []byte
-		var thumbErr error
 		var previewData []byte
 
-		if !isVideo {
-			thumbData, thumbErr = imageutil.Resize(data, 200, 200, 80)
+		useFFmpeg := isVideo || contentType == "image/heic" || contentType == "image/heif" || contentType == "image/jxl"
 
+		if isVideo {
+			// Metadaten für Offset-Berechnung (Videomitte)
+			var midOffset float64
+			if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
+				midOffset = meta.DurationS / 2
+			}
+			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
+			previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset)
+		} else if useFFmpeg {
+			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
+			if params.DB != nil {
+				if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
+					if maxW, _ := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+						previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
+					}
+				}
+			}
+		} else {
+			thumbData, _ = imageutil.Resize(data, 200, 200, 80)
 			if params.DB != nil {
 				if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
 					if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
@@ -151,26 +169,20 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				continue
 			}
 
-			if !isVideo {
-				if thumbErr == nil && thumbData != nil {
-					s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
-					if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-						slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
-						s3KeyThumb = s3Key
-					}
+			if thumbData != nil {
+				s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
+				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+					slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
+					s3KeyThumb = s3Key
 				}
+			}
 
-				if previewData != nil {
-					s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
-					if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-						slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
-						s3KeyPreview = ""
-					}
+			if previewData != nil {
+				s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
+				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+					slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
+					s3KeyPreview = ""
 				}
-			} else {
-				// Videos: no thumbnails at import time — ML service generates them later.
-				s3KeyThumb = ""
-				s3KeyPreview = ""
 			}
 		}
 
