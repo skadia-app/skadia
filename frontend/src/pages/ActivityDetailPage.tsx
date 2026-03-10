@@ -50,6 +50,7 @@ import { MultisportMap, type MultisportMapHandle } from '@/components/activity/M
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
+import { createRouteFromActivity } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
@@ -758,6 +759,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [trimDialogOpen, setTrimDialogOpen] = useState(false)
   const [splitDialogOpen, setSplitDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
   const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -963,6 +965,41 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         >
           &#9998; Bearbeiten
         </Link>
+      )}
+      {/* Open in Route Planner — only for GPS activities */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && (
+        <button
+          onClick={async () => {
+            setOpenInPlannerLoading(true)
+            try {
+              const result = await createRouteFromActivity(activity.id)
+              navigate('/map', { state: { plannerWaypoints: result.waypoints } })
+            } catch (err) {
+              addToast({
+                type: 'error',
+                title: 'Fehler beim Öffnen im Routenplaner',
+                message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+                duration: 0,
+              })
+            } finally {
+              setOpenInPlannerLoading(false)
+            }
+          }}
+          disabled={openInPlannerLoading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          title="Track als Route im Planer öffnen"
+        >
+          {openInPlannerLoading ? (
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v.258a33.186 33.186 0 0 1 6.668 1.98A3.25 3.25 0 0 1 19 7.743V12.5a3.25 3.25 0 0 1-3.25 3.25H4.25A3.25 3.25 0 0 1 1 12.5V7.743a3.25 3.25 0 0 1 1.582-2.756 33.186 33.186 0 0 1 6.668-1.98V2.75A.75.75 0 0 1 10 2Zm0 3.539a31.68 31.68 0 0 0-7.543 1.897A1.75 1.75 0 0 0 1.5 9v3.5a1.75 1.75 0 0 0 1.75 1.75h13.5a1.75 1.75 0 0 0 1.75-1.75V9a1.75 1.75 0 0 0-.957-1.564A31.68 31.68 0 0 0 10 5.539Zm-1 4.711a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z" clipRule="evenodd" />
+            </svg>
+          )}
+          Im Routenplaner öffnen
+        </button>
       )}
       {/* Rename + Ungroup buttons — only for multisport parents */}
       {activity.sport_type === 'multisport' && (
