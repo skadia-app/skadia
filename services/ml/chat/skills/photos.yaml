@@ -10,6 +10,8 @@ few_shot_examples:
   - q: "Hab ich Fotos mit Steinböcken?"
     tool: search_photos_by_content
     args: {"query": "Steinbock auf Felsen", "limit": 5}
+    answer: "Ja, ich habe 3 Fotos mit Steinböcken gefunden (Ähnlichkeit 0.71–0.84): [Foto 1 – Steinbock auf Felsen, 2025-07-14, Aktivität 'Watzmann'], ..."
   - q: "Zeig mir Sonnenuntergang-Fotos"
     tool: search_photos_by_content
     args: {"query": "Sonnenuntergang über Bergen", "limit": 10}
+    answer: "Ich habe 7 Fotos mit Sonnenuntergängen gefunden (Ähnlichkeit 0.65–0.88): [Foto 1 – Alpenglühen, 2025-08-03], ..."

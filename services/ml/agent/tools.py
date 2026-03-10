@@ -1181,7 +1181,7 @@ async def _get_activity_detail(pool, user_id, activity_id):
 async def _search_photos_by_content(pool, user_id, query: str, limit: int = 10):
     # Requires SigLIP2 embedding for the query text
     try:
-        from services.ml.models.clip import embed_text  # type: ignore
+        from models.clip import embed_text
         text_vec = await embed_text(query)
     except ImportError:
         return {"error": "Photo search not available — SigLIP2 model not loaded", "photos": []}

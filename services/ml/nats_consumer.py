@@ -437,11 +437,24 @@ async def _process_photo_embed(msg, pool, nc) -> None:
         return
 
     photo_id = data.get("photo_id", "")
+    user_id = data.get("user_id", "")
     s3_bucket = data.get("s3_bucket", "")
     if not photo_id or not s3_bucket:
         logger.error("photo_embed: missing photo_id or s3_bucket in message")
         await msg.ack()
         return
+
+    # Respect per-user setting — skip if user has disabled photo CLIP embedding
+    if user_id and pool:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT enable_photo_clip_embedding FROM user_enrichment_settings WHERE user_id = $1::uuid",
+                user_id,
+            )
+        if row is not None and not row["enable_photo_clip_embedding"]:
+            logger.debug("photo_embed: skipped for photo %s (user disabled)", photo_id)
+            await msg.ack()
+            return
 
     # Prefer preview (smaller), fall back to original
     image_key = data.get("s3_key_preview") or data.get("s3_key", "")
@@ -490,7 +503,7 @@ async def _process_photo_embed(msg, pool, nc) -> None:
             _metrics["active_tasks"] -= 1
 
 
-async def _catchup_missing_embeddings(pool, nc) -> None:
+async def _catchup_missing_embeddings(pool, js) -> None:
     """Every 60 s: publish skadia.photo.embed for photos without a CLIP embedding."""
     while True:
         try:
@@ -511,7 +524,7 @@ async def _catchup_missing_embeddings(pool, nc) -> None:
                         "s3_key": row["s3_key"],
                         "s3_key_preview": row["s3_key_preview"],
                     }
-                    await nc.publish(
+                    await js.publish(
                         "skadia.photo.embed",
                         json.dumps(payload).encode(),
                     )
@@ -654,7 +667,7 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
     ))
 
     # Periodic catch-up: re-queue photos whose embedding is still missing
-    tasks.append(asyncio.create_task(_catchup_missing_embeddings(pool, nc)))
+    tasks.append(asyncio.create_task(_catchup_missing_embeddings(pool, js)))
 
     logger.info("All NATS pull consumers started (%d tasks)", len(tasks))
     return tasks
