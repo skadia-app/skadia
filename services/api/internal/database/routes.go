@@ -234,6 +234,107 @@ func (db *DB) CountRoutes(ctx context.Context, userID string) (int, error) {
 	return count, nil
 }
 
+// GetRouteTags returns all tags assigned to the given route.
+// Ownership is enforced implicitly: only the route owner can call handlers that
+// call this function (ownership checked in the handler layer via GetRoute).
+func (db *DB) GetRouteTags(ctx context.Context, routeID string) ([]model.Tag, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
+			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
+			t.lat, t.lng, t.cover_image_url
+		FROM tags t
+		JOIN route_tags rt ON rt.tag_id = t.id
+		WHERE rt.route_id = $1
+		ORDER BY t.name ASC
+	`, routeID)
+	if err != nil {
+		return nil, fmt.Errorf("get route tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []model.Tag
+	for rows.Next() {
+		var t model.Tag
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+			&t.ConditionGroups, &t.ConditionsLogic,
+			&t.Description, &t.ActivityCount, &t.CreatedAt,
+			&t.Lat, &t.Lng, &t.CoverImageURL,
+		); err != nil {
+			return nil, fmt.Errorf("scan route tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	// E15: check for iteration errors
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get route tags: %w", err)
+	}
+	if tags == nil {
+		tags = []model.Tag{}
+	}
+	return tags, nil
+}
+
+// SetRouteTags replaces all tags on a route with the given tag IDs (PUT semantics).
+// Ownership of the route must be verified by the caller before invoking this function.
+// Tags not owned by userID are silently ignored (they won't appear in the join).
+func (db *DB) SetRouteTags(ctx context.Context, routeID, userID string, tagIDs []string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("set route tags begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Delete all existing route_tags entries for this route.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM route_tags WHERE route_id = $1`, routeID,
+	); err != nil {
+		return fmt.Errorf("set route tags delete: %w", err)
+	}
+
+	// Insert the new set — only tags belonging to the user are accepted.
+	for _, tagID := range tagIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO route_tags (route_id, tag_id)
+			SELECT $1, id FROM tags WHERE id = $2 AND user_id = $3
+			ON CONFLICT DO NOTHING
+		`, routeID, tagID, userID); err != nil {
+			return fmt.Errorf("set route tags insert %s: %w", tagID, err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// AssignRouteTag adds a single tag to a route.
+// Silently succeeds if the tag is already present (ON CONFLICT DO NOTHING).
+// Only tags owned by userID are accepted.
+func (db *DB) AssignRouteTag(ctx context.Context, routeID, tagID, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO route_tags (route_id, tag_id)
+		SELECT $1, id FROM tags WHERE id = $2 AND user_id = $3
+		ON CONFLICT DO NOTHING
+	`, routeID, tagID, userID)
+	if err != nil {
+		return fmt.Errorf("assign route tag: %w", err)
+	}
+	return nil
+}
+
+// RemoveRouteTag removes a single tag from a route.
+// Returns nil if the tag was not present (idempotent).
+func (db *DB) RemoveRouteTag(ctx context.Context, routeID, tagID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM route_tags WHERE route_id = $1 AND tag_id = $2`,
+		routeID, tagID,
+	)
+	if err != nil {
+		return fmt.Errorf("remove route tag: %w", err)
+	}
+	return nil
+}
+
 // GetUserSpeedFactor computes the ratio between the user's actual moving speed
 // and the Tobler baseline speed for the given sport type, averaged over the
 // user's 20 most recent activities.

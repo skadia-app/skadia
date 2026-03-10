@@ -490,6 +490,9 @@ func main() {
 
 			// Planned Routes
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
+			r.Put("/routes/{id}/tags", h.SetRouteTags)
+			r.Post("/routes/{id}/tags/{tagId}", h.AddRouteTag)
+			r.Delete("/routes/{id}/tags/{tagId}", h.RemoveRouteTag)
 		})
 	})
 
