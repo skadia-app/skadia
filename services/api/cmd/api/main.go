@@ -342,6 +342,8 @@ func main() {
 			r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
 			r.Post("/photos/recompute-embeddings", h.RecomputePhotoEmbeddings)
 			r.Get("/map/photos", h.ListMapPhotos)
+			r.Get("/photos", h.ListPhotoFeed)
+			r.Get("/photos/search", h.SearchPhotos)
 			r.Get("/media/{bucket}/*", h.ServeMedia)
 
 			// Geo

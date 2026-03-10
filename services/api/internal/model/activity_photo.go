@@ -40,3 +40,40 @@ type MapPhotoEntry struct {
 	TakenAt       *time.Time `json:"taken_at"`
 	ThumbURL      string     `json:"thumb_url"`
 }
+
+// PhotoFeedActivitySummary ist die kompakte Aktivitätszusammenfassung im Photo-Feed.
+type PhotoFeedActivitySummary struct {
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	SportType      string   `json:"sport_type"`
+	StartedAt      *string  `json:"started_at,omitempty"` // RFC3339
+	DistanceM      *float64 `json:"distance_m,omitempty"`
+	MovingTimeS    *int     `json:"moving_time_s,omitempty"`
+	ElevationGainM *float64 `json:"elevation_gain_m,omitempty"`
+	TrackGeoJSON   *string  `json:"track_geojson,omitempty"`
+	Lat            *float64 `json:"lat,omitempty"`
+	Lng            *float64 `json:"lng,omitempty"`
+}
+
+// PhotoFeedGroup ist eine Gruppe im paginierten Feed.
+type PhotoFeedGroup struct {
+	GroupKey  string                    `json:"group_key"`
+	GroupType string                    `json:"group_type"` // "activity" | "day"
+	Activity  *PhotoFeedActivitySummary `json:"activity,omitempty"`
+	Photos    []ActivityPhoto           `json:"photos"`
+}
+
+// PhotoFeedPage ist die paginierte Antwort für GET /photos.
+type PhotoFeedPage struct {
+	Groups   []PhotoFeedGroup `json:"groups"`
+	NextPage *int             `json:"next_page,omitempty"`
+	Total    int              `json:"total"`
+}
+
+// PhotoSearchResult ist ein einzelnes Suchergebnis.
+type PhotoSearchResult struct {
+	Photo      ActivityPhoto             `json:"photo"`
+	Activity   *PhotoFeedActivitySummary `json:"activity,omitempty"`
+	Similarity float64                   `json:"similarity"`
+	MatchType  string                    `json:"match_type"` // "clip" | "title"
+}
