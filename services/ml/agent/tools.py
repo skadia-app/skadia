@@ -1144,13 +1144,32 @@ async def _get_gear_documents(pool, user_id, gear_id):
         UUIDType(gear_id), user_id,
     )
     docs = []
+    total_cost = 0.0
+    total_cost_currency = None
     for r in rows:
         doc = dict(r)
         # Parse extracted_data if string
         if doc.get("extracted_data") and isinstance(doc["extracted_data"], str):
             doc["extracted_data"] = json.loads(doc["extracted_data"])
+        # Accumulate cost summary so LLM doesn't need to sum across documents
+        ed = doc.get("extracted_data") or {}
+        if isinstance(ed, dict):
+            try:
+                amount = float(ed.get("total_amount") or ed.get("amount") or 0)
+                currency = ed.get("currency", "")
+                if amount:
+                    total_cost += amount
+                    if currency and not total_cost_currency:
+                        total_cost_currency = currency
+            except (TypeError, ValueError):
+                pass
         docs.append(doc)
-    return {"documents": docs, "count": len(docs)}
+    result: dict = {"documents": docs, "count": len(docs)}
+    if total_cost:
+        result["total_cost"] = round(total_cost, 2)
+        if total_cost_currency:
+            result["total_cost_currency"] = total_cost_currency
+    return result
 
 
 async def _get_activity_detail(pool, user_id, activity_id):

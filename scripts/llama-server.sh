@@ -11,6 +11,7 @@
 #                   Default: data/models/mmproj-Qwen3.5-9B-BF16.gguf
 #   LLAMA_PORT    - Server-Port (Default: 8181)
 #   LLAMA_CTX     - Context Size (Default: 16384, mind. 128K fuer Thinking-Mode)
+#   LLAMA_THREADS - CPU-Threads fuer Dekodierung (Default: nproc)
 #
 # Modelle (unsloth/Qwen3.5-9B-GGUF):
 #   LLM:    Qwen3.5-9B-Q4_K_M.gguf  (~5.68 GB)
@@ -33,6 +34,7 @@ LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3.5-9B-Q4_K_M.gguf}"
 LLAMA_MMPROJ="${LLAMA_MMPROJ:-data/models/mmproj-BF16.gguf}"
 LLAMA_PORT="${LLAMA_PORT:-8181}"
 LLAMA_CTX="${LLAMA_CTX:-16384}"
+LLAMA_THREADS="${LLAMA_THREADS:-$(nproc)}"
 
 # Vulkan Device 0 = AMD Vega 56
 export GGML_VULKAN_DEVICE=0
@@ -58,6 +60,7 @@ echo "Port:     $LLAMA_PORT"
 echo "Context:  $LLAMA_CTX"
 echo "Vulkan:   Device $GGML_VULKAN_DEVICE"
 echo "GPU-Layer: 99 (alle)"
+echo "Threads:  $LLAMA_THREADS"
 
 # mmproj-Argument nur wenn Datei vorhanden
 MMPROJ_ARG=""
@@ -76,4 +79,5 @@ exec "$LLAMA_SERVER" \
     --jinja \
     --reasoning-format deepseek \
     -ngl 99 \
-    --ctx-size "$LLAMA_CTX"
+    --ctx-size "$LLAMA_CTX" \
+    --threads "$LLAMA_THREADS"

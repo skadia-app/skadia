@@ -307,6 +307,8 @@ async def _chat_stream(req: ChatRequest) -> AsyncGenerator[str, None]:
                 if delta.content:
                     yield _sse("chat.chunk", req.message_id, delta=delta.content)
 
+        # chat.done is always emitted here — both the normal path (finish_reason="stop")
+        # and the forced-summary path (hop >= MAX_HOPS) fall through to this line.
         yield _sse("chat.done", req.message_id, sources=["llm"])
 
     except Exception as e:
