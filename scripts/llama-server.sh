@@ -10,7 +10,8 @@
 #   LLAMA_MMPROJ  - Pfad zum Vision-Encoder (mmproj), leer = kein VLM
 #                   Default: data/models/mmproj-Qwen3.5-9B-BF16.gguf
 #   LLAMA_PORT    - Server-Port (Default: 8181)
-#   LLAMA_CTX     - Context Size (Default: 16384, mind. 128K fuer Thinking-Mode)
+#   LLAMA_CTX     - Context Size (Default: 32768 mit Q4_0 KV-Cache)
+#   LLAMA_KV_TYPE - KV-Cache Quantisierung (Default: q4_0, spart ~75% VRAM vs FP16)
 #   LLAMA_THREADS - CPU-Threads fuer Dekodierung (Default: nproc)
 #
 # Modelle (unsloth/Qwen3.5-9B-GGUF):
@@ -33,7 +34,8 @@ LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
 LLAMA_MODEL="${LLAMA_MODEL:-data/models/Qwen3.5-9B-Q4_K_M.gguf}"
 LLAMA_MMPROJ="${LLAMA_MMPROJ:-data/models/mmproj-BF16.gguf}"
 LLAMA_PORT="${LLAMA_PORT:-8181}"
-LLAMA_CTX="${LLAMA_CTX:-16384}"
+LLAMA_CTX="${LLAMA_CTX:-32768}"
+LLAMA_KV_TYPE="${LLAMA_KV_TYPE:-q4_0}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc)}"
 
 # Vulkan Device 0 = AMD Vega 56
@@ -58,6 +60,7 @@ echo "=== llama-server ==="
 echo "Modell:   $LLAMA_MODEL"
 echo "Port:     $LLAMA_PORT"
 echo "Context:  $LLAMA_CTX"
+echo "KV-Cache: $LLAMA_KV_TYPE"
 echo "Vulkan:   Device $GGML_VULKAN_DEVICE"
 echo "GPU-Layer: 99 (alle)"
 echo "Threads:  $LLAMA_THREADS"
@@ -80,4 +83,6 @@ exec "$LLAMA_SERVER" \
     --reasoning-format deepseek \
     -ngl 99 \
     --ctx-size "$LLAMA_CTX" \
+    --cache-type-k "$LLAMA_KV_TYPE" \
+    --cache-type-v "$LLAMA_KV_TYPE" \
     --threads "$LLAMA_THREADS"

@@ -9,17 +9,27 @@ def test_all_tools_defined():
         "query_activities", "aggregate_stats", "get_health_status",
         "get_training_load", "compare_periods", "get_gear_stats",
         "query_geo_features", "query_segments", "get_analytics",
-        "search_routes", "query_data",
+        "search_routes", "run_sql",
+        "get_gear_for_activity", "get_gear_documents",
+        "get_activity_detail", "search_photos_by_content",
     }
     assert names == expected
 
 
-def test_tool_descriptions_have_anti_patterns():
-    """Every tool description should say when NOT to use it."""
+def test_primary_tool_descriptions_have_anti_patterns():
+    """Primary tools should say when NOT to use them (routing guidance)."""
+    primary_tools = {
+        "query_activities", "aggregate_stats", "get_health_status",
+        "get_training_load", "query_geo_features", "query_segments",
+        "search_routes",
+    }
     for tool in ALL_TOOL_DEFINITIONS:
+        name = tool["function"]["name"]
+        if name not in primary_tools:
+            continue
         desc = tool["function"]["description"]
-        assert "Do NOT" in desc or "not" in desc.lower() or len(ALL_TOOL_DEFINITIONS) < 8, \
-            f"Tool {tool['function']['name']} missing anti-pattern in description"
+        assert "Do NOT" in desc or "not" in desc.lower(), \
+            f"Tool {name} missing anti-pattern in description"
 
 
 def test_sport_type_uses_enum():

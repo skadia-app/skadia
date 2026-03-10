@@ -34,11 +34,16 @@ activity_laps: activity_id UUID, message_index INT, start_time TIMESTAMPTZ, tota
 health_snapshots: user_id UUID, measured_at_utc TIMESTAMPTZ, rmssd_ms FLOAT8, sdrr_ms FLOAT8, time_of_day TEXT, source_type TEXT, extra_data JSONB
 health_sleep: user_id UUID, calendar_date DATE, sleep_start_utc TIMESTAMPTZ, sleep_end_utc TIMESTAMPTZ, deep_seconds INT, light_seconds INT, rem_seconds INT, awake_seconds INT, score_overall INT, score_quality INT
 health_weight_entries: user_id UUID, measured_at_utc TIMESTAMPTZ, weight_g INT, bmi FLOAT8, body_fat_pct FLOAT8
+segments: id UUID, created_by UUID, name TEXT, sport_group TEXT, distance_m FLOAT8, elevation_gain_m FLOAT8, effort_count INT
+segment_efforts: segment_id UUID, activity_id UUID, user_id UUID, started_at TIMESTAMPTZ, elapsed_time_s INT, sport_type TEXT, avg_power_w FLOAT8, avg_heart_rate FLOAT8, avg_speed_ms FLOAT8, is_personal_best BOOL, is_reverse BOOL
 gear: id UUID, user_id UUID, name TEXT, type TEXT, brand TEXT, model TEXT, total_distance_m FLOAT8, status TEXT
 pmc_daily: user_id UUID, date DATE, tss FLOAT8, ctl FLOAT8, atl FLOAT8, tsb FLOAT8
 user_daily_features: user_id UUID, date DATE, activity_id UUID, feature_key TEXT, value_num FLOAT8, value_json JSONB
 tags: id UUID, user_id UUID, name TEXT, color TEXT
 activity_tags: activity_id UUID, tag_id UUID
+activity_geo_tags: activity_id UUID, category TEXT, name TEXT, osm_id BIGINT, ele FLOAT8, lat FLOAT8, lng FLOAT8, dist_m FLOAT8
+activity_stops: activity_id UUID, started_at TIMESTAMPTZ, ended_at TIMESTAMPTZ, duration_s INT, location GEOMETRY(Point,4326), name TEXT, poi_type TEXT, poi_name TEXT, poi_osm_id BIGINT
+activity_photos: id UUID, user_id UUID, activity_id UUID, taken_at TIMESTAMPTZ, lat FLOAT8, lng FLOAT8, is_video BOOL, duration_s FLOAT8
 
 IMPORTANT: Always filter by user_id. Never query across users.
 """

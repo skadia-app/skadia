@@ -10,13 +10,14 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-# Canonical sport type enum shared across tools
+# Canonical sport types as stored in DB (after migration 000037 normalization).
+# Sub-types (mountain_biking, trail_running, etc.) are stored as sub_type column,
+# NOT as sport_type. Use run_sql for sub_type filtering.
 _SPORT_TYPES = [
     "running", "cycling", "hiking", "walking", "swimming",
-    "trail_running", "mountain_biking", "alpine_skiing",
-    "cross_country_skiing", "strength_training", "open_water_swimming",
-    "mountaineering", "gravel_cycling", "indoor_cycling",
-    "rowing", "paddle_boarding", "kayaking", "yoga", "other",
+    "alpine_skiing", "cross_country_skiing", "strength_training",
+    "mountaineering", "rowing", "paddle_boarding", "kayaking",
+    "training", "fitness_equipment", "other",
 ]
 
 ALL_TOOL_DEFINITIONS = [
@@ -80,13 +81,15 @@ ALL_TOOL_DEFINITIONS = [
         "function": {
             "name": "aggregate_stats",
             "description": (
-                "Compute aggregate statistics over a time window: total distance, "
-                "total duration, activity count, average HR, total elevation, "
-                "or weekly/monthly breakdowns. "
-                "Use for 'Wie weit?', 'Wie oft?', 'Wie viel insgesamt?' questions. "
-                "Do NOT use to list individual activities — use query_activities for that. "
-                "Example: 'Wie weit bin ich diese Woche gelaufen?' → "
-                "aggregate_stats(metric='total_distance', sport_type='running', days=7)"
+                "Compute aggregate statistics over a ROLLING time window (last N days): "
+                "total distance, duration, count, avg HR, elevation, weekly/monthly breakdowns. "
+                "Use for 'Wie weit?', 'Wie oft?', 'Wie viel insgesamt?' with relative time. "
+                "Do NOT use for calendar years ('letztes Jahr 2025', '2024') — use run_sql with "
+                "EXTRACT(YEAR FROM started_at) instead. "
+                "Do NOT use for sub-types (MTB, Gravel, Trail) — use run_sql with sub_type filter. "
+                "Sub-types: cycling has sub_type mountain/gravel_cycling/indoor_cycling, "
+                "running has trail/treadmill, swimming has open_water/lap_swimming. "
+                "Do NOT use to list individual activities — use query_activities."
             ),
             "parameters": {
                 "type": "object",
@@ -509,47 +512,44 @@ ALL_TOOL_DEFINITIONS = [
         },
     },
 
-    # ── 11. query_data ────────────────────────────────────────────────────
+    # ── 11. run_sql ──────────────────────────────────────────────────────
     {
         "type": "function",
         "function": {
-            "name": "query_data",
+            "name": "run_sql",
             "description": (
-                "General-purpose data retrieval for questions not covered by specialized tools. "
-                "Fetches from: pmc_daily (TSS/CTL/ATL), health_snapshots, health_sleep, "
-                "health_weight_entries, activity_laps, activity_splits, activity_intervals. "
-                "Use as fallback when no specific tool matches the user's question. "
-                "Do NOT use for activities, geo features, segments, or gear — use the specialized tools. "
-                "Specify the exact table and desired columns."
+                "Run a read-only SQL query when specialized tools can't answer the question. "
+                "Use for complex queries: year-over-year comparisons, JOINs, GROUP BY, window functions. "
+                "user_id filtering is AUTOMATIC (row-level security) — do NOT add WHERE user_id=... clauses. "
+                "SELECT only — no INSERT/UPDATE/DELETE.\n"
+                "Tables: "
+                "activities(id,user_id,title,sport_type,sub_type,started_at,elapsed_time_s,moving_time_s,"
+                "distance_m,elevation_gain_m,avg_speed_ms,avg_heart_rate,avg_power_w,tss,trimp,"
+                "is_indoor,start_city,gear_id) | "
+                "segments(id,created_by,name,sport_group,distance_m,elevation_gain_m,effort_count) | "
+                "segment_efforts(segment_id,activity_id,user_id,started_at,elapsed_time_s,"
+                "sport_type,avg_power_w,avg_heart_rate,avg_speed_ms,is_personal_best,is_reverse) | "
+                "activity_laps(activity_id,message_index,start_time,total_elapsed_time_s,"
+                "total_distance_m,avg_speed_ms,avg_heart_rate) | "
+                "gear(id,user_id,name,type,brand,model,total_distance_m,status) | "
+                "pmc_daily(user_id,date,tss,ctl,atl,tsb) | "
+                "health_snapshots(user_id,measured_at_utc,rmssd_ms,sdrr_ms) | "
+                "health_sleep(user_id,calendar_date,deep_seconds,light_seconds,rem_seconds,score_overall) | "
+                "health_weight_entries(user_id,measured_at_utc,weight_g,body_fat_pct) | "
+                "tags(id,user_id,name,color) | activity_tags(activity_id,tag_id) | "
+                "activity_geo_tags(activity_id,category,name,osm_id,ele,lat,lng) | "
+                "activity_stops(activity_id,name,duration_s,poi_type,poi_name,location GEOMETRY) | "
+                "activity_photos(activity_id,user_id,taken_at,lat,lng,is_video)"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "table": {
+                    "sql": {
                         "type": "string",
-                        "enum": [
-                            "pmc_daily", "health_snapshots", "health_sleep",
-                            "health_weight_entries", "activity_laps",
-                            "activity_splits", "activity_intervals",
-                        ],
-                        "description": "Table to query",
-                    },
-                    "days": {
-                        "type": "integer",
-                        "description": "Lookback window in days (default 30)",
-                        "default": 30,
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max rows to return (default 30)",
-                        "default": 30,
-                    },
-                    "activity_id": {
-                        "type": "string",
-                        "description": "UUID to filter by activity (for lap/split/interval tables)",
+                        "description": "SELECT query (user_id filter is automatic via RLS)",
                     },
                 },
-                "required": ["table"],
+                "required": ["sql"],
             },
         },
     },
@@ -590,7 +590,7 @@ def _format_activity_compact(row: dict) -> dict:
     """Format activity record for LLM consumption (short keys, pre-computed values)."""
     distance_km = round(row.get("distance_m", 0) / 1000, 1)
     duration_s = row.get("elapsed_time_s") or row.get("duration_s", 0)
-    speed = row.get("avg_speed", 0)
+    speed = row.get("avg_speed_ms", 0)
 
     result = {
         "date": row["started_at"].strftime("%d.%m.%Y") if row.get("started_at") else "",
@@ -629,7 +629,7 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
         "query_segments": _query_segments,
         "get_analytics": _get_analytics,
         "search_routes": _search_routes,
-        "query_data": _query_data,
+        "run_sql": _run_sql,
         "get_gear_for_activity": _get_gear_for_activity,
         "get_gear_documents": _get_gear_documents,
         "get_activity_detail": _get_activity_detail,
@@ -641,7 +641,12 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
     fn = dispatch.get(tool_name)
     if fn is None:
         return {"error": f"Unknown tool: {tool_name}"}
-    return await fn(pool, user_id, **args)
+    try:
+        return await fn(pool, user_id, **args)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error("Tool %s failed: %s", tool_name, exc, exc_info=True)
+        return {"error": f"Tool '{tool_name}' konnte nicht ausgeführt werden: {exc}"}
 
 
 # ── Implementations ────────────────────────────────────────────────────────────
@@ -684,7 +689,7 @@ async def _query_activities(
     query = (
         "SELECT a.id, a.title, a.sport_type, a.started_at, "
         "a.distance_m, a.elapsed_time_s, a.avg_heart_rate, a.elevation_gain_m, "
-        "a.avg_speed, a.start_city "
+        "a.avg_speed_ms, a.start_city "
         f"FROM activities a WHERE {where} "
         f"ORDER BY a.{sort_col} DESC LIMIT {min(int(limit), 50)}"
     )
@@ -910,10 +915,11 @@ async def _query_geo_features(
     if feature_type == "gastronomy":
         table_join = (
             "JOIN activities a ON a.id = s.activity_id "
-            "WHERE a.user_id = $1 AND a.started_at >= $2 AND s.category = 'gastronomy'"
+            "WHERE a.user_id = $1 AND a.started_at >= $2 AND s.poi_type IN "
+            "('restaurant','alpine_hut','cafe','biergarten','fast_food','pub','bar')"
         )
         params: list = [user_id, since]
-        select = "s.poi_name AS name, s.poi_type AS subtype, s.lat, s.lng, s.duration_s"
+        select = "s.poi_name AS name, s.poi_type AS subtype, ST_Y(s.location) AS lat, ST_X(s.location) AS lng, s.duration_s"
         from_clause = "activity_stops s"
     else:
         conditions = ["a.user_id = $1", "a.started_at >= $2"]
@@ -924,7 +930,7 @@ async def _query_geo_features(
             conditions.append(f"gt.category = ${len(params)}")
         if min_elevation is not None:
             params.append(min_elevation)
-            conditions.append(f"gt.elevation >= ${len(params)}")
+            conditions.append(f"gt.ele >= ${len(params)}")
         if sport_type:
             params.append(sport_type)
             conditions.append(f"a.sport_type = ${len(params)}")
@@ -935,12 +941,12 @@ async def _query_geo_features(
 
         where = " AND ".join(conditions)
         table_join = f"JOIN activities a ON a.id = gt.activity_id WHERE {where}"
-        select = "gt.name, gt.category, gt.elevation, gt.lat, gt.lng, a.started_at::date AS activity_date, a.title AS activity_title"
+        select = "gt.name, gt.category, gt.ele, gt.lat, gt.lng, a.started_at::date AS activity_date, a.title AS activity_title"
         from_clause = "activity_geo_tags gt"
 
     query = (
         f"SELECT {select} FROM {from_clause} {table_join} "
-        f"ORDER BY {'gt.elevation DESC NULLS LAST' if feature_type != 'gastronomy' else 's.duration_s DESC'} "
+        f"ORDER BY {'gt.ele DESC NULLS LAST' if feature_type != 'gastronomy' else 's.duration_s DESC'} "
         f"LIMIT {min(int(limit), 100)}"
     )
     rows = await pool.fetch(query, *params)
@@ -985,7 +991,7 @@ async def _query_segments(pool, user_id, query=None, include_efforts=True, days=
         # Fetch last 3 efforts for each segment
         seg_ids = [r["id"] for r in rows]
         effort_rows = await pool.fetch(
-            "SELECT segment_id, started_at::date AS date, elapsed_time_s, avg_hr "
+            "SELECT segment_id, started_at::date AS date, elapsed_time_s, avg_heart_rate "
             "FROM segment_efforts "
             "WHERE user_id = $1 AND segment_id = ANY($2) AND started_at >= $3 "
             "ORDER BY started_at DESC",
@@ -1000,7 +1006,7 @@ async def _query_segments(pool, user_id, query=None, include_efforts=True, days=
                 efforts_by_seg[sid].append({
                     "date": str(e["date"]),
                     "time": _format_duration(e["elapsed_time_s"]),
-                    "hr": e["avg_hr"],
+                    "hr": e["avg_heart_rate"],
                 })
         for seg in segments:
             seg["recent_efforts"] = efforts_by_seg.get(str(seg["id"]), [])
@@ -1030,7 +1036,7 @@ async def _search_routes(pool, user_id, location_name=None, activity_id=None, sp
     if location_name:
         params.append(f"%{location_name}%")
         conditions.append(
-            f"(a.start_city ILIKE ${len(params)} OR a.start_region ILIKE ${len(params)})"
+            f"(a.start_city ILIKE ${len(params)} OR a.start_state ILIKE ${len(params)})"
         )
     if sport_type:
         params.append(sport_type)
@@ -1048,74 +1054,11 @@ async def _search_routes(pool, user_id, location_name=None, activity_id=None, sp
     return {"routes": [dict(r) for r in rows]}
 
 
-async def _query_data(pool, user_id, table, days=30, limit=30, activity_id=None):
-    since = date.today() - timedelta(days=days)
-
-    _TABLE_CONFIG = {
-        "pmc_daily": {
-            "cols": "date, tss, ctl, atl, tsb",
-            "date_col": "date",
-            "user_col": "user_id",
-        },
-        "health_snapshots": {
-            "cols": "measured_at_utc::date AS date, rmssd_ms, sdrr_ms, extra_data",
-            "date_col": "measured_at_utc",
-            "user_col": "user_id",
-        },
-        "health_sleep": {
-            "cols": "calendar_date AS date, "
-                    "(COALESCE(deep_seconds,0)+COALESCE(light_seconds,0)+COALESCE(rem_seconds,0)) AS total_sleep_s, "
-                    "deep_seconds, score_overall AS score",
-            "date_col": "calendar_date",
-            "user_col": "user_id",
-        },
-        "health_weight_entries": {
-            "cols": "measured_at_utc::date AS date, ROUND((weight_g / 1000.0)::numeric, 1) AS weight_kg, body_fat_pct",
-            "date_col": "measured_at_utc",
-            "user_col": "user_id",
-        },
-        "activity_laps": {
-            "cols": "message_index, total_distance_m, total_elapsed_time_s, avg_heart_rate, max_heart_rate",
-            "date_col": None,
-            "user_col": None,
-            "activity_join": True,
-        },
-        "activity_splits": {
-            "cols": "message_index, split_type, total_distance_m, total_elapsed_time_s, avg_speed_ms",
-            "date_col": None,
-            "user_col": None,
-            "activity_join": True,
-        },
-        "activity_intervals": {
-            "cols": "segment_num, duration_s, avg_heart_rate, avg_power_w, avg_speed_ms",
-            "date_col": None,
-            "user_col": None,
-            "activity_join": True,
-        },
-    }
-
-    cfg = _TABLE_CONFIG.get(table)
-    if not cfg:
-        return {"error": f"Table '{table}' not allowed"}
-
-    if cfg.get("activity_join"):
-        if not activity_id:
-            return {"error": f"activity_id required for table '{table}'"}
-        from uuid import UUID as UUIDType
-        rows = await pool.fetch(
-            f"SELECT {cfg['cols']} FROM {table} "
-            f"WHERE activity_id = $1 ORDER BY 1 LIMIT {min(int(limit), 200)}",
-            UUIDType(activity_id),
-        )
-    else:
-        rows = await pool.fetch(
-            f"SELECT {cfg['cols']} FROM {table} "
-            f"WHERE {cfg['user_col']} = $1 AND {cfg['date_col']} >= $2 "
-            f"ORDER BY {cfg['date_col']} DESC LIMIT {min(int(limit), 200)}",
-            user_id, since,
-        )
-
-    return {"table": table, "rows": [dict(r) for r in rows]}
+async def _run_sql(pool, user_id, sql):
+    """Execute a validated read-only SQL query via the SQL agent."""
+    from agent.sql_agent import execute_sql
+    rows = await execute_sql(sql, user_id, max_rows=50)
+    return {"rows": rows, "count": len(rows)}
 
 
 async def _get_gear_for_activity(pool, user_id, activity_id):
@@ -1175,11 +1118,11 @@ async def _get_gear_documents(pool, user_id, gear_id):
 async def _get_activity_detail(pool, user_id, activity_id):
     from uuid import UUID as UUIDType
     row = await pool.fetchrow(
-        "SELECT a.id, a.title, a.sport_type, a.started_at, a.elapsed_time_s, "
-        "a.distance_m, a.elevation_gain_m, a.elevation_loss_m, "
-        "a.avg_heart_rate, a.max_heart_rate, a.avg_speed, a.avg_power_w, "
-        "a.start_city, a.start_region, a.start_country, "
-        "a.training_stress_score, a.notes, a.weather_temp_c, a.weather_description, "
+        "SELECT a.id, a.title, a.sport_type, a.sub_type, a.started_at, a.elapsed_time_s, "
+        "a.distance_m, a.elevation_gain_m, "
+        "a.avg_heart_rate, a.max_heart_rate, a.avg_speed_ms, a.avg_power_w, "
+        "a.start_city, a.start_state, a.start_country, "
+        "a.tss, a.description, a.weather_temp_c, a.weather_condition, "
         "g.name AS gear_name, "
         "(SELECT COUNT(*) FROM activity_photos ap WHERE ap.activity_id = a.id) AS photo_count, "
         "(SELECT COUNT(*) FROM activity_geo_tags gt WHERE gt.activity_id = a.id) AS geo_tag_count "

@@ -47,7 +47,7 @@ def test_fallback_on_ambiguous():
 
 def test_large_profile_skips_routing():
     r = route_query("Wie viele Gipfel?", DEFAULT_PROFILES["large"])
-    assert len(r.domains) == 6  # all domains
+    assert len(r.domains) == 7  # all domains
 
 
 def test_max_two_domains():

@@ -14,7 +14,7 @@ def test_small_profile_values():
     p = DEFAULT_PROFILES["small"]
     assert p.max_tools == 6
     assert p.use_router is True
-    assert p.max_tools_per_turn == 1
+    assert p.max_tools_per_turn == 3
     assert p.temperature == 0.3
     assert p.enable_sql_agent is True
     assert p.reasoning_mode == "guided"

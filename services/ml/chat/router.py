@@ -101,7 +101,7 @@ DOMAIN_TOOLS: dict[str, list[str]] = {
 }
 
 # Always-available tools (not domain-filtered)
-GLOBAL_TOOLS = ["query_data"]
+GLOBAL_TOOLS = ["run_sql"]
 
 ALL_DOMAINS = list(DOMAIN_KEYWORDS.keys())
 
