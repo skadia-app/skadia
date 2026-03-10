@@ -37,6 +37,17 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string) e
 			)
 		}
 	}
+
+	// Surfaces: only active in Full mode (osm_trails must exist and be populated).
+	// Writes to activity_surfaces; skips silently if osm_trails is not present.
+	if err := EnrichSurfaces(ctx, db, activityID); err != nil {
+		slog.Warn("geo enrichment module failed",
+			"module", "surfaces",
+			"activity_id", activityID,
+			"error", err,
+		)
+	}
+
 	return nil
 }
 
