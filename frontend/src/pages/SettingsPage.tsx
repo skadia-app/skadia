@@ -10,6 +10,7 @@ import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
+import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
@@ -806,16 +807,8 @@ export default function SettingsPage() {
       {/* Karte */}
       <HeatmapSettingsSection />
 
-      {/* Lokale Karte (Martin Tile Server) */}
-      <LocalMapSection />
-
-      {/* OSM-Geodaten */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">OSM-Geodaten</h2>
-        <div className="rounded-xl border border-border p-4">
-          <OSMStatusSection />
-        </div>
-      </section>
+      {/* Lokale Karten & Geodaten */}
+      <LocalMapAndGeoSection />
 
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
       </>}
@@ -1022,6 +1015,280 @@ function SportSettingsSection() {
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+// ─── Capabilities Badge ──────────────────────────────────────────────────────
+
+function CapBadge({ active, label }: { active: boolean; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
+      active
+        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+        : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
+    }`}>
+      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${active ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
+      {label}
+    </span>
+  )
+}
+
+// ─── Unified "Lokale Karten & Geodaten" Section ──────────────────────────────
+
+function LocalMapAndGeoSection() {
+  const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? '/tiles'
+  const styleUrl = `${martinBase}/style.json`
+
+  // Martin status
+  const [martinStatus, setMartinStatus] = useState<'loading' | 'ok' | 'unavailable'>('loading')
+  const [martinSources, setMartinSources] = useState<string[]>([])
+  const [checkKey, setCheckKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setMartinStatus('loading')
+    setMartinSources([])
+    fetch(styleUrl, { signal: AbortSignal.timeout(5000) })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((json: { sources?: Record<string, unknown> }) => {
+        if (cancelled) return
+        setMartinStatus('ok')
+        if (json.sources && typeof json.sources === 'object') {
+          setMartinSources(Object.keys(json.sources))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMartinStatus('unavailable')
+      })
+    return () => { cancelled = true }
+  }, [styleUrl, checkKey])
+
+  // Capabilities
+  const { data: caps, isLoading: capsLoading } = useQuery<Capabilities>({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 60_000,
+  })
+
+  // OSM status
+  const [showImportModal, setShowImportModal] = useState(false)
+  const { data: osmStatus } = useQuery({
+    queryKey: ['osm-status'],
+    queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
+      peaks: number; passes: number; lifts: number; settlements: number; amenities?: number; has_data: boolean
+    }>,
+  })
+  const importLifts = useMutation({
+    mutationFn: () => apiFetch('/api/v1/segments/import-lifts', { method: 'POST' }).then(r => r.json()),
+  })
+  const hasOsmData = osmStatus?.has_data ?? false
+
+  // Trail topology
+  const { addToast } = useToast()
+  const buildTopology = useMutation({
+    mutationFn: () => apiFetch('/api/v1/trails/build-topology', { method: 'POST' }).then(r => r.json()),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Trail-Topologie wird aufgebaut', message: 'Der Prozess läuft im Hintergrund.' })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Fehler beim Aufbau der Topologie', duration: 0 })
+    },
+  })
+
+  const martinBadge =
+    martinStatus === 'loading' ? (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400 animate-pulse" />
+        Prüfe…
+      </span>
+    ) : martinStatus === 'ok' ? (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Verbunden
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Nicht verfügbar
+      </span>
+    )
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Lokale Karten &amp; Geodaten</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Routing, Offline-Karte (Martin), OSM-Daten und Höhenmodell.
+        </p>
+      </div>
+
+      {/* ── Routing-Dienste ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Routing-Dienste</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
+          {capsLoading ? (
+            <p className="text-xs text-neutral-400">Prüfe Verfügbarkeit…</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <CapBadge active={caps?.routing ?? false}           label="Routing (BRouter)" />
+                <CapBadge active={caps?.isochrone ?? false}         label="Isochrone" />
+                <CapBadge active={caps?.dem_correction ?? false}    label="DEM-Höhenkorrektur" />
+                <CapBadge active={caps?.surface_enrichment ?? false} label="Oberflächen-Anreicherung" />
+                <CapBadge active={caps?.route_suggestion ?? false}  label="Routen-Vorschläge" />
+                <CapBadge active={caps?.offline_map ?? false}       label="Offline-Karte" />
+              </div>
+              {!(caps?.routing) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+                  Routing ist nicht verfügbar. Stelle sicher, dass der BRouter-Dienst gestartet ist und OSM-Daten importiert wurden.
+                </p>
+              )}
+            </>
+          )}
+          <button
+            onClick={() => buildTopology.mutate()}
+            disabled={buildTopology.isPending || !hasOsmData}
+            className="mt-1 w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            {buildTopology.isPending ? 'Aufbau läuft…' : 'Trail-Topologie aufbauen'}
+          </button>
+          {!hasOsmData && (
+            <p className="text-xs text-neutral-400">OSM-Daten müssen zuerst importiert werden.</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── OSM-Geodaten ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">OSM-Geodaten</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3 text-sm">
+          {/* Stats grid */}
+          <div className={`grid gap-3 text-center ${osmStatus?.amenities !== undefined ? 'grid-cols-5' : 'grid-cols-4'}`}>
+            <div>
+              <div className="text-lg font-bold">{osmStatus?.peaks?.toLocaleString('de') ?? '–'}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Gipfel</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold">{osmStatus?.passes?.toLocaleString('de') ?? '–'}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Pässe</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold">{osmStatus?.lifts?.toLocaleString('de') ?? '–'}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Lifte</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold">{osmStatus?.settlements?.toLocaleString('de') ?? '–'}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Ortschaften</div>
+            </div>
+            {osmStatus?.amenities !== undefined && (
+              <div>
+                <div className="text-lg font-bold">{osmStatus.amenities.toLocaleString('de')}</div>
+                <div className="text-xs text-neutral-500 dark:text-neutral-400">Restaurants/Hütten</div>
+              </div>
+            )}
+          </div>
+          {/* Buttons */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer"
+            >
+              Import-Assistent
+            </button>
+            <button
+              onClick={() => importLifts.mutate()}
+              disabled={importLifts.isPending || !hasOsmData}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+            </button>
+          </div>
+          {importLifts.isSuccess && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+              {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── DEM-Höhendaten ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">DEM-Höhendaten</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-2">
+          <CapBadge active={caps?.dem_correction ?? false} label="DEM aktiv" />
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            Digitale Höhenmodelle (DEM) werden für die Höhenkorrektur von Aktivitätsaufzeichnungen und
+            die Höhenprofile geplanter Routen benötigt. Import via{' '}
+            <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">scripts/import-dem.sh</code>.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Offline-Karte (Martin) ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Offline-Karte (Martin Tile Server)</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
+          {/* Status line */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {martinBadge}
+            <span className="text-xs text-neutral-400 dark:text-neutral-500 font-mono break-all">{styleUrl}</span>
+            {martinStatus !== 'loading' && (
+              <button
+                onClick={() => setCheckKey(k => k + 1)}
+                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 underline underline-offset-2 cursor-pointer"
+              >
+                Erneut prüfen
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            Der Martin Tile Server serviert Vektorkacheln aus PostGIS direkt und ermöglicht vollständigen
+            Offline-Betrieb. URL via{' '}
+            <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">VITE_MARTIN_URL</code>{' '}
+            (Standard: <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">/tiles</code>).
+          </p>
+          {/* Available tile sources */}
+          {martinStatus === 'ok' && martinSources.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                Tile-Quellen ({martinSources.length})
+              </p>
+              <ul className="space-y-1">
+                {martinSources.map(src => (
+                  <li key={src} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                    <code className="font-mono">{src}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* Hint */}
+          <div className="flex items-start gap-2 rounded-lg bg-accent-100/40 dark:bg-accent-900/10 border border-accent-200/60 dark:border-accent-800/30 px-3 py-2.5">
+            <svg className="h-4 w-4 text-accent-DEFAULT mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+            </svg>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+              Den Lokal-Stil als Standardkarte einrichten: Wähle{' '}
+              <strong className="text-neutral-800 dark:text-neutral-200">Lokal (Offline)</strong>{' '}
+              im Dropdown <em>Standard-Kartenstil</em> im Abschnitt{' '}
+              <strong className="text-neutral-800 dark:text-neutral-200">Karte</strong> oben.
+              {martinStatus !== 'ok' && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {' '}Der Martin Server muss erreichbar sein.
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
     </section>
   )
 }
