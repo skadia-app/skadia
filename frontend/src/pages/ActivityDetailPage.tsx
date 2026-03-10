@@ -1344,6 +1344,11 @@ function StatsGrid({ activity }: { activity: Activity }) {
 function DataCorrectionsSection({ activity }: { activity: Activity }) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { data: routingCapabilities } = useQuery({
+    queryKey: ['routing-capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const elevationCorrectionMutation = useMutation({
     mutationFn: () => correctActivityElevation(activity.id),
