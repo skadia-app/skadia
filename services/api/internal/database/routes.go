@@ -233,3 +233,38 @@ func (db *DB) CountRoutes(ctx context.Context, userID string) (int, error) {
 	}
 	return count, nil
 }
+
+// GetUserSpeedFactor computes the ratio between the user's actual moving speed
+// and the Tobler baseline speed for the given sport type, averaged over the
+// user's 20 most recent activities.
+//
+// A value of 1.0 means the user matches the Tobler hiking-function baseline
+// exactly. Values > 1.0 indicate a faster-than-baseline athlete; values < 1.0
+// indicate a slower one. If no qualifying activities are found, or if the
+// computed factor is non-positive, 1.0 is returned (safe fallback).
+//
+// The Tobler speed used here treats the average slope of each activity
+// (net elevation change / distance) as a single representative gradient.
+// This is an intentional simplification — segment-level slopes are applied
+// during route-time estimation in the routing package.
+func (db *DB) GetUserSpeedFactor(ctx context.Context, userID string, sportType string) (float64, error) {
+	var factor float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(AVG(
+			(moving_time_seconds / 60.0) /
+			NULLIF(distance_m / (6.0 * EXP(-3.5 * ABS(
+				(total_elevation_gain - total_elevation_loss) / NULLIF(distance_m, 0) + 0.05
+			)) * 1000.0 / 60.0), 0)
+		), 1.0) AS speed_factor
+		FROM (
+			SELECT moving_time_seconds, distance_m, total_elevation_gain, total_elevation_loss
+			FROM activities
+			WHERE user_id = $1 AND sport_type = $2 AND moving_time_seconds > 600
+			ORDER BY started_at DESC LIMIT 20
+		) recent
+	`, userID, sportType).Scan(&factor)
+	if err != nil || factor <= 0 {
+		return 1.0, nil
+	}
+	return factor, nil
+}
