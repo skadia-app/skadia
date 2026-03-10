@@ -26,7 +26,7 @@ interface RoutePlannerState {
   sportType: string
   isCalculating: boolean
   calculationError: string | null
-  editingRouteId: number | null
+  editingRouteId: string | null
 }
 
 const INITIAL_STATE: RoutePlannerState = {
@@ -93,7 +93,7 @@ export function useRoutePlanner() {
 
   // ── Route load ──────────────────────────────────────────────────────────────
 
-  function useRouteDetail(id: number | null) {
+  function useRouteDetail(id: string | null) {
     return useQuery({
       queryKey: ['route', id],
       queryFn: () => getRoute(id!),

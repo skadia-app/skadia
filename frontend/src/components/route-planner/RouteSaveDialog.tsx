@@ -16,7 +16,7 @@ interface Props {
   /** Active BRouter profile in the planner */
   currentProfile: string
   /** When set: we are editing an existing route. Allows "save" + "save as new". */
-  editingRouteId?: number | null
+  editingRouteId?: string | null
   /** Pre-fill metadata from the route being edited */
   existingRoute?: PlannedRoute | null
   /** Called when the dialog should close (cancel or after successful save) */

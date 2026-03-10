@@ -505,6 +505,13 @@ func main() {
 			r.Put("/routes/{id}/tags", h.SetRouteTags)
 			r.Post("/routes/{id}/tags/{tagId}", h.AddRouteTag)
 			r.Delete("/routes/{id}/tags/{tagId}", h.RemoveRouteTag)
+			r.Post("/routes/{id}/photos", h.UploadRoutePhoto)
+			r.Delete("/routes/{id}/photos/{photoId}", h.DeleteRoutePhoto)
+			r.Put("/routes/{id}/photos/reorder", h.ReorderRoutePhotos)
+			r.Post("/routes/from-activity/{activityId}", h.RouteFromActivity)
+
+			// POI search
+			r.Get("/search/pois", h.SearchPOIs)
 		})
 	})
 

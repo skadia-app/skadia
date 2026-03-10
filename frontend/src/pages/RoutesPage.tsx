@@ -378,11 +378,13 @@ export default function RoutesPage() {
     [sortBy, sportType, search],
   )
 
-  const { data: routes = [], isLoading, isError } = useQuery({
+  const { data: routesResponse, isLoading, isError } = useQuery({
     queryKey: ['routes', queryParams],
     queryFn: () => listRoutes(queryParams),
     staleTime: 30_000,
   })
+
+  const routes = routesResponse?.routes ?? []
 
   // Client-side filtering when backend doesn't support search
   const filteredRoutes = useMemo(() => {

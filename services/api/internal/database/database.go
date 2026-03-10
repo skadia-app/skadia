@@ -301,6 +301,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
 			a.exclude_lift_subtraction,
 			COALESCE(a.elevation_source, 'device'),
+			COALESCE(a.distance_source, 'device'),
 			a.parent_id,
 			a.fusion_sources
 		FROM activities a
@@ -328,6 +329,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.LiftCount, &a.LiftDistanceM, &a.LiftAscentM, &a.LiftDescentM, &a.LiftDurationS,
 		&a.ExcludeLiftSubtraction,
 		&a.ElevationSource,
+		&a.DistanceSource,
 		&a.ParentID,
 		&a.FusionSources,
 	)

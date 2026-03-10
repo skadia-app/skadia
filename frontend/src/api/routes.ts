@@ -25,7 +25,7 @@ export interface RouteSegment {
 }
 
 export interface RoutePhoto {
-  id: number
+  id: string
   s3_key_thumb: string
   s3_key_preview?: string
   original_name?: string
@@ -33,7 +33,7 @@ export interface RoutePhoto {
 }
 
 export interface PlannedRoute {
-  id: number
+  id: string
   name: string
   description?: string            // Markdown
   sport_type: string
@@ -114,6 +114,13 @@ export interface RouteSuggestionParams {
   }
 }
 
+export interface ListRoutesResponse {
+  routes: PlannedRoute[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface ListRoutesParams {
   sort?: string
   sport_type?: string
@@ -127,19 +134,19 @@ export interface BRouterRequest {
 // === Capabilities ===
 
 export async function getCapabilities(): Promise<Capabilities> {
-  return apiClient('/settings/capabilities')
+  return apiClient('/capabilities')
 }
 
 // === Routes CRUD ===
 
-export async function listRoutes(params?: ListRoutesParams): Promise<PlannedRoute[]> {
+export async function listRoutes(params?: ListRoutesParams): Promise<ListRoutesResponse> {
   const qs = params ? '?' + new URLSearchParams(
     Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined)) as Record<string, string>
   ).toString() : ''
   return apiClient(`/routes${qs}`)
 }
 
-export async function getRoute(id: number): Promise<PlannedRoute> {
+export async function getRoute(id: string): Promise<PlannedRoute> {
   return apiClient(`/routes/${id}`)
 }
 
@@ -147,51 +154,51 @@ export async function createRoute(route: Partial<PlannedRoute>): Promise<Planned
   return apiClient('/routes', { method: 'POST', body: route })
 }
 
-export async function updateRoute(id: number, route: Partial<PlannedRoute>): Promise<PlannedRoute> {
-  return apiClient(`/routes/${id}`, { method: 'PUT', body: route })
+export async function updateRoute(id: string, route: Partial<PlannedRoute>): Promise<PlannedRoute> {
+  return apiClient(`/routes/${id}`, { method: 'PATCH', body: route })
 }
 
-export async function deleteRoute(id: number): Promise<void> {
+export async function deleteRoute(id: string): Promise<void> {
   return apiClient(`/routes/${id}`, { method: 'DELETE' })
 }
 
-export async function duplicateRoute(id: number): Promise<{ id: number }> {
+export async function duplicateRoute(id: string): Promise<{ id: string }> {
   return apiClient(`/routes/${id}/duplicate`, { method: 'POST' })
 }
 
 // === GPX Export ===
 
-export async function exportRouteGPX(id: number): Promise<{ blob: Blob; filename?: string }> {
-  return apiDownload(`/routes/${id}/export?format=gpx`)
+export async function exportRouteGPX(id: string): Promise<{ blob: Blob; filename?: string }> {
+  return apiDownload(`/routes/${id}/gpx`)
 }
 
 // === Route Photos ===
 
-export async function uploadRoutePhoto(routeId: number, file: File): Promise<RoutePhoto> {
+export async function uploadRoutePhoto(routeId: string, file: File): Promise<RoutePhoto> {
   const fd = new FormData()
   fd.append('photo', file)
   return apiUpload(`/routes/${routeId}/photos`, fd)
 }
 
-export async function deleteRoutePhoto(routeId: number, photoId: number): Promise<void> {
+export async function deleteRoutePhoto(routeId: string, photoId: string): Promise<void> {
   return apiClient(`/routes/${routeId}/photos/${photoId}`, { method: 'DELETE' })
 }
 
-export async function reorderRoutePhotos(routeId: number, photoIds: number[]): Promise<void> {
+export async function reorderRoutePhotos(routeId: string, photoIds: string[]): Promise<void> {
   return apiClient(`/routes/${routeId}/photos/reorder`, { method: 'PUT', body: { photo_ids: photoIds } })
 }
 
 // === Route Tags ===
 
-export async function setRouteTags(routeId: number, tagIds: string[]): Promise<void> {
+export async function setRouteTags(routeId: string, tagIds: string[]): Promise<void> {
   return apiClient(`/routes/${routeId}/tags`, { method: 'PUT', body: { tag_ids: tagIds } })
 }
 
-export async function addRouteTag(routeId: number, tagId: string): Promise<void> {
+export async function addRouteTag(routeId: string, tagId: string): Promise<void> {
   return apiClient(`/routes/${routeId}/tags/${tagId}`, { method: 'POST' })
 }
 
-export async function removeRouteTag(routeId: number, tagId: string): Promise<void> {
+export async function removeRouteTag(routeId: string, tagId: string): Promise<void> {
   return apiClient(`/routes/${routeId}/tags/${tagId}`, { method: 'DELETE' })
 }
 

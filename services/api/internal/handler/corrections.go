@@ -91,8 +91,8 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 		)
 	}
 
-	// Update distance_m on the activity.
-	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"distance_m": totalM}); err != nil {
+	// Update distance_m and distance_source on the activity.
+	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"distance_m": totalM, "distance_source": "computed"}); err != nil {
 		slog.Error("distance correction: failed to update distance_m", "error", err, "activity_id", activityID)
 		h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		return
@@ -162,6 +162,11 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 		slog.Error("distance reset: reprocess failed", "error", err, "activity_id", activityID)
 		h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		return
+	}
+
+	// Reset distance_source to device after restoring original distance.
+	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"distance_source": "device"}); err != nil {
+		slog.Warn("distance reset: failed to update distance_source", "error", err, "activity_id", activityID)
 	}
 
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)

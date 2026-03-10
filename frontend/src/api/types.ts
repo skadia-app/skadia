@@ -98,6 +98,7 @@ export interface Activity {
   lift_duration_s?: number | null
   exclude_lift_subtraction?: boolean | null
   elevation_source?: string | null
+  distance_source?: string | null
   // Multisport parent/child
   parent_id?: string | null
   child_count?: number

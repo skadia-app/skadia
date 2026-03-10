@@ -211,6 +211,7 @@ type Activity struct {
 	LiftDurationS          *int     `json:"lift_duration_s,omitempty"`
 	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction"`
 	ElevationSource        string   `json:"elevation_source,omitempty" db:"elevation_source"`
+	DistanceSource         string   `json:"distance_source,omitempty" db:"distance_source"`
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB

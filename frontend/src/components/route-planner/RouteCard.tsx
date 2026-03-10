@@ -134,7 +134,7 @@ function fmtRelative(dateStr: string): string {
 
 interface RouteCardProps {
   route: PlannedRoute
-  onDeleted?: (id: number) => void
+  onDeleted?: (id: string) => void
 }
 
 export default function RouteCard({ route, onDeleted }: RouteCardProps) {
