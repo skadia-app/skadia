@@ -373,17 +373,26 @@ function GalleryLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="relative max-w-5xl max-h-[90vh] w-full flex items-center justify-center"
+        className="relative flex-1 w-full flex items-center justify-center px-14 min-h-0"
         onClick={e => e.stopPropagation()}
       >
-        <AuthenticatedMedia
-          photo={photo}
-          className="max-h-[85vh] max-w-full rounded-lg object-contain"
-        />
+        {isVideoPhoto(photo) ? (
+          <AuthenticatedMedia
+            photo={photo}
+            objectFit="contain"
+            className="max-w-full max-h-full rounded-lg shadow-2xl"
+          />
+        ) : (
+          <AuthenticatedImage
+            src={photo.preview_url || photo.full_url}
+            alt={photo.original_filename}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
+        )}
 
         {index > 0 && (
           <button
