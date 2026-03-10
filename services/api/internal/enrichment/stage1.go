@@ -338,6 +338,12 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		return
 	}
 
+	// Geo enrichment (peaks, settlements, forests, water, borders) — Go SQL, no NATS.
+	// Best-effort: failures are logged but do not block the Stage-2 event.
+	if err := RunGeoEnrichment(ctx, db, activityID); err != nil {
+		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	}
+
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
 	if len(pub) > 0 && pub[0] != nil {
 		// Fetch user's module flags so the ML service can skip disabled modules.
@@ -348,6 +354,29 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 				"user_id", userID, "error", err)
 		} else {
 			enabledModules = enrichSettings.EnabledModules()
+		}
+
+		// These 5 modules have been migrated to Go SQL (geo_enrich.go) and no
+		// longer need to run in the Python ML service.
+		migratedToGo := map[string]bool{
+			"peaks": true, "settlements": true, "forests": true,
+			"water": true, "borders": true,
+		}
+		if enabledModules == nil {
+			// nil means "all enabled" — expand to full list minus migrated ones
+			allModules := []string{
+				"lifts", "commute", "surfaces", "stops",
+				"intervals", "ascents", "embeddings",
+			}
+			enabledModules = allModules
+		} else {
+			filtered := enabledModules[:0]
+			for _, m := range enabledModules {
+				if !migratedToGo[m] {
+					filtered = append(filtered, m)
+				}
+			}
+			enabledModules = filtered
 		}
 
 		if err := pub[0].PublishStage2Ready(event.Stage2ReadyEvent{
