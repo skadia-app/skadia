@@ -5,11 +5,16 @@
 # data/* statt data/ damit Unterverzeichnisse per !-Ausnahme freigebbar sind
 data/*
 !data/tiles/
+!data/brouter/
 temp/
 
 # Tile-Dateien zu groß für Git — nur .gitkeep tracken
 data/tiles/*
 !data/tiles/.gitkeep
+
+# BRouter: Segmente (rd5, binär, mehrere GB) ignorieren; Profile und Verzeichnisstruktur behalten
+data/brouter/segments/
+data/dem/
 
 # Python
 __pycache__/
