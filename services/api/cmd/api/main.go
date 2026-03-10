@@ -485,8 +485,9 @@ func main() {
 			r.Post("/notifications/read-all", h.MarkAllNotificationsRead)
 			r.Post("/notifications/{id}/read", h.MarkNotificationRead)
 
-			// Routing (BRouter proxy)
+			// Routing (BRouter proxy + auto-route suggestion)
 			r.Post("/routing/route", h.RouteViabrouter)
+			r.Post("/routes/suggest", h.SuggestRoutes)
 
 			// Planned Routes
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)

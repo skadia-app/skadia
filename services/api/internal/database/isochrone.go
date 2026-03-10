@@ -142,6 +142,81 @@ func (db *DB) BuildIsochronePolygons(ctx context.Context, reachable []ReachableN
 	return polygons, nil
 }
 
+// ResolveNodeCoordinates fetches the [lng, lat] for each node in the reachable
+// slice from osm_trails_vertices_pgr. The result map key is the node ID.
+// Nodes not found in the topology are silently omitted.
+func (db *DB) ResolveNodeCoordinates(ctx context.Context, reachable []ReachableNode) (map[int64][2]float64, error) {
+	if len(reachable) == 0 {
+		return map[int64][2]float64{}, nil
+	}
+
+	nodeIDs := make([]int64, len(reachable))
+	for i, n := range reachable {
+		nodeIDs[i] = n.NodeID
+	}
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, ST_X(the_geom) AS lng, ST_Y(the_geom) AS lat
+		FROM osm_trails_vertices_pgr
+		WHERE id = ANY($1)
+	`, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve node coordinates: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][2]float64, len(reachable))
+	for rows.Next() {
+		var id int64
+		var lng, lat float64
+		if err := rows.Scan(&id, &lng, &lat); err != nil {
+			return nil, fmt.Errorf("scan node coordinate: %w", err)
+		}
+		result[id] = [2]float64{lng, lat}
+	}
+	// E15: check rows.Err() after iteration.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate node coordinates: %w", err)
+	}
+	return result, nil
+}
+
+// GetVisitedTrailIDs returns the set of osm_trails node IDs (source and target)
+// that the user has already visited according to heatmap_trail_matches.
+// The returned map can be used to identify unvisited ("unknown") nodes when
+// selecting via-points in the route suggestion algorithm.
+func (db *DB) GetVisitedTrailIDs(ctx context.Context, userID string) (map[int64]bool, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT t.source, t.target
+		FROM heatmap_trail_matches m
+		JOIN osm_trails t ON t.id = m.trail_id
+		WHERE m.user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get visited trail IDs: %w", err)
+	}
+	defer rows.Close()
+
+	visited := make(map[int64]bool)
+	for rows.Next() {
+		var src, tgt int64
+		if err := rows.Scan(&src, &tgt); err != nil {
+			return nil, fmt.Errorf("scan visited trail row: %w", err)
+		}
+		if src != 0 {
+			visited[src] = true
+		}
+		if tgt != 0 {
+			visited[tgt] = true
+		}
+	}
+	// E15: check rows.Err() after iteration.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate visited trail rows: %w", err)
+	}
+	return visited, nil
+}
+
 // FindPOIsInIsochrone finds amenities (from osm_amenities) and peaks
 // (from osm_peaks) of the requested types that lie inside the convex hull of
 // reachable nodes.  poiTypes may include values like "hut", "cafe",
