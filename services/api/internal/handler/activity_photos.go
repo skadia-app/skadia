@@ -187,6 +187,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 			S3Bucket:     bucket,
 			S3Key:        s3Key,
 			S3KeyPreview: saved.S3KeyPreview,
+			ContentType:  saved.ContentType,
 		}
 		if err := h.Events.PublishPhotoEmbed(ev); err != nil {
 			slog.Warn("failed to publish photo embed event", "photo_id", saved.ID, "err", err)

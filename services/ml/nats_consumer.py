@@ -466,10 +466,15 @@ async def _process_photo_embed(msg, pool, nc) -> None:
     async with _photo_embed_semaphore:
         _metrics["active_tasks"] += 1
         try:
-            from models.clip import embed_image  # lazy import to avoid startup overhead
+            from models.clip import embed_image, embed_video_bytes, is_video  # lazy imports
 
             image_bytes = await _download_from_s3(s3_bucket, image_key)
-            embedding = await embed_image(image_bytes)
+
+            if is_video(image_key, data.get("content_type", "")):
+                logger.info("photo_embed: video detected for photo %s, extracting frames", photo_id)
+                embedding = await embed_video_bytes(image_bytes)
+            else:
+                embedding = await embed_image(image_bytes)
 
             # Store as pgvector literal string
             vec_str = "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
@@ -543,8 +548,6 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                     "COUNT(*) AS total, "
                     "COUNT(*) FILTER ("
                     "  WHERE ap.clip_embedding IS NULL "
-                    "  AND ap.content_type LIKE 'image/%' "
-                    "  AND ap.s3_key !~ '\\.(mp4|mov|avi|mkv|webm)$' "
                     "  AND NOT EXISTS ("
                     "    SELECT 1 FROM enrichment_errors ee "
                     "    WHERE ee.activity_id = ap.activity_id AND ee.module = 'clip_embedding'"
@@ -593,16 +596,15 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                 )
 
                 # --- publish next batch (LIMIT 50) ---
-                # Exclude videos/non-images and permanently failed photos
-                # (marked via enrichment_errors module='clip_embedding').
+                # Exclude permanently failed photos (enrichment_errors module='clip_embedding').
+                # All other formats (image/*, video/*, HEIC, JXL) are now supported.
                 rows = await conn.fetch(
-                    "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview "
+                    "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview, "
+                    "ap.content_type "
                     "FROM activity_photos ap "
                     "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
                     "WHERE ap.clip_embedding IS NULL "
                     "AND ues.enable_photo_clip_embedding = true "
-                    "AND ap.content_type LIKE 'image/%' "
-                    "AND ap.s3_key !~ '\\.(mp4|mov|avi|mkv|webm)$' "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM enrichment_errors ee "
                     "  WHERE ee.activity_id = ap.activity_id "
@@ -619,6 +621,7 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                         "s3_bucket": row["s3_bucket"],
                         "s3_key": row["s3_key"],
                         "s3_key_preview": row["s3_key_preview"],
+                        "content_type": row.get("content_type") or "",
                     }
                     await js.publish(
                         "skadia.photo.embed",

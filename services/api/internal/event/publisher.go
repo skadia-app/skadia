@@ -150,6 +150,7 @@ type PhotoEmbedEvent struct {
 	S3Bucket     string `json:"s3_bucket"`
 	S3Key        string `json:"s3_key"`
 	S3KeyPreview string `json:"s3_key_preview,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
 }
 
 func (p *Publisher) PublishPhotoEmbed(ev PhotoEmbedEvent) error {

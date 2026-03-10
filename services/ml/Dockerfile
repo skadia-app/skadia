@@ -1,5 +1,11 @@
 FROM python:3.13-slim
-RUN apt-get update -qq && apt-get install -y -qq git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -qq && apt-get install -y -qq \
+    git \
+    ffmpeg \
+    libheif-dev \
+    libjxl-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
