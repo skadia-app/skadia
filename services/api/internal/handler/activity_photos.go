@@ -121,19 +121,28 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	// Dateiendung für S3-Pfad bestimmen
 	ext := fileExtForContentType(ct, header.Filename)
 
-	// Thumbnail generieren (200px):
-	// – Video/HEIC/JXL: via ffmpeg (Frame-Extraktion bzw. Dekodierung)
-	// – andere Bilder: via imageutil.Resize()
+	// Video-Metadaten via ffprobe lesen (vor Thumbnail-Generierung, da wir die Dauer brauchen)
+	var videoMeta *imageutil.VideoMeta
+	if isVideo {
+		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
+			videoMeta = &meta
+		} else {
+			slog.Warn("ffprobe failed", "filename", header.Filename, "error", err)
+		}
+	}
+
+	// Thumbnail generieren (200px, erster Frame):
+	// – Video/HEIC/JXL: via ffmpeg; – andere Bilder: via imageutil.Resize()
 	var thumbData []byte
 	switch {
 	case isVideo:
-		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200); err == nil {
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			thumbData = td
 		} else {
 			slog.Warn("ffmpeg video thumbnail failed", "filename", header.Filename, "error", err)
 		}
 	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
-		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200); err == nil {
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			thumbData = td
 		} else {
 			slog.Warn("ffmpeg image thumbnail failed", "ct", ct, "error", err)
@@ -142,28 +151,30 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		thumbData, _ = imageutil.Resize(data, 200, 200, 80)
 	}
 
-	// Preview-Thumbnail generieren (Größe aus User-Einstellungen) — nur für Bilder
+	// Preview-Thumbnail generieren:
+	// – Bilder: Größe aus User-Einstellungen (2048/4K/original)
+	// – Videos: 2048px aus der Mitte des Videos — dauerhaftes Poster-Bild hinter dem Play-Button
 	previewData, s3KeyPreview := []byte(nil), ""
-	if !isVideo {
+	if isVideo {
+		// Frame aus Videomitte: deutlich repräsentativer als erster Frame
+		var midOffset float64
+		if videoMeta != nil && videoMeta.DurationS > 2 {
+			midOffset = videoMeta.DurationS / 2
+		}
+		if pd, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset); err == nil {
+			previewData = pd
+		} else {
+			slog.Warn("ffmpeg video preview failed", "filename", header.Filename, "error", err)
+		}
+	} else {
 		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil {
 			if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
 				if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
-					// ffmpeg skaliert proportional; maxSize bestimmt die längere Seite
-					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW)
+					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
 				} else {
 					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
 				}
 			}
-		}
-	}
-
-	// Video-Metadaten via ffprobe lesen
-	var videoMeta *imageutil.VideoMeta
-	if isVideo {
-		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
-			videoMeta = &meta
-		} else {
-			slog.Warn("ffprobe failed", "filename", header.Filename, "error", err)
 		}
 	}
 
