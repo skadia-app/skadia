@@ -24,7 +24,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     : job.job_type === 'photo_preview_recompute'
     ? 'Foto-Vorschauen'
     : job.job_type === 'photo_clip_embed'
-    ? 'Foto-Indexierung (KI)'
+    ? 'Foto-Indexierung'
     : `Segment „${job.entity_name ?? 'Segment'}`
 
   const pct =
