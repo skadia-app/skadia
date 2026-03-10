@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -76,8 +77,16 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			continue
 		}
 
-		// EXIF: extract taken_at and GPS coords
-		takenAt, lat, lng := extractMediaEXIF(data)
+		// Detect content type from file bytes + extension fallback.
+		contentType := detectMediaContentType(data, relPath)
+		isVideo := isVideoContentType(contentType)
+
+		// EXIF: extract taken_at and GPS coords (only for images, not videos).
+		var takenAt *time.Time
+		var lat, lng *float64
+		if !isVideo {
+			takenAt, lat, lng = extractMediaEXIF(data, contentType)
+		}
 
 		// Primary: look up activity via activities.csv Medien mapping
 		var activityIDPtr *string
@@ -105,49 +114,63 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			}
 		}
 
-		// Generate thumbnail (200×200)
-		thumbData, thumbErr := imageutil.Resize(data, 200, 200, 80)
-
-		// Generate preview thumbnail (2048/4K per user settings)
-		previewData, s3KeyPreview := []byte(nil), ""
-		if params.DB != nil {
-			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
-				if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
-				}
-			}
-		}
-
 		// S3 paths
 		ext := filepath.Ext(relPath)
 		if ext == "" {
 			ext = ".jpg"
 		}
 		s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
-		s3KeyThumb := s3Key // fallback: original as thumb
 		bucket := "skadia-media"
 
+		// For videos: skip thumbnail/preview generation entirely.
+		// Thumbnails for videos will be generated later by the ML service via CLIP.
+		// For images: generate thumbnail (200×200) and preview.
+		s3KeyThumb := s3Key // fallback: original as thumb
+		s3KeyPreview := ""
+
+		var thumbData []byte
+		var thumbErr error
+		var previewData []byte
+
+		if !isVideo {
+			thumbData, thumbErr = imageutil.Resize(data, 200, 200, 80)
+
+			if params.DB != nil {
+				if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
+					if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+						previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+					}
+				}
+			}
+		}
+
 		if params.Storage != nil {
-			if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, "image/jpeg"); err != nil {
+			if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
 				slog.Warn("strava media: s3 upload failed", "file", relPath, "error", err)
 				result.Errors = append(result.Errors, fmt.Sprintf("s3 upload %s: %s", relPath, err))
 				continue
 			}
 
-			if thumbErr == nil && thumbData != nil {
-				s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
-				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-					slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
-					s3KeyThumb = s3Key
+			if !isVideo {
+				if thumbErr == nil && thumbData != nil {
+					s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
+					if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+						slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
+						s3KeyThumb = s3Key
+					}
 				}
-			}
 
-			if previewData != nil {
-				s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
-				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-					slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
-					s3KeyPreview = ""
+				if previewData != nil {
+					s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
+					if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+						slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
+						s3KeyPreview = ""
+					}
 				}
+			} else {
+				// Videos: no thumbnails at import time — ML service generates them later.
+				s3KeyThumb = ""
+				s3KeyPreview = ""
 			}
 		}
 
@@ -159,17 +182,26 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			S3KeyThumb:       s3KeyThumb,
 			S3KeyPreview:     s3KeyPreview,
 			OriginalFilename: filepath.Base(relPath),
-			ContentType:      "image/jpeg",
+			ContentType:      contentType,
 			FileSizeBytes:    int64(len(data)),
 			FileHash:         &hash,
 			TakenAt:          takenAt,
 			Lat:              lat,
 			Lng:              lng,
 		}
+
 		if lat != nil {
 			ls := "exif"
 			photo.LocationSource = &ls
+		} else if activityIDPtr != nil && (lat == nil) {
+			// For videos and images without EXIF GPS: location comes from activity track.
+			ls := "activity_track"
+			photo.LocationSource = &ls
 		}
+
+		// TODO(agent1/migration-000138): Once ActivityPhoto.IsVideo field is available,
+		// set photo.IsVideo = isVideo here to distinguish videos from images in the DB.
+		// Also set photo.DurationS if video duration can be extracted.
 
 		if params.DB != nil {
 			if _, err := params.DB.InsertActivityPhoto(ctx, photo); err != nil {
@@ -248,12 +280,73 @@ func mediaUUID(relPath string) string {
 	return strings.TrimSuffix(base, ext)
 }
 
-// extractMediaEXIF reads taken_at, lat, lng from JPEG EXIF data.
-func extractMediaEXIF(data []byte) (takenAt *time.Time, lat *float64, lng *float64) {
+// detectMediaContentType determines the MIME type from file bytes, falling back to
+// extension-based detection for formats that http.DetectContentType cannot identify
+// (HEIC, JXL, some video containers).
+func detectMediaContentType(data []byte, filename string) string {
+	// Use at most 512 bytes for sniffing (http.DetectContentType requirement).
+	sniff := data
+	if len(sniff) > 512 {
+		sniff = sniff[:512]
+	}
+	ct := http.DetectContentType(sniff)
+
+	if ct == "application/octet-stream" || ct == "text/plain; charset=utf-8" {
+		switch strings.ToLower(filepath.Ext(filename)) {
+		case ".heic", ".heif":
+			return "image/heic"
+		case ".jxl":
+			return "image/jxl"
+		case ".avif":
+			return "image/avif"
+		case ".mp4", ".m4v":
+			return "video/mp4"
+		case ".mov":
+			return "video/quicktime"
+		case ".avi":
+			return "video/x-msvideo"
+		case ".mkv":
+			return "video/x-matroska"
+		case ".webm":
+			return "video/webm"
+		}
+	}
+	return ct
+}
+
+// isVideoContentType reports whether the given MIME type represents a video.
+func isVideoContentType(ct string) bool {
+	return strings.HasPrefix(ct, "video/")
+}
+
+// imageFormatFromContentType maps a MIME content type to the imagemeta.ImageFormat
+// constant required for EXIF decoding.
+func imageFormatFromContentType(ct string) imagemeta.ImageFormat {
+	switch {
+	case strings.Contains(ct, "jpeg"), strings.Contains(ct, "jpg"):
+		return imagemeta.JPEG
+	case strings.Contains(ct, "png"):
+		return imagemeta.PNG
+	case strings.Contains(ct, "tiff"):
+		return imagemeta.TIFF
+	case strings.Contains(ct, "webp"):
+		return imagemeta.WebP
+	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
+		return imagemeta.HEIF
+	case strings.Contains(ct, "avif"):
+		return imagemeta.AVIF
+	default:
+		return imagemeta.JPEG // safe fallback
+	}
+}
+
+// extractMediaEXIF reads taken_at, lat, lng from image EXIF data.
+// The contentType parameter selects the correct imagemeta decoder.
+func extractMediaEXIF(data []byte, contentType string) (takenAt *time.Time, lat *float64, lng *float64) {
 	var tags imagemeta.Tags
 	_, err := imagemeta.Decode(imagemeta.Options{
 		R:           bytes.NewReader(data),
-		ImageFormat: imagemeta.JPEG,
+		ImageFormat: imageFormatFromContentType(contentType),
 		Sources:     imagemeta.EXIF,
 		HandleTag: func(info imagemeta.TagInfo) error {
 			tags.Add(info)
@@ -276,4 +369,3 @@ func extractMediaEXIF(data []byte) (takenAt *time.Time, lat *float64, lng *float
 
 	return t, lat, lng
 }
-
