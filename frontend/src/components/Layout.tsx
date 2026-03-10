@@ -12,6 +12,7 @@ const navItems = [
   { to: '/calendar', label: 'Kalender' },
   { to: '/analytics', label: 'Analyse' },
   { to: '/chat', label: 'Assistent' },
+  { to: '/routes', label: 'Routen' },
   { to: '/segments', label: 'Segmente' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },
