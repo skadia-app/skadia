@@ -355,6 +355,9 @@ func main() {
 			// Trails
 			r.Post("/trails/build-topology", h.BuildTrailTopology)
 
+			// Isochrone (pgRouting)
+			r.Post("/isochrone", h.Isochrone)
+
 			// Segments
 			r.Get("/segments", h.ListSegments)
 			r.Post("/segments", h.CreateSegment)
