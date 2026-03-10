@@ -51,12 +51,18 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Nearest trail node (für pgRouting Routing-Start/Ziel)
+-- Uses plpgsql + EXECUTE to defer table resolution: osm_trails_vertices_pgr
+-- is created by pgr_createTopology and does not exist at migration time.
 CREATE OR REPLACE FUNCTION nearest_trail_node(point GEOMETRY(Point, 4326))
 RETURNS BIGINT AS $$
-    SELECT id FROM osm_trails_vertices_pgr
-    ORDER BY the_geom <-> point
-    LIMIT 1;
-$$ LANGUAGE sql STABLE;
+DECLARE
+    result BIGINT;
+BEGIN
+    EXECUTE 'SELECT id FROM osm_trails_vertices_pgr ORDER BY the_geom <-> $1 LIMIT 1'
+        INTO result USING point;
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql STABLE;
 
 -- POI-Fuzzy-Suche Indexes
 CREATE INDEX IF NOT EXISTS idx_osm_peaks_name_trgm ON osm_peaks USING GIN(name gin_trgm_ops);
