@@ -345,6 +345,7 @@ func main() {
 			// DEM Elevation
 			r.Post("/elevation/query", h.QueryElevation)
 			r.Post("/elevation/profile", h.ElevationProfile)
+			r.Post("/dem/import", h.ImportDEM)
 
 			// Entdeckungskarte
 			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
