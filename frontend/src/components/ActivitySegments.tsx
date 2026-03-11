@@ -26,7 +26,7 @@ function fmtDuration(s: number): string {
 function sportTypeToGroup(sportType?: string): string {
   if (!sportType) return 'generic'
   const t = sportType.toLowerCase()
-  if (t.includes('cycling') || t.includes('bike') || t.includes('ride') || t === 'e_bike_fitness' || t === 'gravel_cycling') return 'bike'
+  if (t.includes('cycling') || t.includes('bike') || t.includes('ride') || t === 'gravel_cycling') return 'bike'
   if (t.includes('run') || t.includes('walk') || t.includes('hike') || t.includes('trail')) return 'foot'
   if (t.includes('swim')) return 'swim'
   if (t.includes('ski') || t.includes('snowboard') || t.includes('snow')) return 'ski'

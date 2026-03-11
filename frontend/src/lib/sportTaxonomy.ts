@@ -96,10 +96,7 @@ export const SPORT_DEFS: SportDef[] = [
     sub('spin', 'Spinning'),
     sub('hand_cycling', 'Handbike'),
     sub('recumbent', 'Liegerad'),
-  ]),
-  def('e_biking', 'bike', 'E-Bike', true, [
-    sub('e_bike_fitness', 'E-Bike Fitness'),
-    sub('e_bike_mountain', 'E-MTB'),
+    sub('unicycling', 'Einrad'),
   ]),
   def('virtual_ride', 'bike', 'Virtuelles Radfahren', false),
   def('inline_skating', 'outdoor', 'Inline-Skaten', true),
@@ -117,6 +114,7 @@ export const SPORT_DEFS: SportDef[] = [
   def('snowboarding', 'winter', 'Snowboard', true),
   def('ice_skating', 'winter', 'Eislaufen', true),
   def('snowmobiling', 'winter', 'Schneemobil', true),
+  def('sledding', 'winter', 'Rodeln', true),
 
   // ── water ──
   def('swimming', 'water', 'Schwimmen', true, [

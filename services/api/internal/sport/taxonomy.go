@@ -136,7 +136,7 @@ func init() {
 				"indoor_cycling":  {SubType: "indoor_cycling", LabelDE: "Indoor", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt"},
 				"spin":            {SubType: "spin", LabelDE: "Spinning", DetailDE: "Spinning", AutoTitleDE: "Spinning"},
 				"gravel_cycling":  {SubType: "gravel_cycling", LabelDE: "Gravel", DetailDE: "Gravel", AutoTitleDE: "Gravel-Tour"},
-				"e_bike_mountain": {SubType: "e_bike_mountain", LabelDE: "E-MTB", DetailDE: "E-Mountainbike", AutoTitleDE: "E-MTB-Tour"},
+				"unicycling":      {SubType: "unicycling", LabelDE: "Einrad", DetailDE: "Einrad", AutoTitleDE: "Einradfahrt"},
 				"mixed_surface":   {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour"},
 				"bmx":             {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX"},
 				"virtual_activity": {SubType: "virtual_activity", LabelDE: "Virtuell", DetailDE: "Virtuelles Radfahren", AutoTitleDE: "Virtuelle Radfahrt"},
@@ -153,14 +153,6 @@ func init() {
 		{
 			SportType: "indoor_cycling", CategoryKey: "bike", LabelDE: "Indoor-Radfahren", AutoTitleDE: "Indoor-Radfahrt",
 			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "e_biking", CategoryKey: "bike", LabelDE: "E-Bike", AutoTitleDE: "E-Bike-Tour",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"e_bike_fitness":  {SubType: "e_bike_fitness", LabelDE: "E-Bike Fitness", DetailDE: "E-Bike Fitness", AutoTitleDE: "E-Bike-Tour"},
-				"e_bike_mountain": {SubType: "e_bike_mountain", LabelDE: "E-MTB", DetailDE: "E-Mountainbike", AutoTitleDE: "E-MTB-Tour"},
-			},
 		},
 		{
 			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
@@ -207,6 +199,10 @@ func init() {
 		{
 			SportType: "snowmobiling", CategoryKey: "winter", LabelDE: "Schneemobil", AutoTitleDE: "Schneemobil-Tour",
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
+		},
+		{
+			SportType: "sledding", CategoryKey: "winter", LabelDE: "Rodeln", AutoTitleDE: "Rodeln",
+			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
 		},
 
 		// ── Water ──

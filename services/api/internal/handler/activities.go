@@ -574,7 +574,7 @@ type tcxTPX struct {
 
 func tcxSportFromActivity(activity *model.Activity) string {
 	switch activity.SportType {
-	case "cycling", "e_biking":
+	case "cycling":
 		return "Biking"
 	case "running":
 		return "Running"
@@ -742,7 +742,7 @@ func buildFITSession(act *model.Activity) proto.Message {
 		sess.EnhancedAvgSpeed = uint32(*act.AvgSpeedMS * 1000)
 	}
 	switch act.SportType {
-	case "cycling", "e_biking":
+	case "cycling":
 		sess.Sport = typedef.SportCycling
 	case "running":
 		sess.Sport = typedef.SportRunning

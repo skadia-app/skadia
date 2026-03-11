@@ -3,13 +3,13 @@ import { categoryForSport } from '@/lib/sportTaxonomy'
 interface Props {
   sport: string
   subType?: string | null
+  isEbike?: boolean
   className?: string
 }
 
-export function SportIcon({ sport, subType, className = 'w-4 h-4' }: Props) {
+export function SportIcon({ sport, subType, isEbike, className = 'w-4 h-4' }: Props) {
   if (sport === 'cycling' || subType?.includes('bike') || subType?.includes('cycling')) {
-    if (subType === 'e_bike_fitness' || subType === 'e_bike_mountain') return <EBikeIcon className={className} />
-    if (sport === 'e_biking') return <EBikeIcon className={className} />
+    if (isEbike) return <EBikeIcon className={className} />
     if (subType === 'mountain') return <MtbIcon className={className} />
     if (subType === 'road') return <RoadBikeIcon className={className} />
     return <BikeIcon className={className} />
@@ -18,7 +18,6 @@ export function SportIcon({ sport, subType, className = 'w-4 h-4' }: Props) {
   // Direct sport → icon mapping
   const directIcons: Record<string, React.FC<{ className?: string }>> = {
     cycling: BikeIcon,
-    e_biking: EBikeIcon,
     inline_skating: BikeIcon,
     running: RunIcon,
     hiking: HikeIcon,

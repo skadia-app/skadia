@@ -20,7 +20,6 @@ const SPORT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'cycling', label: 'Radfahren' },
   { value: 'mountain_biking', label: 'Mountainbike' },
   { value: 'gravel_cycling', label: 'Gravel' },
-  { value: 'e_biking', label: 'E-Bike' },
   { value: 'trail_running', label: 'Trail Running' },
   { value: 'skiing', label: 'Ski Alpin' },
   { value: 'cross_country_skiing', label: 'Langlauf' },
@@ -39,7 +38,6 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
   cycling: 'text-accent-DEFAULT',
   mountain_biking: 'text-orange-500',
   gravel_cycling: 'text-amber-500',
-  e_biking: 'text-purple-500',
   skiing: 'text-cyan-500',
   cross_country_skiing: 'text-sky-400',
   swimming: 'text-blue-400',
@@ -64,7 +62,7 @@ function SportIcon({ sportType, className }: { sportType: string; className?: st
   const cls = `${color} ${className ?? ''}`
 
   // Bike-family
-  if (['cycling', 'mountain_biking', 'gravel_cycling', 'e_biking'].includes(sportType)) {
+  if (['cycling', 'mountain_biking', 'gravel_cycling'].includes(sportType)) {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
         <circle cx="5.5" cy="17.5" r="3.5" />

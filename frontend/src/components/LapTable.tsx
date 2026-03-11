@@ -42,7 +42,7 @@ function isSwimLike(sport: string): boolean {
 }
 
 function isCycleLike(sport: string): boolean {
-  return ['cycling', 'e_biking'].includes(sport)
+  return sport === 'cycling' || sport === 'mountain_biking' || sport === 'gravel_cycling'
 }
 
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'

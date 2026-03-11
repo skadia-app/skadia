@@ -117,6 +117,13 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		sportStr := colVal(row, hdr["Aktivitätsart"])
 		sportType, subType := mapStravaSportType(sportStr), ""
 
+		// E-Bike normalization
+		isEbike := false
+		if sportType == "e_biking" || sportType == "e_bike" {
+			sportType = "cycling"
+			isEbike = true
+		}
+
 		// Moving time (seconds)
 		movingTimeS, _ := parseGermanInt(colVal(row, hdr["Bewegungszeit"]))
 		// Elapsed time (seconds) — first column named "Verstrichene Zeit"
@@ -185,6 +192,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			Source:    "Strava",
 			SportType: sportType,
 			SubType:   subType,
+			IsEbike:   isEbike,
 			StartedAt: startedAt,
 			EndedAt:   endedAt,
 		}
@@ -609,7 +617,7 @@ func mapStravaSportType(stravaSport string) string {
 	case "Radfahrt", "Radfahren":
 		return "cycling"
 	case "E-Bike-Radfahrt", "E-Bike":
-		return "e_bike"
+		return "e_biking" // normalized to cycling + is_ebike downstream
 	case "Mountainbiking":
 		return "mountain_biking"
 	case "Gravelbike", "Gravel-Radfahrt":

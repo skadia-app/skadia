@@ -17,7 +17,7 @@ _SPORT_TYPES = [
     "running", "cycling", "hiking", "walking", "swimming",
     "alpine_skiing", "cross_country_skiing", "strength_training",
     "mountaineering", "rowing", "paddle_boarding", "kayaking",
-    "training", "fitness_equipment", "rock_climbing", "e_biking",
+    "training", "fitness_equipment", "rock_climbing",
     "stand_up_paddleboarding", "multisport", "racket", "generic",
     "unknown", "other",
 ]
@@ -49,7 +49,7 @@ ALL_TOOL_DEFINITIONS = [
                         "description": (
                             "Filter by sub_type for more specific sport: "
                             "mountain (MTB), gravel_cycling, indoor_cycling, road, "
-                            "e_bike_fitness, trail (Trail Running), open_water, bouldering"
+                            "unicycling, trail (Trail Running), open_water, bouldering"
                         ),
                     },
                     "days": {
@@ -544,7 +544,7 @@ ALL_TOOL_DEFINITIONS = [
                 "NEVER use $1/$2 parameter placeholders. SELECT only.\n"
                 "IMPORTANT sport_type mapping: MTB/Mountainbike→sport_type='cycling' AND sub_type='mountain', "
                 "Gravel→sub_type='gravel_cycling', Trail→sport_type='running' AND sub_type='trail', "
-                "E-Bike→sport_type='e_biking', Bouldern→sport_type='rock_climbing' AND sub_type='bouldering', "
+                "E-Bike→sport_type='cycling' AND is_ebike=true, Bouldern→sport_type='rock_climbing' AND sub_type='bouldering', "
                 "Schwimmen open water→sub_type='open_water', Indoor-Rad→sub_type='indoor_cycling'.\n"
                 "IMPORTANT SQL rules: Use ROUND(x::numeric, n) not ROUND(float8, n). "
                 "gear.type values: 'bike','shoes','other' (NOT 'bicycle'). "

@@ -6,7 +6,7 @@ import (
 
 func TestSegmentGroupBackwardsCompat(t *testing.T) {
 	checks := map[string]string{
-		"cycling": "bike", "e_biking": "bike", "mountain_biking": "bike",
+		"cycling": "bike", "mountain_biking": "bike",
 		"gravel_cycling": "bike", "indoor_cycling": "bike",
 		"running": "foot", "trail_running": "foot", "hiking": "foot",
 		"walking": "foot", "treadmill_running": "foot",
@@ -26,7 +26,7 @@ func TestSegmentGroupBackwardsCompat(t *testing.T) {
 
 func TestMovingThresholdBackwardsCompat(t *testing.T) {
 	thresholds := map[string]float64{
-		"cycling": 0.5, "e_biking": 0.5,
+		"cycling": 0.5,
 		"running": 0.5, "trail_running": 0.5,
 		"walking": 0.2, "hiking": 0.2,
 		"swimming": 0.1,
@@ -45,7 +45,7 @@ func TestMovingThresholdBackwardsCompat(t *testing.T) {
 func TestAutoTitleBackwardsCompat(t *testing.T) {
 	titles := map[string]string{
 		"cycling": "Radfahrt", "running": "Lauf", "hiking": "Wanderung",
-		"walking": "Spaziergang", "swimming": "Schwimmen", "e_biking": "E-Bike-Tour",
+		"walking": "Spaziergang", "swimming": "Schwimmen",
 		"cross_country_skiing": "Langlauf", "paddling": "Wassersport-Tour",
 		"rock_climbing": "Klettern", "stand_up_paddleboarding": "SUP-Tour",
 		"trail_running": "Trailrun", "mountaineering": "Bergtour",

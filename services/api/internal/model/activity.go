@@ -62,6 +62,7 @@ type ActivityData struct {
 	Tags []string // existing tags on the activity (for enrichment merge)
 
 	IsIndoor bool
+	IsEbike  bool
 	HasGPS   bool
 	StartLat float64
 	StartLng float64

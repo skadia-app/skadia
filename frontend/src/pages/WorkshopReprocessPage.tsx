@@ -191,7 +191,6 @@ export default function WorkshopReprocessPage() {
                 <option value="hiking">Wandern</option>
                 <option value="swimming">Schwimmen</option>
                 <option value="walking">Gehen</option>
-                <option value="e_biking">E-Bike</option>
                 <option value="skiing">Ski</option>
                 <option value="strength">Kraft</option>
               </select>

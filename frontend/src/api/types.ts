@@ -4,7 +4,6 @@ export type SportType =
   | 'running'
   | 'hiking'
   | 'swimming'
-  | 'e_biking'
   | 'skiing'
   | 'paddling'
   | 'walking'
@@ -44,6 +43,8 @@ export interface Activity {
   normalized_power_w?: number | null
   avg_cadence?: number | null
   avg_temperature_c?: number | null
+  min_temperature_c?: number | null
+  max_temperature_c?: number | null
   tss?: number | null
   trimp?: number | null
   is_indoor: boolean

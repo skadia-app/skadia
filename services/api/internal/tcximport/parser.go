@@ -94,6 +94,13 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	sport, subType := mapTCXSport(act.Sport)
 	source, sourceDevice := parseTCXCreator(act.Creator)
 
+	// E-Bike normalization
+	isEbike := false
+	if sport == "e_biking" || sport == "e_bike" {
+		sport = "cycling"
+		isEbike = true
+	}
+
 	data := &model.ActivityData{
 		FileFormat:   "tcx",
 		OriginalName: filename,
@@ -101,6 +108,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice: sourceDevice,
 		SportType:    sport,
 		SubType:      subType,
+		IsEbike:      isEbike,
 	}
 
 	// Aggregate lap data

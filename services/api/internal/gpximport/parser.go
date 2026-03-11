@@ -79,6 +79,13 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	sport, subType := mapGPXType(trk.Type)
 	source, sourceDevice := parseGPXCreator(gpx.Creator)
 
+	// E-Bike normalization
+	isEbike := false
+	if sport == "e_biking" || sport == "e_bike" {
+		sport = "cycling"
+		isEbike = true
+	}
+
 	data := &model.ActivityData{
 		FileFormat:   "gpx",
 		OriginalName: filename,
@@ -86,6 +93,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice: sourceDevice,
 		SportType:    sport,
 		SubType:      subType,
+		IsEbike:      isEbike,
 	}
 
 	// Build streams, track points, and calculate stats

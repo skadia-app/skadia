@@ -347,6 +347,22 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	session := sessions[0]
 	sportType, subType, fitSportID, fitSubSportID := ParseSportFromSession(session)
 
+	// E-Bike normalization: map e_biking sport and e_bike_* sub-sports to
+	// their non-electric counterparts and set IsEbike flag instead.
+	isEbike := false
+	if sportType == "e_biking" {
+		sportType = "cycling"
+		isEbike = true
+	}
+	switch subType {
+	case "e_bike_fitness":
+		subType = "generic"
+		isEbike = true
+	case "e_bike_mountain":
+		subType = "mountain"
+		isEbike = true
+	}
+
 	data := &model.ActivityData{
 		FileFormat:    "fit",
 		OriginalName:  filename,
@@ -354,6 +370,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		SubType:       subType,
 		FitSportID:    fitSportID,
 		FitSubSportID: fitSubSportID,
+		IsEbike:       isEbike,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,
 	}

@@ -24,8 +24,8 @@ HEURISTIC_NO_SPEED_MIN_RATE = 0.6
 HEURISTIC_NO_SPEED_MIN_DURATION = 90
 
 LIFT_RELEVANT_SPORTS = {
-    'alpine_skiing', 'cycling', 'e_biking', 'hiking', 'mountaineering',
-    'mountain_biking', 'cross_country_skiing', 'snowboarding',
+    'alpine_skiing', 'cycling', 'hiking', 'mountaineering',
+    'cross_country_skiing', 'snowboarding',
 }
 
 
