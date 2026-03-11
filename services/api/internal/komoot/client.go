@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,9 @@ const (
 	tourGPX      = "/v007/tours/%d.gpx"
 	requestDelay = 1 * time.Second // 1 req/s rate limit
 )
+
+// defaultHTTPClient is used for requests without an authenticated Client (Login, DownloadPhoto).
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // Authenticator abstracts auth method (Basic Auth now, OAuth2 later).
 type Authenticator interface {
@@ -39,16 +43,20 @@ type Client struct {
 	http     *http.Client
 	auth     Authenticator
 	userID   string
+	mu       sync.Mutex
 	lastCall time.Time
 }
 
 // Login authenticates with email+password, returns a Client.
 func Login(ctx context.Context, email, password string) (*Client, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET",
+	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf(baseURL+loginPath, email), nil)
+	if err != nil {
+		return nil, fmt.Errorf("komoot login request: %w", err)
+	}
 	req.SetBasicAuth(email, password)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("komoot login: %w", err)
 	}
@@ -58,7 +66,7 @@ func Login(ctx context.Context, email, password string) (*Client, error) {
 		return nil, fmt.Errorf("komoot login: invalid credentials")
 	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return nil, fmt.Errorf("komoot login: HTTP %d: %s", resp.StatusCode, body)
 	}
 
@@ -74,18 +82,29 @@ func Login(ctx context.Context, email, password string) (*Client, error) {
 	}, nil
 }
 
-// rateLimit ensures minimum delay between requests.
-func (c *Client) rateLimit() {
+// rateLimit ensures minimum delay between requests. Respects context cancellation.
+func (c *Client) rateLimit(ctx context.Context) error {
+	c.mu.Lock()
 	elapsed := time.Since(c.lastCall)
+	c.mu.Unlock()
 	if elapsed < requestDelay {
-		time.Sleep(requestDelay - elapsed)
+		select {
+		case <-time.After(requestDelay - elapsed):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	c.mu.Lock()
 	c.lastCall = time.Now()
+	c.mu.Unlock()
+	return nil
 }
 
 // doJSON performs an authenticated GET and decodes JSON.
 func (c *Client) doJSON(ctx context.Context, url string, target any) error {
-	c.rateLimit()
+	if err := c.rateLimit(ctx); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
@@ -99,11 +118,11 @@ func (c *Client) doJSON(ctx context.Context, url string, target any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 429 {
-		// Rate limited — exponential backoff (2s, 4s, 8s)
+		// Rate limited — caller should retry with backoff
 		return fmt.Errorf("komoot rate limited for %s", url)
 	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return fmt.Errorf("komoot HTTP %d for %s: %s", resp.StatusCode, url, body)
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
@@ -174,7 +193,9 @@ func (c *Client) DownloadGPX(ctx context.Context, tourID int64) ([]byte, error) 
 
 // downloadFile performs an authenticated GET and returns raw bytes.
 func (c *Client) downloadFile(ctx context.Context, url string) ([]byte, error) {
-	c.rateLimit()
+	if err := c.rateLimit(ctx); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -190,7 +211,7 @@ func (c *Client) downloadFile(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
 }
 
 // DownloadPhoto downloads a photo from CDN (no auth needed).
@@ -205,7 +226,7 @@ func DownloadPhoto(ctx context.Context, imageURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -214,5 +235,5 @@ func DownloadPhoto(ctx context.Context, imageURL string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("photo download HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
 }
