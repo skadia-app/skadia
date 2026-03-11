@@ -11,4 +11,4 @@
 
 ## docs/02_CORE_BACKEND.md — Tags-System
 **Suche nach:** Tag
-**Delta:** `ListTags` liefert jetzt auch virtuelle Orphan-Tags (category='orphan') aus activities.tags TEXT[]; neuer Endpoint `DELETE /api/v1/tags/orphan`; `SeedDefaultAutoTags` legt Nacht/Frost/Rundtour + Wetter-Tags an und auto-migriert conditions zu automation_rules; `MigrateTagConditionsToRules` Bug-Fix (jsonb_array_length → String-Vergleich + Go-seitiges Format-Unwrapping)
+**Delta:** `migrateExistingTagsToTable()` — sammelt alle Tag-Namen aus activities.tags TEXT[] und erstellt fehlende Einträge in tags table mit auto-assigned Farben (damit alles EXISTIERENDE Tags in der Übersicht sichtbar werden, nicht gelöscht); `SeedDefaultAutoTags` legt NUR fehlende Nacht/Frost/Rundtour + Wetter-Tags an; `MigrateTagConditionsToRules` Bug-Fix (jsonb_array_length → String-Vergleich + Go-seitiges Format-Unwrapping für alte JSON-Objekt-Format)

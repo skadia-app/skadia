@@ -37,6 +37,8 @@ type ActivityData struct {
 	NormalizedPowerW float64
 	AvgCadence       float64
 	AvgTemperatureC  float64
+	MinTemperatureC  float64
+	MaxTemperatureC  float64
 
 	MinHeartRate            int
 	TotalCalories           int
@@ -156,6 +158,8 @@ type Activity struct {
 	NormalizedPowerW        *float64   `json:"normalized_power_w,omitempty"`
 	AvgCadence              *float64   `json:"avg_cadence,omitempty"`
 	AvgTemperatureC         *float64   `json:"avg_temperature_c,omitempty"`
+	MinTemperatureC         *float64   `json:"min_temperature_c,omitempty"`
+	MaxTemperatureC         *float64   `json:"max_temperature_c,omitempty"`
 	TSS                     *float64   `json:"tss,omitempty"`
 	TRIMP                   *float64   `json:"trimp,omitempty"`
 	MinHeartRate            *int       `json:"min_heart_rate,omitempty"`

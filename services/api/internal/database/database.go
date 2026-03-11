@@ -289,6 +289,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.avg_heart_rate, a.max_heart_rate,
 			a.avg_power_w, a.max_power_w, a.normalized_power_w,
 			a.avg_cadence, a.avg_temperature_c,
+			a.min_temperature_c, a.max_temperature_c,
 			a.tss, a.trimp, a.is_indoor,
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
@@ -317,6 +318,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.AvgHeartRate, &a.MaxHeartRate,
 		&a.AvgPowerW, &a.MaxPowerW, &a.NormalizedPowerW,
 		&a.AvgCadence, &a.AvgTemperatureC,
+		&a.MinTemperatureC, &a.MaxTemperatureC,
 		&a.TSS, &a.TRIMP, &a.IsIndoor,
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
@@ -2495,7 +2497,7 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 // SeedDefaultAutoTags creates the default autotag definitions if they don't exist.
 func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
-	frostConditions := []byte(`{"operator":"AND","rules":[{"field":"temperature_min_c","op":"lte","value":0},{"field":"temperature_avg_c","op":"lte","value":0}]}`)
+	frostConditions := []byte(`{"operator":"AND","rules":[{"field":"min_temperature_c","op":"lte","value":0},{"field":"avg_temperature_c","op":"lte","value":0}]}`)
 	rundtourConditions := []byte(`{"operator":"AND","rules":[{"field":"is_round_trip","op":"eq","value":true}]}`)
 	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
 	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
@@ -2629,6 +2631,59 @@ func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) err
 			slog.Warn("migrate tag to table", "user_id", userID, "tag_name", tagName, "error", err)
 			// Continue with other tags instead of failing
 		}
+	}
+
+	// Step 2: For EACH tag, find all activities with that tag in activities.tags TEXT[]
+	// and create activity_tags junction entries.
+	for _, tagName := range tagNames {
+		// Get the tag ID that was just created/upserted
+		var tagID string
+		if err := db.Pool.QueryRow(ctx,
+			"SELECT id FROM tags WHERE user_id = $1 AND name = $2",
+			userID, tagName).Scan(&tagID); err != nil {
+			slog.Warn("migrate tags: get tag id failed", "user_id", userID, "tag_name", tagName, "error", err)
+			continue // Skip if tag not found
+		}
+
+		// Find all activities that have this tag in their tags TEXT[] array
+		rows, err := db.Pool.Query(ctx,
+			"SELECT id FROM activities WHERE user_id = $1 AND $2 = ANY(tags)",
+			userID, tagName)
+		if err != nil {
+			slog.Warn("migrate tags: query activities failed", "user_id", userID, "tag_name", tagName, "error", err)
+			continue
+		}
+
+		// For each activity, insert into activity_tags (skip duplicates via ON CONFLICT)
+		for rows.Next() {
+			var activityID string
+			if err := rows.Scan(&activityID); err != nil {
+				slog.Warn("migrate tags: scan activity id failed", "user_id", userID, "tag_name", tagName, "error", err)
+				continue
+			}
+
+			if _, execErr := db.Pool.Exec(ctx,
+				"INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'migration') ON CONFLICT DO NOTHING",
+				activityID, tagID); execErr != nil {
+				slog.Warn("migrate tags: insert activity_tag failed", "activity_id", activityID, "tag_id", tagID, "error", execErr)
+				// Continue with other activities
+			}
+		}
+		rows.Close()
+	}
+
+	// Step 3: Update activity_count for all migrated tags
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE tags
+		SET activity_count = (
+			SELECT COUNT(DISTINCT activity_id)
+			FROM activity_tags
+			WHERE tag_id = tags.id
+		)
+		WHERE user_id = $1 AND category IN ('custom', 'weather')
+	`, userID); err != nil {
+		slog.Warn("migrate tags: update activity counts failed", "user_id", userID, "error", err)
+		// Non-fatal, continue
 	}
 
 	return nil
