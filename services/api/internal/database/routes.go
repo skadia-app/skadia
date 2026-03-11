@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -333,6 +334,102 @@ func (db *DB) RemoveRouteTag(ctx context.Context, routeID, tagID string) error {
 		return fmt.Errorf("remove route tag: %w", err)
 	}
 	return nil
+}
+
+// PlannedRouteCandidate is used for Hausdorff-based route deduplication.
+type PlannedRouteCandidate struct {
+	ID             string
+	Name           string
+	TotalDistanceM *float64
+	GeoJSON        string
+}
+
+// CheckRouteBySource checks if a route from this platform+id already exists.
+// Returns the existing route's ID, or nil if not found.
+func (db *DB) CheckRouteBySource(ctx context.Context, userID, platform, sourceID string) (*string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM planned_routes
+		 WHERE user_id = $1 AND source_platform = $2 AND source_id = $3`,
+		userID, platform, sourceID,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &id, err
+}
+
+// CheckRouteByGeometryHashFromGeoJSON computes the geometry hash in DB from GeoJSON and checks for duplicates.
+// Hash is always computed in DB to avoid Go/DB float rounding inconsistency.
+func (db *DB) CheckRouteByGeometryHashFromGeoJSON(ctx context.Context, userID, geojson string) (*string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM planned_routes
+		 WHERE user_id = $1 AND geometry_hash = encode(
+		     digest(ST_AsEWKB(ST_SnapToGrid(ST_GeomFromGeoJSON($2), 0.00001)), 'sha256'), 'hex')`,
+		userID, geojson,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &id, err
+}
+
+// FindRouteCandidatesByBBox finds routes in the bounding box of a given geometry for Hausdorff comparison.
+func (db *DB) FindRouteCandidatesByBBox(ctx context.Context, userID string, geojson string) ([]PlannedRouteCandidate, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name, total_distance_m,
+		        ST_AsGeoJSON(geometry) AS geojson
+		 FROM planned_routes
+		 WHERE user_id = $1
+		   AND ST_Intersects(
+		       ST_Expand(ST_GeomFromGeoJSON($2)::geometry, 0.01),
+		       ST_GeomFromGeoJSON($2)
+		   )`,
+		userID, geojson,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find route candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []PlannedRouteCandidate
+	for rows.Next() {
+		var c PlannedRouteCandidate
+		if err := rows.Scan(&c.ID, &c.Name, &c.TotalDistanceM, &c.GeoJSON); err != nil {
+			return nil, fmt.Errorf("scan route candidate: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
+}
+
+// CreateRouteFromImport inserts a route with source tracking and DB-computed geometry hash.
+func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model.RouteImportData) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO planned_routes (
+			user_id, name, description, sport_type, profile,
+			geometry, waypoints, segments,
+			total_distance_m, total_elevation_gain, total_elevation_loss,
+			source_platform, source_id, source_url,
+			geometry_hash
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			ST_GeomFromGeoJSON($6), $7, $8,
+			$9, $10, $11,
+			$12, $13, $14,
+			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_GeomFromGeoJSON($6), 0.00001)), 'sha256'), 'hex')
+		) RETURNING id`,
+		userID, r.Name, r.Description, r.SportType, r.Profile,
+		r.GeometryGeoJSON, r.WaypointsJSON, r.SegmentsJSON,
+		r.TotalDistanceM, r.TotalElevationGain, r.TotalElevationLoss,
+		r.SourcePlatform, r.SourceID, r.SourceURL,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("create route from import: %w", err)
+	}
+	return id, nil
 }
 
 // GetUserSpeedFactor computes the ratio between the user's actual moving speed
