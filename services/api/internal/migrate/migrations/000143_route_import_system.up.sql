@@ -3,13 +3,16 @@
 -- Adds source tracking to planned_routes for cross-platform duplicate detection
 -- and user-configurable route duplicate thresholds.
 
+-- pgcrypto is required for digest() used in geometry_hash computation
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- 1. Source tracking on planned_routes
 ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS source_platform TEXT;
 ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS source_id TEXT;
 ALTER TABLE planned_routes ADD COLUMN IF NOT EXISTS source_url TEXT;
 
 -- Unique constraint: same route from same platform can't be imported twice
-CREATE UNIQUE INDEX IF NOT EXISTS idx_planned_routes_source
+CREATE UNIQUE INDEX IF NOT EXISTS uq_planned_routes_source
     ON planned_routes (user_id, source_platform, source_id)
     WHERE source_platform IS NOT NULL AND source_id IS NOT NULL;
 
@@ -26,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_planned_routes_geometry_hash
 
 -- 3. User settings for route duplicate thresholds
 ALTER TABLE user_enrichment_settings
-    ADD COLUMN IF NOT EXISTS route_duplicate_hausdorff_m INTEGER NOT NULL DEFAULT 100;
+    ADD COLUMN IF NOT EXISTS route_duplicate_hausdorff_m DOUBLE PRECISION NOT NULL DEFAULT 100.0;
 ALTER TABLE user_enrichment_settings
     ADD COLUMN IF NOT EXISTS route_duplicate_length_diff_km DOUBLE PRECISION NOT NULL DEFAULT 2.0;
 

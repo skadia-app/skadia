@@ -5,7 +5,7 @@ ALTER TABLE user_enrichment_settings DROP COLUMN IF EXISTS route_duplicate_lengt
 ALTER TABLE user_enrichment_settings DROP COLUMN IF EXISTS route_duplicate_hausdorff_m;
 DROP INDEX IF EXISTS idx_planned_routes_geometry_hash;
 ALTER TABLE planned_routes DROP COLUMN IF EXISTS geometry_hash;
-DROP INDEX IF EXISTS idx_planned_routes_source;
+DROP INDEX IF EXISTS uq_planned_routes_source;
 ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_url;
 ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_id;
 ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_platform;
