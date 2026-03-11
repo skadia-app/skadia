@@ -43,6 +43,28 @@ type PlannedRoute struct {
 	Tags               []Tag          `json:"tags,omitempty"`
 	CreatedAt          time.Time      `json:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
+	// Import source tracking
+	SourcePlatform *string `json:"source_platform,omitempty"` // "komoot", "garmin", "strava", nil=manual
+	SourceID       *string `json:"source_id,omitempty"`       // Platform-specific ID
+	SourceURL      *string `json:"source_url,omitempty"`      // Link back to source
+	GeometryHash   *string `json:"geometry_hash,omitempty"`   // SHA256 of snapped geometry
+}
+
+// RouteImportData is the input struct for importing routes from external sources.
+type RouteImportData struct {
+	Name               string
+	Description        *string
+	SportType          string
+	Profile            string
+	GeometryGeoJSON    string
+	WaypointsJSON      string  // "[]" if none
+	SegmentsJSON       string  // "[]" if none
+	TotalDistanceM     *float64
+	TotalElevationGain *float64
+	TotalElevationLoss *float64
+	SourcePlatform     *string
+	SourceID           *string
+	SourceURL          *string
 }
 
 type RoutePhoto struct {
