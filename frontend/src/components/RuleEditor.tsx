@@ -458,7 +458,7 @@ function GeofenceEditor({
             step={50}
             value={value.radius_m}
             onChange={(e) => onChange({ ...value, radius_m: Number(e.target.value) })}
-            className="flex-1 accent-orange-500"
+            className="flex-1 accent-accent-DEFAULT"
           />
           <input
             type="number"

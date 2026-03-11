@@ -203,7 +203,7 @@ function PhotoPreviewSection() {
               checked={currentSize === value}
               disabled={isLoading || mutation.isPending}
               onChange={() => mutation.mutate(value)}
-              className="mt-0.5 accent-orange-500 cursor-pointer"
+              className="mt-0.5 accent-accent-DEFAULT cursor-pointer"
             />
             <div>
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
@@ -910,7 +910,7 @@ function SportSettingsSection() {
               type="checkbox"
               checked={hideUnused}
               onChange={(e) => setHideUnused(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 accent-orange-500 cursor-pointer flex-shrink-0"
+              className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 accent-accent-DEFAULT cursor-pointer flex-shrink-0"
             />
             <div>
               <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
@@ -1399,7 +1399,7 @@ function HeatmapSettingsSection() {
           step={50}
           value={currentRadius}
           onChange={(e) => setLocalRadius(Number(e.target.value))}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
           <span>100 m (eng am Track)</span>
@@ -1433,7 +1433,7 @@ function HeatmapSettingsSection() {
           step={5}
           value={currentInterval}
           onChange={(e) => setLocalInterval(Number(e.target.value))}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
           <span>10 m (detailliert)</span>
@@ -1477,7 +1477,7 @@ function HeatmapSettingsSection() {
               type="checkbox"
               checked={currentFilterMap}
               onChange={(e) => setLocalFilterMap(e.target.checked)}
-              className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
+              className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">Karte (Heatmap &amp; Tracks)</span>
           </label>
@@ -1486,7 +1486,7 @@ function HeatmapSettingsSection() {
               type="checkbox"
               checked={currentFilterActivity}
               onChange={(e) => setLocalFilterActivity(e.target.checked)}
-              className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
+              className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">Aktivitätsdetailansicht</span>
           </label>
@@ -1506,7 +1506,7 @@ function HeatmapSettingsSection() {
             step={100}
             value={currentThreshold}
             onChange={(e) => setLocalThreshold(Number(e.target.value))}
-            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
           />
           <div className="flex justify-between text-xs text-neutral-400 mt-1">
             <span>100 m</span>
@@ -1613,7 +1613,7 @@ function ImportSettingsSection() {
           onChange={e => setLocalGpsDup(Number(e.target.value))}
           onPointerUp={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
           onBlur={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
           <span>60 % (mehr Kandidaten)</span>
@@ -1639,7 +1639,7 @@ function ImportSettingsSection() {
           onChange={e => setLocalFusionMin(Number(e.target.value))}
           onPointerUp={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
           onBlur={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400">
           <span>5 min (strenger)</span>
@@ -1674,7 +1674,7 @@ function ImportSettingsSection() {
           onChange={e => setLocalHausdorff(Number(e.target.value))}
           onPointerUp={() => enrichMut.mutate({ route_duplicate_hausdorff_m: localHausdorff })}
           onBlur={() => enrichMut.mutate({ route_duplicate_hausdorff_m: localHausdorff })}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
           <span>10 m (strenger)</span>
@@ -1696,7 +1696,7 @@ function ImportSettingsSection() {
           onChange={e => setLocalLengthDiff(Number(e.target.value))}
           onPointerUp={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
           onBlur={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
-          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
           <span>0,5 km (strenger)</span>

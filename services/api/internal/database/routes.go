@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
@@ -456,8 +457,8 @@ func (db *DB) GetKnownKomootRouteIDs(ctx context.Context, userID string) (map[in
 		if err := rows.Scan(&sid); err != nil {
 			continue
 		}
-		var id int64
-		if _, err := fmt.Sscanf(sid, "%d", &id); err == nil {
+		id, err := strconv.ParseInt(sid, 10, 64)
+		if err == nil {
 			result[id] = true
 		}
 	}

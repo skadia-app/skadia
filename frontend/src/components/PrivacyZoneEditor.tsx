@@ -854,7 +854,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             step={50}
             value={radius}
             onChange={(e) => setRadius(Number(e.target.value))}
-            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
           />
           <div className="flex justify-between text-xs text-neutral-400 mt-1">
             <span>100 m</span>

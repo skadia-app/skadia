@@ -54,6 +54,15 @@ export async function komootLogin(email: string, password: string, saveCredentia
   })
 }
 
+export interface KomootCredentialsStatus {
+  has_credentials: boolean
+  email: string
+}
+
+export async function komootCredentialsStatus(): Promise<KomootCredentialsStatus> {
+  return apiClient<KomootCredentialsStatus>('/import/komoot/credentials')
+}
+
 export async function komootDeleteCredentials(): Promise<void> {
   return apiClient<void>('/import/komoot/credentials', {
     method: 'DELETE',

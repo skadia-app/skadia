@@ -1083,7 +1083,7 @@ export default function ActivitiesPage() {
                   checked={allOnPageSelected}
                   ref={el => { if (el) el.indeterminate = someSelected }}
                   onChange={() => allOnPageSelected ? clearSelection() : selectAll()}
-                  className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+                  className="w-4 h-4 rounded accent-accent-DEFAULT cursor-pointer"
                   aria-label="Alle auswählen"
                 />
               </th>
@@ -1399,7 +1399,7 @@ function ActivityRow({
           type="checkbox"
           checked={isSelected}
           onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
-          className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+          className="w-4 h-4 rounded accent-accent-DEFAULT cursor-pointer"
           aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
         />
       </td>

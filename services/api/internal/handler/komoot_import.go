@@ -270,8 +270,8 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	// Run async
 	go func() {
 		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("komoot import: panic", "job_id", jobID, "panic", r)
+			if rec := recover(); rec != nil {
+				slog.Error("komoot import: panic", "job_id", jobID, "panic", rec)
 				_ = h.DB.FailBackgroundJob(context.Background(), jobID)
 			}
 		}()
@@ -401,6 +401,27 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
+}
+
+// KomootCredentialsStatus checks if stored Komoot credentials exist for the user.
+//
+// GET /api/v1/import/komoot/credentials
+func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	creds, err := h.DB.GetKomootCredentials(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check credentials", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"has_credentials": creds != nil,
+		"email":           func() string { if creds != nil { return creds.Email }; return "" }(),
+	})
 }
 
 // KomootDeleteCredentials removes stored Komoot credentials.

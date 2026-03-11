@@ -14,6 +14,8 @@ import {
   komootLogin,
   komootScan,
   komootStartImport,
+  komootCredentialsStatus,
+  komootDeleteCredentials,
   getKomootImportJob,
   type KomootScanResult,
   type KomootJob,
@@ -1025,6 +1027,9 @@ function KomootImportPanel() {
 
   // Credential persistence
   const [saveCredentials, setSaveCredentials] = useState(true)
+  const [hasStoredCredentials, setHasStoredCredentials] = useState<boolean | null>(null)
+  const [storedEmail, setStoredEmail] = useState('')
+  const [deletingCredentials, setDeletingCredentials] = useState(false)
 
   // Config state
   const [importRecorded, setImportRecorded] = useState(true)
@@ -1076,6 +1081,14 @@ function KomootImportPanel() {
       }
     }, 2000)
   }
+
+  // Check if stored credentials exist
+  useEffect(() => {
+    komootCredentialsStatus().then(res => {
+      setHasStoredCredentials(res.has_credentials)
+      if (res.email) setStoredEmail(res.email)
+    }).catch(() => setHasStoredCredentials(false))
+  }, [])
 
   // Reconnect: stored running job
   useEffect(() => {
@@ -1165,6 +1178,19 @@ function KomootImportPanel() {
       setScanError(e instanceof Error ? e.message : String(e))
     } finally {
       setScanLoading(false)
+    }
+  }
+
+  async function handleDeleteCredentials() {
+    setDeletingCredentials(true)
+    try {
+      await komootDeleteCredentials()
+      setHasStoredCredentials(false)
+      setStoredEmail('')
+    } catch {
+      // ignore — user can retry
+    } finally {
+      setDeletingCredentials(false)
     }
   }
 
@@ -1289,7 +1315,7 @@ function KomootImportPanel() {
             </div>
             {loginError && <p className="text-sm text-red-600 dark:text-red-400">{loginError}</p>}
             {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={handleLogin}
                 disabled={loginLoading || !email.trim() || !password}
@@ -1305,14 +1331,30 @@ function KomootImportPanel() {
                   </>
                 ) : 'Anmelden & Scannen'}
               </button>
-              <button
-                onClick={handleScan}
-                disabled={scanLoading || loginLoading}
-                className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {scanLoading ? 'Scanne…' : 'Gespeicherte Zugangsdaten nutzen'}
-              </button>
+              {hasStoredCredentials && (
+                <button
+                  onClick={handleScan}
+                  disabled={scanLoading || loginLoading}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {scanLoading ? 'Scanne…' : 'Gespeicherte Zugangsdaten nutzen'}
+                </button>
+              )}
             </div>
+            {hasStoredCredentials && (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                  Gespeicherte Zugangsdaten: <span className="font-medium text-neutral-500 dark:text-neutral-400">{storedEmail}</span>
+                </p>
+                <button
+                  onClick={handleDeleteCredentials}
+                  disabled={deletingCredentials}
+                  className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 transition-colors"
+                >
+                  {deletingCredentials ? 'Lösche…' : 'Löschen'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

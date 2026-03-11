@@ -110,7 +110,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
               type="radio"
               checked={mode === 'all'}
               onChange={() => setMode('all')}
-              className="accent-orange-500"
+              className="accent-accent-DEFAULT"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
               Alles neu berechnen
@@ -121,7 +121,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
               type="radio"
               checked={mode === 'scoped'}
               onChange={() => setMode('scoped')}
-              className="accent-orange-500"
+              className="accent-accent-DEFAULT"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
               Details wählen
@@ -138,7 +138,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
                   type="checkbox"
                   checked={selected.has(key)}
                   onChange={() => toggleScope(key)}
-                  className="accent-orange-500"
+                  className="accent-accent-DEFAULT"
                 />
                 <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                   {scopeLabel}
@@ -152,7 +152,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
                   type="checkbox"
                   checked={selected.has(key)}
                   onChange={() => toggleScope(key)}
-                  className="accent-orange-500"
+                  className="accent-accent-DEFAULT"
                 />
                 <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
                   {GEO_SCOPE_LABELS[key]}

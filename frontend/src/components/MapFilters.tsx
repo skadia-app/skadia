@@ -384,7 +384,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 max={100}
                 value={filters.opacity}
                 onChange={(e) => onChange({ ...filters, opacity: Number(e.target.value) })}
-                className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500 cursor-pointer"
+                className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
               />
             </div>
 

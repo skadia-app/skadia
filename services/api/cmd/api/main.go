@@ -472,6 +472,7 @@ func main() {
 			r.Post("/import/komoot/scan", h.KomootScan)
 			r.Post("/import/komoot/start", h.KomootStartImport)
 			r.Get("/import/komoot/jobs/{id}", h.GetKomootImportJob)
+			r.Get("/import/komoot/credentials", h.KomootCredentialsStatus)
 			r.Delete("/import/komoot/credentials", h.KomootDeleteCredentials)
 
 			// Fusion Queue (Tier-2 GPS-Similarity)
