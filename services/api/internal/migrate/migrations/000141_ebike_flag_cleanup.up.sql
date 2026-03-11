@@ -1,4 +1,4 @@
--- Migration 000139: E-Bike Taxonomy Cleanup
+-- Migration 000141: E-Bike Taxonomy Cleanup
 --
 -- Problem: is_ebike was a GENERATED column (true only when sport_type='e_biking').
 -- E-bike activities existed in TWO inconsistent forms:

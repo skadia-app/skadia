@@ -304,7 +304,7 @@ export default function DashboardPage() {
                            flex items-center gap-3"
               >
                 <span style={{ color: sportColor(a.sport_type) }} className="flex-shrink-0">
-                  <SportIcon sport={a.sport_type} subType={a.sub_type} className="w-4 h-4" />
+                  <SportIcon sport={a.sport_type} subType={a.sub_type} isEbike={a.is_ebike} className="w-4 h-4" />
                 </span>
                 <span className="flex-1 min-w-0 text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
                   {a.title ?? sportLabel(a.sport_type, a.sub_type)}

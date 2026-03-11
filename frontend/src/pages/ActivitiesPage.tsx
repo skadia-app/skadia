@@ -1160,7 +1160,7 @@ export default function ActivitiesPage() {
                       {/* Titel + Sport + Datum — colSpan=3 */}
                       <td colSpan={3} className="py-1.5 px-4">
                         <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-                          <SportIcon sport={child.sport_type} subType={child.sub_type} className="w-4 h-4 shrink-0 text-neutral-400" />
+                          <SportIcon sport={child.sport_type} subType={child.sub_type} isEbike={child.is_ebike} className="w-4 h-4 shrink-0 text-neutral-400" />
                           <span className="font-medium truncate">
                             {child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}
                           </span>
@@ -1425,7 +1425,7 @@ function ActivityRow({
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
-          <SportIcon sport={activity.sport_type} subType={activity.sub_type} className="w-4 h-4 flex-shrink-0" />
+          <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
         </span>
