@@ -10,6 +10,14 @@ import {
   type ConflictStrategy,
 } from '@/api/importWizard'
 import { fetchImportQueueCount } from '@/api/importQueue'
+import {
+  komootLogin,
+  komootScan,
+  komootStartImport,
+  getKomootImportJob,
+  type KomootScanResult,
+  type KomootJob,
+} from '@/api/komoot'
 
 const ImportQueueTab = lazy(() => import('@/components/ImportQueueTab'))
 
@@ -993,15 +1001,480 @@ function ImportPanel({
 }
 
 // ---------------------------------------------------------------------------
+// KomootImportPanel — Login → Scan → Config → Import
+// ---------------------------------------------------------------------------
+
+type KomootPhase = 'login' | 'scan' | 'config' | 'import'
+
+function KomootImportPanel() {
+  const queryClient = useQueryClient()
+  const STORAGE_KEY = 'skadia-import-job-komoot'
+
+  const [phase, setPhase] = useState<KomootPhase>('login')
+
+  // Login state
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+
+  // Scan state
+  const [scanResult, setScanResult] = useState<KomootScanResult | null>(null)
+  const [scanLoading, setScanLoading] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+
+  // Config state
+  const [importRecorded, setImportRecorded] = useState(true)
+  const [importPlanned, setImportPlanned] = useState(true)
+  const [importPhotos, setImportPhotos] = useState(true)
+  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('enrich_missing')
+
+  // Import state
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [job, setJob] = useState<KomootJob | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [log, setLog] = useState<LogEntry[]>([])
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const logEndRef = useRef<HTMLDivElement | null>(null)
+  const lastPhaseRef = useRef<string | null>(null)
+
+  function appendLog(message: string) {
+    setLog(prev => {
+      const next = [...prev, { timestamp: new Date(), message }]
+      if (next.length > MAX_LOG_ENTRIES) return next.slice(next.length - MAX_LOG_ENTRIES)
+      return next
+    })
+  }
+
+  function startPolling(id: string) {
+    if (pollingRef.current) clearInterval(pollingRef.current)
+    pollingRef.current = setInterval(async () => {
+      try {
+        const j = await getKomootImportJob(id)
+        setJob(j)
+
+        if (j.phase && j.phase !== lastPhaseRef.current) {
+          lastPhaseRef.current = j.phase
+          appendLog(`Phase: ${j.phase}`)
+        }
+
+        if (j.status === 'completed' && lastPhaseRef.current !== '__completed__') {
+          lastPhaseRef.current = '__completed__'
+          appendLog('Abgeschlossen')
+        }
+        if (j.status === 'failed' && lastPhaseRef.current !== '__failed__') {
+          lastPhaseRef.current = '__failed__'
+          appendLog('Import fehlgeschlagen')
+        }
+      } catch {
+        // transient polling errors ignorieren
+      }
+    }, 2000)
+  }
+
+  // Reconnect: stored running job
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (!saved) return
+    ;(async () => {
+      try {
+        const { jobId: savedId } = JSON.parse(saved) as { jobId: string }
+        if (!savedId) { localStorage.removeItem(STORAGE_KEY); return }
+        const j = await getKomootImportJob(savedId)
+        if (j.status === 'completed' || j.status === 'failed') {
+          localStorage.removeItem(STORAGE_KEY)
+          return
+        }
+        setJobId(savedId)
+        setPhase('import')
+        setImporting(true)
+        lastPhaseRef.current = null
+        appendLog('Verbinde mit laufendem Import…')
+        startPolling(savedId)
+      } catch {
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [log])
+
+  useEffect(() => {
+    if (job && (job.status === 'completed' || job.status === 'failed')) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+      setImporting(false)
+      localStorage.removeItem(STORAGE_KEY)
+    }
+  }, [job])
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [])
+
+  async function handleLogin() {
+    if (!email.trim() || !password) return
+    setLoginLoading(true)
+    setLoginError(null)
+    try {
+      const res = await komootLogin(email.trim(), password)
+      if (res.status !== 'ok') {
+        setLoginError(res.error ?? 'Ungültige Anmeldedaten')
+        return
+      }
+      if (res.scan) {
+        setScanResult(res.scan)
+        setPhase('config')
+      } else {
+        setPhase('scan')
+        await handleScan()
+      }
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  async function handleScan() {
+    setScanLoading(true)
+    setScanError(null)
+    try {
+      const result = await komootScan()
+      if (!result.has_credentials) {
+        setPhase('login')
+        setScanError('Keine gespeicherten Zugangsdaten — bitte erneut anmelden.')
+        return
+      }
+      setScanResult(result)
+      setPhase('config')
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScanLoading(false)
+    }
+  }
+
+  async function handleStartImport() {
+    setPhase('import')
+    setImporting(true)
+    setImportError(null)
+    setJob(null)
+    setJobId(null)
+    setLog([])
+    lastPhaseRef.current = null
+
+    try {
+      const id = await komootStartImport({
+        import_recorded: importRecorded,
+        import_planned: importPlanned,
+        import_photos: importPhotos,
+        options: { conflict_strategy: conflictStrategy },
+      })
+      setJobId(id)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id }))
+      appendLog(`Job gestartet (${id.slice(0, 8)})`)
+      queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
+      startPolling(id)
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e))
+      setImporting(false)
+    }
+  }
+
+  const progress =
+    job && job.progress_total && job.progress_total > 0 && job.progress_current != null
+      ? Math.round((job.progress_current / job.progress_total) * 100)
+      : 0
+
+  return (
+    <div className="space-y-6">
+      {/* Step indicator */}
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+        {/* Progress steps */}
+        <div className="flex items-center gap-0 mb-6">
+          {(['login', 'config', 'import'] as const).map((step, idx) => {
+            const labels = { login: 'Anmelden', config: 'Konfigurieren', import: 'Importieren' }
+            const currentIdx = ['login', 'config', 'import'].indexOf(phase === 'scan' ? 'login' : phase)
+            const isActive = step === (phase === 'scan' ? 'login' : phase)
+            const isDone = idx < currentIdx
+            return (
+              <div key={step} className="flex items-center flex-1 last:flex-none">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 transition-colors ${
+                    isDone ? 'bg-green-500 text-white' : isActive ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                  }`}>
+                    {isDone ? (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : idx + 1}
+                  </div>
+                  <span className={`text-sm font-medium whitespace-nowrap ${isActive ? 'text-neutral-900 dark:text-neutral-100' : isDone ? 'text-neutral-600 dark:text-neutral-400' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                    {labels[step]}
+                  </span>
+                </div>
+                {idx < 2 && (
+                  <div className={`flex-1 h-px mx-3 transition-colors ${isDone ? 'bg-green-400' : 'bg-neutral-200 dark:bg-neutral-700'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Phase: Login */}
+        {(phase === 'login' || phase === 'scan') && (
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              Melde dich mit deinen Komoot-Zugangsdaten an. Das Passwort wird verschlüsselt gespeichert und nur für den Import verwendet.
+            </p>
+            <div className="space-y-3 max-w-sm">
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  E-Mail
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="deine@email.de"
+                  disabled={loginLoading || scanLoading}
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Passwort
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleLogin() }}
+                  disabled={loginLoading || scanLoading}
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+                />
+              </div>
+            </div>
+            {loginError && <p className="text-sm text-red-600 dark:text-red-400">{loginError}</p>}
+            {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleLogin}
+                disabled={loginLoading || !email.trim() || !password}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loginLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Verbinde…
+                  </>
+                ) : 'Anmelden & Scannen'}
+              </button>
+              <button
+                onClick={handleScan}
+                disabled={scanLoading || loginLoading}
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {scanLoading ? 'Scanne…' : 'Gespeicherte Zugangsdaten nutzen'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Phase: Config */}
+        {phase === 'config' && scanResult && (
+          <div className="space-y-5">
+            {/* Scan summary */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Aufgezeichnete Touren', value: scanResult.recorded_count, new_: null },
+                { label: 'Geplante Routen', value: scanResult.planned_count, new_: null },
+                { label: 'Neu (nicht importiert)', value: scanResult.new_count, new_: null },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
+                  <div className="text-lg font-semibold tabular-nums">{item.value}</div>
+                  <div className="text-xs text-neutral-500 mt-0.5">{item.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Import-Optionen */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Was importieren?</h3>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={importRecorded} onChange={e => setImportRecorded(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                <span className="text-sm">Aufgezeichnete Aktivitäten</span>
+                <span className="text-xs text-neutral-400">{scanResult.recorded_count} Touren</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={importPlanned} onChange={e => setImportPlanned(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                <span className="text-sm">Geplante Routen</span>
+                <span className="text-xs text-neutral-400">{scanResult.planned_count} Touren</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={importPhotos} onChange={e => setImportPhotos(e.target.checked)} className="w-4 h-4 accent-orange-500" disabled={!importRecorded} />
+                <span className={`text-sm ${!importRecorded ? 'text-neutral-400' : ''}`}>Fotos importieren</span>
+              </label>
+            </div>
+
+            {/* Konflikt-Strategie */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Bei bereits vorhandenen Aktivitäten:</h3>
+              {(
+                [
+                  { value: 'enrich_missing' as ConflictStrategy, label: 'Fehlende Felder ergänzen', desc: 'Leere Werte aus Komoot auffüllen' },
+                  { value: 'replace_all' as ConflictStrategy, label: 'Alles ersetzen', desc: 'Bestehende Aktivität vollständig überschreiben' },
+                  { value: 'skip' as ConflictStrategy, label: 'Überspringen', desc: 'Bereits vorhandene Aktivitäten ignorieren' },
+                ] satisfies Array<{ value: ConflictStrategy; label: string; desc: string }>
+              ).map(opt => (
+                <label key={opt.value} className="flex gap-3 cursor-pointer">
+                  <input type="radio" name="komoot-strategy" value={opt.value} checked={conflictStrategy === opt.value} onChange={() => setConflictStrategy(opt.value)} className="mt-0.5 accent-orange-500" />
+                  <div>
+                    <div className="text-sm font-medium">{opt.label}</div>
+                    <div className="text-xs text-neutral-500">{opt.desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <button
+              onClick={handleStartImport}
+              disabled={!importRecorded && !importPlanned}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Import starten →
+            </button>
+
+            <button
+              onClick={() => { setPhase('login'); setScanResult(null); setLoginError(null); setScanError(null) }}
+              className="block mt-2 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            >
+              ← Neu anmelden
+            </button>
+          </div>
+        )}
+
+        {/* Phase: Import */}
+        {phase === 'import' && (
+          <div className="space-y-4">
+            {importing && !jobId && (
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Starte Job...</p>
+            )}
+            {importError && (
+              <p className="text-sm text-red-600 dark:text-red-400">{importError}</p>
+            )}
+            {jobId && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className={`font-medium ${
+                    job?.status === 'completed' ? 'text-green-600 dark:text-green-400'
+                    : job?.status === 'failed' ? 'text-red-600 dark:text-red-400'
+                    : 'text-neutral-700 dark:text-neutral-300'
+                  }`}>
+                    {job?.status === 'completed' ? 'Abgeschlossen' : job?.status === 'failed' ? 'Fehlgeschlagen' : 'Läuft…'}
+                  </span>
+                  <span className="text-xs text-neutral-500 tabular-nums font-mono">
+                    Job {jobId.slice(0, 8)}
+                    {job?.progress_total && job.progress_total > 0 && ` · ${job.progress_current ?? 0}/${job.progress_total} Touren (${progress} %)`}
+                  </span>
+                </div>
+
+                <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      job?.status === 'completed' ? 'bg-green-500' : job?.status === 'failed' ? 'bg-red-500' : 'bg-accent-DEFAULT'
+                    }`}
+                    style={{
+                      width: job?.status === 'completed' ? '100%'
+                        : job?.status === 'running' && (!job.progress_total || job.progress_total === 0) ? '10%'
+                        : `${progress}%`,
+                    }}
+                  />
+                </div>
+
+                {job?.status === 'running' && job.phase && (
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 font-mono truncate">Phase: {job.phase}</p>
+                )}
+
+                {log.length > 0 && (
+                  <div className="rounded-lg bg-neutral-900 border border-neutral-800 p-3 h-40 overflow-y-auto font-mono text-xs leading-relaxed" aria-label="Import-Log">
+                    {log.map((entry, i) => (
+                      <div key={i} className="flex gap-3">
+                        <span className="shrink-0 text-neutral-500 select-none">{formatTimestamp(entry.timestamp)}</span>
+                        <span className={entry.message.startsWith('Fehler') ? 'text-red-400' : entry.message.startsWith('Abgeschlossen') ? 'text-green-400' : 'text-neutral-200'}>
+                          {entry.message}
+                        </span>
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
+                  </div>
+                )}
+
+                {job?.status === 'completed' && (
+                  <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
+                    <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                      Komoot-Import abgeschlossen.
+                    </p>
+                    <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                      Die importierten Aktivitäten und Routen sind nun verfügbar.
+                    </p>
+                  </div>
+                )}
+
+                {job?.status === 'failed' && (
+                  <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-300">Import fehlgeschlagen.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {job && (job.status === 'completed' || job.status === 'failed') && (
+              <button
+                onClick={() => {
+                  localStorage.removeItem(STORAGE_KEY)
+                  setPhase('login')
+                  setScanResult(null)
+                  setJob(null)
+                  setJobId(null)
+                  setLog([])
+                }}
+                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              >
+                ← Neuen Import starten
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page with tabs
 // ---------------------------------------------------------------------------
 
-type TabId = 'garmin' | 'strava' | 'queue'
+type TabId = 'garmin' | 'strava' | 'komoot' | 'queue'
 
 export default function ImportPage() {
   const initialTab = (() => {
     const tab = new URLSearchParams(window.location.search).get('tab')
     if (tab === 'strava') return 'strava'
+    if (tab === 'komoot') return 'komoot'
     if (tab === 'queue') return 'queue'
     return 'garmin'
   })()
@@ -1028,7 +1501,7 @@ export default function ImportPage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
-        {(['garmin', 'strava', 'queue'] as TabId[]).map(tabId => (
+        {(['garmin', 'strava', 'komoot', 'queue'] as TabId[]).map(tabId => (
           <button
             key={tabId}
             onClick={() => setActiveTab(tabId)}
@@ -1040,6 +1513,7 @@ export default function ImportPage() {
           >
             {tabId === 'garmin' && 'Garmin'}
             {tabId === 'strava' && 'Strava'}
+            {tabId === 'komoot' && 'Komoot'}
             {tabId === 'queue' && (
               <span className="flex items-center gap-1.5">
                 Warteschlange
@@ -1081,6 +1555,10 @@ export default function ImportPage() {
           pollFn={getStravaImportJob}
           scanZipFn={uploadStravaZIPScan}
         />
+      </div>
+
+      <div className={activeTab !== 'komoot' ? 'hidden' : ''}>
+        <KomootImportPanel />
       </div>
 
       {activeTab === 'queue' && (

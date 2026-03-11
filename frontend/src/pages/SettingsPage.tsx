@@ -1550,7 +1550,19 @@ function ImportSettingsSection() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['import-settings'] }),
   })
 
+  const { data: enrichSettings } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+  })
+  const enrichMut = useMutation({
+    mutationFn: (patch: Parameters<typeof updateEnrichmentSettings>[0]) => updateEnrichmentSettings(patch),
+    onSuccess: (updated) => queryClient.setQueryData(['enrichment-settings'], updated),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] }),
+  })
+
   const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
+  const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 50
+  const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 2
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
@@ -1621,6 +1633,56 @@ function ImportSettingsSection() {
         <p className="text-xs text-neutral-400 mt-1">
           Maximaler Zeitabstand zwischen zwei Aktivitäten damit sie als Fusionskandidaten erkannt werden. 30 Minuten empfohlen — z.B. für eine Wanderung mit Radcomputer + GPS-Gerät gestartet mit kurzem Versatz.
         </p>
+      </div>
+
+      {/* Routen-Duplikaterkennung */}
+      <div className="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          Routen-Duplikaterkennung (Komoot / Garmin / Strava)
+        </h3>
+        <p className="text-xs text-neutral-400">
+          Beim Import geplanter Routen werden Duplikate über GPS-Ähnlichkeit erkannt. Zwei Routen gelten als Duplikat wenn ihre maximale Abweichung und Längendifferenz unter den Schwellwerten liegen.
+        </p>
+      </div>
+
+      <div>
+        <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          <span>Max. GPS-Abweichung (Hausdorff)</span>
+          <span className="tabular-nums font-mono">{hausdorff} m</span>
+        </div>
+        <input
+          type="range"
+          min={10}
+          max={200}
+          step={10}
+          value={hausdorff}
+          onChange={e => enrichMut.mutate({ route_duplicate_hausdorff_m: Number(e.target.value) })}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>10 m (strenger)</span>
+          <span>200 m (großzügiger)</span>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          <span>Max. Längendifferenz</span>
+          <span className="tabular-nums font-mono">{lengthDiff} km</span>
+        </div>
+        <input
+          type="range"
+          min={0.5}
+          max={10}
+          step={0.5}
+          value={lengthDiff}
+          onChange={e => enrichMut.mutate({ route_duplicate_length_diff_km: Number(e.target.value) })}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>0,5 km (strenger)</span>
+          <span>10 km (großzügiger)</span>
+        </div>
       </div>
     </section>
   )

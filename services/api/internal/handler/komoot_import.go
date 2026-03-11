@@ -288,8 +288,34 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// TODO(Task 3.1): Import planned routes
-		// if req.ImportPlanned { routeImporter.Import(bgCtx, params) }
+		// Import planned routes
+		if req.ImportPlanned {
+			routeImporter := &komoot.RoutesImporter{Client: client}
+			routeResult, err := routeImporter.Import(bgCtx, params)
+			if err != nil {
+				slog.Error("komoot import: routes failed", "job_id", jobID, "error", err)
+				importErrors = append(importErrors, fmt.Sprintf("routes: %s", err))
+			}
+			if routeResult != nil {
+				importErrors = append(importErrors, routeResult.Errors...)
+			}
+		}
+
+		// Import photos (after activities — needs tourActivityMap)
+		if req.ImportPhotos && len(tourActivityMap) > 0 {
+			photoImporter := &komoot.PhotosImporter{
+				Client:          client,
+				TourActivityMap: tourActivityMap,
+			}
+			photoResult, err := photoImporter.Import(bgCtx, params)
+			if err != nil {
+				slog.Error("komoot import: photos failed", "job_id", jobID, "error", err)
+				importErrors = append(importErrors, fmt.Sprintf("photos: %s", err))
+			}
+			if photoResult != nil {
+				importErrors = append(importErrors, photoResult.Errors...)
+			}
+		}
 
 		// Update last sync
 		_ = h.DB.UpdateKomootLastSync(bgCtx, userID, client.UserID())
