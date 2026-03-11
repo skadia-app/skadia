@@ -2539,9 +2539,9 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	for _, w := range weatherTags {
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, $2, $3, '#FFFFFF', 'weather', true, false, $4)
+			VALUES ($1, $2, $3, $4, 'weather', true, false, $5)
 			ON CONFLICT (user_id, name) DO NOTHING`,
-			userID, w.name, w.color, weatherDesc,
+			userID, w.name, w.color, contrastTextColor(w.color), weatherDesc,
 		); err != nil {
 			return fmt.Errorf("seed weather tag %s: %w", w.name, err)
 		}
@@ -3657,4 +3657,23 @@ func (db *DB) LinkActivityTag(ctx context.Context, activityID, tagID, assignedBy
 		return fmt.Errorf("link activity tag: update count: %w", err)
 	}
 	return nil
+}
+
+// contrastTextColor returns a readable text color (#1a1a1a or #ffffff) for a given
+// hex background color using the YIQ luminance formula, matching the frontend logic.
+func contrastTextColor(hex string) string {
+	if len(hex) != 7 || hex[0] != '#' {
+		return "#ffffff"
+	}
+	r, errR := strconv.ParseInt(hex[1:3], 16, 32)
+	g, errG := strconv.ParseInt(hex[3:5], 16, 32)
+	b, errB := strconv.ParseInt(hex[5:7], 16, 32)
+	if errR != nil || errG != nil || errB != nil {
+		return "#ffffff"
+	}
+	luminance := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 255
+	if luminance > 0.5 {
+		return "#1a1a1a"
+	}
+	return "#ffffff"
 }
