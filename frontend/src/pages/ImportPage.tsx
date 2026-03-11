@@ -14,7 +14,6 @@ import {
   komootLogin,
   komootScan,
   komootStartImport,
-  komootDeleteCredentials,
   getKomootImportJob,
   type KomootScanResult,
   type KomootJob,
@@ -307,7 +306,7 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
                     : selectedCategories.filter(c => c !== cat)
                   onChange({ ...options, categories: next })
                 }}
-                className="w-4 h-4 accent-orange-500"
+                className="w-4 h-4 accent-accent-DEFAULT"
               />
               <span className="flex-1 text-sm">{categoryLabel(cat)}</span>
               <span className="text-xs text-neutral-400">
@@ -376,7 +375,7 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
                 value={opt.value}
                 checked={options.conflict_strategy === opt.value}
                 onChange={() => onChange({ ...options, conflict_strategy: opt.value })}
-                className="mt-0.5 accent-orange-500"
+                className="mt-0.5 accent-accent-DEFAULT"
               />
               <div>
                 <div className="text-sm font-medium">{opt.label}</div>
@@ -1026,7 +1025,6 @@ function KomootImportPanel() {
 
   // Credential persistence
   const [saveCredentials, setSaveCredentials] = useState(true)
-  const [credentialsSaved, setCredentialsSaved] = useState(false)
 
   // Config state
   const [importRecorded, setImportRecorded] = useState(true)
@@ -1136,7 +1134,6 @@ function KomootImportPanel() {
         setLoginError(res.error ?? 'Ungültige Anmeldedaten')
         return
       }
-      setCredentialsSaved(res.credentials_saved ?? false)
       if (res.scan) {
         setScanResult(res.scan)
         setPhase('config')
@@ -1161,7 +1158,7 @@ function KomootImportPanel() {
         setScanError('Keine gespeicherten Zugangsdaten — bitte erneut anmelden.')
         return
       }
-      setCredentialsSaved(true)
+      setSaveCredentials(true) // credentials exist in DB → treat as "save" mode
       setScanResult(result)
       setPhase('config')
     } catch (e) {
@@ -1186,7 +1183,7 @@ function KomootImportPanel() {
         import_planned: importPlanned,
         import_photos: importPhotos,
         options: { conflict_strategy: conflictStrategy },
-        delete_credentials_after: !credentialsSaved,
+        delete_credentials_after: !saveCredentials,
       })
       setJobId(id)
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id }))
@@ -1278,7 +1275,7 @@ function KomootImportPanel() {
                   checked={saveCredentials}
                   onChange={e => setSaveCredentials(e.target.checked)}
                   disabled={loginLoading || scanLoading}
-                  className="mt-0.5 w-4 h-4 accent-orange-500"
+                  className="mt-0.5 w-4 h-4 accent-accent-DEFAULT"
                 />
                 <div>
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">Zugangsdaten dauerhaft speichern</span>
@@ -1340,17 +1337,17 @@ function KomootImportPanel() {
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Was importieren?</h3>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={importRecorded} onChange={e => setImportRecorded(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                <input type="checkbox" checked={importRecorded} onChange={e => setImportRecorded(e.target.checked)} className="w-4 h-4 accent-accent-DEFAULT" />
                 <span className="text-sm">Aufgezeichnete Aktivitäten</span>
                 <span className="text-xs text-neutral-400">{scanResult.recorded_count} Touren</span>
               </label>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={importPlanned} onChange={e => setImportPlanned(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                <input type="checkbox" checked={importPlanned} onChange={e => setImportPlanned(e.target.checked)} className="w-4 h-4 accent-accent-DEFAULT" />
                 <span className="text-sm">Geplante Routen</span>
                 <span className="text-xs text-neutral-400">{scanResult.planned_count} Touren</span>
               </label>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={importPhotos} onChange={e => setImportPhotos(e.target.checked)} className="w-4 h-4 accent-orange-500" disabled={!importRecorded} />
+                <input type="checkbox" checked={importPhotos} onChange={e => setImportPhotos(e.target.checked)} className="w-4 h-4 accent-accent-DEFAULT" disabled={!importRecorded} />
                 <span className={`text-sm ${!importRecorded ? 'text-neutral-400' : ''}`}>Fotos importieren</span>
               </label>
             </div>
@@ -1366,7 +1363,7 @@ function KomootImportPanel() {
                 ] satisfies Array<{ value: ConflictStrategy; label: string; desc: string }>
               ).map(opt => (
                 <label key={opt.value} className="flex gap-3 cursor-pointer">
-                  <input type="radio" name="komoot-strategy" value={opt.value} checked={conflictStrategy === opt.value} onChange={() => setConflictStrategy(opt.value)} className="mt-0.5 accent-orange-500" />
+                  <input type="radio" name="komoot-strategy" value={opt.value} checked={conflictStrategy === opt.value} onChange={() => setConflictStrategy(opt.value)} className="mt-0.5 accent-accent-DEFAULT" />
                   <div>
                     <div className="text-sm font-medium">{opt.label}</div>
                     <div className="text-xs text-neutral-500">{opt.desc}</div>
@@ -1456,7 +1453,7 @@ function KomootImportPanel() {
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
                       Die importierten Aktivitäten und Routen sind nun verfügbar.
                     </p>
-                    {!credentialsSaved && (
+                    {!saveCredentials && (
                       <p className="text-xs text-green-700 dark:text-green-400 mt-1">
                         Deine Komoot-Zugangsdaten wurden nach dem Import sicher gelöscht.
                       </p>

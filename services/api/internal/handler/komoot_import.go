@@ -104,21 +104,20 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	newCount := len(tours)
 
-	// Save credentials only if requested
-	if req.SaveCredentials {
-		if err := h.DB.SaveKomootCredentials(r.Context(), userID, database.KomootCredentials{
-			Email:             req.Email,
-			EncryptedPassword: encPassword,
-			KomootUserID:      client.UserID(),
-			SyncEnabled:       true,
-			ImportPlanned:     true,
-			ImportRecorded:    true,
-			ImportPhotos:      true,
-		}); err != nil {
-			slog.Error("komoot: save credentials failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
-			return
-		}
+	// Always save credentials (import goroutine needs them to re-login).
+	// If user chose not to persist, delete_credentials_after will clean up post-import.
+	if err := h.DB.SaveKomootCredentials(r.Context(), userID, database.KomootCredentials{
+		Email:             req.Email,
+		EncryptedPassword: encPassword,
+		KomootUserID:      client.UserID(),
+		SyncEnabled:       req.SaveCredentials,
+		ImportPlanned:     true,
+		ImportRecorded:    true,
+		ImportPhotos:      true,
+	}); err != nil {
+		slog.Error("komoot: save credentials failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
