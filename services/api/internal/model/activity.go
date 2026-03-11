@@ -723,6 +723,10 @@ type EnrichmentSettings struct {
 
 	// Terra incognita buffer radius in meters (default 1000, Migration 000121).
 	TerraIncognitaRadiusM int `json:"terra_incognita_radius_m"`
+
+	// Route duplicate detection thresholds (Migration 000143)
+	RouteDuplicateHausdorffM   float64 `json:"route_duplicate_hausdorff_m"`
+	RouteDuplicateLengthDiffKm float64 `json:"route_duplicate_length_diff_km"`
 }
 
 // EnabledModules returns the list of Stage-2 module names that are currently
