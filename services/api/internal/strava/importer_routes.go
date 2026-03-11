@@ -50,6 +50,14 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		colIdx[strings.ToLower(strings.TrimSpace(h))] = j
 	}
 
+	settings, err := p.DB.GetEnrichmentSettings(ctx, p.UserID)
+	if err != nil {
+		settings = &model.EnrichmentSettings{
+			RouteDuplicateHausdorffM:   100.0,
+			RouteDuplicateLengthDiffKm: 2.0,
+		}
+	}
+
 	result := &ImportResult{}
 
 	for _, row := range rows[1:] {
@@ -63,13 +71,18 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		name := stravaCSVField(row, colIdx, "route name", "name")
 		routeID := stravaCSVField(row, colIdx, "route id", "id")
 		gpxFile := stravaCSVField(row, colIdx, "filename", "gpx filename")
+		csvSport := stravaCSVField(row, colIdx, "sport type", "type", "activity type")
+		sportType := stravaRouteTypeToSport(csvSport)
 
 		if name == "" || gpxFile == "" {
 			result.Skipped++
 			continue
 		}
 
-		gpxPath := "routes/" + gpxFile
+		gpxPath := gpxFile
+		if !strings.HasPrefix(gpxPath, "routes/") {
+			gpxPath = "routes/" + gpxPath
+		}
 		if !strings.HasSuffix(strings.ToLower(gpxPath), ".gpx") {
 			gpxPath += ".gpx"
 		}
@@ -95,8 +108,8 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 			ctx, p.DB, p.UserID,
 			platform, sourceID,
 			geojson, distM,
-			100.0, // hausdorff threshold metres
-			2.0,   // length diff threshold km
+			settings.RouteDuplicateHausdorffM,
+			settings.RouteDuplicateLengthDiffKm,
 		)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("dup check %s: %v", name, err))
@@ -115,7 +128,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 
 		_, err = p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
 			Name:               name,
-			SportType:          "cycling",
+			SportType:          sportType,
 			Profile:            "outdoor",
 			GeometryGeoJSON:    geojson,
 			WaypointsJSON:      "[]",
@@ -146,7 +159,7 @@ func stravaCSVField(row []string, colIdx map[string]int, candidates ...string) s
 	return ""
 }
 
-// stravaGPXDoc is a minimal GPX structure for track-point parsing.
+// stravaGPXDoc is a minimal GPX structure for track-point and route-point parsing.
 type stravaGPXDoc struct {
 	XMLName xml.Name `xml:"gpx"`
 	Tracks  []struct {
@@ -158,6 +171,13 @@ type stravaGPXDoc struct {
 			} `xml:"trkpt"`
 		} `xml:"trkseg"`
 	} `xml:"trk"`
+	Routes []struct {
+		Points []struct {
+			Lat float64 `xml:"lat,attr"`
+			Lon float64 `xml:"lon,attr"`
+			Ele float64 `xml:"ele"`
+		} `xml:"rtept"`
+	} `xml:"rte"`
 }
 
 // stravaParseGPXToGeoJSON parses GPX bytes and returns (geojson LineString, distanceM,
@@ -173,6 +193,14 @@ func stravaParseGPXToGeoJSON(data []byte) (geojson string, distM, elevGain, elev
 	for _, trk := range g.Tracks {
 		for _, seg := range trk.Segments {
 			for _, p := range seg.Points {
+				pts = append(pts, pt{p.Lat, p.Lon, p.Ele})
+			}
+		}
+	}
+	// Fallback: collect route points if no track points
+	if len(pts) == 0 {
+		for _, rte := range g.Routes {
+			for _, p := range rte.Points {
 				pts = append(pts, pt{p.Lat, p.Lon, p.Ele})
 			}
 		}
@@ -217,4 +245,24 @@ func stravaHaversineM(lat1, lng1, lat2, lng2 float64) float64 {
 	Δλ := (lng2 - lng1) * math.Pi / 180
 	a := math.Sin(Δφ/2)*math.Sin(Δφ/2) + math.Cos(φ1)*math.Cos(φ2)*math.Sin(Δλ/2)*math.Sin(Δλ/2)
 	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// stravaRouteTypeToSport maps Strava CSV sport/type values to Skadia sport_type.
+func stravaRouteTypeToSport(t string) string {
+	switch strings.ToLower(t) {
+	case "run", "running":
+		return "running"
+	case "trail run", "trail running", "trailrun":
+		return "trail_running"
+	case "ride", "cycling", "bike":
+		return "cycling"
+	case "hike", "hiking":
+		return "hiking"
+	case "walk", "walking":
+		return "walking"
+	case "alpine ski", "skiing":
+		return "alpine_skiing"
+	default:
+		return "cycling" // Strava's most common route type
+	}
 }

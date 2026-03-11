@@ -60,6 +60,14 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 		return nil, fmt.Errorf("courses: find files: %w", err)
 	}
 
+	settings, err := p.DB.GetEnrichmentSettings(ctx, p.UserID)
+	if err != nil {
+		settings = &model.EnrichmentSettings{
+			RouteDuplicateHausdorffM:   100.0,
+			RouteDuplicateLengthDiffKm: 2.0,
+		}
+	}
+
 	result := &ImportResult{}
 
 	for _, f := range files {
@@ -100,8 +108,8 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				ctx, p.DB, p.UserID,
 				platform, sourceID,
 				geojson, distM,
-				100.0, // hausdorff threshold: 100m
-				2.0,   // length diff threshold: 2km
+				settings.RouteDuplicateHausdorffM,
+				settings.RouteDuplicateLengthDiffKm,
 			)
 			if err != nil {
 				slog.Warn("garmin courses: dup check failed", "name", course.CourseName, "error", err)
@@ -156,9 +164,9 @@ func garminCourseTypeToSport(courseType string) string {
 	case "road_cycling", "cycling":
 		return "cycling"
 	case "mountain_biking":
-		return "cycling"
+		return "mountain_biking"
 	case "gravel_cycling":
-		return "cycling"
+		return "gravel_cycling"
 	case "running":
 		return "running"
 	case "trail_running":
@@ -186,11 +194,7 @@ func geoPointsToGeoJSON(pts []GarminGeoPoint) string {
 	}
 	coords := make([]interface{}, 0, len(pts))
 	for _, p := range pts {
-		if p.Elevation != 0 {
-			coords = append(coords, []float64{p.Longitude, p.Latitude, p.Elevation})
-		} else {
-			coords = append(coords, []float64{p.Longitude, p.Latitude})
-		}
+		coords = append(coords, []float64{p.Longitude, p.Latitude, p.Elevation})
 	}
 	b, err := json.Marshal(map[string]interface{}{
 		"type":        "LineString",
