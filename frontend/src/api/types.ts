@@ -206,8 +206,8 @@ export interface EnrichmentSettings {
   photo_preview_size?: string
   // Terra Incognita Sichtweite in Metern (100–10000, Default 1000). Migration 000121.
   terra_incognita_radius_m?: number
-  route_duplicate_hausdorff_m: number
-  route_duplicate_length_diff_km: number
+  route_duplicate_hausdorff_m?: number
+  route_duplicate_length_diff_km?: number
 }
 
 export interface Climb {
