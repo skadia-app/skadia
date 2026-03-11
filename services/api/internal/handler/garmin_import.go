@@ -25,6 +25,7 @@ func (h *Handler) buildGarminRegistry() *garmin.ImportRegistry {
 	r.Register(&garmin.ActivitiesImporter{})
 	r.Register(&garmin.StepsImporter{})
 	r.Register(&garmin.MonitoringFITImporter{})
+	r.Register(&garmin.CoursesImporter{})
 	return r
 }
 
