@@ -32,7 +32,7 @@ type Tour struct {
 	Sport         string    `json:"sport"`          // "hike", "mtb", "jogging", etc.
 	Date          time.Time `json:"date"`
 	Distance      float64   `json:"distance"`      // meters
-	Duration      int       `json:"duration"`      // seconds
+	Duration      int64     `json:"duration"`      // seconds
 	ElevationUp   float64   `json:"elevation_up"`
 	ElevationDown float64   `json:"elevation_down"`
 	TimeInMotion  float64   `json:"time_in_motion"`
@@ -106,7 +106,7 @@ var KomootSportMapping = map[string]SportMapping{
 	"nordicwalking":    {"walking", "speed_walking", false},
 	"skaten":           {"inline_skating", "", false},
 	"skialpin":         {"alpine_skiing", "resort", false},
-	"skitour":          {"alpine_skiing", "backcountry", false},
+	"skitour":          {"backcountry_skiing", "", false},
 	"sled":             {"sledding", "", false},
 	"snowboard":        {"snowboarding", "", false},
 	"snowshoe":         {"snowshoeing", "", false},
