@@ -1564,9 +1564,14 @@ function ImportSettingsSection() {
   const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 100
   const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 2
 
+  // Local state for all sliders — visual feedback during drag, commit on release
+  const [localGpsDup, setLocalGpsDup] = useState(s.gps_duplicate_threshold)
+  const [localFusionMin, setLocalFusionMin] = useState(s.fusion_time_window_min)
   const [localHausdorff, setLocalHausdorff] = useState(hausdorff)
   const [localLengthDiff, setLocalLengthDiff] = useState(lengthDiff)
 
+  useEffect(() => { setLocalGpsDup(s.gps_duplicate_threshold) }, [s.gps_duplicate_threshold])
+  useEffect(() => { setLocalFusionMin(s.fusion_time_window_min) }, [s.fusion_time_window_min])
   useEffect(() => { setLocalHausdorff(hausdorff) }, [hausdorff])
   useEffect(() => { setLocalLengthDiff(lengthDiff) }, [lengthDiff])
 
@@ -1597,15 +1602,17 @@ function ImportSettingsSection() {
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
           <span>GPS-Duplikat-Schwellwert</span>
-          <span className="tabular-nums font-mono">{s.gps_duplicate_threshold} %</span>
+          <span className="tabular-nums font-mono">{localGpsDup} %</span>
         </div>
         <input
           type="range"
           min={60}
           max={95}
           step={5}
-          value={s.gps_duplicate_threshold}
-          onChange={e => mut.mutate({ ...s, gps_duplicate_threshold: Number(e.target.value) })}
+          value={localGpsDup}
+          onChange={e => setLocalGpsDup(Number(e.target.value))}
+          onPointerUp={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
+          onBlur={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
@@ -1621,15 +1628,17 @@ function ImportSettingsSection() {
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300">
           <span>Zeitfenster Fusionserkennung</span>
-          <span className="tabular-nums font-mono">{s.fusion_time_window_min} min</span>
+          <span className="tabular-nums font-mono">{localFusionMin} min</span>
         </div>
         <input
           type="range"
           min={5}
           max={120}
           step={5}
-          value={s.fusion_time_window_min}
-          onChange={e => mut.mutate({ ...s, fusion_time_window_min: Number(e.target.value) })}
+          value={localFusionMin}
+          onChange={e => setLocalFusionMin(Number(e.target.value))}
+          onPointerUp={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
+          onBlur={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400">
@@ -1664,6 +1673,7 @@ function ImportSettingsSection() {
           value={localHausdorff}
           onChange={e => setLocalHausdorff(Number(e.target.value))}
           onPointerUp={() => enrichMut.mutate({ route_duplicate_hausdorff_m: localHausdorff })}
+          onBlur={() => enrichMut.mutate({ route_duplicate_hausdorff_m: localHausdorff })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
@@ -1685,6 +1695,7 @@ function ImportSettingsSection() {
           value={localLengthDiff}
           onChange={e => setLocalLengthDiff(Number(e.target.value))}
           onPointerUp={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
+          onBlur={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
