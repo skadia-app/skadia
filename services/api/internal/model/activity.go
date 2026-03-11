@@ -727,6 +727,9 @@ type EnrichmentSettings struct {
 	// Route duplicate detection thresholds (Migration 000143)
 	RouteDuplicateHausdorffM   float64 `json:"route_duplicate_hausdorff_m"`
 	RouteDuplicateLengthDiffKm float64 `json:"route_duplicate_length_diff_km"`
+
+	// Number of frames to extract from videos for CLIP embedding (1–10, Migration 000146).
+	VideoClipFrames int `json:"video_clip_frames"`
 }
 
 // EnabledModules returns the list of Stage-2 module names that are currently

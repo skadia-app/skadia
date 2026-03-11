@@ -153,7 +153,7 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				midOffset = meta.DurationS / 2
 			}
 			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-			previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset)
+			previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
 		} else if useFFmpeg {
 			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
 			if params.DB != nil {

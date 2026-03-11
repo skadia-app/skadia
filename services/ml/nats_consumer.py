@@ -471,8 +471,9 @@ async def _process_photo_embed(msg, pool, nc) -> None:
             image_bytes = await _download_from_s3(s3_bucket, image_key)
 
             if is_video(image_key, data.get("content_type", "")):
-                logger.info("photo_embed: video detected for photo %s, extracting frames", photo_id)
-                embedding = await embed_video_bytes(image_bytes)
+                num_frames = max(1, min(10, int(data.get("video_clip_frames", 4) or 4)))
+                logger.info("photo_embed: video detected for photo %s, extracting %d frame(s)", photo_id, num_frames)
+                embedding = await embed_video_bytes(image_bytes, num_frames=num_frames)
             else:
                 embedding = await embed_image(image_bytes)
 

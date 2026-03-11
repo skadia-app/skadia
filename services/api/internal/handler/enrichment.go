@@ -393,6 +393,14 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	}
 	settings.UserID = userID
 
+	// Guard constrained fields against zero-values from partial updates.
+	if settings.VideoClipFrames < 1 {
+		settings.VideoClipFrames = 4
+	}
+	if settings.PhotoPreviewSize == "" {
+		settings.PhotoPreviewSize = "wqhd"
+	}
+
 	if err := h.DB.UpdateEnrichmentSettings(r.Context(), userID, &settings); err != nil {
 		slog.Error("update enrichment settings failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)

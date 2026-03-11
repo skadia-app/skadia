@@ -145,12 +145,13 @@ func (p *Publisher) PublishAnalyticsInvalidate(userID string) {
 // PhotoEmbedEvent is emitted after every photo upload so the ML service
 // can compute a CLIP embedding for the image.
 type PhotoEmbedEvent struct {
-	PhotoID      string `json:"photo_id"`
-	UserID       string `json:"user_id"`
-	S3Bucket     string `json:"s3_bucket"`
-	S3Key        string `json:"s3_key"`
-	S3KeyPreview string `json:"s3_key_preview,omitempty"`
-	ContentType  string `json:"content_type,omitempty"`
+	PhotoID         string `json:"photo_id"`
+	UserID          string `json:"user_id"`
+	S3Bucket        string `json:"s3_bucket"`
+	S3Key           string `json:"s3_key"`
+	S3KeyPreview    string `json:"s3_key_preview,omitempty"`
+	ContentType     string `json:"content_type,omitempty"`
+	VideoClipFrames int    `json:"video_clip_frames,omitempty"` // 0 = use default (4)
 }
 
 func (p *Publisher) PublishPhotoEmbed(ev PhotoEmbedEvent) error {

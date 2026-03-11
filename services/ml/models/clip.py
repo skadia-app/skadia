@@ -122,48 +122,72 @@ def is_video(s3_key: str, content_type: str = "") -> bool:
     return ext in _VIDEO_EXTENSIONS or content_type.lower() in _VIDEO_MIMETYPES
 
 
-async def embed_video_bytes(video_bytes: bytes) -> list[float]:
-    """Extract frames every 10s via ffmpeg, embed via SigLIP2, return mean-pooled embedding.
+async def embed_video_bytes(video_bytes: bytes, num_frames: int = 1) -> list[float]:
+    """Extract N evenly-distributed frames from a video via ffmpeg, embed via SigLIP2.
 
     Strategy:
-    - Use ffmpeg subprocess to extract 1 frame per 10 seconds as JPEG
-    - Embed each frame independently with SigLIP2
-    - Mean-pool all frame embeddings and L2-normalize the result
-    - Capped at 60 frames (= 10 minutes of video)
+    - Probe video duration with ffprobe
+    - Distribute N frames evenly: offsets = [i / (N+1) * duration for i in 1..N]
+      (N=1 → midpoint; N=2 → 33%/66%; N=3 → 25%/50%/75%; etc.)
+    - Embed each frame with SigLIP2, mean-pool and L2-normalize
 
     Raises ValueError if no frames can be extracted (corrupt/unsupported video).
     """
+    import json as _json
+
+    num_frames = max(1, min(10, num_frames))
+
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = os.path.join(tmpdir, "video.bin")
         with open(video_path, "wb") as f:
             f.write(video_bytes)
 
-        frames_pattern = os.path.join(tmpdir, "frame_%04d.jpg")
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-vf", "fps=1/10",   # 1 frame every 10 seconds
-                "-q:v", "3",         # JPEG quality (1=best, 31=worst)
-                "-frames:v", "60",   # cap at 60 frames
-                frames_pattern,
-                "-hide_banner", "-loglevel", "error",
-            ],
+        # Probe duration.
+        duration = 0.0
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
             capture_output=True,
         )
-        if result.returncode != 0:
-            raise ValueError(f"ffmpeg extraction failed: {result.stderr.decode()[:200]}")
+        if probe.returncode == 0:
+            try:
+                info = _json.loads(probe.stdout)
+                duration = float(info.get("format", {}).get("duration", 0))
+            except (ValueError, KeyError):
+                pass
 
-        frame_files = sorted(glob.glob(os.path.join(tmpdir, "frame_*.jpg")))
-        if not frame_files:
-            raise ValueError("ffmpeg produced no frames")
-
-        logger.info("embed_video: %d frames extracted, embedding …", len(frame_files))
+        # Compute offsets based on frame count:
+        # N < 4: evenly spaced excluding endpoints → i/(N+1) * duration, i=1..N
+        # N >= 4: evenly spaced including endpoints → i/(N-1) * duration, i=0..N-1
+        if duration > 2:
+            if num_frames >= 4:
+                offsets = [i / (num_frames - 1) * duration for i in range(num_frames)]
+            else:
+                offsets = [i / (num_frames + 1) * duration for i in range(1, num_frames + 1)]
+        else:
+            offsets = [0.0]  # very short video: use start
 
         model, processor = await get_clip()
         embeddings = []
 
-        for fpath in frame_files:
-            with Image.open(fpath) as img:
+        for idx, offset in enumerate(offsets):
+            frame_path = os.path.join(tmpdir, f"frame_{idx}.jpg")
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-ss", str(offset),
+                    "-i", video_path,
+                    "-vframes", "1",
+                    "-q:v", "3",
+                    frame_path,
+                    "-hide_banner", "-loglevel", "error",
+                ],
+                capture_output=True,
+            )
+            if result.returncode != 0 or not os.path.exists(frame_path):
+                logger.warning("embed_video: ffmpeg failed at offset %.1fs, skipping", offset)
+                continue
+
+            with Image.open(frame_path) as img:
                 img = img.convert("RGB")
                 if max(img.size) > 4096:
                     img.thumbnail((4096, 4096), Image.LANCZOS)
@@ -174,11 +198,18 @@ async def embed_video_bytes(video_bytes: bytes) -> list[float]:
             vec = F.normalize(output, p=2, dim=-1)
             embeddings.append(vec[0].cpu().numpy())
 
-    # Mean-pool across all frames, then L2-normalize the result
-    mean_vec = np.mean(embeddings, axis=0)
-    mean_tensor = torch.from_numpy(mean_vec).unsqueeze(0).float()
-    normalized = F.normalize(mean_tensor, p=2, dim=-1)
-    logger.info("embed_video: embedding complete (%d frames)", len(embeddings))
+    if not embeddings:
+        raise ValueError("ffmpeg produced no usable frames")
+
+    logger.info("embed_video: %d frame(s) extracted, embedding complete", len(embeddings))
+
+    if len(embeddings) == 1:
+        result_vec = torch.from_numpy(embeddings[0]).unsqueeze(0).float()
+    else:
+        mean_vec = np.mean(embeddings, axis=0)
+        result_vec = torch.from_numpy(mean_vec).unsqueeze(0).float()
+
+    normalized = F.normalize(result_vec, p=2, dim=-1)
     return normalized[0].tolist()
 
 

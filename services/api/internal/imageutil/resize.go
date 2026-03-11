@@ -47,14 +47,17 @@ func Resize(data []byte, maxW, maxH, quality int) ([]byte, error) {
 }
 
 // PreviewSizePixels converts a preview size setting string to max pixel dimensions.
-// "2048" → 2048×2048, "4k" → 3840×3840, "original" → (0, 0) meaning no resize.
+// "wqhd" → 2560×2560, "4k" → 3840×3840, "original" → (0, 0) meaning no resize.
+// Images smaller than the target are never upscaled (handled by Resize).
 func PreviewSizePixels(size string) (maxW, maxH int) {
 	switch size {
+	case "wqhd", "2048": // "2048" kept as legacy alias
+		return 2560, 2560
 	case "4k":
 		return 3840, 3840
 	case "original":
 		return 0, 0
-	default: // "2048" and any unknown value
-		return 2048, 2048
+	default:
+		return 2560, 2560
 	}
 }

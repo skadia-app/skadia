@@ -14,7 +14,7 @@ import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
-import { recomputePhotoPreviews, recomputePhotoEmbeddings, recomputePhotoThumbnails } from '@/api/activityPhotos'
+import { recomputePhotoPreviews, recomputePhotoEmbeddings } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
@@ -118,9 +118,9 @@ function Stage2EnrichmentSection() {
 // -----------------------------------------------------------------------
 
 const PREVIEW_SIZE_OPTIONS = [
-  { value: '2048', label: '2048 px', description: 'Standard — gute Balance zwischen Qualität und Ladezeit' },
-  { value: '4k', label: '4K (3840 px)', description: 'Maximale Qualität — empfohlen bei schnellem Netzwerk' },
-  { value: 'original', label: 'Original', description: 'Kein Preview-Thumbnail — lädt immer die Originaldatei' },
+  { value: 'wqhd', label: 'WQHD' },
+  { value: '4k', label: '4K' },
+  { value: 'original', label: 'Original' },
 ] as const
 
 function PhotoPreviewSection() {
@@ -142,6 +142,19 @@ function PhotoPreviewSection() {
       addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
     },
   })
+
+  const framesMutation = useMutation({
+    mutationFn: (n: number) => updateEnrichmentSettings({ video_clip_frames: n }),
+    onSuccess: (updated) => {
+      setFramesLocal(null)
+      queryClient.setQueryData(['enrichment-settings'], updated)
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
+    },
+  })
+
+  const [framesLocal, setFramesLocal] = useState<number | null>(null)
 
   async function handleRecompute() {
     try {
@@ -165,24 +178,9 @@ function PhotoPreviewSection() {
     }
   }
 
-  async function handleRecomputeThumbnails() {
-    try {
-      const result = await recomputePhotoThumbnails()
-      if (result.status === 'ok' && result.fixed === 0) {
-        addToast({ type: 'success', title: 'Keine Videos mit fehlendem Thumbnail gefunden' })
-      } else {
-        addToast({
-          type: 'info',
-          title: 'Video-Thumbnails werden neu generiert',
-          message: `${result.queued} Videos werden verarbeitet — Fortschritt im Header-Indikator sichtbar`,
-        })
-      }
-    } catch {
-      addToast({ type: 'error', title: 'Neuberechnung konnte nicht gestartet werden', duration: 0 })
-    }
-  }
-
-  const currentSize = settings?.photo_preview_size ?? '2048'
+  const currentSize = settings?.photo_preview_size ?? 'wqhd'
+  const savedFrames = settings?.video_clip_frames ?? 4
+  const currentFrames = framesLocal ?? savedFrames
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -193,63 +191,91 @@ function PhotoPreviewSection() {
         </p>
       </div>
 
-      <div className="space-y-2">
-        {PREVIEW_SIZE_OPTIONS.map(({ value, label, description }) => (
-          <label key={value} className="flex gap-3 cursor-pointer">
-            <input
-              type="radio"
-              name="photo-preview-size"
-              value={value}
-              checked={currentSize === value}
-              disabled={isLoading || mutation.isPending}
-              onChange={() => mutation.mutate(value)}
-              className="mt-0.5 accent-accent-DEFAULT cursor-pointer"
-            />
-            <div>
-              <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">{description}</div>
-            </div>
-          </label>
+      <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
+        {PREVIEW_SIZE_OPTIONS.map(({ value, label }, idx) => (
+          <button
+            key={value}
+            onClick={() => mutation.mutate(value)}
+            disabled={isLoading || mutation.isPending}
+            className={`px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              idx > 0 ? 'border-l border-neutral-200 dark:border-neutral-700' : ''
+            } ${
+              currentSize === value
+                ? 'bg-accent-DEFAULT text-white'
+                : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+            }`}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRecompute}
-            disabled={isLoading}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Vorschauen neu erstellen
-          </button>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.
+        <div>
+          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-1">
+            Video-Analyse: Frames für KI-Bildsuche
+          </h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+            Anzahl der Frames, die aus einem Video extrahiert werden.
           </p>
+
+          {/* Timeline-Visualisierung */}
+          <div className="relative h-6 flex items-center mb-1">
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-neutral-300 dark:bg-neutral-600" />
+            {Array.from({ length: currentFrames }, (_, i) => {
+              const pct = currentFrames >= 4
+                ? (i / (currentFrames - 1)) * 100
+                : ((i + 1) / (currentFrames + 1)) * 100
+              return (
+                <div
+                  key={i}
+                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-accent-DEFAULT shadow-sm"
+                  style={{ left: `${pct}%` }}
+                />
+              )
+            })}
+          </div>
+          <div className="flex justify-between text-xs text-neutral-400 dark:text-neutral-500 mb-3">
+            <span>Start</span>
+            <span>Ende</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={1}
+              value={currentFrames}
+              disabled={isLoading}
+              onChange={e => setFramesLocal(Number(e.target.value))}
+              onMouseUp={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
+              onTouchEnd={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
+              className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50"
+            />
+            <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 w-8 text-center tabular-nums">
+              {currentFrames}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRecomputeEmbeddings}
-            disabled={isLoading}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Bildsuche neu indexieren
-          </button>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRecomputeThumbnails}
-            disabled={isLoading}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Video-Thumbnails reparieren
-          </button>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Generiert JPEG-Vorschaubilder für Videos neu (behebt fehlende Thumbnails nach Import).
-          </p>
-        </div>
+      </div>
+
+      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+        {[
+          { label: 'Vorschauen neu erstellen', onClick: handleRecompute, desc: 'Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.' },
+          { label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' },
+        ].map(({ label, onClick, desc }) => (
+          <div key={label} className="flex items-center gap-3">
+            <button
+              onClick={onClick}
+              disabled={isLoading}
+              className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+            >
+              {label}
+            </button>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">{desc}</p>
+          </div>
+        ))}
       </div>
     </section>
   )

@@ -895,6 +895,9 @@ export default function TagsPage() {
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
+                System-Tags (Wetter, Auto) können nicht als Quelle gewählt werden.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">

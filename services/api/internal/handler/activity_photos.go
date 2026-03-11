@@ -161,7 +161,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		if videoMeta != nil && videoMeta.DurationS > 2 {
 			midOffset = videoMeta.DurationS / 2
 		}
-		if pd, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset); err == nil {
+		if pd, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset); err == nil {
 			previewData = pd
 		} else {
 			slog.Warn("ffmpeg video preview failed", "filename", header.Filename, "error", err)
@@ -241,13 +241,18 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Publish photo embed event for CLIP embedding — best-effort, never fails the request.
 	if h.Events != nil {
+		clipFrames := 4
+		if s, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && s.VideoClipFrames > 0 {
+			clipFrames = s.VideoClipFrames
+		}
 		ev := event.PhotoEmbedEvent{
-			PhotoID:      saved.ID,
-			UserID:       userID,
-			S3Bucket:     bucket,
-			S3Key:        s3Key,
-			S3KeyPreview: saved.S3KeyPreview,
-			ContentType:  saved.ContentType,
+			PhotoID:         saved.ID,
+			UserID:          userID,
+			S3Bucket:        bucket,
+			S3Key:           s3Key,
+			S3KeyPreview:    saved.S3KeyPreview,
+			ContentType:     saved.ContentType,
+			VideoClipFrames: clipFrames,
 		}
 		if err := h.Events.PublishPhotoEmbed(ev); err != nil {
 			slog.Warn("failed to publish photo embed event", "photo_id", saved.ID, "err", err)
@@ -490,6 +495,8 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
+
 	go func() {
 		ctx := context.Background()
 		processed := int64(0)
@@ -504,6 +511,50 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 				continue
 			}
 
+			if photo.FileHash == nil {
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			// Detect videos by flag or by S3 key extension.
+			isVideo := photo.IsVideo
+			if !isVideo {
+				dot := strings.LastIndex(photo.S3Key, ".")
+				if dot >= 0 {
+					isVideo = videoExts[strings.ToLower(photo.S3Key[dot:])]
+				}
+			}
+
+			if isVideo {
+				// For videos: generate a preview JPEG from the midpoint frame.
+				ext := ".mp4"
+				if dot := strings.LastIndex(photo.S3Key, "."); dot >= 0 {
+					ext = photo.S3Key[dot:]
+				}
+				var midOffset float64
+				if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
+					midOffset = meta.DurationS / 2
+				}
+				previewData, err := imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, midOffset)
+				if err != nil || previewData == nil {
+					processed++
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+					continue
+				}
+				previewKey := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
+				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, previewKey, previewData, "image/jpeg"); err != nil {
+					slog.Warn("recompute preview: video s3 upload failed", "photo_id", photo.ID, "error", err)
+					anyFailed = true
+				} else if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, previewKey); err != nil {
+					anyFailed = true
+				}
+				processed++
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				continue
+			}
+
+			// Regular images.
 			if maxW == 0 {
 				if photo.S3KeyPreview != "" {
 					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
@@ -518,12 +569,6 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 				if photo.S3KeyPreview != "" {
 					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
 				}
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			if photo.FileHash == nil {
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 				continue
@@ -661,7 +706,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 					videoHeight = &h2
 				}
 			}
-			previewData, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, 2048, midOffset)
+			previewData, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
 
 			thumbKey := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, *photo.FileHash)
 			if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, thumbKey, thumbData, "image/jpeg"); err != nil {
@@ -743,6 +788,11 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	clipFrames := 4
+	if s, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && s.VideoClipFrames > 0 {
+		clipFrames = s.VideoClipFrames
+	}
+
 	go func() {
 		ctx := context.Background()
 		published := int64(0)
@@ -751,11 +801,12 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		for _, photo := range photos {
 			if h.Events != nil {
 				ev := event.PhotoEmbedEvent{
-					PhotoID:      photo.ID,
-					UserID:       userID,
-					S3Bucket:     photo.S3Bucket,
-					S3Key:        photo.S3Key,
-					S3KeyPreview: photo.S3KeyPreview,
+					PhotoID:         photo.ID,
+					UserID:          userID,
+					S3Bucket:        photo.S3Bucket,
+					S3Key:           photo.S3Key,
+					S3KeyPreview:    photo.S3KeyPreview,
+					VideoClipFrames: clipFrames,
 				}
 				if err := h.Events.PublishPhotoEmbed(ev); err != nil {
 					slog.Warn("recompute embeddings: publish failed", "photo_id", photo.ID, "err", err)

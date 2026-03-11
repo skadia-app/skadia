@@ -208,6 +208,7 @@ export interface EnrichmentSettings {
   terra_incognita_radius_m?: number
   route_duplicate_hausdorff_m?: number
   route_duplicate_length_diff_km?: number
+  video_clip_frames?: number
 }
 
 export interface Climb {

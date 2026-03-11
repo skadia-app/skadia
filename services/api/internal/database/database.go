@@ -2517,8 +2517,8 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	}
 	for _, s := range seeds {
 		if _, err := db.Pool.Exec(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, description)
-			VALUES ($1, $2, $3, $4, true, $5, $6)
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, conditions, description)
+			VALUES ($1, $2, $3, $4, true, true, $5, $6)
 			ON CONFLICT (user_id, name) DO NOTHING`,
 			userID, s.name, s.color, s.textColor, s.conditions, s.desc,
 		); err != nil {
@@ -2872,7 +2872,8 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			enable_borders, enable_water, enable_forests, enable_surfaces,
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
 			photo_preview_size, terra_incognita_radius_m,
-			route_duplicate_hausdorff_m, route_duplicate_length_diff_km`,
+			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
+			video_clip_frames`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -2884,6 +2885,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.EnableStops, &s.EnableIntervals, &s.EnableAscents, &s.EnableEmbeddings,
 		&s.PhotoPreviewSize, &s.TerraIncognitaRadiusM,
 		&s.RouteDuplicateHausdorffM, &s.RouteDuplicateLengthDiffKm,
+		&s.VideoClipFrames,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -2904,11 +2906,12 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_borders, enable_water, enable_forests, enable_surfaces,
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
 			photo_preview_size, terra_incognita_radius_m,
-			route_duplicate_hausdorff_m, route_duplicate_length_diff_km
+			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
+			video_clip_frames
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
 			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29
+			$26, $27, $28, $29, $30
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -2938,7 +2941,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			photo_preview_size = $26,
 			terra_incognita_radius_m = $27,
 			route_duplicate_hausdorff_m = $28,
-			route_duplicate_length_diff_km = $29`,
+			route_duplicate_length_diff_km = $29,
+			video_clip_frames = $30`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -2948,6 +2952,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.EnableStops, s.EnableIntervals, s.EnableAscents, s.EnableEmbeddings,
 		s.PhotoPreviewSize, s.TerraIncognitaRadiusM,
 		s.RouteDuplicateHausdorffM, s.RouteDuplicateLengthDiffKm,
+		s.VideoClipFrames,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)

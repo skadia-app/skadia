@@ -9,7 +9,7 @@ type ActivityPhoto struct {
 	S3Bucket         string     `json:"-"`
 	S3Key            string     `json:"-"`
 	S3KeyThumb       string     `json:"-"`
-	S3KeyPreview     string     `json:"-"` // large preview (2048/4K); empty = use original
+	S3KeyPreview     string     `json:"-"` // large preview (WQHD/4K); empty = use original
 	OriginalFilename string     `json:"original_filename"`
 	ContentType      string     `json:"content_type"`
 	FileSizeBytes    int64      `json:"file_size_bytes"`
@@ -26,7 +26,7 @@ type ActivityPhoto struct {
 	VideoHeight *int     `json:"video_height,omitempty"`
 	// Computed URLs (nicht in DB)
 	ThumbURL   string `json:"thumb_url,omitempty"`
-	PreviewURL string `json:"preview_url,omitempty"` // large preview (2048/4K) or same as full_url
+	PreviewURL string `json:"preview_url,omitempty"` // large preview (WQHD/4K) or same as full_url
 	FullURL    string `json:"full_url,omitempty"`
 }
 
