@@ -56,7 +56,7 @@ func CheckRouteDuplicate(
 		return nil, fmt.Errorf("route dup tier-3 bbox: %w", err)
 	}
 
-	newTrack := geoJSONToLatLngs(geojson)
+	newTrack := rdpSimplify(geoJSONToLatLngs(geojson), 20)
 	lengthDiffM := lengthDiffThresholdKm * 1000
 
 	for _, c := range candidates {
@@ -67,7 +67,7 @@ func CheckRouteDuplicate(
 			}
 		}
 		// Hausdorff distance (expensive — O(n*m))
-		candidateTrack := geoJSONToLatLngs(c.GeoJSON)
+		candidateTrack := rdpSimplify(geoJSONToLatLngs(c.GeoJSON), 20)
 		dist := hausdorffDistance(newTrack, candidateTrack)
 		if dist <= hausdorffThresholdM {
 			return &RouteDuplicateResult{ExistingRouteID: c.ID, Confidence: "hausdorff"}, nil

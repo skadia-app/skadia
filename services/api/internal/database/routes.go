@@ -356,7 +356,10 @@ func (db *DB) CheckRouteBySource(ctx context.Context, userID, platform, sourceID
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
-	return &id, err
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 // CheckRouteByGeometryHashFromGeoJSON computes the geometry hash in DB from GeoJSON and checks for duplicates.
@@ -372,7 +375,10 @@ func (db *DB) CheckRouteByGeometryHashFromGeoJSON(ctx context.Context, userID, g
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
-	return &id, err
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 // FindRouteCandidatesByBBox finds routes in the bounding box of a given geometry for Hausdorff comparison.
