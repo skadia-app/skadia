@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -171,11 +173,23 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Estimate new_count: count tours whose komoot_tour_id is not yet in DB
+	// This is a fast EXISTS check, not a full scan
+	newCount := 0
+	for _, t := range tours {
+		if t.Type == "tour_recorded" {
+			exists, _ := h.DB.ActivityExistsByKomootTourID(r.Context(), userID, t.ID)
+			if !exists {
+				newCount++
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, KomootScanResult{
 		TourCount:      len(tours),
 		RecordedCount:  recordedCount,
 		PlannedCount:   plannedCount,
-		NewCount:       recordedCount + plannedCount,
+		NewCount:       newCount,
 		HasCredentials: true,
 	})
 }
@@ -197,7 +211,11 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	creds, err := h.DB.GetKomootCredentials(r.Context(), userID)
-	if err != nil || creds == nil {
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load credentials", r.URL.Path)
+		return
+	}
+	if creds == nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "no Komoot credentials stored — login first", r.URL.Path)
 		return
 	}
@@ -229,6 +247,16 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 
 		_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, "import")
 
+		// Get tour count to set progress_total
+		allTours, listErr := client.ListTours(bgCtx, nil)
+		if listErr == nil {
+			_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, 0)
+			_, _ = h.DB.Pool.Exec(bgCtx,
+				`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`,
+				int64(len(allTours)), jobID,
+			)
+		}
+
 		params := komoot.KomootImportParams{
 			DB:      h.DB,
 			Storage: h.Storage,
@@ -236,9 +264,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			TourIDs: req.TourIDs,
 			Options: req.Options,
 			OnProgress: func(current, total int, msg string) {
-				if total > 0 {
-					_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(current))
-				}
+				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(current))
 				slog.Debug("komoot import progress", "job_id", jobID, "current", current, "total", total, "msg", msg)
 			},
 		}
@@ -262,10 +288,13 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// TODO(Task 3.1): Import planned routes
+		// if req.ImportPlanned { routeImporter.Import(bgCtx, params) }
+
 		// Update last sync
 		_ = h.DB.UpdateKomootLastSync(bgCtx, userID, client.UserID())
 
-		failed := len(importErrors) > 0 && !req.ImportRecorded
+		failed := len(importErrors) > 0
 		_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, failed)
 
 		slog.Info("komoot import completed",
@@ -290,8 +319,12 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
 	job, err := h.DB.GetKomootImportJob(r.Context(), userID, jobID)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "Not Found", "job not found", r.URL.Path)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get job", r.URL.Path)
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
