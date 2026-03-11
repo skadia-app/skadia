@@ -384,7 +384,7 @@ func (db *DB) FindRouteCandidatesByBBox(ctx context.Context, userID string, geoj
 		 WHERE user_id = $1
 		   AND ST_Intersects(
 		       ST_Expand(ST_GeomFromGeoJSON($2)::geometry, 0.01),
-		       ST_GeomFromGeoJSON($2)
+		       geometry
 		   )`,
 		userID, geojson,
 	)
