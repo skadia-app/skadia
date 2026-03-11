@@ -2495,7 +2495,7 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 // SeedDefaultAutoTags creates the default autotag definitions if they don't exist.
 func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
-	frostConditions := []byte(`{"operator":"OR","rules":[{"field":"temperature_min_c","op":"lt","value":0},{"field":"temperature_avg_c","op":"lt","value":0}]}`)
+	frostConditions := []byte(`{"operator":"AND","rules":[{"field":"temperature_min_c","op":"lte","value":0},{"field":"temperature_avg_c","op":"lte","value":0}]}`)
 	rundtourConditions := []byte(`{"operator":"AND","rules":[{"field":"is_round_trip","op":"eq","value":true}]}`)
 	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
 	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
@@ -2613,6 +2613,16 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	)
 	if err != nil {
 		return nil, fmt.Errorf("delete orphan activity_tags: %w", err)
+	}
+
+	// Update activity_count for targetTagID (it now includes activities from sourceTagID)
+	_, err = tx.Exec(ctx,
+		`UPDATE tags
+		 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+		 WHERE id = $1`,
+		targetTagID)
+	if err != nil {
+		return nil, fmt.Errorf("merge tags: update target count: %w", err)
 	}
 
 	// 3. Sync the denormalised activities.tags TEXT[] cache.
@@ -2962,7 +2972,7 @@ func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (i
 				Operator string          `json:"operator"`
 				Rules    json.RawMessage `json:"rules"`
 			}
-			if jsonErr := json.Unmarshal(conditions, &autoFmt); jsonErr == nil && len(autoFmt.Rules) > 2 {
+			if jsonErr := json.Unmarshal(conditions, &autoFmt); jsonErr == nil && len(autoFmt.Rules) >= 2 {
 				conditions = autoFmt.Rules
 				if autoFmt.Operator != "" {
 					condLogic = strings.ToLower(autoFmt.Operator)
@@ -3465,18 +3475,40 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 			 WHERE id = $1 AND user_id = $3`,
 			actID, tagName, userID)
 	}
+
+	// Update activity_count from junction table
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE tags
+		 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+		 WHERE id = $1`,
+		tagID)
+	if err != nil {
+		return fmt.Errorf("unassign activities from tag: update count: %w", err)
+	}
 	return nil
 }
 
 // LinkActivityTag links a tag to an activity with the given assignment type.
 // If the link already exists, it's silently ignored (ON CONFLICT DO NOTHING).
+// Also updates the tag's activity_count denormalized field.
 func (db *DB) LinkActivityTag(ctx context.Context, activityID, tagID, assignedBy string) error {
+	// Insert link with ON CONFLICT DO NOTHING
 	_, err := db.Pool.Exec(ctx,
 		`INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, $3)
 		 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
 		activityID, tagID, assignedBy)
 	if err != nil {
 		return fmt.Errorf("link activity tag: %w", err)
+	}
+
+	// Update activity_count from junction table
+	_, err = db.Pool.Exec(ctx,
+		`UPDATE tags
+		 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+		 WHERE id = $1`,
+		tagID)
+	if err != nil {
+		return fmt.Errorf("link activity tag: update count: %w", err)
 	}
 	return nil
 }
