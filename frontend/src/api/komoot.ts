@@ -17,6 +17,7 @@ export interface KomootLoginResponse {
   status: 'ok' | 'invalid_credentials'
   error?: string
   komoot_user_id?: string
+  credentials_saved?: boolean
   scan?: KomootScanResult
 }
 
@@ -26,6 +27,7 @@ export interface KomootStartRequest {
   import_photos: boolean
   tour_ids?: number[]
   options: ImportOptions
+  delete_credentials_after?: boolean
 }
 
 export interface KomootJob {
@@ -45,10 +47,16 @@ export interface KomootJob {
 // API functions
 // ---------------------------------------------------------------------------
 
-export async function komootLogin(email: string, password: string): Promise<KomootLoginResponse> {
+export async function komootLogin(email: string, password: string, saveCredentials: boolean): Promise<KomootLoginResponse> {
   return apiClient<KomootLoginResponse>('/import/komoot/login', {
     method: 'POST',
-    body: { email, password },
+    body: { email, password, save_credentials: saveCredentials },
+  })
+}
+
+export async function komootDeleteCredentials(): Promise<void> {
+  return apiClient<void>('/import/komoot/credentials', {
+    method: 'DELETE',
   })
 }
 

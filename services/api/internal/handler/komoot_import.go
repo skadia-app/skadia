@@ -20,8 +20,9 @@ import (
 // --- Request/Response types ---
 
 type KomootLoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	SaveCredentials bool   `json:"save_credentials"` // false = only use for this session, don't store
 }
 
 type KomootScanResult struct {
@@ -33,11 +34,12 @@ type KomootScanResult struct {
 }
 
 type KomootStartRequest struct {
-	ImportRecorded bool                   `json:"import_recorded"`
-	ImportPlanned  bool                   `json:"import_planned"`
-	ImportPhotos   bool                   `json:"import_photos"`
-	TourIDs        []int64                `json:"tour_ids,omitempty"` // empty = all new
-	Options        importer.ImportOptions `json:"options"`
+	ImportRecorded         bool                   `json:"import_recorded"`
+	ImportPlanned          bool                   `json:"import_planned"`
+	ImportPhotos           bool                   `json:"import_photos"`
+	TourIDs                []int64                `json:"tour_ids,omitempty"` // empty = all new
+	Options                importer.ImportOptions `json:"options"`
+	DeleteCredentialsAfter bool                   `json:"delete_credentials_after"` // delete stored credentials after import completes
 }
 
 // --- Handlers ---
@@ -102,30 +104,33 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	newCount := len(tours)
 
-	// Save credentials
-	if err := h.DB.SaveKomootCredentials(r.Context(), userID, database.KomootCredentials{
-		Email:             req.Email,
-		EncryptedPassword: encPassword,
-		KomootUserID:      client.UserID(),
-		SyncEnabled:       true,
-		ImportPlanned:     true,
-		ImportRecorded:    true,
-		ImportPhotos:      true,
-	}); err != nil {
-		slog.Error("komoot: save credentials failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
-		return
+	// Save credentials only if requested
+	if req.SaveCredentials {
+		if err := h.DB.SaveKomootCredentials(r.Context(), userID, database.KomootCredentials{
+			Email:             req.Email,
+			EncryptedPassword: encPassword,
+			KomootUserID:      client.UserID(),
+			SyncEnabled:       true,
+			ImportPlanned:     true,
+			ImportRecorded:    true,
+			ImportPhotos:      true,
+		}); err != nil {
+			slog.Error("komoot: save credentials failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":         "ok",
-		"komoot_user_id": client.UserID(),
+		"status":            "ok",
+		"komoot_user_id":    client.UserID(),
+		"credentials_saved": req.SaveCredentials,
 		"scan": KomootScanResult{
 			TourCount:      len(tours),
 			RecordedCount:  recordedCount,
 			PlannedCount:   plannedCount,
 			NewCount:       newCount,
-			HasCredentials: true,
+			HasCredentials: req.SaveCredentials,
 		},
 	})
 }
@@ -354,6 +359,15 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		// Update last sync
 		_ = h.DB.UpdateKomootLastSync(bgCtx, userID, client.UserID())
 
+		// Delete credentials after import if requested
+		if req.DeleteCredentialsAfter {
+			if delErr := h.DB.DeleteKomootCredentials(bgCtx, userID); delErr != nil {
+				slog.Error("komoot import: delete credentials after import failed", "job_id", jobID, "error", delErr)
+			} else {
+				slog.Info("komoot import: credentials deleted after import", "job_id", jobID)
+			}
+		}
+
 		failed := len(importErrors) > 0
 		_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, failed)
 
@@ -388,4 +402,21 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
+}
+
+// KomootDeleteCredentials removes stored Komoot credentials.
+//
+// DELETE /api/v1/import/komoot/credentials
+func (h *Handler) KomootDeleteCredentials(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+
+	if err := h.DB.DeleteKomootCredentials(r.Context(), userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete credentials", r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

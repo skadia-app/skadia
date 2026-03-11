@@ -128,3 +128,9 @@ func (db *DB) GetKomootImportJob(ctx context.Context, userID, jobID string) (*Ba
 	return &j, err
 }
 
+// DeleteKomootCredentials removes the stored Komoot credentials for a user.
+func (db *DB) DeleteKomootCredentials(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx, `DELETE FROM komoot_credentials WHERE user_id = $1`, userID)
+	return err
+}
+

@@ -114,6 +114,15 @@ function StravaBadge() {
   )
 }
 
+// Simple "K" badge for Komoot
+function KomootBadge() {
+  return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-[#6AA127] text-white text-[10px] font-bold shrink-0 select-none">
+      K
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Upload helpers
 // ---------------------------------------------------------------------------
@@ -484,7 +493,7 @@ export default function ImportHub() {
     }
   }, [handleFiles])
 
-  function handleImporterLink(tab: 'garmin' | 'strava') {
+  function handleImporterLink(tab: 'garmin' | 'strava' | 'komoot') {
     setOpen(false)
     navigate(`/settings/import?tab=${tab}`)
   }
@@ -637,6 +646,15 @@ export default function ImportHub() {
               >
                 <StravaBadge />
                 <span className="flex-1 font-medium">Strava</span>
+                <ChevronRightIcon className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
+              </button>
+
+              <button
+                onClick={() => handleImporterLink('komoot')}
+                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+              >
+                <KomootBadge />
+                <span className="flex-1 font-medium">Komoot</span>
                 <ChevronRightIcon className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
               </button>
             </div>

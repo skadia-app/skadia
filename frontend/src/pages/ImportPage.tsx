@@ -14,6 +14,7 @@ import {
   komootLogin,
   komootScan,
   komootStartImport,
+  komootDeleteCredentials,
   getKomootImportJob,
   type KomootScanResult,
   type KomootJob,
@@ -1023,6 +1024,10 @@ function KomootImportPanel() {
   const [scanLoading, setScanLoading] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
 
+  // Credential persistence
+  const [saveCredentials, setSaveCredentials] = useState(true)
+  const [credentialsSaved, setCredentialsSaved] = useState(false)
+
   // Config state
   const [importRecorded, setImportRecorded] = useState(true)
   const [importPlanned, setImportPlanned] = useState(true)
@@ -1126,11 +1131,12 @@ function KomootImportPanel() {
     setLoginLoading(true)
     setLoginError(null)
     try {
-      const res = await komootLogin(email.trim(), password)
+      const res = await komootLogin(email.trim(), password, saveCredentials)
       if (res.status !== 'ok') {
         setLoginError(res.error ?? 'Ungültige Anmeldedaten')
         return
       }
+      setCredentialsSaved(res.credentials_saved ?? false)
       if (res.scan) {
         setScanResult(res.scan)
         setPhase('config')
@@ -1155,6 +1161,7 @@ function KomootImportPanel() {
         setScanError('Keine gespeicherten Zugangsdaten — bitte erneut anmelden.')
         return
       }
+      setCredentialsSaved(true)
       setScanResult(result)
       setPhase('config')
     } catch (e) {
@@ -1179,6 +1186,7 @@ function KomootImportPanel() {
         import_planned: importPlanned,
         import_photos: importPhotos,
         options: { conflict_strategy: conflictStrategy },
+        delete_credentials_after: !credentialsSaved,
       })
       setJobId(id)
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id }))
@@ -1235,7 +1243,7 @@ function KomootImportPanel() {
         {(phase === 'login' || phase === 'scan') && (
           <div className="space-y-4">
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Melde dich mit deinen Komoot-Zugangsdaten an. Das Passwort wird verschlüsselt gespeichert und nur für den Import verwendet.
+              Melde dich mit deinen Komoot-Zugangsdaten an. Das Passwort wird AES-256-verschlüsselt und nur für den Import verwendet.
             </p>
             <div className="space-y-3 max-w-sm">
               <div>
@@ -1264,6 +1272,23 @@ function KomootImportPanel() {
                   className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
                 />
               </div>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={saveCredentials}
+                  onChange={e => setSaveCredentials(e.target.checked)}
+                  disabled={loginLoading || scanLoading}
+                  className="mt-0.5 w-4 h-4 accent-orange-500"
+                />
+                <div>
+                  <span className="text-sm text-neutral-700 dark:text-neutral-300">Zugangsdaten dauerhaft speichern</span>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+                    {saveCredentials
+                      ? 'Passwort wird verschlüsselt gespeichert (für zukünftige Syncs).'
+                      : 'Passwort wird nur für diesen Import verwendet und danach sicher gelöscht.'}
+                  </p>
+                </div>
+              </label>
             </div>
             {loginError && <p className="text-sm text-red-600 dark:text-red-400">{loginError}</p>}
             {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
@@ -1431,6 +1456,11 @@ function KomootImportPanel() {
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
                       Die importierten Aktivitäten und Routen sind nun verfügbar.
                     </p>
+                    {!credentialsSaved && (
+                      <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                        Deine Komoot-Zugangsdaten wurden nach dem Import sicher gelöscht.
+                      </p>
+                    )}
                   </div>
                 )}
 
