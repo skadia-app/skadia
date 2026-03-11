@@ -2543,9 +2543,92 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 		}
 	}
 
+	// First: Migrate existing tags from activities.tags TEXT[] to tags table
+	// This ensures all previously used tags appear in the Tags overview
+	if err := db.migrateExistingTagsToTable(ctx, userID); err != nil {
+		slog.Warn("seed: migrate existing tags failed (non-fatal)", "user_id", userID, "error", err)
+	}
+
 	// Auto-migrate any tag conditions to automation rules (idempotent: conditions cleared after migration)
 	if _, err := db.MigrateTagConditionsToRules(ctx, userID); err != nil {
 		slog.Warn("seed: auto-migrate tag conditions failed (non-fatal)", "user_id", userID, "error", err)
+	}
+
+	return nil
+}
+
+// migrateExistingTagsToTable scans all activities.tags TEXT[] and creates missing entries in tags table.
+// This ensures all previously-used tag names appear in the Tags overview.
+func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) error {
+	// Collect all unique tag names from activities.tags TEXT[] for this user
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT UNNEST(tags) AS tag_name
+		FROM activities
+		WHERE user_id = $1 AND tags IS NOT NULL AND array_length(tags, 1) > 0
+		ORDER BY tag_name
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("query existing tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tagNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("scan tag name: %w", err)
+		}
+		if name != "" {
+			tagNames = append(tagNames, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate tag names: %w", err)
+	}
+
+	if len(tagNames) == 0 {
+		return nil // No tags to migrate
+	}
+
+	// Color palette for auto-assigned colors to existing tags
+	colorPalette := []struct{ color, text string }{
+		{"#f97316", "#ffffff"},  // orange
+		{"#3b82f6", "#ffffff"},  // blue
+		{"#10b981", "#ffffff"},  // green
+		{"#8b5cf6", "#ffffff"},  // purple
+		{"#f43f5e", "#ffffff"},  // rose
+		{"#06b6d4", "#ffffff"},  // cyan
+		{"#eab308", "#1a1a1a"},  // yellow
+		{"#6b7280", "#ffffff"},  // gray
+	}
+
+	// Insert each tag if it doesn't exist
+	for i, tagName := range tagNames {
+		// Assign color from palette (cycle if needed)
+		color := colorPalette[i%len(colorPalette)].color
+		textColor := colorPalette[i%len(colorPalette)].text
+
+		// Determine if this is a known auto-tag
+		isAuto := false
+		category := "custom"
+		if tagName == "Nacht" || tagName == "Frost" || tagName == "Rundtour" {
+			isAuto = true
+		}
+		if tagName == "Sonnig" || tagName == "Bewölkt" || tagName == "Regen" ||
+			tagName == "Schnee" || tagName == "Nebel" || tagName == "Gewitter" {
+			isAuto = false // Weather tags are not marked as auto (system flag)
+			category = "weather"
+		}
+
+		_, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_auto, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			ON CONFLICT (user_id, name) DO NOTHING
+		`, userID, tagName, color, textColor, category, isAuto)
+		if err != nil {
+			slog.Warn("migrate tag to table", "user_id", userID, "tag_name", tagName, "error", err)
+			// Continue with other tags instead of failing
+		}
 	}
 
 	return nil
