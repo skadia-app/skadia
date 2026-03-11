@@ -88,18 +88,20 @@ func (c *Client) UserID() string { return c.userID }
 // rateLimit ensures minimum delay between requests. Respects context cancellation.
 func (c *Client) rateLimit(ctx context.Context) error {
 	c.mu.Lock()
-	elapsed := time.Since(c.lastCall)
+	wait := requestDelay - time.Since(c.lastCall)
+	if wait > 0 {
+		c.lastCall = time.Now().Add(wait)
+	} else {
+		c.lastCall = time.Now()
+	}
 	c.mu.Unlock()
-	if elapsed < requestDelay {
+	if wait > 0 {
 		select {
-		case <-time.After(requestDelay - elapsed):
+		case <-time.After(wait):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-	c.mu.Lock()
-	c.lastCall = time.Now()
-	c.mu.Unlock()
 	return nil
 }
 
