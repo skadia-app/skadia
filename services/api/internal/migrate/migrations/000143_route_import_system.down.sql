@@ -1,0 +1,11 @@
+DROP INDEX IF EXISTS uq_activities_komoot_tour_id;
+ALTER TABLE activities DROP COLUMN IF EXISTS komoot_tour_id;
+DROP TABLE IF EXISTS komoot_credentials;
+ALTER TABLE user_enrichment_settings DROP COLUMN IF EXISTS route_duplicate_length_diff_km;
+ALTER TABLE user_enrichment_settings DROP COLUMN IF EXISTS route_duplicate_hausdorff_m;
+DROP INDEX IF EXISTS idx_planned_routes_geometry_hash;
+ALTER TABLE planned_routes DROP COLUMN IF EXISTS geometry_hash;
+DROP INDEX IF EXISTS idx_planned_routes_source;
+ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_url;
+ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_id;
+ALTER TABLE planned_routes DROP COLUMN IF EXISTS source_platform;
