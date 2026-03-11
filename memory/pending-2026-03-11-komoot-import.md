@@ -41,3 +41,42 @@
 - location_source: "exif" wenn EXIF-GPS, "manual" wenn Timeline-Location, "activity_track" als Fallback
 - Hilfsfunktionen: `komootPhotoContentType`, `komootImageFormatFromContentType`, `extractKomootEXIF`
 - Keine Videos (Komoot CDN liefert nur Bilder)
+
+## services/api/internal/handler/komoot_import.go — Credential Lifecycle
+
+**Suche nach:** komoot credential
+**Delta:**
+- `save_credentials` Flag auf Login: Credentials immer in DB gespeichert (Import-Goroutine braucht sie), `sync_enabled` = `save_credentials`
+- `delete_credentials_after` Flag auf Import-Start: löscht Credentials nach erfolgreichem Import
+- `GET /import/komoot/credentials` — neuer Endpoint: gibt `has_credentials` + `email` zurück (leichtgewichtig, kein Komoot-Login)
+- `DELETE /import/komoot/credentials` — löscht gespeicherte Credentials
+- Panic Recovery: `r` → `rec` (kein Shadowing von `*http.Request`)
+- Encryption Key Validation in Login/Scan/Start
+
+## frontend/src/pages/ImportPage.tsx — Credential Persistence UI
+
+**Suche nach:** Zugangsdaten
+**Delta:**
+- Checkbox "Zugangsdaten dauerhaft speichern" unter Passwort-Feld
+- Dynamischer Hilfetext (verschlüsselt gespeichert vs. nach Import gelöscht)
+- Gespeicherte E-Mail + roter "Löschen"-Button wenn Credentials existieren
+- "Gespeicherte Zugangsdaten nutzen" nur sichtbar wenn Credentials in DB
+
+## frontend/src/components/ImportHub.tsx — Komoot Entry
+
+**Suche nach:** ImportHub
+**Delta:**
+- KomootBadge (grünes "K", Farbe #6AA127) + Button in BULK-IMPORTER Sektion
+
+## Projektweiter Fix: accent-orange-500 → accent-accent-DEFAULT
+
+**Suche nach:** accent-orange
+**Delta:**
+- Alle `accent-orange-500` (hardcoded) durch `accent-accent-DEFAULT` (CSS Custom Properties aus Akzentfarben-System) ersetzt
+- Betroffene Dateien: ImportPage, SettingsPage, ActivitiesPage, RuleEditor, MapFilters, RecomputeModal, ZoneEditor, PrivacyZoneEditor
+- 0 Vorkommen verbleibend in Code-Dateien (nur noch in docs/internal)
+
+## services/api/internal/database/routes.go — Kosmetik
+
+**Delta:**
+- `fmt.Sscanf` → `strconv.ParseInt` in `GetKnownKomootRouteIDs` (idiomatisches Go)
