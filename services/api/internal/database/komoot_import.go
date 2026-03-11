@@ -100,6 +100,15 @@ func (db *DB) UpdateKomootLastSync(ctx context.Context, userID, komootUserID str
 	return err
 }
 
+// HasActiveKomootImportJob returns true if the user already has a pending or running komoot_import job.
+func (db *DB) HasActiveKomootImportJob(ctx context.Context, userID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE user_id = $1 AND job_type = 'komoot_import' AND status IN ('pending', 'running'))`,
+		userID).Scan(&exists)
+	return exists, err
+}
+
 // GetKomootImportJob fetches a single background job by ID, scoped to the user.
 func (db *DB) GetKomootImportJob(ctx context.Context, userID, jobID string) (*BackgroundJob, error) {
 	var j BackgroundJob

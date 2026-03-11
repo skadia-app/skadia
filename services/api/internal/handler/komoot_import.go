@@ -70,6 +70,12 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate encryption key is configured
+	if h.Config.KomootEncryptionKey == "" {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
+		return
+	}
+
 	// Encrypt password for storage
 	encPassword, err := encryptAPIKey(req.Password, h.Config.KomootEncryptionKey)
 	if err != nil {
@@ -141,6 +147,11 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 	}
 	if creds == nil {
 		writeJSON(w, http.StatusOK, KomootScanResult{HasCredentials: false})
+		return
+	}
+
+	if h.Config.KomootEncryptionKey == "" {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
 		return
 	}
 
@@ -220,9 +231,26 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.Config.KomootEncryptionKey == "" {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
+		return
+	}
+
 	password, err := decryptAPIKey(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
+		return
+	}
+
+	// Check for already-running import
+	alreadyRunning, err := h.DB.HasActiveKomootImportJob(r.Context(), userID)
+	if err != nil {
+		slog.Error("komoot: check active job failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check active jobs", r.URL.Path)
+		return
+	}
+	if alreadyRunning {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -237,6 +265,12 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 
 	// Run async
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("komoot import: panic", "job_id", jobID, "panic", r)
+				_ = h.DB.FailBackgroundJob(context.Background(), jobID)
+			}
+		}()
 		bgCtx := context.Background()
 		client, err := komoot.Login(bgCtx, creds.Email, password)
 		if err != nil {
