@@ -27,6 +27,7 @@ func (h *Handler) buildStravaRegistry() *strava.ImportRegistry {
 	r.Register(&strava.ActivitiesImporter{})
 	r.Register(&strava.PrivacyZonesImporter{})
 	r.Register(&strava.MediaImporter{})
+	r.Register(&strava.RoutesImporter{})
 	return r
 }
 
