@@ -438,6 +438,32 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 	return id, nil
 }
 
+// GetKnownKomootRouteIDs returns the set of Komoot tour IDs already imported as
+// planned routes for a user. Used to enable incremental sync (skip already-known tours).
+func (db *DB) GetKnownKomootRouteIDs(ctx context.Context, userID string) (map[int64]bool, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT source_id FROM planned_routes
+		 WHERE user_id = $1 AND source_platform = 'komoot' AND source_id IS NOT NULL`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[int64]bool{}
+	for rows.Next() {
+		var sid string
+		if err := rows.Scan(&sid); err != nil {
+			continue
+		}
+		var id int64
+		if _, err := fmt.Sscanf(sid, "%d", &id); err == nil {
+			result[id] = true
+		}
+	}
+	return result, rows.Err()
+}
+
 // GetUserSpeedFactor computes the ratio between the user's actual moving speed
 // and the Tobler baseline speed for the given sport type, averaged over the
 // user's 20 most recent activities.
