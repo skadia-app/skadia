@@ -164,8 +164,14 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			switch p.Options.ConflictStrategy {
 			case importer.StrategyReplaceAll:
 				_ = importer.ReplaceActivity(ctx, p.DB, match.ExistingActivityID, data)
+			case importer.StrategySkip:
+				// explicit skip — no enrichment
 			default: // enrich_missing
-				existing, _ := p.DB.GetActivity(ctx, match.ExistingActivityID)
+				existing, getErr := p.DB.GetActivity(ctx, match.ExistingActivityID)
+				if getErr != nil {
+					slog.Warn("komoot activities: cannot fetch existing activity for enrich",
+						"id", match.ExistingActivityID, "error", getErr)
+				}
 				_, _ = importer.EnrichActivity(ctx, p.DB, match.ExistingActivityID, existing, data)
 			}
 			_ = p.DB.SetActivityKomootTourID(ctx, match.ExistingActivityID, tour.ID)
@@ -176,7 +182,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Upload original file to S3
 		var s3Key string
-		if p.Storage != nil {
+		if len(fileBytes) > 0 && p.Storage != nil {
 			s3Key = fmt.Sprintf("%s/%s.%s", p.UserID, hashStr, format)
 			contentType := "application/octet-stream"
 			if format == "gpx" {
