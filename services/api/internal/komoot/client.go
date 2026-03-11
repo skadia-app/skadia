@@ -82,6 +82,9 @@ func Login(ctx context.Context, email, password string) (*Client, error) {
 	}, nil
 }
 
+// UserID returns the Komoot user ID (username) of the authenticated client.
+func (c *Client) UserID() string { return c.userID }
+
 // rateLimit ensures minimum delay between requests. Respects context cancellation.
 func (c *Client) rateLimit(ctx context.Context) error {
 	c.mu.Lock()

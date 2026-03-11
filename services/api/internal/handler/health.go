@@ -29,6 +29,7 @@ type HandlerConfig struct {
 	MLServiceURL       string // e.g. http://ml:8000
 	MLCallbackSecret   string // ML_CALLBACK_SECRET env var
 	BRouterURL         string // e.g. http://brouter:17777
+	KomootEncryptionKey string // 32-byte hex for AES-256-GCM Komoot password encryption
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

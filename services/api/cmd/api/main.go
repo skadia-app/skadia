@@ -139,12 +139,13 @@ func main() {
 		Auth:     authCfg,
 		ShadowFS: shadowFSCfg,
 		Config: &handler.HandlerConfig{
-			LiteLLMConfigPath:  cfg.LiteLLMConfigPath,
-			LiteLLMInternalURL: cfg.LiteLLMInternalURL,
-			LLMEncryptionKey:   cfg.LLMEncryptionKey,
-			MLServiceURL:       cfg.MLServiceURL,
-			MLCallbackSecret:   mlCallbackSecret,
-			BRouterURL:         cfg.BRouterURL,
+			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
+			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
+			LLMEncryptionKey:    cfg.LLMEncryptionKey,
+			MLServiceURL:        cfg.MLServiceURL,
+			MLCallbackSecret:    mlCallbackSecret,
+			BRouterURL:          cfg.BRouterURL,
+			KomootEncryptionKey: cfg.KomootEncryptionKey,
 		},
 	}
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
@@ -465,6 +466,12 @@ func main() {
 			r.Post("/import/strava/upload-zip", h.UploadStravaZIP)
 			r.Post("/import/strava/upload-zip-scan", h.UploadStravaZIPScan)
 			r.Get("/import/strava/jobs/{id}", h.GetStravaImportJob)
+
+			// Komoot Import
+			r.Post("/import/komoot/login", h.KomootLogin)
+			r.Post("/import/komoot/scan", h.KomootScan)
+			r.Post("/import/komoot/start", h.KomootStartImport)
+			r.Get("/import/komoot/jobs/{id}", h.GetKomootImportJob)
 
 			// Fusion Queue (Tier-2 GPS-Similarity)
 			r.Get("/fusion-queue", h.GetFusionQueue)

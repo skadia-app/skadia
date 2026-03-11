@@ -39,6 +39,9 @@ type Config struct {
 	LiteLLMInternalURL string // e.g. http://litellm:4000
 	LLMEncryptionKey   string // 32-byte hex for AES-256-GCM API key encryption
 
+	// Komoot
+	KomootEncryptionKey string // 32-byte hex for AES-256-GCM password encryption
+
 	// ML Service
 	MLServiceURL string // e.g. http://ml:8000
 
@@ -75,6 +78,8 @@ func Load() (*Config, error) {
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
 		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
+
+		KomootEncryptionKey: getEnvDefault("KOMOOT_ENCRYPTION_KEY", os.Getenv("LLM_ENCRYPTION_KEY")),
 
 		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
 
