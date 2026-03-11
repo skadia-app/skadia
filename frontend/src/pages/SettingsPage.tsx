@@ -1561,8 +1561,14 @@ function ImportSettingsSection() {
   })
 
   const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
-  const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 50
+  const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 100
   const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 2
+
+  const [localHausdorff, setLocalHausdorff] = useState(hausdorff)
+  const [localLengthDiff, setLocalLengthDiff] = useState(lengthDiff)
+
+  useEffect(() => { setLocalHausdorff(hausdorff) }, [hausdorff])
+  useEffect(() => { setLocalLengthDiff(lengthDiff) }, [lengthDiff])
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
@@ -1648,15 +1654,16 @@ function ImportSettingsSection() {
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
           <span>Max. GPS-Abweichung (Hausdorff)</span>
-          <span className="tabular-nums font-mono">{hausdorff} m</span>
+          <span className="tabular-nums font-mono">{localHausdorff} m</span>
         </div>
         <input
           type="range"
           min={10}
           max={200}
           step={10}
-          value={hausdorff}
-          onChange={e => enrichMut.mutate({ route_duplicate_hausdorff_m: Number(e.target.value) })}
+          value={localHausdorff}
+          onChange={e => setLocalHausdorff(Number(e.target.value))}
+          onPointerUp={() => enrichMut.mutate({ route_duplicate_hausdorff_m: localHausdorff })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
@@ -1668,15 +1675,16 @@ function ImportSettingsSection() {
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
           <span>Max. Längendifferenz</span>
-          <span className="tabular-nums font-mono">{lengthDiff} km</span>
+          <span className="tabular-nums font-mono">{localLengthDiff} km</span>
         </div>
         <input
           type="range"
           min={0.5}
           max={10}
           step={0.5}
-          value={lengthDiff}
-          onChange={e => enrichMut.mutate({ route_duplicate_length_diff_km: Number(e.target.value) })}
+          value={localLengthDiff}
+          onChange={e => setLocalLengthDiff(Number(e.target.value))}
+          onPointerUp={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-orange-500"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
