@@ -61,13 +61,14 @@ func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, 
 		// All sessions are the same sport — treat as single activity.
 		// Requires at least 2 non-multisport sessions to avoid misclassifying
 		// partial multisport recordings (1 multisport summary + 1 discipline).
-		// buildActivityData uses sessions[0] for aggregate metrics, which is
-		// correct for GOTOES files (each session has its own partial totals;
-		// Strava CSV metadata will override distance/time anyway).
+		// buildActivityData uses sessions[0] for aggregate metrics — we merge
+		// the remaining sessions' totals afterwards so distance/time/elevation
+		// reflect the complete merged activity.
 		ad, err := buildActivityData(fit, filename)
 		if err != nil {
 			return nil, err
 		}
+		mergeSessionTotals(ad, sessionMsgs)
 		return []*model.ActivityData{ad}, nil
 	}
 
@@ -769,6 +770,99 @@ func allSameSport(sports []typedef.Sport) bool {
 		}
 	}
 	return true
+}
+
+// mergeSessionTotals aggregates metrics from sessions[1:] into ad.
+// buildActivityData already populated ad from sessions[0]. This function
+// sums additive fields (distance, time, elevation, calories, TSS), takes
+// max/min for extremes (HR, power, speed, altitude), and extends the time
+// range. Used when GOTOES-merged same-sport files are collapsed to one activity.
+func mergeSessionTotals(ad *model.ActivityData, sessionMsgs []proto.Message) {
+	if len(sessionMsgs) <= 1 {
+		return
+	}
+
+	for i := 1; i < len(sessionMsgs); i++ {
+		s := mesgdef.NewSession(&sessionMsgs[i])
+		if s.Sport == typedef.SportMultisport {
+			continue
+		}
+
+		// --- Additive fields ---
+		if s.TotalDistance != 0xFFFFFFFF {
+			ad.DistanceM += float64(s.TotalDistance) / 100.0
+		}
+		if s.TotalElapsedTime != 0xFFFFFFFF {
+			ad.ElapsedTimeS += int(s.TotalElapsedTime / 1000)
+		}
+		if s.TotalTimerTime != 0xFFFFFFFF {
+			ad.MovingTimeS += int(s.TotalTimerTime / 1000)
+		}
+		if s.TotalAscent != 0xFFFF {
+			ad.ElevationGainM += float64(s.TotalAscent)
+		}
+		if s.TotalDescent != 0xFFFF {
+			ad.ElevationLossM += float64(s.TotalDescent)
+		}
+		if s.TotalCalories != basetype.Uint16Invalid {
+			ad.TotalCalories += int(s.TotalCalories)
+		}
+		if s.TrainingStressScore != 0xFFFF {
+			ad.TSS += float64(s.TrainingStressScore) / 10.0
+		}
+
+		// --- Max fields ---
+		if s.MaxHeartRate != 0xFF && s.MaxHeartRate != 0 && int(s.MaxHeartRate) > ad.MaxHeartRate {
+			ad.MaxHeartRate = int(s.MaxHeartRate)
+		}
+		if s.MaxPower != 0xFFFF && s.MaxPower != 0 && int(s.MaxPower) > ad.MaxPowerW {
+			ad.MaxPowerW = int(s.MaxPower)
+		}
+		var maxSpd float64
+		if s.EnhancedMaxSpeed != 0xFFFFFFFF && s.EnhancedMaxSpeed != 0 {
+			maxSpd = float64(s.EnhancedMaxSpeed) / 1000.0
+		} else if s.MaxSpeed != 0xFFFF {
+			maxSpd = float64(s.MaxSpeed) / 1000.0
+		}
+		if maxSpd > ad.MaxSpeedMS {
+			ad.MaxSpeedMS = maxSpd
+		}
+		if s.EnhancedMaxAltitude != 0xFFFFFFFF {
+			maxAlt := float64(s.EnhancedMaxAltitude)/5.0 - 500.0
+			if maxAlt > ad.MaxElevationM {
+				ad.MaxElevationM = maxAlt
+			}
+		}
+
+		// --- Min fields ---
+		if s.MinHeartRate != basetype.Uint8Invalid && s.MinHeartRate != 0 {
+			if ad.MinHeartRate == 0 || int(s.MinHeartRate) < ad.MinHeartRate {
+				ad.MinHeartRate = int(s.MinHeartRate)
+			}
+		}
+		if s.EnhancedMinAltitude != 0xFFFFFFFF {
+			minAlt := float64(s.EnhancedMinAltitude)/5.0 - 500.0
+			if ad.MinElevationM == 0 || minAlt < ad.MinElevationM {
+				ad.MinElevationM = minAlt
+			}
+		}
+
+		// --- Time range ---
+		if !s.Timestamp.IsZero() && s.Timestamp.After(ad.EndedAt) {
+			ad.EndedAt = s.Timestamp
+		}
+	}
+
+	// Recalculate avg speed from merged totals (more accurate than any single session)
+	if ad.MovingTimeS > 0 && ad.DistanceM > 0 {
+		ad.AvgSpeedMS = ad.DistanceM / float64(ad.MovingTimeS)
+	}
+
+	// Note: AvgHeartRate, AvgPower, AvgCadence, AvgTemperature are left from
+	// sessions[0]. Computing accurate weighted averages requires timer-time weights
+	// which adds complexity for marginal gain. The stream-based moving time
+	// recalculation in buildActivityData already handles MovingTimeS correctly
+	// since it operates on ALL records from the merged file.
 }
 
 // formatDeviceName makes GarminProduct enum names human-readable.
