@@ -13,35 +13,30 @@ postgres:
     heatmap_points:
       schema: public
       function: heatmap_points_mvt
-    peaks:
-      schema: public
-      function: peaks_mvt
     waters:
       schema: public
       function: waters_mvt
     forests:
       schema: public
       function: forests_mvt
-    amenities:
-      schema: public
-      function: amenities_mvt
 
   tables:
-    # Trail-Netz für Routing-Overlay (Full-Modus: osm_trails befüllt)
-    osm_trails:
+    # Trail-/Wege-Netz für Routing-Overlay (osm_ways, ehem. osm_trails)
+    osm_ways:
       schema: public
-      table: osm_trails
+      table: osm_ways
       geometry_column: geom
       srid: 4326
       id_column: id
       minzoom: 10
       maxzoom: 22
       properties:
-        highway: text
-        surface: text
+        highway: varchar
+        surface: varchar
         tracktype: text
-        sac_scale: text
-        mtb_scale: text
+        sac_scale: varchar
+        mtb_scale: varchar
+        cycleway: varchar
         name: text
         oneway: boolean
         bridge: boolean
@@ -49,6 +44,35 @@ postgres:
         is_lift: boolean
         length_m: float8
         avg_slope: float8
+
+    # POIs (Gipfel, Pässe, Amenities — ehem. osm_peaks + osm_amenities)
+    pois_mvt:
+      schema: public
+      table: osm_pois
+      geometry_column: geom
+      srid: 4326
+      id_column: id
+      properties:
+        osm_id: int8
+        name: varchar
+        category: varchar
+        subtype: varchar
+        ele: float4
+      bounds: [-180, -90, 180, 90]
+
+    # Pisten (Ski/Snowboard)
+    pistes_mvt:
+      schema: public
+      table: osm_pistes
+      geometry_column: geom
+      srid: 4326
+      id_column: id
+      properties:
+        name: varchar
+        piste_type: varchar
+        difficulty: varchar
+        grooming: varchar
+      bounds: [-180, -90, 180, 90]
 
 # Basemap-Tiles (Full-Modus, PgOSM Flex Tabellen im osm-Schema)
 # Nur aktiv wenn PgOSM Flex importiert wurde (osm-Schema existiert)
