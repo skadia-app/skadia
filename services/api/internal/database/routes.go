@@ -32,7 +32,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 			estimated_time_min, time_override, auto_tag
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
-			ST_GeomFromGeoJSON($7), $8, $9,
+			ST_Force2D(ST_GeomFromGeoJSON($7)), $8, $9,
 			$10, $11, $12,
 			$13, $14, $15
 		)
@@ -156,7 +156,7 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			sport_type         = $5,
 			difficulty         = $6,
 			profile            = $7,
-			geometry           = ST_GeomFromGeoJSON($8),
+			geometry           = ST_Force2D(ST_GeomFromGeoJSON($8)),
 			waypoints          = $9,
 			segments           = $10,
 			total_distance_m   = $11,
@@ -423,10 +423,10 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 			geometry_hash
 		) VALUES (
 			$1, $2, $3, $4, $5,
-			ST_GeomFromGeoJSON($6), $7, $8,
+			ST_Force2D(ST_GeomFromGeoJSON($6)), $7, $8,
 			$9, $10, $11,
 			$12, $13, $14,
-			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_GeomFromGeoJSON($6), 0.00001)), 'sha256'), 'hex')
+			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($6)), 0.00001)), 'sha256'), 'hex')
 		) RETURNING id`,
 		userID, r.Name, r.Description, r.SportType, r.Profile,
 		r.GeometryGeoJSON, r.WaypointsJSON, r.SegmentsJSON,
