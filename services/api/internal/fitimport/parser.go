@@ -47,6 +47,28 @@ func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, 
 		return []*model.ActivityData{ad}, nil
 	}
 
+	// Multi-session: check if all non-multisport sessions share the same sport.
+	// GOTOES-merged FIT files produce 2 sessions with identical sport type — these
+	// must NOT be split into parent/child multisport activities.
+	var nonMultisportSports []typedef.Sport
+	for i := range sessionMsgs {
+		s := mesgdef.NewSession(&sessionMsgs[i])
+		if s.Sport != typedef.SportMultisport {
+			nonMultisportSports = append(nonMultisportSports, s.Sport)
+		}
+	}
+	if allSameSport(nonMultisportSports) {
+		// All sessions are the same sport — treat as single activity.
+		// buildActivityData uses sessions[0] for aggregate metrics, which is
+		// correct for GOTOES files (each session has its own partial totals;
+		// Strava CSV metadata will override distance/time anyway).
+		ad, err := buildActivityData(fit, filename)
+		if err != nil {
+			return nil, err
+		}
+		return []*model.ActivityData{ad}, nil
+	}
+
 	// Multi-session: build sub-FITs partitioned by session time range
 	// Collect all record messages with their timestamps
 	var allRecords []proto.Message
@@ -730,6 +752,21 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 	}
 
 	return source, device
+}
+
+// allSameSport returns true when all elements in sports are identical.
+// Used to detect GOTOES-merged files where multiple sessions share one sport.
+func allSameSport(sports []typedef.Sport) bool {
+	if len(sports) == 0 {
+		return false
+	}
+	first := sports[0]
+	for _, s := range sports[1:] {
+		if s != first {
+			return false
+		}
+	}
+	return true
 }
 
 // formatDeviceName makes GarminProduct enum names human-readable.
