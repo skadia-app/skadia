@@ -189,7 +189,7 @@ func (db *DB) GetVisitedTrailIDs(ctx context.Context, userID string) (map[int64]
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.source, t.target
 		FROM heatmap_trail_matches m
-		JOIN osm_ways t ON t.id = m.trail_id
+		JOIN osm_ways t ON t.id = m.way_id
 		WHERE m.user_id = $1
 	`, userID)
 	if err != nil {
