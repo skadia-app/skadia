@@ -1,15 +1,25 @@
 package importer
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"log/slog"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/phash"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
@@ -342,4 +352,361 @@ func (s *Service) compareStreamRichness(_ context.Context, newData *model.Activi
 	}
 	// Return newCount; caller replaces if positive (v1: any streams = richer than unknown existing)
 	return newCount
+}
+
+const mediaBucket = "skadia-media"
+
+// ProcessPhoto centralizes all photo import logic: SHA256 exact dedup, pHash near-duplicate
+// detection, thumbnail/preview generation, S3 upload, and DB insertion.
+// It mirrors the logic of handler.UploadActivityPhoto but accepts raw bytes + PhotoMetadata
+// instead of an HTTP request.
+func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, photoBytes []byte, meta PhotoMetadata) (*PhotoResult, error) {
+	// 1. SHA256 exact dedup
+	hashArr := sha256.Sum256(photoBytes)
+	fileHash := hex.EncodeToString(hashArr[:])
+
+	if exists, err := s.DB.ActivityPhotoExistsByHash(ctx, userID, fileHash); err == nil && exists {
+		return &PhotoResult{Status: "duplicate_exact"}, nil
+	}
+
+	// 2. Determine content type: trust meta.ContentType if provided; otherwise sniff bytes.
+	ct := meta.ContentType
+	if ct == "" {
+		sniff := photoBytes
+		if len(sniff) > 512 {
+			sniff = sniff[:512]
+		}
+		ct = http.DetectContentType(sniff)
+		// Fallback for HEIC/JXL/video that returns application/octet-stream
+		if ct == "application/octet-stream" || ct == "application/zip" {
+			ct = contentTypeFromFilename(meta.OriginalFilename)
+		}
+	}
+
+	isVideo := strings.HasPrefix(ct, "video/")
+
+	// 3. Compute pHash
+	var pHashVal int64
+	var pHashOk bool
+	if isVideo {
+		durationS := 30.0
+		if meta.DurationS != nil {
+			durationS = *meta.DurationS
+		}
+		if h, err := phash.ComputeVideoHash(photoBytes, durationS); err == nil {
+			pHashVal = int64(h)
+			pHashOk = true
+		} else {
+			slog.Warn("importer: video phash failed", "err", err)
+		}
+	} else {
+		if h, err := phash.ComputeFromBytes(photoBytes); err == nil {
+			pHashVal = int64(h)
+			pHashOk = true
+		} else {
+			// Fallback for HEIC/JXL via ffmpeg
+			if h2, err2 := phash.ComputeViaFFmpeg(photoBytes); err2 == nil {
+				pHashVal = int64(h2)
+				pHashOk = true
+			} else {
+				slog.Warn("importer: phash computation failed, importing with phash=NULL", "err", err)
+			}
+		}
+	}
+
+	// 4. pHash duplicate check against existing photos of this activity
+	if pHashOk && activityID != "" {
+		existing, err := s.DB.GetActivityPhotoHashes(ctx, activityID)
+		if err == nil && len(existing) > 0 {
+			const pHashThreshold = 3
+			hashes := make([]uint64, len(existing))
+			for i, e := range existing {
+				if e.PHash != nil {
+					hashes[i] = uint64(*e.PHash)
+				}
+			}
+			bestIdx, _ := phash.FindBestMatch(uint64(pHashVal), hashes, pHashThreshold)
+			if bestIdx >= 0 {
+				matchedPhoto := existing[bestIdx]
+				// Resolution check: replace if new image is strictly larger
+				var newW, newH int
+				if img, _, err := image.Decode(bytes.NewReader(photoBytes)); err == nil {
+					newW = img.Bounds().Dx()
+					newH = img.Bounds().Dy()
+				}
+				existingPixels := 0
+				if matchedPhoto.Width != nil && matchedPhoto.Height != nil {
+					existingPixels = *matchedPhoto.Width * *matchedPhoto.Height
+				}
+				newPixels := newW * newH
+				if newPixels > existingPixels && existingPixels > 0 {
+					slog.Info("importer: phash duplicate with higher resolution, replacing", "photo", matchedPhoto.ID)
+					_ = s.DB.UpdateActivityPhotoDimensions(ctx, matchedPhoto.ID, newW, newH)
+					_ = s.DB.UpdateActivityPhotoPHash(ctx, matchedPhoto.ID, pHashVal)
+					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "replaced", PHash: pHashVal}, nil
+				}
+				return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "duplicate_phash", PHash: pHashVal}, nil
+			}
+		}
+	}
+
+	// 5. No duplicate — insert new photo.
+
+	// Determine file extension for S3 key
+	ext := fileExtFromContentType(ct, meta.OriginalFilename)
+
+	// Video metadata via ffprobe
+	var videoMeta *imageutil.VideoMeta
+	if isVideo {
+		if vm, err := imageutil.ProbeVideo(photoBytes, ext); err == nil {
+			videoMeta = &vm
+		} else {
+			slog.Warn("importer: ffprobe failed", "filename", meta.OriginalFilename, "error", err)
+		}
+	}
+
+	// Thumbnail (200px) — first frame for video/HEIC/JXL, otherwise imageutil.Resize
+	var thumbData []byte
+	switch {
+	case isVideo:
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		} else {
+			slog.Warn("importer: ffmpeg video thumbnail failed", "filename", meta.OriginalFilename, "error", err)
+		}
+	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		} else {
+			slog.Warn("importer: ffmpeg image thumbnail failed", "ct", ct, "error", err)
+		}
+	default:
+		thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
+	}
+
+	// Preview thumbnail (2048px for images; mid-frame for video)
+	var previewData []byte
+	s3KeyPreview := ""
+	if isVideo {
+		var midOffset float64
+		if videoMeta != nil && videoMeta.DurationS > 2 {
+			midOffset = videoMeta.DurationS / 2
+		}
+		if pd, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 2560, midOffset); err == nil {
+			previewData = pd
+		} else {
+			slog.Warn("importer: ffmpeg video preview failed", "filename", meta.OriginalFilename, "error", err)
+		}
+	} else {
+		// Load user preview size setting; default to 2048px on error.
+		maxW, maxH := 2048, 2048
+		if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil {
+			if w, h := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); w > 0 {
+				maxW, maxH = w, h
+			}
+		}
+		if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+			previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, maxW, 0)
+		} else {
+			previewData, _ = imageutil.Resize(photoBytes, maxW, maxH, 85)
+		}
+	}
+
+	// Decode image dimensions for width/height columns
+	var imgWidth, imgHeight int
+	if !isVideo {
+		if img, _, err := image.Decode(bytes.NewReader(photoBytes)); err == nil {
+			imgWidth = img.Bounds().Dx()
+			imgHeight = img.Bounds().Dy()
+		}
+	} else if videoMeta != nil {
+		imgWidth = videoMeta.Width
+		imgHeight = videoMeta.Height
+	}
+
+	// S3 paths
+	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, fileHash, ext)
+	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, fileHash)
+
+	// Upload original
+	if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3Key, photoBytes, ct); err != nil {
+		return nil, fmt.Errorf("s3 upload photo: %w", err)
+	}
+
+	// Upload thumbnail
+	if thumbData != nil {
+		if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+			slog.Warn("importer: s3 upload thumb failed", "err", err)
+			s3KeyThumb = s3Key // fallback: original
+		}
+	} else {
+		s3KeyThumb = s3Key
+	}
+
+	// Upload preview
+	if previewData != nil {
+		pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
+		if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
+			slog.Warn("importer: s3 upload preview failed", "err", err)
+		} else {
+			s3KeyPreview = pk
+		}
+	}
+
+	// Build DB model
+	var actIDPtr *string
+	if activityID != "" {
+		actIDPtr = &activityID
+	}
+	hashCopy := fileHash
+	photo := model.ActivityPhoto{
+		UserID:           userID,
+		ActivityID:       actIDPtr,
+		S3Bucket:         mediaBucket,
+		S3Key:            s3Key,
+		S3KeyThumb:       s3KeyThumb,
+		S3KeyPreview:     s3KeyPreview,
+		OriginalFilename: meta.OriginalFilename,
+		ContentType:      ct,
+		FileSizeBytes:    int64(len(photoBytes)),
+		FileHash:         &hashCopy,
+		TakenAt:          meta.TakenAt,
+		IsVideo:          isVideo,
+	}
+
+	// Location fields from metadata
+	if meta.Lat != nil {
+		photo.Lat = meta.Lat
+		photo.Lng = meta.Lng
+		if meta.LocationSource != "" {
+			ls := meta.LocationSource
+			photo.LocationSource = &ls
+		}
+	}
+
+	// pHash
+	if pHashOk {
+		photo.PHash = &pHashVal
+	}
+
+	// Image dimensions
+	if imgWidth > 0 {
+		photo.Width = &imgWidth
+		photo.Height = &imgHeight
+	}
+
+	// Video metadata
+	if videoMeta != nil {
+		photo.DurationS = &videoMeta.DurationS
+		photo.VideoWidth = &videoMeta.Width
+		photo.VideoHeight = &videoMeta.Height
+	} else if meta.DurationS != nil {
+		// Use caller-supplied video metadata as fallback
+		photo.DurationS = meta.DurationS
+		photo.VideoWidth = meta.VideoWidth
+		photo.VideoHeight = meta.VideoHeight
+	}
+
+	saved, err := s.DB.InsertActivityPhoto(ctx, photo)
+	if err != nil {
+		return nil, fmt.Errorf("insert activity photo: %w", err)
+	}
+
+	// Publish CLIP embed event (best-effort)
+	if s.Events != nil {
+		clipFrames := 4
+		if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil && settings.VideoClipFrames > 0 {
+			clipFrames = settings.VideoClipFrames
+		}
+		ev := event.PhotoEmbedEvent{
+			PhotoID:         saved.ID,
+			UserID:          userID,
+			S3Bucket:        mediaBucket,
+			S3Key:           s3Key,
+			S3KeyPreview:    s3KeyPreview,
+			ContentType:     ct,
+			VideoClipFrames: clipFrames,
+		}
+		if err := s.Events.PublishPhotoEmbed(ev); err != nil {
+			slog.Warn("importer: failed to publish photo embed event", "photo_id", saved.ID, "err", err)
+		}
+	}
+
+	result := &PhotoResult{
+		PhotoID: saved.ID,
+		Status:  "created",
+	}
+	if pHashOk {
+		result.PHash = pHashVal
+	}
+	return result, nil
+}
+
+// contentTypeFromFilename derives a MIME type from a filename's extension.
+// Used as fallback when http.DetectContentType returns application/octet-stream.
+func contentTypeFromFilename(filename string) string {
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return "application/octet-stream"
+	}
+	switch strings.ToLower(filename[dot:]) {
+	case ".heic", ".heif":
+		return "image/heic"
+	case ".jxl":
+		return "image/jxl"
+	case ".avif":
+		return "image/avif"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// fileExtFromContentType returns the canonical file extension (with dot) for a content type.
+// Prefers the extension from the original filename when available.
+func fileExtFromContentType(ct, originalFilename string) string {
+	if dot := strings.LastIndex(originalFilename, "."); dot >= 0 {
+		origExt := strings.ToLower(originalFilename[dot:])
+		switch origExt {
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".tif",
+			".heic", ".heif", ".avif", ".jxl",
+			".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm":
+			return origExt
+		}
+	}
+	switch {
+	case strings.Contains(ct, "png"):
+		return ".png"
+	case strings.Contains(ct, "gif"):
+		return ".gif"
+	case strings.Contains(ct, "webp"):
+		return ".webp"
+	case strings.Contains(ct, "heic") || strings.Contains(ct, "heif"):
+		return ".heic"
+	case strings.Contains(ct, "avif"):
+		return ".avif"
+	case strings.Contains(ct, "jxl"):
+		return ".jxl"
+	case strings.Contains(ct, "video/mp4"):
+		return ".mp4"
+	case strings.Contains(ct, "quicktime"):
+		return ".mov"
+	case strings.Contains(ct, "x-msvideo"):
+		return ".avi"
+	case strings.Contains(ct, "x-matroska"):
+		return ".mkv"
+	case strings.Contains(ct, "webm"):
+		return ".webm"
+	default:
+		return ".jpg"
+	}
 }
