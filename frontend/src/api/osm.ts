@@ -9,6 +9,7 @@ export interface OSMStatus {
   forests: number
   glaciers: number
   wetlands: number
+  routes: number
   boundaries: number
   has_data: boolean
   // Legacy fields for backwards-compat (may come from older API versions)

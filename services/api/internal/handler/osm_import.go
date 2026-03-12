@@ -45,6 +45,7 @@ var osmCategories = map[string][]string{
 	"lifts":          {"osm_lifts"},
 	"ferries":        {}, // shares osm_ways — cleared via DELETE WHERE highway='ferry'
 	"climbing":       {}, // shares osm_ways — cleared via DELETE WHERE highway='via_ferrata'
+	"routes":         {"osm_routes"},
 }
 
 // categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
@@ -73,6 +74,7 @@ var categoryToTable = map[string][]string{
 	"boundaries": {"osm_boundaries"},
 	"pistes":     {"osm_pistes"},
 	"lifts":      {"osm_lifts"},
+	"routes":     {"osm_routes"},
 	// "ferries" intentionally omitted — uses targeted DELETE, not TRUNCATE
 }
 
@@ -102,6 +104,7 @@ var categoryEnvVars = map[string][]string{
 	"pistes":     {"SKADIA_IMPORT_PISTES"},
 	"ferries":   {"SKADIA_IMPORT_FERRIES"},
 	"climbing":  {"SKADIA_IMPORT_CLIMBING"},
+	"routes":    {"SKADIA_IMPORT_ROUTES"},
 }
 
 type osmImportRequest struct {
@@ -362,9 +365,12 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		"UPDATE osm_waters SET geom = ST_QuantizeCoordinates(geom, 6)",
 		"UPDATE osm_glaciers SET geom = ST_QuantizeCoordinates(geom, 6)",
 		"UPDATE osm_wetlands SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_routes SET geom = ST_QuantizeCoordinates(geom, 6)",
 		"UPDATE osm_ways SET length_m = ST_Length(geom::geography) WHERE length_m IS NULL OR length_m = 0",
+		"UPDATE osm_routes SET distance = ST_Length(geom::geography) / 1000.0 WHERE distance IS NULL",
 		"VACUUM ANALYZE osm_pois",
 		"VACUUM ANALYZE osm_ways",
+		"VACUUM ANALYZE osm_routes",
 	}
 	for _, q := range optimizeQueries {
 		preview := q
@@ -448,6 +454,7 @@ func buildIndexStatements(categories []string) []string {
 		{"forests", "osm_glaciers_geog_idx", "osm_glaciers", "USING gist ((geom::geography))"},
 		{"boundaries", "osm_boundaries_geog_idx", "osm_boundaries", "USING gist ((geom::geography))"},
 		{"pistes", "osm_pistes_geog_idx", "osm_pistes", "USING gist ((geom::geography))"},
+		{"routes", "osm_routes_geog_idx", "osm_routes", "USING gist ((geom::geography))"},
 	}
 
 	var stmts []string

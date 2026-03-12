@@ -60,6 +60,24 @@ postgres:
         ele: float4
       bounds: [-180, -90, 180, 90]
 
+    # Benannte Routen (Wanderwege, Radrouten, MTB, Ski, Ferry, Via Ferrata)
+    osm_routes:
+      schema: public
+      table: osm_routes
+      geometry_column: geom
+      srid: 4326
+      id_column: id
+      minzoom: 6
+      maxzoom: 16
+      properties:
+        osm_id: int8
+        name: text
+        ref: text
+        route: text
+        network: text
+        colour: text
+        distance: float4
+
     # Pisten (Ski/Snowboard)
     pistes_mvt:
       schema: public

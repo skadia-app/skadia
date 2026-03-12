@@ -24,7 +24,7 @@ TABLE_WHITELIST = {
     "health_snapshots", "health_sleep", "health_weight_entries",
     "gear", "gear_components", "segments", "segment_efforts",
     "pmc_daily", "user_daily_features", "tags", "activity_tags",
-    "osm_pois", "osm_ways", "osm_pistes", "osm_glaciers", "osm_wetlands",
+    "osm_pois", "osm_ways", "osm_pistes", "osm_glaciers", "osm_wetlands", "osm_routes",
 }
 
 SCHEMA_CONTEXT = """Available tables (PostgreSQL, READ-ONLY):
@@ -47,6 +47,7 @@ activity_stops: activity_id UUID, started_at TIMESTAMPTZ, ended_at TIMESTAMPTZ, 
 activity_photos: id UUID, user_id UUID, activity_id UUID, taken_at TIMESTAMPTZ, lat FLOAT8, lng FLOAT8, is_video BOOL, duration_s FLOAT8
 osm_pois: id BIGINT, osm_id BIGINT, name TEXT, category TEXT, type TEXT, subtype TEXT, ele REAL, geom GEOMETRY(Point,4326) — categories: peak, pass, settlement, gastronomy, accommodation, shelter, water_supply, transport, parking, viewpoint, shop, barrier
 osm_ways: osm_id BIGINT, name TEXT, highway TEXT, surface TEXT, geom GEOMETRY(LineString,4326) — all routable ways (roads, paths, trails)
+osm_routes: id BIGINT, osm_id BIGINT, name TEXT, ref TEXT, route TEXT, network TEXT, colour TEXT, distance REAL, geom GEOMETRY(MultiLineString,4326) — named route relations (hiking/bicycle/mtb/foot/ski/running/ferry/via_ferrata)
 
 IMPORTANT: Do NOT add user_id filters — Row-Level Security (RLS) handles this automatically. Do NOT use $1/$2 parameter placeholders — write values directly into the query.
 """

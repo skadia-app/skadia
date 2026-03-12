@@ -26,6 +26,7 @@ const ALL_CATEGORIES = [
   { id: 'pistes',         label: 'Skipisten',                group: 'Wege' },
   { id: 'climbing',       label: 'Kletterrouten & Via Ferrata', group: 'Wege' },
   { id: 'ferries',        label: 'Fährrouten',               group: 'Wege' },
+  { id: 'routes',         label: 'Benannte Routen (Fernwege/Radrouten)', group: 'Wege' },
   // Flächen
   { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },
   { id: 'forests',        label: 'Wälder',                   group: 'Flächen' },

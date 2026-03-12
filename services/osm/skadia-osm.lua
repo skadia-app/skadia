@@ -120,6 +120,24 @@ tables.boundaries = osm2pgsql.define_area_table('osm_boundaries', {
     { column = 'geom',         type = 'geometry', not_null = true },
 })
 
+tables.routes = osm2pgsql.define_relation_table('osm_routes', {
+    { column = 'osm_id',      type = 'int8',    not_null = true },
+    { column = 'name',        type = 'text' },
+    { column = 'ref',         type = 'text' },
+    { column = 'route',       type = 'text',    not_null = true },
+    { column = 'network',     type = 'text' },
+    { column = 'operator',    type = 'text' },
+    { column = 'colour',      type = 'text' },
+    { column = 'osmc_symbol', type = 'text' },
+    { column = 'distance',    type = 'real' },
+    { column = 'ascent',      type = 'int4' },
+    { column = 'descent',     type = 'int4' },
+    { column = 'description', type = 'text' },
+    { column = 'website',     type = 'text' },
+    { column = 'tags',        type = 'jsonb' },
+    { column = 'geom',        type = 'multilinestring', not_null = true },
+})
+
 -- ============================================================
 -- Import flags (env vars)
 -- ============================================================
@@ -148,6 +166,7 @@ local import_boundaries    = os.getenv("SKADIA_IMPORT_BOUNDARIES")    ~= nil
 local import_pistes        = os.getenv("SKADIA_IMPORT_PISTES")        ~= nil
 local import_ferries       = os.getenv("SKADIA_IMPORT_FERRIES")       ~= nil
 local import_climbing      = os.getenv("SKADIA_IMPORT_CLIMBING")      ~= nil
+local import_routes        = os.getenv("SKADIA_IMPORT_ROUTES")        ~= nil
 
 -- If NO flag is set → import everything (backward compat for shell scripts)
 local import_all = not (import_peaks or import_passes or import_lifts or
@@ -156,7 +175,8 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_shops or import_sport or import_camping or import_information or
     import_landmarks or import_religion or import_ways or import_waterways or
     import_forests or import_glaciers or import_wetlands or
-    import_boundaries or import_pistes or import_ferries or import_climbing)
+    import_boundaries or import_pistes or import_ferries or import_climbing or
+    import_routes)
 
 -- ============================================================
 -- Helper functions
@@ -768,7 +788,29 @@ function osm2pgsql.process_way(object)
 end
 
 -- ============================================================
--- process_relation: Grenzen, Flächen-Relationen
+-- Helpers
+-- ============================================================
+
+local function parse_distance(s)
+    -- OSM distance tags: "42", "42.5", "42 km", "42km"
+    if s == nil then return nil end
+    return tonumber(s:match("^%s*([%d%.]+)"))
+end
+
+local function parse_elevation_int(s)
+    if s == nil then return nil end
+    local n = tonumber(s:match("^%s*(%d+)"))
+    if n then return math.floor(n) end
+    return nil
+end
+
+local valid_route_types = {
+    hiking=true, bicycle=true, mtb=true, foot=true,
+    ski=true, running=true, ferry=true, via_ferrata=true,
+}
+
+-- ============================================================
+-- process_relation: Grenzen, Flächen, Routen
 -- ============================================================
 
 function osm2pgsql.process_relation(object)
@@ -858,6 +900,43 @@ function osm2pgsql.process_relation(object)
         local piste_types = {downhill=true, nordic=true, skitour=true, sled=true, hike=true, sleigh=true}
         if tags.type == 'multipolygon' and tags['piste:type'] and piste_types[tags['piste:type']] then
             -- TODO Phase 8c-II: import piste relation outlines as area
+        end
+    end
+
+    -- Benannte Routen-Relationen (Wanderwege, Radrouten, MTB, Ski, Fähren, Via Ferrata)
+    if (import_all or import_routes) then
+        if tags.type == 'route' then
+            local route_type = tags.route
+            if route_type and valid_route_types[route_type] then
+                -- Nur benannte Routen importieren — anonyme Connector-Relationen
+                -- (keine Identität, duplizieren nur Geometrie) ausfiltern
+                if tags.name or tags.ref then
+                    local ml = object:as_multilinestring()
+                    if ml then
+                        tables.routes:insert({
+                            osm_id      = object.id,
+                            name        = tags.name,
+                            ref         = tags.ref,
+                            route       = route_type,
+                            network     = tags.network,
+                            operator    = tags.operator,
+                            colour      = tags.colour,
+                            osmc_symbol = tags['osmc:symbol'],
+                            distance    = parse_distance(tags.distance),
+                            ascent      = parse_elevation_int(tags.ascent),
+                            descent     = parse_elevation_int(tags.descent),
+                            description = tags.description,
+                            website     = tags.website,
+                            tags        = build_tags(tags, {
+                                'from', 'to', 'wikidata', 'wikipedia',
+                                'short_name', 'alt_name', 'roundtrip',
+                                'duration', 'difficulty',
+                            }),
+                            geom        = ml,
+                        })
+                    end
+                end
+            end
         end
     end
 end
