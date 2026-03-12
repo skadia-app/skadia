@@ -8,6 +8,7 @@ type ImportMetadata struct {
 	StravaActivityID int64
 	KomootTourID     int64
 	SourcePlatform   string // "garmin" | "strava" | "komoot" | "webui" | "url" | "hotfolder"
+	ParentID         string // non-empty for multisport child activities
 }
 
 // ActivityResult is returned by ProcessActivity.

@@ -22,6 +22,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/phash"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
+	"github.com/google/uuid"
 )
 
 // ShadowWriterFunc is a callback that writes the shadow file for an activity.
@@ -256,8 +257,13 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 		}, nil
 	}
 
-	// New activity: insert
-	inserted, err := s.DB.InsertActivity(ctx, userID, data)
+	// New activity: insert (with parent link for multisport children)
+	var inserted *model.Activity
+	if meta.ParentID != "" {
+		inserted, err = s.DB.InsertActivityWithParent(ctx, userID, data, meta.ParentID)
+	} else {
+		inserted, err = s.DB.InsertActivity(ctx, userID, data)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
@@ -269,6 +275,98 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 		ActivityID: inserted.ID,
 		Status:     "created",
 	}, nil
+}
+
+// MultisportResult is returned by ProcessMultisport.
+type MultisportResult struct {
+	ParentID      string
+	ParentCreated bool
+	Children      []*ActivityResult
+}
+
+// ProcessMultisport handles multi-session FIT files (e.g. triathlons).
+// It creates a multisport parent (if not already present via file hash dedup),
+// then routes each child session through ProcessActivity + PostProcess.
+// Each child gets an individual file hash: SHA256(originalHash + ":" + sessionIndex).
+func (s *Service) ProcessMultisport(
+	ctx context.Context,
+	userID string,
+	sessions []*model.ActivityData,
+	fileBytes []byte,
+	fileHash string,
+	s3Key string,
+	format string,
+	filename string,
+	meta ImportMetadata,
+) (*MultisportResult, error) {
+	if len(sessions) < 2 {
+		return nil, fmt.Errorf("ProcessMultisport requires >= 2 sessions, got %d", len(sessions))
+	}
+
+	result := &MultisportResult{}
+
+	// 1. Parent dedup: check if multisport parent with this file hash already exists
+	parentID, err := s.DB.FindMultisportParentByHash(ctx, userID, fileHash)
+	if err != nil {
+		slog.Warn("multisport parent lookup failed", "err", err)
+	}
+
+	if parentID != "" {
+		// Parent already exists (re-import of same file)
+		result.ParentID = parentID
+		result.ParentCreated = false
+	} else {
+		// Create new parent
+		parent := &model.Activity{
+			ID:        newUUID(),
+			UserID:    userID,
+			SportType: "multisport",
+			Title:     strPtr("Multisport"),
+			StartedAt: sessions[0].StartedAt,
+			FileHash:  &fileHash,
+		}
+		if err := s.DB.InsertMultisportParent(ctx, parent); err != nil {
+			return nil, fmt.Errorf("insert multisport parent: %w", err)
+		}
+		result.ParentID = parent.ID
+		result.ParentCreated = true
+	}
+
+	// 2. Process each child session
+	for i, childData := range sessions {
+		// Skip multisport summary sessions
+		if childData.SportType == "multisport" {
+			continue
+		}
+
+		// Individual hash per child to avoid FileHash collisions
+		childHash := fmt.Sprintf("%x", sha256.Sum256([]byte(fileHash+":"+fmt.Sprintf("%d", i))))
+		childData.FileHash = childHash
+
+		childMeta := meta
+		childMeta.ParentID = result.ParentID
+
+		actResult, err := s.ProcessActivity(ctx, userID, childData, fileBytes, childMeta)
+		if err != nil {
+			slog.Warn("multisport child import failed", "session", i, "sport", childData.SportType, "err", err)
+			continue
+		}
+		result.Children = append(result.Children, actResult)
+
+		// PostProcess only for newly created activities
+		if actResult.Status == "created" {
+			if err := s.PostProcess(ctx, userID, actResult.ActivityID, childData, fileBytes, s3Key, format, filename); err != nil {
+				slog.Warn("multisport child postprocess failed", "activity", actResult.ActivityID, "err", err)
+			}
+		}
+	}
+
+	// 3. Re-aggregate parent metrics (always, to pick up any new/enriched children)
+	if err := s.DB.AggregateParentMetrics(ctx, result.ParentID); err != nil {
+		slog.Warn("aggregate parent metrics failed", "parent", result.ParentID, "err", err)
+	}
+
+	return result, nil
 }
 
 // backfillPlatformIDs sets Garmin/Strava/Komoot IDs on an activity using
@@ -418,7 +516,10 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	if pHashOk && activityID != "" {
 		existing, err := s.DB.GetActivityPhotoHashes(ctx, activityID)
 		if err == nil && len(existing) > 0 {
-			const pHashThreshold = 3
+			pHashThreshold := 3
+			if settings, settErr := s.DB.GetEnrichmentSettings(ctx, userID); settErr == nil && settings.PhashThresholdBits > 0 {
+				pHashThreshold = settings.PhashThresholdBits
+			}
 			hashes := make([]uint64, len(existing))
 			for i, e := range existing {
 				if e.PHash != nil {
@@ -866,3 +967,6 @@ func fileExtFromContentType(ct, originalFilename string) string {
 		return ".jpg"
 	}
 }
+
+func newUUID() string { return uuid.New().String() }
+func strPtr(s string) *string { return &s }

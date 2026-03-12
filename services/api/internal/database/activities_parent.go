@@ -11,12 +11,27 @@ import (
 // InsertMultisportParent inserts a bare parent activity for a multisport session.
 // The parent holds no metrics itself; metrics are aggregated from children via
 // AggregateParentMetrics after all children are inserted.
+// file_hash is stored so re-imports of the same file can detect the existing parent.
 func (db *DB) InsertMultisportParent(ctx context.Context, act *model.Activity) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO activities (id, user_id, sport_type, title, started_at, visibility, enrichment_status)
-		VALUES ($1, $2, $3, $4, $5, 'private', 'complete')`,
-		act.ID, act.UserID, act.SportType, act.Title, act.StartedAt)
+		INSERT INTO activities (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'private', 'complete')`,
+		act.ID, act.UserID, act.SportType, act.Title, act.StartedAt, act.FileHash)
 	return err
+}
+
+// FindMultisportParentByHash checks if a multisport parent with the given file_hash exists.
+// Returns the parent's activity ID if found, empty string otherwise.
+func (db *DB) FindMultisportParentByHash(ctx context.Context, userID, fileHash string) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM activities
+		WHERE user_id = $1 AND file_hash = $2 AND sport_type = 'multisport' AND deleted_at IS NULL
+		LIMIT 1`, userID, fileHash).Scan(&id)
+	if err != nil {
+		return "", nil // not found is not an error
+	}
+	return id, nil
 }
 
 // InsertActivityWithParent inserts an activity and links it to a multisport parent.
