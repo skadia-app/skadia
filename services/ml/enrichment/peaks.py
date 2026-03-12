@@ -11,7 +11,7 @@ DEFAULT_RADIUS_M = 100
 async def enrich_peaks(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
     """Find peaks/passes within radius of the activity track via ST_DWithin.
 
-    Uses the osm_peaks table (populated by osm2pgsql Flex) and writes results
+    Uses the osm_pois table (populated by osm2pgsql Flex) and writes results
     to activity_geo_tags with category 'summit' or 'pass'.
 
     Returns the number of peaks found.
@@ -34,8 +34,9 @@ async def enrich_peaks(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             SELECT p.osm_id, p.name, p.ele, p.type,
                    ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
                    ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon
-            FROM osm_peaks p, route
+            FROM osm_pois p, route
             WHERE ST_DWithin(route.geom::geography, p.geom::geography, $2)
+              AND p.category IN ('peak', 'pass')
               AND p.name IS NOT NULL
             ORDER BY dist_m
             """,
@@ -53,7 +54,7 @@ async def enrich_peaks(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
         )
 
         for row in rows:
-            # Map osm_peaks.type to geo_tag category
+            # Map osm_pois.type to geo_tag category
             category = "pass" if row["type"] in ("pass", "saddle") else "summit"
             meta = {}
             if row["dist_m"] is not None:

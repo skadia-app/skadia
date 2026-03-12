@@ -30,12 +30,13 @@ async def enrich_settlements(
                 SELECT track_full AS geom
                 FROM activity_tracks WHERE activity_id = $1
             )
-            SELECT s.osm_id, s.name, s.place,
+            SELECT s.osm_id, s.name, s.subtype AS place,
                    ST_Y(s.geom) AS center_lat,
                    ST_X(s.geom) AS center_lon
-            FROM osm_settlements s, route
+            FROM osm_pois s, route
             WHERE ST_DWithin(route.geom::geography, s.geom::geography, 200)
-            ORDER BY s.place, s.name
+              AND s.category = 'settlement'
+            ORDER BY s.subtype, s.name
             """,
             activity_id,
         )

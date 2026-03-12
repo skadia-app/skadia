@@ -26,7 +26,7 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
     """Detect stops in the activity and match them to nearby POIs.
 
     A stop is defined as consecutive points where speed < 0.5 m/s for > 60 seconds.
-    All stop points are matched against osm_amenities in a single batch query via LATERAL.
+    All stop points are matched against osm_pois in a single batch query via LATERAL.
     Writes results to activity_stops table.
 
     Returns the number of stops found.
@@ -122,8 +122,9 @@ async def enrich_stops(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             FROM stops s
             LEFT JOIN LATERAL (
                 SELECT a.osm_id, a.name, a.type AS tag_key, a.subtype AS tag_value
-                FROM osm_amenities a
+                FROM osm_pois a
                 WHERE ST_DWithin(s.geom::geography, a.geom::geography, $3)
+                  AND a.category IN ('gastronomy', 'accommodation')
                 ORDER BY ST_Distance(s.geom::geography, a.geom::geography)
                 LIMIT 1
             ) a ON true
