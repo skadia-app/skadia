@@ -198,12 +198,12 @@ func (db *DB) SetActivitiesParent(ctx context.Context, userID string, activityID
 func (db *DB) AggregateParentMetrics(ctx context.Context, parentID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities SET
-			elapsed_time_s  = (SELECT SUM(elapsed_time_s)   FROM activities WHERE parent_id = $1),
-			moving_time_s   = (SELECT SUM(moving_time_s)    FROM activities WHERE parent_id = $1),
-			distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1),
-			elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1),
-			elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1),
-			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1)
+			elapsed_time_s  = (SELECT SUM(elapsed_time_s)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			moving_time_s   = (SELECT SUM(moving_time_s)    FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL)
 		WHERE id = $1`, parentID)
 	return err
 }

@@ -59,6 +59,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(fileBytes)
 	hashStr := hex.EncodeToString(hash[:])
 
+	// Resolve user's conflict strategy for duplicate handling
+	var conflictStrategy importer.ConflictStrategy
+	if importSettings, settErr := h.DB.GetImportSettings(r.Context(), userID); settErr == nil && importSettings != nil {
+		conflictStrategy = importer.ConflictStrategy(importSettings.ConflictStrategy)
+	}
+
 	filename := header.Filename
 
 	// For FIT files try multi-session parsing to detect multisport activities.
@@ -87,7 +93,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				r.Context(), userID, activities, fileBytes, hashStr,
 				s3Key, format, filename,
-				importer.ImportMetadata{SourcePlatform: "webui"},
+				importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy},
 			)
 			if msErr != nil {
 				writeError(w, http.StatusInternalServerError, "Import Error", msErr.Error(), r.URL.Path)
@@ -122,7 +128,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui"})
+		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 		if processErr != nil {
 			slog.Error("process activity failed", "error", processErr)
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
@@ -211,7 +217,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui"})
+	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 	if processErr != nil {
 		slog.Error("process activity failed", "error", processErr)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
@@ -268,45 +274,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-// handleDuplicateMatch processes a duplicate activity match according to user conflict strategy.
-func (h *Handler) handleDuplicateMatch(w http.ResponseWriter, r *http.Request, userID string, match *importer.DuplicateMatch, data *model.ActivityData) {
-	settings, _ := h.DB.GetImportSettings(r.Context(), userID)
-	var strategy importer.ConflictStrategy
-	if settings != nil {
-		strategy = importer.ConflictStrategy(settings.ConflictStrategy)
-	} else {
-		strategy = importer.StrategyEnrichMissing
-	}
-	switch strategy {
-	case importer.StrategyReplaceAll:
-		if replaceErr := importer.ReplaceActivity(r.Context(), h.DB, match.ExistingActivityID, data); replaceErr != nil {
-			slog.Error("replace activity failed", "error", replaceErr)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":      "replaced",
-			"activity_id": match.ExistingActivityID,
-		})
-	case importer.StrategySkip:
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":      "skipped",
-			"activity_id": match.ExistingActivityID,
-		})
-	default: // enrich_missing
-		existing, getErr := h.DB.GetActivity(r.Context(), match.ExistingActivityID)
-		if getErr != nil {
-			slog.Warn("upload: cannot fetch existing activity for enrich", "id", match.ExistingActivityID, "error", getErr)
-		}
-		n, enrichErr := importer.EnrichActivity(r.Context(), h.DB, match.ExistingActivityID, existing, data)
-		if enrichErr != nil {
-			slog.Error("enrich activity failed", "error", enrichErr)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":          "enriched",
-			"activity_id":     match.ExistingActivityID,
-			"fields_enriched": n,
-		})
-	}
-}
 
 // postInsertActivity runs all post-insert steps by delegating to the shared
 // ImportService.PostProcess pipeline. This ensures that the upload handler and

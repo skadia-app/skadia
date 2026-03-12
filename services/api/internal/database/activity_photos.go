@@ -432,16 +432,21 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 
 // PhotoHashRow holds pHash comparison data for a single photo.
 type PhotoHashRow struct {
-	ID     string
-	PHash  *int64
-	Width  *int
-	Height *int
+	ID            string
+	PHash         *int64
+	Width         *int
+	Height        *int
+	S3Key         string
+	S3KeyThumb    string
+	S3KeyPreview  string
 }
 
 // GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
 func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, phash, width, height FROM activity_photos
+		`SELECT id, phash, width, height,
+		        COALESCE(s3_key, ''), COALESCE(s3_key_thumb, ''), COALESCE(s3_key_preview, '')
+		 FROM activity_photos
 		 WHERE activity_id = $1 AND phash IS NOT NULL`,
 		activityID)
 	if err != nil {
@@ -451,7 +456,7 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height); err != nil {
+		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height, &r.S3Key, &r.S3KeyThumb, &r.S3KeyPreview); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -489,16 +494,19 @@ func (db *DB) ReplaceActivityPhotoFile(ctx context.Context, photoID string, s3Ke
 // BackfillPhotoRow holds data for pHash backfill processing.
 type BackfillPhotoRow struct {
 	ID         string
+	S3Key      string
 	S3KeyThumb string
 	IsVideo    bool
 	DurationS  *float64
+	Width      *int
+	Height     *int
 }
 
-// PhotosWithoutPHash returns all photo IDs that need pHash backfill.
+// PhotosWithoutPHash returns all photo IDs that need pHash or dimension backfill.
 func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]BackfillPhotoRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, s3_key_thumb, is_video, duration_s FROM activity_photos
-		 WHERE user_id = $1 AND phash IS NULL
+		`SELECT id, s3_key, s3_key_thumb, is_video, duration_s, width, height FROM activity_photos
+		 WHERE user_id = $1 AND (phash IS NULL OR width IS NULL)
 		 ORDER BY created_at`,
 		userID)
 	if err != nil {
@@ -508,7 +516,7 @@ func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]Backfill
 	var result []BackfillPhotoRow
 	for rows.Next() {
 		var r BackfillPhotoRow
-		if err := rows.Scan(&r.ID, &r.S3KeyThumb, &r.IsVideo, &r.DurationS); err != nil {
+		if err := rows.Scan(&r.ID, &r.S3Key, &r.S3KeyThumb, &r.IsVideo, &r.DurationS, &r.Width, &r.Height); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

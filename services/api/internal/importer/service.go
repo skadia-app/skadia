@@ -228,33 +228,62 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 	}
 
 	if match != nil {
-		// Duplicate found — always backfill platform IDs even on skip
+		// Duplicate found — always backfill platform IDs regardless of strategy
 		backfilled, _ := s.backfillPlatformIDs(ctx, match.ExistingActivityID, meta)
 
-		// Load existing activity for comparison
-		existing, _ := s.DB.GetActivity(ctx, match.ExistingActivityID)
-
-		// Enrich scalar fields via COALESCE (existing values are never overwritten)
-		if _, err := EnrichActivity(ctx, s.DB, match.ExistingActivityID, existing, data); err != nil {
-			slog.Warn("enrich duplicate failed", "activity", match.ExistingActivityID, "err", err)
+		strategy := meta.ConflictStrategy
+		if strategy == "" {
+			strategy = StrategyEnrichMissing
 		}
 
-		// Child-table richness check: replace stream data if new data is richer
-		if existing != nil && s.compareStreamRichness(ctx, data, match.ExistingActivityID) > 0 {
+		switch strategy {
+		case StrategySkip:
+			// Only backfill IDs, no enrichment or stream replacement
+			status := "skipped"
+			if len(backfilled) > 0 {
+				status = "enriched" // we did backfill something
+			}
+			return &ActivityResult{
+				ActivityID:            match.ExistingActivityID,
+				Status:                status,
+				PlatformIDsBackfilled: backfilled,
+			}, nil
+
+		case StrategyReplaceAll:
+			// Replace all stream/child data unconditionally
 			if err := ReplaceActivity(ctx, s.DB, match.ExistingActivityID, data); err != nil {
 				slog.Warn("replace activity streams failed", "activity", match.ExistingActivityID, "err", err)
 			}
-		}
+			return &ActivityResult{
+				ActivityID:            match.ExistingActivityID,
+				Status:                "replaced",
+				PlatformIDsBackfilled: backfilled,
+			}, nil
 
-		status := "enriched"
-		if match.Confidence == "platform_id" && len(backfilled) == 0 {
-			status = "skipped"
+		default: // enrich_missing
+			// Enrich scalar fields via COALESCE (existing values are never overwritten)
+			existing, _ := s.DB.GetActivity(ctx, match.ExistingActivityID)
+			if _, err := EnrichActivity(ctx, s.DB, match.ExistingActivityID, existing, data); err != nil {
+				slog.Warn("enrich duplicate failed", "activity", match.ExistingActivityID, "err", err)
+			}
+
+			// Child-table richness check: replace stream data if new data is richer
+			if existing != nil && s.compareStreamRichness(ctx, data, match.ExistingActivityID) > 0 {
+				if err := ReplaceActivity(ctx, s.DB, match.ExistingActivityID, data); err != nil {
+					slog.Warn("replace activity streams failed", "activity", match.ExistingActivityID, "err", err)
+				}
+			}
+
+			status := "enriched"
+			if match.Confidence == "platform_id" && len(backfilled) == 0 {
+				status = "skipped"
+			}
+			return &ActivityResult{
+				ActivityID:            match.ExistingActivityID,
+				Status:                status,
+				PlatformIDsBackfilled: backfilled,
+			}, nil
 		}
-		return &ActivityResult{
-			ActivityID:            match.ExistingActivityID,
-			Status:                status,
-			PlatformIDsBackfilled: backfilled,
-		}, nil
 	}
 
 	// New activity: insert (with parent link for multisport children)
@@ -403,7 +432,7 @@ func (s *Service) backfillPlatformIDs(ctx context.Context, activityID string, me
 // It counts the distinct sensor channels present in newData.Streams and
 // compares against the same count from the existing activity in the DB.
 // A positive result means the new data is richer and child tables should be replaced.
-func (s *Service) compareStreamRichness(_ context.Context, newData *model.ActivityData, _ string) int {
+func (s *Service) compareStreamRichness(ctx context.Context, newData *model.ActivityData, existingActivityID string) int {
 	if newData == nil {
 		return 0
 	}
@@ -448,8 +477,15 @@ func (s *Service) compareStreamRichness(_ context.Context, newData *model.Activi
 	if hasSpeed {
 		newCount++
 	}
-	// Return newCount; caller replaces if positive (v1: any streams = richer than unknown existing)
-	return newCount
+
+	// Fetch existing channel count from DB
+	existingCount, err := s.DB.CountStreamChannels(ctx, existingActivityID)
+	if err != nil {
+		slog.Warn("compareStreamRichness: failed to count existing channels, assuming 0", "activity", existingActivityID, "err", err)
+		existingCount = 0
+	}
+
+	return newCount - existingCount
 }
 
 const mediaBucket = "skadia-media"
@@ -541,9 +577,96 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 				}
 				newPixels := newW * newH
 				if newPixels > existingPixels && existingPixels > 0 {
-					slog.Info("importer: phash duplicate with higher resolution, replacing", "photo", matchedPhoto.ID)
-					_ = s.DB.UpdateActivityPhotoDimensions(ctx, matchedPhoto.ID, newW, newH)
-					_ = s.DB.UpdateActivityPhotoPHash(ctx, matchedPhoto.ID, pHashVal)
+					slog.Info("importer: phash duplicate with higher resolution, replacing",
+						"photo", matchedPhoto.ID, "old_pixels", existingPixels, "new_pixels", newPixels)
+
+					// Generate new S3 keys based on new file hash
+					ext := fileExtFromContentType(ct, meta.OriginalFilename)
+					newS3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, fileHash, ext)
+					newS3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, fileHash)
+					newS3KeyPreview := ""
+
+					// Generate thumbnail (200px)
+					var thumbData []byte
+					switch {
+					case isVideo:
+						thumbData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0)
+					case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+						thumbData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0)
+					default:
+						thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
+					}
+
+					// Generate preview
+					var previewData []byte
+					if isVideo {
+						var midOffset float64
+						if vm, err := imageutil.ProbeVideo(photoBytes, ext); err == nil && vm.DurationS > 2 {
+							midOffset = vm.DurationS / 2
+						}
+						previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 2560, midOffset)
+					} else {
+						prevMaxW, prevMaxH := 2048, 2048
+						if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil {
+							if w, h := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); w > 0 {
+								prevMaxW, prevMaxH = w, h
+							}
+						}
+						if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+							previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, prevMaxW, 0)
+						} else {
+							previewData, _ = imageutil.Resize(photoBytes, prevMaxW, prevMaxH, 85)
+						}
+					}
+
+					// Upload original to S3
+					if err := s.Storage.UploadToBucket(ctx, mediaBucket, newS3Key, photoBytes, ct); err != nil {
+						return nil, fmt.Errorf("s3 upload replacement photo: %w", err)
+					}
+
+					// Upload thumbnail to S3
+					if thumbData != nil {
+						if err := s.Storage.UploadToBucket(ctx, mediaBucket, newS3KeyThumb, thumbData, "image/jpeg"); err != nil {
+							slog.Warn("importer: s3 upload replacement thumb failed", "err", err)
+							newS3KeyThumb = newS3Key
+						}
+					} else {
+						newS3KeyThumb = newS3Key
+					}
+
+					// Upload preview to S3
+					if previewData != nil {
+						pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
+						if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
+							slog.Warn("importer: s3 upload replacement preview failed", "err", err)
+						} else {
+							newS3KeyPreview = pk
+						}
+					}
+
+					// Update DB with new file, dimensions, hash, and S3 keys
+					if err := s.DB.ReplaceActivityPhotoFile(ctx, matchedPhoto.ID, newS3Key, newS3KeyThumb, newS3KeyPreview, int64(len(photoBytes)), fileHash, newW, newH, pHashVal); err != nil {
+						slog.Error("importer: ReplaceActivityPhotoFile failed", "photo", matchedPhoto.ID, "err", err)
+						return nil, fmt.Errorf("replace photo file in DB: %w", err)
+					}
+
+					// Best-effort delete old S3 keys
+					if matchedPhoto.S3Key != "" && matchedPhoto.S3Key != newS3Key {
+						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3Key); err != nil {
+							slog.Warn("importer: failed to delete old S3 original", "key", matchedPhoto.S3Key, "err", err)
+						}
+					}
+					if matchedPhoto.S3KeyThumb != "" && matchedPhoto.S3KeyThumb != newS3KeyThumb && matchedPhoto.S3KeyThumb != matchedPhoto.S3Key {
+						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3KeyThumb); err != nil {
+							slog.Warn("importer: failed to delete old S3 thumb", "key", matchedPhoto.S3KeyThumb, "err", err)
+						}
+					}
+					if matchedPhoto.S3KeyPreview != "" && matchedPhoto.S3KeyPreview != newS3KeyPreview {
+						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3KeyPreview); err != nil {
+							slog.Warn("importer: failed to delete old S3 preview", "key", matchedPhoto.S3KeyPreview, "err", err)
+						}
+					}
+
 					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "replaced", PHash: pHashVal}, nil
 				}
 				return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "duplicate_phash", PHash: pHashVal}, nil

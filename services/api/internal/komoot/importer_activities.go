@@ -9,7 +9,6 @@ import (
 	"log/slog"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -150,7 +149,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Duplicate detection + insert via ImportService (handles Tier-0 via KomootTourID + Tier-1 hash/temporal)
 		actResult, processErr := p.ImportService.ProcessActivity(ctx, p.UserID, data, fileBytes,
-			importer.ImportMetadata{KomootTourID: tour.ID, SourcePlatform: "komoot"})
+			importer.ImportMetadata{KomootTourID: tour.ID, SourcePlatform: "komoot", ConflictStrategy: p.Options.ConflictStrategy})
 		if processErr != nil {
 			slog.Warn("komoot activities: process failed", "tour_id", tour.ID, "error", processErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("process tour %d: %s", tour.ID, processErr))
@@ -201,39 +200,9 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 		}
 
-		// Insert streams, track, heatmap
-		if len(data.Streams) > 0 {
-			if err := p.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
-				slog.Warn("komoot activities: insert streams failed", "error", err)
-			}
-		}
-		if len(data.TrackPoints) > 0 {
-			if err := p.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
-				slog.Warn("komoot activities: insert track failed", "error", err)
-			}
-			if len(data.TrackPoints) >= 2 {
-				var subTypePtr *string
-				if data.SubType != "" {
-					subTypePtr = &data.SubType
-				}
-				if err := p.DB.InsertHeatmapLine(ctx, p.UserID, activityID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-					slog.Warn("komoot activities: insert heatmap line failed", "error", err)
-				}
-				interval, _ := p.DB.GetUserHeatmapInterval(ctx, p.UserID)
-				if err := p.DB.InsertHeatmapPoints(ctx, p.UserID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-					slog.Warn("komoot activities: insert heatmap points failed", "error", err)
-				}
-			}
-		}
-		if len(data.Laps) > 0 {
-			if err := p.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
-				slog.Warn("komoot activities: insert laps failed", "error", err)
-			}
-		}
-
-		// Stage 1 enrichment
-		if data.HasGPS && data.StartLat != 0 {
-			enrichment.RunStage1(ctx, p.DB, p.UserID, activityID, data)
+		// PostProcess handles streams, track, heatmap, laps, segment matching, Stage 1 enrichment etc.
+		if err := p.ImportService.PostProcess(ctx, p.UserID, activityID, data, fileBytes, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format)); err != nil {
+			slog.Warn("komoot activities: PostProcess failed", "tour_id", tour.ID, "activity_id", activityID, "error", err)
 		}
 
 		result.Imported++

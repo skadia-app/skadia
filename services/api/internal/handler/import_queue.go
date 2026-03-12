@@ -183,8 +183,3 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write(data)
 }
 
-// resolvedAt is a helper to get the current time pointer for resolved status updates.
-func resolvedAtNow() *time.Time {
-	t := time.Now()
-	return &t
-}

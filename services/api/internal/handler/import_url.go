@@ -195,8 +195,14 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		}
 	}
 
+	// Resolve user's conflict strategy for duplicate handling
+	var conflictStrategy importer.ConflictStrategy
+	if importSettings, settErr := h.DB.GetImportSettings(ctx, userID); settErr == nil && importSettings != nil {
+		conflictStrategy = importer.ConflictStrategy(importSettings.ConflictStrategy)
+	}
+
 	// Delegate duplicate detection + insert to ImportService
-	result, processErr := h.ImportService.ProcessActivity(ctx, userID, actData, fileBytes, importer.ImportMetadata{SourcePlatform: "url"})
+	result, processErr := h.ImportService.ProcessActivity(ctx, userID, actData, fileBytes, importer.ImportMetadata{SourcePlatform: "url", ConflictStrategy: conflictStrategy})
 	if processErr != nil {
 		slog.Error("import_url: process activity failed", "error", processErr)
 		return nil, &importError{importErrGeneral, "failed to process activity"}

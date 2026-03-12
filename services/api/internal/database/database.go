@@ -1037,6 +1037,25 @@ func (db *DB) GetActivityReprocessInfo(ctx context.Context, activityID string) (
 	return &info, nil
 }
 
+// CountStreamChannels returns the number of distinct non-NULL sensor channels
+// present in the activity_streams for the given activity (0–6).
+func (db *DB) CountStreamChannels(ctx context.Context, activityID string) (int, error) {
+	var count int
+	err := db.Pool.QueryRow(ctx, `
+		SELECT
+			(CASE WHEN COUNT(*) FILTER (WHERE heart_rate IS NOT NULL) > 0 THEN 1 ELSE 0 END) +
+			(CASE WHEN COUNT(*) FILTER (WHERE cadence IS NOT NULL) > 0 THEN 1 ELSE 0 END) +
+			(CASE WHEN COUNT(*) FILTER (WHERE power_w IS NOT NULL) > 0 THEN 1 ELSE 0 END) +
+			(CASE WHEN COUNT(*) FILTER (WHERE temperature_c IS NOT NULL) > 0 THEN 1 ELSE 0 END) +
+			(CASE WHEN COUNT(*) FILTER (WHERE altitude_m IS NOT NULL) > 0 THEN 1 ELSE 0 END) +
+			(CASE WHEN COUNT(*) FILTER (WHERE speed_ms IS NOT NULL) > 0 THEN 1 ELSE 0 END)
+		FROM activity_streams WHERE activity_id = $1`, activityID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count stream channels: %w", err)
+	}
+	return count, nil
+}
+
 // DeleteStreams removes all stream points for an activity.
 func (db *DB) DeleteStreams(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_streams WHERE activity_id = $1`, activityID)

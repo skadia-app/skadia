@@ -214,6 +214,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			meta := importer.ImportMetadata{
 				GarminActivityID: garminActivityID,
 				SourcePlatform:   "garmin",
+				ConflictStrategy: params.Options.ConflictStrategy,
 			}
 			actResult, processErr := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, meta)
 			if processErr != nil {

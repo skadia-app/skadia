@@ -31,6 +31,44 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		return fmt.Errorf("unsupported format: %s", filename)
 	}
 
+	// SHA256 hash
+	hash := sha256.Sum256(fileBytes)
+	hashStr := hex.EncodeToString(hash[:])
+
+	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
+	contentType := "application/octet-stream"
+	if format == "gpx" || format == "tcx" {
+		contentType = "application/xml"
+	}
+
+	// Upload original file to S3 before inserting to DB so the key is always
+	// resolvable even if a later step fails.
+	if err := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+		return fmt.Errorf("S3 upload: %w", err)
+	}
+
+	// For FIT files, try multi-session parsing first to detect multisport activities.
+	if format == "fit" {
+		sessions, multiErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
+		if multiErr == nil && len(sessions) >= 2 {
+			msResult, msErr := h.ImportService.ProcessMultisport(
+				ctx, userID, sessions, fileBytes, hashStr,
+				s3Key, format, filename,
+				importer.ImportMetadata{SourcePlatform: "hotfolder"},
+			)
+			if msErr != nil {
+				return fmt.Errorf("process multisport: %w", msErr)
+			}
+			slog.Info("hotfolder: multisport activity processed",
+				"parent_id", msResult.ParentID,
+				"children", len(msResult.Children),
+				"file", filename,
+			)
+			return nil
+		}
+	}
+
+	// Single-session parsing
 	var data *model.ActivityData
 	switch format {
 	case "fit":
@@ -44,23 +82,8 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		return fmt.Errorf("parse %s: %w", format, err)
 	}
 
-	// SHA256 hash — must be set on data before ProcessActivity so InsertActivity
-	// can persist it.
-	hash := sha256.Sum256(fileBytes)
-	hashStr := hex.EncodeToString(hash[:])
+	// Must be set on data before ProcessActivity so InsertActivity can persist it.
 	data.FileHash = hashStr
-
-	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
-	contentType := "application/octet-stream"
-	if format == "gpx" || format == "tcx" {
-		contentType = "application/xml"
-	}
-
-	// Upload original file to S3 before inserting to DB so the key is always
-	// resolvable even if a later step fails.
-	if err := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-		return fmt.Errorf("S3 upload: %w", err)
-	}
 
 	// Run duplicate detection + DB insert via the shared ImportService.
 	result, err := h.ImportService.ProcessActivity(ctx, userID, data, fileBytes, importer.ImportMetadata{

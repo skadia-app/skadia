@@ -1,7 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"log/slog"
 	"net/http"
 	"os"
@@ -73,10 +78,13 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		anyFailed := false
 
 		for _, photo := range photos {
-			// Download thumbnail (smaller, faster to hash). Fall back to original if thumb key is empty.
+			// Download thumbnail for pHash (smaller, faster to hash).
 			key := photo.S3KeyThumb
 			if key == "" {
-				slog.Warn("phash backfill: photo has no thumb key, skipping", "photo_id", photo.ID)
+				key = photo.S3Key // fallback to original
+			}
+			if key == "" {
+				slog.Warn("phash backfill: photo has no S3 key, skipping", "photo_id", photo.ID)
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 				continue
@@ -91,6 +99,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			// pHash computation from thumbnail data
 			var hashVal uint64
 			var hashErr error
 
@@ -103,7 +112,6 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 			} else {
 				hashVal, hashErr = phash.ComputeFromBytes(data)
 				if hashErr != nil {
-					// Fallback: try via ffmpeg (handles HEIC, JXL, etc.)
 					hashVal, hashErr = phash.ComputeViaFFmpeg(data)
 				}
 			}
@@ -111,14 +119,33 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 			if hashErr != nil {
 				slog.Warn("phash backfill: compute failed", "photo_id", photo.ID, "is_video", photo.IsVideo, "error", hashErr)
 				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
+			} else {
+				if err := h.DB.UpdateActivityPhotoPHash(ctx, photo.ID, int64(hashVal)); err != nil {
+					slog.Warn("phash backfill: db update pHash failed", "photo_id", photo.ID, "error", err)
+					anyFailed = true
+				}
 			}
 
-			if err := h.DB.UpdateActivityPhotoPHash(ctx, photo.ID, int64(hashVal)); err != nil {
-				slog.Warn("phash backfill: db update failed", "photo_id", photo.ID, "error", err)
-				anyFailed = true
+			// Dimensions backfill: download original if width is NULL
+			if photo.Width == nil && !photo.IsVideo {
+				origKey := photo.S3Key
+				if origKey != "" {
+					origData, _, dlErr := h.Storage.DownloadFromBucket(ctx, bucket, origKey)
+					if dlErr != nil {
+						slog.Warn("phash backfill: s3 download original failed", "photo_id", photo.ID, "error", dlErr)
+					} else {
+						if img, _, decErr := image.Decode(bytes.NewReader(origData)); decErr == nil {
+							w := img.Bounds().Dx()
+							ht := img.Bounds().Dy()
+							if err := h.DB.UpdateActivityPhotoDimensions(ctx, photo.ID, w, ht); err != nil {
+								slog.Warn("phash backfill: db update dimensions failed", "photo_id", photo.ID, "error", err)
+								anyFailed = true
+							}
+						} else {
+							slog.Warn("phash backfill: image decode failed for dimensions", "photo_id", photo.ID, "error", decErr)
+						}
+					}
+				}
 			}
 
 			processed++

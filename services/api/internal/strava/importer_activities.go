@@ -361,6 +361,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			importMeta := importer.ImportMetadata{
 				StravaActivityID: stravaID,
 				SourcePlatform:   "strava",
+				ConflictStrategy: params.Options.ConflictStrategy,
 			}
 			actResult, err := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, importMeta)
 			if err != nil {

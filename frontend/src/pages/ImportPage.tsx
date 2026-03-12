@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, apiUploadWithProgress } from '@/api/client'
 import {
@@ -1031,6 +1032,11 @@ function KomootImportPanel() {
   const [storedEmail, setStoredEmail] = useState('')
   const [deletingCredentials, setDeletingCredentials] = useState(false)
 
+  // Track whether credentials were saved during this session (for cleanup on unmount)
+  const loggedInThisSessionRef = useRef(false)
+  const saveCredentialsRef = useRef(false)
+  const importStartedRef = useRef(false)
+
   // Config state
   const [importRecorded, setImportRecorded] = useState(true)
   const [importPlanned, setImportPlanned] = useState(true)
@@ -1082,12 +1088,24 @@ function KomootImportPanel() {
     }, 2000)
   }
 
+  // Keep refs in sync for cleanup effect
+  useEffect(() => { saveCredentialsRef.current = saveCredentials }, [saveCredentials])
+
   // Check if stored credentials exist
   useEffect(() => {
     komootCredentialsStatus().then(res => {
       setHasStoredCredentials(res.has_credentials)
       if (res.email) setStoredEmail(res.email)
     }).catch(() => setHasStoredCredentials(false))
+  }, [])
+
+  // Cleanup: delete temp credentials on unmount if user logged in but didn't persist
+  useEffect(() => {
+    return () => {
+      if (loggedInThisSessionRef.current && !saveCredentialsRef.current && !importStartedRef.current) {
+        komootDeleteCredentials().catch(() => {})
+      }
+    }
   }, [])
 
   // Reconnect: stored running job
@@ -1147,6 +1165,7 @@ function KomootImportPanel() {
         setLoginError(res.error ?? 'Ungültige Anmeldedaten')
         return
       }
+      loggedInThisSessionRef.current = true
       if (res.scan) {
         setScanResult(res.scan)
         setPhase('config')
@@ -1202,6 +1221,7 @@ function KomootImportPanel() {
     setJobId(null)
     setLog([])
     lastPhaseRef.current = null
+    importStartedRef.current = true
 
     try {
       const id = await komootStartImport({
@@ -1543,14 +1563,18 @@ function KomootImportPanel() {
 type TabId = 'garmin' | 'strava' | 'komoot' | 'queue'
 
 export default function ImportPage() {
-  const initialTab = (() => {
-    const tab = new URLSearchParams(window.location.search).get('tab')
-    if (tab === 'strava') return 'strava'
-    if (tab === 'komoot') return 'komoot'
-    if (tab === 'queue') return 'queue'
-    return 'garmin'
-  })()
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab as TabId)
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<TabId>(
+    (['garmin', 'strava', 'komoot', 'queue'].includes(tabParam ?? '') ? tabParam : 'garmin') as TabId
+  )
+
+  // Sync tab when URL query param changes (e.g. from ImportHub navigation)
+  useEffect(() => {
+    if (tabParam && ['garmin', 'strava', 'komoot', 'queue'].includes(tabParam)) {
+      setActiveTab(tabParam as TabId)
+    }
+  }, [tabParam])
 
   // Queue count for badge
   const { data: queueCount = 0 } = useQuery({

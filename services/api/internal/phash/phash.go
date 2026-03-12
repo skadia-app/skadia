@@ -90,7 +90,6 @@ func ComputeVideoHash(videoData []byte, durationSeconds float64) (uint64, error)
 // FindBestMatch finds the closest pHash match from a list of existing hashes.
 // Returns the index of the best match and the hamming distance.
 // If no match is within threshold, returns -1.
-// Uses two-stage: direct comparison first, then cardinalRotations only if in grey zone [threshold+1, 8].
 func FindBestMatch(newHash uint64, existingHashes []uint64, threshold int) (bestIdx int, bestDist int) {
 	bestIdx = -1
 	bestDist = 65 // impossible high
@@ -100,17 +99,6 @@ func FindBestMatch(newHash uint64, existingHashes []uint64, threshold int) (best
 			continue // skip photos without pHash
 		}
 		dist := HammingDistance(newHash, existing)
-
-		// Two-stage: if in grey zone (threshold < dist <= 8), try rotations
-		if dist > threshold && dist <= 8 {
-			for _, rotated := range cardinalRotations(existing) {
-				d := HammingDistance(newHash, rotated)
-				if d < dist {
-					dist = d
-				}
-			}
-		}
-
 		if dist < bestDist {
 			bestDist = dist
 			bestIdx = i
@@ -121,15 +109,6 @@ func FindBestMatch(newHash uint64, existingHashes []uint64, threshold int) (best
 		return -1, bestDist
 	}
 	return bestIdx, bestDist
-}
-
-// cardinalRotations is a v1 known limitation: returns nil.
-// Rationale: EXIF auto-orientation (applied at import time via imaging.AutoOrientation)
-// normalizes both images to the same orientation, making rotation differences rare.
-// v2 improvement: store phash_rot90/rot180/rot270 at import time (3 extra BIGINT columns)
-// to avoid needing image data for rotation checks.
-func cardinalRotations(_ uint64) []uint64 {
-	return nil
 }
 
 func computeFromImage(img image.Image) (uint64, error) {
