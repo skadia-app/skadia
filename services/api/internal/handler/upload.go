@@ -14,14 +14,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
@@ -315,9 +312,9 @@ func (h *Handler) handleDuplicateMatch(w http.ResponseWriter, r *http.Request, u
 	}
 }
 
-// postInsertActivity runs all post-insert steps: Stage 1, streams, track, heatmap,
-// sensors, laps/splits, time zones, file info, sidecar, NATS events, shadow FS,
-// and background segment matching + lap detection.
+// postInsertActivity runs all post-insert steps by delegating to the shared
+// ImportService.PostProcess pipeline. This ensures that the upload handler and
+// the cross-platform import pipeline use identical post-processing logic.
 func (h *Handler) postInsertActivity(
 	ctx context.Context,
 	userID string,
@@ -328,149 +325,9 @@ func (h *Handler) postInsertActivity(
 	format string,
 	filename string,
 ) {
-	// Stage 1 Enrichment (synchronous, ~50ms)
-	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, h.DB, userID, activity.ID, data, h.Events)
+	if err := h.ImportService.PostProcess(ctx, userID, activity.ID, data, fileBytes, s3Key, format, filename); err != nil {
+		slog.Error("post-process activity failed", "id", activity.ID, "error", err)
 	}
-
-	// Insert streams
-	if err := h.DB.InsertStreams(ctx, activity.ID, data.Streams); err != nil {
-		slog.Error("insert streams failed", "error", err)
-	}
-
-	// Insert R-R intervals (FIT only; empty for GPX/TCX)
-	if len(data.RRIntervals) > 0 {
-		if err := h.DB.InsertRRIntervals(ctx, activity.ID, data.RRIntervals); err != nil {
-			slog.Error("insert rr intervals failed", "error", err)
-		}
-	}
-
-	// Insert track
-	if err := h.DB.InsertTrack(ctx, activity.ID, data.TrackPoints); err != nil {
-		slog.Error("insert track failed", "error", err)
-	}
-
-	// Insert heatmap line (uses track_full or track_public if privacy zones exist)
-	if len(data.TrackPoints) >= 2 {
-		var subTypePtr *string
-		if data.SubType != "" {
-			subTypePtr = &data.SubType
-		}
-		if err := h.DB.InsertHeatmapLine(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-			slog.Error("insert heatmap line failed", "error", err)
-		}
-		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-		interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
-		if err := h.DB.InsertHeatmapPoints(ctx, userID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-			slog.Error("insert heatmap points failed", "error", err)
-		}
-	}
-
-	// Insert sensors
-	if err := h.DB.InsertSensors(ctx, activity.ID, data.Sensors); err != nil {
-		slog.Error("insert sensors failed", "error", err)
-	}
-
-	// Insert activity details (laps, splits, lengths, climb pro)
-	if err := h.DB.InsertLaps(ctx, activity.ID, data.Laps); err != nil {
-		slog.Error("insert laps failed", "error", err)
-	}
-	if err := h.DB.InsertSplits(ctx, activity.ID, data.Splits); err != nil {
-		slog.Error("insert splits failed", "error", err)
-	}
-	if err := h.DB.InsertSplitSummaries(ctx, activity.ID, data.SplitSummaries); err != nil {
-		slog.Error("insert split summaries failed", "error", err)
-	}
-	if err := h.DB.InsertLengths(ctx, activity.ID, data.Lengths); err != nil {
-		slog.Error("insert lengths failed", "error", err)
-	}
-	if err := h.DB.InsertClimbProEvents(ctx, activity.ID, data.ClimbProEvents); err != nil {
-		slog.Error("insert climb pro events failed", "error", err)
-	}
-
-	// Save time-in-zone data (from FIT time_in_zone messages or session arrays)
-	if len(data.TimeInZoneData) > 0 {
-		if err := h.DB.SaveTimeInZones(ctx, activity.ID, data.TimeInZoneData); err != nil {
-			slog.Error("save time in zones failed", "error", err)
-		}
-	}
-
-	// Update file info
-	metaKey := s3Key + ".meta"
-	bucket := "skadia-originals"
-	if err := h.DB.UpdateActivityFileInfo(ctx, activity.ID, bucket, s3Key, format, filename, metaKey); err != nil {
-		slog.Error("update file info failed", "error", err)
-	}
-
-	// Write .meta sidecar
-	meta := sidecar.GenerateMeta(activity.ID, data)
-	metaBytes, err := meta.Marshal()
-	if err == nil {
-		if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-			slog.Error("meta upload failed", "error", err)
-		}
-	}
-
-	// Publish NATS event
-	if h.Events != nil {
-		evt := event.ActivityUploadedEvent{
-			ActivityID: activity.ID,
-			UserID:     userID,
-			SportType:  data.SportType,
-			HasGPS:     data.HasGPS,
-		}
-		if err := h.Events.PublishActivityUploaded(evt); err != nil {
-			slog.Error("event publish failed", "error", err)
-		}
-		// Trigger analytics recompute for the user (graceful — never blocks upload)
-		h.Events.PublishAnalyticsInvalidate(userID)
-	}
-
-	// Write to Shadow FS (best-effort, don't fail upload)
-	if h.ShadowFS != nil {
-		if err := h.WriteShadowForActivity(ctx, userID, activity.ID, data, fileBytes); err != nil {
-			slog.Error("shadow fs write failed", "id", activity.ID, "error", err)
-		}
-	}
-
-	// Segment matching + lap detection (non-blocking background goroutine)
-	if data.HasGPS {
-		var gearIDPtr *string
-		if activity.GearID != nil {
-			gearIDPtr = activity.GearID
-		}
-		activityID := activity.ID
-		sportType := data.SportType
-		subType := data.SubType
-		startedAt := activity.StartedAt
-		go func() {
-			bgCtx := context.Background()
-			MatchActivitySegments(bgCtx, h.DB, activityID, userID, sportType, subType, gearIDPtr, startedAt)
-
-			// Lap detection (after segment matching, same goroutine)
-			if h.DB.IsLapDetectionEnabled(bgCtx, userID) {
-				gpsStream, err := h.DB.GetActivityGPSStream(bgCtx, activityID)
-				if err == nil && len(gpsStream) >= 20 {
-					if laps := DetectLaps(bgCtx, h.DB, activityID, gpsStream); len(laps) > 0 {
-						if err := h.DB.InsertDetectedLaps(bgCtx, activityID, laps); err != nil {
-							slog.Error("upload: insert detected laps failed", "id", activityID, "error", err)
-						} else {
-							slog.Info("upload: detected laps", "id", activityID, "count", len(laps))
-						}
-					}
-				}
-			}
-		}()
-	}
-
-	slog.Info("activity inserted",
-		"id", activity.ID,
-		"sport", data.SportType,
-		"format", format,
-		"streams", len(data.Streams),
-		"sensors", len(data.Sensors),
-		"has_gps", data.HasGPS,
-	)
 }
 
 

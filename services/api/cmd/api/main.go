@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
@@ -135,12 +136,18 @@ func main() {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY is not set — Komoot import will be unavailable until configured")
 	}
 
+	// Build the ImportService which holds the shared post-processing pipeline.
+	// The ShadowWriter and SegmentMatcher callbacks are wired after the Handler
+	// is created (they reference handler methods), so we set them below.
+	importSvc := importer.NewService(db, s3Client, pub, nil, nil)
+
 	h := &handler.Handler{
-		DB:       db,
-		Storage:  s3Client,
-		Events:   pub,
-		Auth:     authCfg,
-		ShadowFS: shadowFSCfg,
+		DB:            db,
+		Storage:       s3Client,
+		Events:        pub,
+		Auth:          authCfg,
+		ShadowFS:      shadowFSCfg,
+		ImportService: importSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
@@ -150,6 +157,31 @@ func main() {
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
 		},
+	}
+
+	// Wire Shadow FS callback: delegates to the handler method which needs
+	// both h.DB and h.ShadowFS — set after h is constructed.
+	if shadowFSCfg != nil {
+		importSvc.ShadowWriter = h.WriteShadowForActivity
+	}
+
+	// Wire SegmentMatcher callback: runs segment matching + lap detection in
+	// the background goroutine, reusing the existing handler-package functions.
+	importSvc.SegmentMatcher = func(activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) {
+		bgCtx := context.Background()
+		handler.MatchActivitySegments(bgCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
+		if db.IsLapDetectionEnabled(bgCtx, userID) {
+			gpsStream, err := db.GetActivityGPSStream(bgCtx, activityID)
+			if err == nil && len(gpsStream) >= 20 {
+				if laps := handler.DetectLaps(bgCtx, db, activityID, gpsStream); len(laps) > 0 {
+					if err := db.InsertDetectedLaps(bgCtx, activityID, laps); err != nil {
+						slog.Error("import: insert detected laps failed", "id", activityID, "error", err)
+					} else {
+						slog.Info("import: detected laps", "id", activityID, "count", len(laps))
+					}
+				}
+			}
+		}
 	}
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
