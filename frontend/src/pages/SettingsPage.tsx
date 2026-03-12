@@ -1173,59 +1173,6 @@ function LocalMapAndGeoSection() {
         </div>
       </div>
 
-      {/* ── OSM-Geodaten ── */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">OSM-Geodaten</h3>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3 text-sm">
-          {/* Stats grid */}
-          <div className={`grid gap-3 text-center ${osmStatus?.amenities !== undefined ? 'grid-cols-5' : 'grid-cols-4'}`}>
-            <div>
-              <div className="text-lg font-bold">{osmStatus?.peaks?.toLocaleString('de') ?? '–'}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Gipfel</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold">{osmStatus?.passes?.toLocaleString('de') ?? '–'}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Pässe</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold">{osmStatus?.lifts?.toLocaleString('de') ?? '–'}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Lifte</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold">{osmStatus?.settlements?.toLocaleString('de') ?? '–'}</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Ortschaften</div>
-            </div>
-            {osmStatus?.amenities !== undefined && (
-              <div>
-                <div className="text-lg font-bold">{osmStatus.amenities.toLocaleString('de')}</div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">Restaurants/Hütten</div>
-              </div>
-            )}
-          </div>
-          {/* Buttons */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer"
-            >
-              Import-Assistent
-            </button>
-            <button
-              onClick={() => importLifts.mutate()}
-              disabled={importLifts.isPending || !hasOsmData}
-              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            >
-              {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
-            </button>
-          </div>
-          {importLifts.isSuccess && (
-            <p className="text-xs text-emerald-600 dark:text-emerald-400">
-              {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
-            </p>
-          )}
-        </div>
-      </div>
-
       {/* ── DEM-Höhendaten ── */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">DEM-Höhendaten</h3>
@@ -1287,7 +1234,7 @@ function LocalMapAndGeoSection() {
               Den Lokal-Stil als Standardkarte einrichten: Wähle{' '}
               <strong className="text-neutral-800 dark:text-neutral-200">Lokal (Offline)</strong>{' '}
               im Dropdown <em>Standard-Kartenstil</em> im Abschnitt{' '}
-              <strong className="text-neutral-800 dark:text-neutral-200">Karte</strong> oben.
+              <strong className="text-neutral-800 dark:text-neutral-200">Karteneinstellungen</strong> oben.
               {martinStatus !== 'ok' && (
                 <span className="text-amber-600 dark:text-amber-400">
                   {' '}Der Martin Server muss erreichbar sein.
@@ -1295,6 +1242,112 @@ function LocalMapAndGeoSection() {
               )}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* ── OSM-Geodaten ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">OSM-Geodaten</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3 text-sm">
+          {/* Stats grid — POIs */}
+          {osmStatus && (
+            <div className="space-y-3">
+              {/* POI-Kategorien */}
+              {osmStatus.categories && Object.keys(osmStatus.categories).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">POIs</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {Object.entries(osmStatus.categories).map(([key, count]) => (
+                      <div key={key} className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{count.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 capitalize">{key}</div>
+                      </div>
+                    ))}
+                    {/* Legacy fallback when categories is empty */}
+                    {Object.keys(osmStatus.categories).length === 0 && (
+                      <>
+                        {osmStatus.peaks !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.peaks.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Gipfel</div></div>}
+                        {osmStatus.passes !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.passes.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Pässe</div></div>}
+                        {osmStatus.settlements !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.settlements.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Ortschaften</div></div>}
+                        {osmStatus.amenities !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.amenities.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Einkehr</div></div>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Wege */}
+              {(osmStatus.lifts > 0 || osmStatus.pistes > 0 || osmStatus.ways > 0) && (
+                <div>
+                  <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Wege</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {osmStatus.lifts > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.lifts.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Lifte</div>
+                      </div>
+                    )}
+                    {osmStatus.pistes > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.pistes.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Pisten</div>
+                      </div>
+                    )}
+                    {osmStatus.ways > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.ways.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Wege</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Flächen */}
+              {(osmStatus.waterways > 0 || osmStatus.forests > 0) && (
+                <div>
+                  <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Flächen</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {osmStatus.waterways > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.waterways.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Gewässer</div>
+                      </div>
+                    )}
+                    {osmStatus.forests > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.forests.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Wälder</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Fallback: no data yet */}
+              {!osmStatus.has_data && (
+                <p className="text-xs text-neutral-400 dark:text-neutral-500 text-center py-2">Keine OSM-Daten importiert.</p>
+              )}
+            </div>
+          )}
+          {/* Buttons */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer"
+            >
+              Import-Assistent
+            </button>
+            <button
+              onClick={() => importLifts.mutate()}
+              disabled={importLifts.isPending || !hasOsmData}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              {importLifts.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+            </button>
+          </div>
+          {importLifts.isSuccess && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+              {(importLifts.data as { imported: number }).imported} Lift-Segmente importiert.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1379,12 +1432,13 @@ function HeatmapSettingsSection() {
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
       <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Karte</h2>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Karteneinstellungen</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
           Einstellungen für die Heatmap und Kartenansicht.
         </p>
       </div>
 
+      {/* Standard-Kartenstil */}
       <div>
         <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1">
           Standard-Kartenstil
@@ -1410,6 +1464,9 @@ function HeatmapSettingsSection() {
         </select>
       </div>
 
+      <hr className="border-neutral-700 my-4" />
+
+      {/* Heatmap-Einstellungen */}
       <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -1444,6 +1501,9 @@ function HeatmapSettingsSection() {
         )}
       </div>
 
+      <hr className="border-neutral-700 my-4" />
+
+      {/* Heatmap-Einstellungen */}
       <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -1469,6 +1529,9 @@ function HeatmapSettingsSection() {
         </p>
       </div>
 
+      <hr className="border-neutral-700 my-4" />
+
+      {/* Teleportationslücken */}
       <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
