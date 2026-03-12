@@ -47,6 +47,7 @@ const FusionPage = lazy(() => import('@/pages/FusionPage'))
 const ChatPage = lazy(() => import('@/pages/ChatPage'))
 const FusionQueuePage = lazy(() => import('@/pages/FusionQueuePage'))
 const RoutesPage = lazy(() => import('@/pages/RoutesPage'))
+const ImportQueuePage = lazy(() => import('@/pages/ImportQueuePage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -141,6 +142,7 @@ export default function App() {
                         <Route path="workshop/document-review" element={<DocumentReviewPage />} />
                         <Route path="workshop/peaks" element={<PeakCollectionPage />} />
                         <Route path="workshop/fusion" element={<FusionQueuePage />} />
+                        <Route path="workshop/import-queue" element={<ImportQueuePage />} />
                         <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
                         <Route path="settings/tags" element={<TagsPage />} />
                         <Route path="settings/import" element={<ImportPage />} />
