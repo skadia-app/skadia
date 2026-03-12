@@ -1464,11 +1464,12 @@ function HeatmapSettingsSection() {
         </select>
       </div>
 
-      <hr className="border-neutral-700 my-4" />
+      {/* ── Heatmap & Terra Incognita ── */}
+      <div className="border-t border-neutral-200 dark:border-neutral-700 pt-5 space-y-5">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Heatmap &amp; Terra Incognita</h3>
 
-      {/* Heatmap-Einstellungen */}
-      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
-        <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Terra Incognita — Sichtweite
           </label>
@@ -1501,11 +1502,8 @@ function HeatmapSettingsSection() {
         )}
       </div>
 
-      <hr className="border-neutral-700 my-4" />
-
-      {/* Heatmap-Einstellungen */}
-      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
-        <div className="flex items-center justify-between mb-2">
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Heatmap-Sampling-Intervall
           </label>
@@ -1527,12 +1525,12 @@ function HeatmapSettingsSection() {
         <p className="text-xs text-neutral-400 mt-2">
           Bestimmt den Abstand zwischen den Sampling-Punkten für die Heatmap. Kleinere Werte erzeugen mehr Punkte und eine detailliertere Heatmap, erhöhen aber die Datenmenge.
         </p>
+        </div>
       </div>
 
-      <hr className="border-neutral-700 my-4" />
-
-      {/* Teleportationslücken */}
-      <div className="border-t border-neutral-100 dark:border-neutral-800/60 pt-4">
+      {/* ── Teleportationslücken ── */}
+      <div className="border-t border-neutral-200 dark:border-neutral-700 pt-5">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Teleportationslücken</h3>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Teleportationslücken ausblenden
