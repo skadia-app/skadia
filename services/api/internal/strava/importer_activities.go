@@ -655,8 +655,8 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 		base.MaxPowerW = parsed.MaxPowerW
 	}
 
-	// Sport type from parsed file may be more specific
-	if parsed.SportType != "" && parsed.SportType != "generic" {
+	// Sport type from parsed file may be more specific — but only if valid (not unknown/generic)
+	if parsed.SportType != "" && parsed.SportType != "generic" && parsed.SportType != "unknown" {
 		base.SportType = parsed.SportType
 		base.SubType = parsed.SubType
 		base.FitSportID = parsed.FitSportID
