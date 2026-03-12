@@ -31,7 +31,7 @@ const ALL_CATEGORIES = [
   { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },
   { id: 'forests',        label: 'Wälder',                   group: 'Flächen' },
   { id: 'wetlands',       label: 'Feuchtgebiete & Moore',    group: 'Flächen' },
-  { id: 'boundaries',     label: 'Grenzen',                  group: 'Flächen' },
+  { id: 'boundaries',     label: 'Grenzen & Schutzgebiete',   group: 'Flächen' },
 ] as const
 
 type CategoryId = (typeof ALL_CATEGORIES)[number]['id']
