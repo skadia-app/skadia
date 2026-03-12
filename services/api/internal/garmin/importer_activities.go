@@ -132,6 +132,44 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
+		// For FIT files: try multi-session parsing first (e.g. triathlons)
+		if format == "fit" && params.ImportService != nil {
+			sessions, parseErr := fitimport.ParseMultiSessionFIT(fileBytes, ref.fileName)
+			if parseErr == nil && len(sessions) > 1 {
+				// Multisport detected — route through ProcessMultisport
+				hashArr := sha256.Sum256(fileBytes)
+				hashStr := hex.EncodeToString(hashArr[:])
+				s3Key := fmt.Sprintf("%s/%s.fit", params.UserID, hashStr)
+
+				if params.Storage != nil {
+					if uploadErr := params.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+						slog.Warn("garmin activities: S3 upload multisport failed", "file", ref.fileName, "error", uploadErr)
+					}
+				}
+
+				meta := importer.ImportMetadata{
+					GarminActivityID: garminActivityID,
+					SourcePlatform:   "garmin",
+				}
+				msResult, msErr := params.ImportService.ProcessMultisport(ctx, params.UserID, sessions, fileBytes, hashStr, s3Key, "fit", ref.fileName, meta)
+				if msErr != nil {
+					slog.Warn("garmin activities: multisport import failed", "file", ref.fileName, "sessions", len(sessions), "error", msErr)
+					result.Errors = append(result.Errors, fmt.Sprintf("multisport %s: %s", ref.fileName, msErr))
+				} else {
+					for _, child := range msResult.Children {
+						if child.Status == "created" {
+							result.Imported++
+						} else {
+							result.Skipped++
+						}
+					}
+					slog.Info("garmin activities: multisport imported", "file", ref.fileName, "sessions", len(sessions), "parent", msResult.ParentID)
+				}
+				continue
+			}
+			// Single-session or parse error — fall through to normal parsing below
+		}
+
 		// Parse activity file (Garmin-specific: FIT/GPX/TCX)
 		var data *model.ActivityData
 		switch format {
