@@ -272,6 +272,39 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		var hashStr string
 		if len(fileBytes) > 0 {
+			// For FIT files, try multi-session parsing to handle multisport activities.
+			if format == "fit" && params.ImportService != nil {
+				sessions, msParseErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
+				if msParseErr == nil && len(sessions) > 1 {
+					// Multi-session FIT: compute hash, upload to S3, delegate to ProcessMultisport
+					hash := sha256.Sum256(fileBytes)
+					msHash := hex.EncodeToString(hash[:])
+					msS3Key := fmt.Sprintf("%s/%s.fit", params.UserID, msHash)
+					if params.Storage != nil {
+						if uploadErr := params.Storage.Upload(ctx, msS3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+							slog.Warn("strava activities: S3 upload for multisport failed", "file", filename, "error", uploadErr)
+						}
+					}
+
+					importMeta := importer.ImportMetadata{
+						StravaActivityID: stravaID,
+						SourcePlatform:   "strava",
+					}
+					_, msErr := params.ImportService.ProcessMultisport(
+						ctx, params.UserID, sessions, fileBytes, msHash,
+						msS3Key, "fit", filename, importMeta,
+					)
+					if msErr != nil {
+						slog.Warn("strava activities: ProcessMultisport failed", "strava_id", stravaID, "error", msErr)
+						result.Errors = append(result.Errors, fmt.Sprintf("multisport strava_id=%d: %s", stravaID, msErr))
+					} else {
+						result.Imported++
+					}
+					continue
+				}
+				// Single-session or parse error: fall through to normal parsing below
+			}
+
 			// Parse the file to fill GPS/stream data
 			var parseErr error
 			var parsedData *model.ActivityData
