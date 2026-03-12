@@ -1589,17 +1589,20 @@ function ImportSettingsSection() {
   const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
   const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 100
   const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 2
+  const phashBits = enrichSettings?.phash_threshold_bits ?? 3
 
   // Local state for all sliders — visual feedback during drag, commit on release
   const [localGpsDup, setLocalGpsDup] = useState(s.gps_duplicate_threshold)
   const [localFusionMin, setLocalFusionMin] = useState(s.fusion_time_window_min)
   const [localHausdorff, setLocalHausdorff] = useState(hausdorff)
   const [localLengthDiff, setLocalLengthDiff] = useState(lengthDiff)
+  const [localPhashBits, setLocalPhashBits] = useState(phashBits)
 
   useEffect(() => { setLocalGpsDup(s.gps_duplicate_threshold) }, [s.gps_duplicate_threshold])
   useEffect(() => { setLocalFusionMin(s.fusion_time_window_min) }, [s.fusion_time_window_min])
   useEffect(() => { setLocalHausdorff(hausdorff) }, [hausdorff])
   useEffect(() => { setLocalLengthDiff(lengthDiff) }, [lengthDiff])
+  useEffect(() => { setLocalPhashBits(phashBits) }, [phashBits])
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
@@ -1728,6 +1731,41 @@ function ImportSettingsSection() {
           <span>0,5 km (strenger)</span>
           <span>10 km (großzügiger)</span>
         </div>
+      </div>
+
+      {/* Foto-Duplikat-Erkennungsschwelle */}
+      <div className="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          Foto-Duplikat-Erkennung
+        </h3>
+        <p className="text-xs text-neutral-400">
+          Fotos gelten als Duplikat wenn ihr pHash-Hamming-Abstand unter dem Schwellwert liegt.
+          Niedrigere Werte erkennen nur fast identische Fotos; höhere Werte fassen auch leicht
+          bearbeitete oder komprimierte Versionen zusammen.
+        </p>
+      </div>
+
+      <div>
+        <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          <span>Foto-Duplikat-Erkennungsschwelle</span>
+          <span className="tabular-nums font-mono">{localPhashBits} Bits</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={10}
+          step={1}
+          value={localPhashBits}
+          onChange={e => setLocalPhashBits(Number(e.target.value))}
+          onPointerUp={() => enrichMut.mutate({ phash_threshold_bits: localPhashBits })}
+          onBlur={() => enrichMut.mutate({ phash_threshold_bits: localPhashBits })}
+          className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
+        />
+        <div className="flex justify-between text-xs text-neutral-400 mt-1">
+          <span>1 Bit (strenger)</span>
+          <span>10 Bits (großzügiger)</span>
+        </div>
+        <p className="text-xs text-neutral-400 mt-1">Standard: 3 Bits</p>
       </div>
     </section>
   )

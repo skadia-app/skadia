@@ -2942,11 +2942,11 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
 			photo_preview_size, terra_incognita_radius_m,
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
-			video_clip_frames
+			video_clip_frames, phash_threshold_bits
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
 			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30
+			$26, $27, $28, $29, $30, $31
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -2977,7 +2977,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			terra_incognita_radius_m = $27,
 			route_duplicate_hausdorff_m = $28,
 			route_duplicate_length_diff_km = $29,
-			video_clip_frames = $30`,
+			video_clip_frames = $30,
+			phash_threshold_bits = $31`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableClimbDetection, s.EnableCommuteDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -2987,7 +2988,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.EnableStops, s.EnableIntervals, s.EnableAscents, s.EnableEmbeddings,
 		s.PhotoPreviewSize, s.TerraIncognitaRadiusM,
 		s.RouteDuplicateHausdorffM, s.RouteDuplicateLengthDiffKm,
-		s.VideoClipFrames,
+		s.VideoClipFrames, s.PhashThresholdBits,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)

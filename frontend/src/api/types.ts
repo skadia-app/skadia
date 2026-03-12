@@ -213,6 +213,8 @@ export interface EnrichmentSettings {
   route_duplicate_hausdorff_m?: number
   route_duplicate_length_diff_km?: number
   video_clip_frames?: number
+  // pHash Hamming-distance threshold for photo deduplication (1–10, Default 3). Migration 000149.
+  phash_threshold_bits?: number
 }
 
 export interface Climb {

@@ -400,6 +400,9 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	if settings.PhotoPreviewSize == "" {
 		settings.PhotoPreviewSize = "wqhd"
 	}
+	if settings.PhashThresholdBits < 1 || settings.PhashThresholdBits > 10 {
+		settings.PhashThresholdBits = 3
+	}
 
 	if err := h.DB.UpdateEnrichmentSettings(r.Context(), userID, &settings); err != nil {
 		slog.Error("update enrichment settings failed", "error", err)
