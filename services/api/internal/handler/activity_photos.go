@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -90,177 +90,37 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isVideo := strings.HasPrefix(ct, "video/")
-
-	// Hash
-	hash := fmt.Sprintf("%x", sha256.Sum256(data))
-
-	// Duplikat-Prüfung
-	if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
-		return
-	}
-
-	// EXIF-Daten extrahieren (GPS + Zeitstempel) — nur für Bilder sinnvoll
-	var takenAt *time.Time
-	var lat, lng *float64
-	var locationSource *string
-	if !isVideo {
-		takenAt, lat, lng, locationSource = extractExifData(data, ct)
-
-		// Falls kein EXIF-GPS: Track-Interpolation versuchen
-		if lat == nil && takenAt != nil && activityID != "" {
-			lat, lng = h.interpolateFromTrack(r.Context(), activityID, userID, *takenAt)
-			if lat != nil {
-				ls := "activity_track"
-				locationSource = &ls
-			}
-		}
-	}
-
-	// Dateiendung für S3-Pfad bestimmen
-	ext := fileExtForContentType(ct, header.Filename)
-
-	// Video-Metadaten via ffprobe lesen (vor Thumbnail-Generierung, da wir die Dauer brauchen)
-	var videoMeta *imageutil.VideoMeta
-	if isVideo {
-		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
-			videoMeta = &meta
-		} else {
-			slog.Warn("ffprobe failed", "filename", header.Filename, "error", err)
-		}
-	}
-
-	// Thumbnail generieren (200px, erster Frame):
-	// – Video/HEIC/JXL: via ffmpeg; – andere Bilder: via imageutil.Resize()
-	var thumbData []byte
-	switch {
-	case isVideo:
-		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
-			thumbData = td
-		} else {
-			slog.Warn("ffmpeg video thumbnail failed", "filename", header.Filename, "error", err)
-		}
-	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
-		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
-			thumbData = td
-		} else {
-			slog.Warn("ffmpeg image thumbnail failed", "ct", ct, "error", err)
-		}
-	default:
-		thumbData, _ = imageutil.Resize(data, 200, 200, 80)
-	}
-
-	// Preview-Thumbnail generieren:
-	// – Bilder: Größe aus User-Einstellungen (2048/4K/original)
-	// – Videos: 2048px aus der Mitte des Videos — dauerhaftes Poster-Bild hinter dem Play-Button
-	previewData, s3KeyPreview := []byte(nil), ""
-	if isVideo {
-		// Frame aus Videomitte: deutlich repräsentativer als erster Frame
-		var midOffset float64
-		if videoMeta != nil && videoMeta.DurationS > 2 {
-			midOffset = videoMeta.DurationS / 2
-		}
-		if pd, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset); err == nil {
-			previewData = pd
-		} else {
-			slog.Warn("ffmpeg video preview failed", "filename", header.Filename, "error", err)
-		}
-	} else {
-		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil {
-			if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-				if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
-					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
-				} else {
-					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
-				}
-			}
-		}
-	}
-
-	// S3-Pfade
-	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
-	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
-	bucket := "skadia-media"
-
-	// Upload Original
-	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
-		slog.Error("s3 upload photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
-		return
-	}
-
-	// Upload Thumbnail (200px)
-	if thumbData != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-			slog.Warn("s3 upload thumb failed", "error", err)
-			s3KeyThumb = s3Key // Fallback: Original
-		}
-	} else {
-		s3KeyThumb = s3Key // Original ist bereits klein genug
-	}
-
-	// Upload Preview (2048/4K) — nur für Bilder
-	if previewData != nil {
-		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, hash)
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-			slog.Warn("s3 upload preview failed", "error", err)
-			s3KeyPreview = ""
-		}
-	}
-
-	photo := model.ActivityPhoto{
-		UserID:           userID,
-		ActivityID:       &activityID,
-		S3Bucket:         bucket,
-		S3Key:            s3Key,
-		S3KeyThumb:       s3KeyThumb,
-		S3KeyPreview:     s3KeyPreview,
+	// Delegate all remaining processing (dedup, pHash, thumbnails, S3 upload, DB insert,
+	// CLIP embed event) to the shared ImportService.ProcessPhoto pipeline.
+	photoMeta := importer.PhotoMetadata{
 		OriginalFilename: header.Filename,
 		ContentType:      ct,
-		FileSizeBytes:    int64(len(data)),
-		FileHash:         &hash,
-		TakenAt:          takenAt,
-		Lat:              lat,
-		Lng:              lng,
-		LocationSource:   locationSource,
-		IsVideo:          isVideo,
-	}
-	if videoMeta != nil {
-		photo.DurationS = &videoMeta.DurationS
-		photo.VideoWidth = &videoMeta.Width
-		photo.VideoHeight = &videoMeta.Height
 	}
 
-	saved, err := h.DB.InsertActivityPhoto(r.Context(), photo)
+	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, activityID, data, photoMeta)
 	if err != nil {
-		slog.Error("insert activity photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
+		slog.Error("upload photo: ProcessPhoto failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process photo", r.URL.Path)
 		return
 	}
 
-	// Publish photo embed event for CLIP embedding — best-effort, never fails the request.
-	if h.Events != nil {
-		clipFrames := 4
-		if s, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && s.VideoClipFrames > 0 {
-			clipFrames = s.VideoClipFrames
+	switch result.Status {
+	case "duplicate_exact", "duplicate_phash":
+		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
+	case "replaced":
+		// Higher-resolution variant replaced an existing photo.
+		writeJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
+	default:
+		// "created" — return the full photo record.
+		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
+		if err != nil {
+			slog.Error("upload photo: fetch saved photo failed", "photo_id", result.PhotoID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load saved photo", r.URL.Path)
+			return
 		}
-		ev := event.PhotoEmbedEvent{
-			PhotoID:         saved.ID,
-			UserID:          userID,
-			S3Bucket:        bucket,
-			S3Key:           s3Key,
-			S3KeyPreview:    saved.S3KeyPreview,
-			ContentType:     saved.ContentType,
-			VideoClipFrames: clipFrames,
-		}
-		if err := h.Events.PublishPhotoEmbed(ev); err != nil {
-			slog.Warn("failed to publish photo embed event", "photo_id", saved.ID, "err", err)
-		}
+		setPhotoURLs(&saved)
+		writeJSON(w, http.StatusCreated, saved)
 	}
-
-	setPhotoURLs(&saved)
-	writeJSON(w, http.StatusCreated, saved)
 }
 
 func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
