@@ -237,12 +237,11 @@ func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 
 func encryptAPIKey(plaintext, hexKey string) (string, error) {
 	if hexKey == "" {
-		// No encryption key configured: store base64-encoded (not secure, but functional)
-		return base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
+		return "", fmt.Errorf("encryption key not configured")
 	}
 	key, err := hex.DecodeString(hexKey)
 	if err != nil || len(key) != 32 {
-		return "", fmt.Errorf("LLM_ENCRYPTION_KEY must be 32-byte hex string (64 chars)")
+		return "", fmt.Errorf("encryption key must be a 32-byte hex string (64 hex chars)")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -261,17 +260,16 @@ func encryptAPIKey(plaintext, hexKey string) (string, error) {
 }
 
 func decryptAPIKey(encoded, hexKey string) (string, error) {
+	if hexKey == "" {
+		return "", fmt.Errorf("encryption key not configured")
+	}
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return "", err
 	}
-	if hexKey == "" {
-		// Was stored as plain base64
-		return string(data), nil
-	}
 	key, err := hex.DecodeString(hexKey)
 	if err != nil || len(key) != 32 {
-		return "", fmt.Errorf("LLM_ENCRYPTION_KEY must be 32-byte hex string (64 chars)")
+		return "", fmt.Errorf("encryption key must be a 32-byte hex string (64 hex chars)")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {

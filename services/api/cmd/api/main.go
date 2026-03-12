@@ -131,6 +131,9 @@ func main() {
 		// Log at Error level so it is clearly visible in logs; no os.Exit to allow dev startup.
 		slog.Error("SECURITY: ML_CALLBACK_SECRET is not set — the /internal/ml-callback endpoint is unauthenticated and must be secured before production deployment")
 	}
+	if cfg.KomootEncryptionKey == "" {
+		slog.Warn("KOMOOT_ENCRYPTION_KEY is not set — Komoot import will be unavailable until configured")
+	}
 
 	h := &handler.Handler{
 		DB:       db,

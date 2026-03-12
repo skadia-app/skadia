@@ -68,7 +68,7 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	client, err := komoot.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		slog.Warn("komoot login failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Anmeldung bei Komoot fehlgeschlagen. Bitte E-Mail und Passwort prüfen."})
 		return
 	}
 
@@ -168,7 +168,8 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 
 	client, err := komoot.Login(r.Context(), creds.Email, password)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": err.Error()})
+		slog.Warn("komoot scan: login with stored credentials failed", "user_id", userID, "error", err)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Gespeicherte Komoot-Zugangsdaten ungültig. Bitte erneut anmelden."})
 		return
 	}
 
@@ -273,6 +274,12 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			if rec := recover(); rec != nil {
 				slog.Error("komoot import: panic", "job_id", jobID, "panic", rec)
 				_ = h.DB.FailBackgroundJob(context.Background(), jobID)
+				// Ensure credentials are deleted even on panic
+				if req.DeleteCredentialsAfter {
+					if delErr := h.DB.DeleteKomootCredentials(context.Background(), userID); delErr != nil {
+						slog.Error("komoot import: delete credentials on panic failed", "job_id", jobID, "error", delErr)
+					}
+				}
 			}
 		}()
 		bgCtx := context.Background()
