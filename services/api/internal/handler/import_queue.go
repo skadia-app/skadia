@@ -1,18 +1,14 @@
 package handler
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ListImportQueue handles GET /api/v1/import-queue
@@ -109,7 +105,7 @@ func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) 
 }
 
 // AssignImportQueueItem handles POST /api/v1/import-queue/{id}/assign
-// Assigns a queued image to an activity: moves file from temp S3 to activity_photos.
+// Assigns a queued image_no_match item to an activity via the ImportService pipeline.
 // Body: {"activity_id": "uuid"}
 func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
@@ -127,91 +123,68 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Load queue item
-	item, err := h.DB.GetImportQueueItem(r.Context(), id, userID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "queue item not found", r.URL.Path)
-		return
-	}
-	if item.S3Bucket == nil || item.S3Key == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "queue item has no stored file", r.URL.Path)
-		return
-	}
-
-	// Verify activity ownership
+	// Verify activity ownership before processing
 	activity, err := h.DB.GetActivity(r.Context(), req.ActivityID)
 	if err != nil || activity == nil || activity.UserID != userID {
 		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
-	// Download from temp S3
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), *item.S3Bucket, *item.S3Key)
+	result, err := h.ImportService.ResolveQueuedPhoto(r.Context(), userID, id, req.ActivityID)
 	if err != nil {
-		slog.Error("assign queue item: s3 download failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve file", r.URL.Path)
+		slog.Error("assign queue item: ResolveQueuedPhoto failed", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// GetImportQueueItemThumb handles GET /api/v1/import-queue/{id}/thumb
+// Returns the thumbnail image for a queued item stored in S3.
+func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	item, err := h.DB.GetImportQueueItem(r.Context(), id, userID)
+	if err != nil || item == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "queue item not found", r.URL.Path)
+		return
+	}
+
+	thumbKey, ok := item.Metadata["s3_key_thumb"].(string)
+	if !ok || thumbKey == "" {
+		writeError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
+		return
+	}
+
+	bucket := "skadia-media"
+	if item.S3Bucket != nil {
+		bucket = *item.S3Bucket
+	}
+
+	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, thumbKey)
+	if err != nil {
+		slog.Error("get queue item thumb: s3 download failed", "id", id, "key", thumbKey, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve thumbnail", r.URL.Path)
+		return
+	}
+
 	if ct == "" {
-		ct = item.ContentType
+		ct = "image/jpeg"
 	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
 
-	// Re-extract EXIF
-	takenAt, lat, lng, locationSource := extractExifData(data, ct)
-
-	// Generate thumbnail
-	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
-
-	// Determine extension and hash
-	ext := imageExtFromContentType(ct)
-	hash := fmt.Sprintf("%x", sha256.Sum256(data))
-
-	mediaBucket := mediaBucketName()
-	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
-	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
-
-	// Upload to permanent location
-	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
-		slog.Error("assign queue item: s3 upload failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
-		return
-	}
-	if thumbData != nil {
-		_ = h.Storage.UploadToBucket(r.Context(), mediaBucket, s3KeyThumb, thumbData, "image/jpeg")
-	} else {
-		s3KeyThumb = s3Key
-	}
-
-	fileSize := int64(len(data))
-	// Save to activity_photos
-	photo, err := h.DB.InsertActivityPhoto(r.Context(), model.ActivityPhoto{
-		UserID:           userID,
-		ActivityID:       &req.ActivityID,
-		S3Bucket:         mediaBucket,
-		S3Key:            s3Key,
-		S3KeyThumb:       s3KeyThumb,
-		OriginalFilename: item.OriginalFilename,
-		ContentType:      ct,
-		FileSizeBytes:    fileSize,
-		FileHash:         &hash,
-		TakenAt:          takenAt,
-		Lat:              lat,
-		Lng:              lng,
-		LocationSource:   locationSource,
-	})
-	if err != nil {
-		slog.Error("assign queue item: insert photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
-		return
-	}
-
-	// Delete temp file from S3
-	_ = h.Storage.DeleteFromBucket(r.Context(), *item.S3Bucket, *item.S3Key)
-
-	// Mark queue item resolved
-	now := time.Now()
-	_ = h.DB.UpdateImportQueueStatus(r.Context(), id, userID, "resolved", &now)
-
-	setPhotoURLs(&photo)
-	writeJSON(w, http.StatusCreated, photo)
+// resolvedAt is a helper to get the current time pointer for resolved status updates.
+func resolvedAtNow() *time.Time {
+	t := time.Now()
+	return &t
 }

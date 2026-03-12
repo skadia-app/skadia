@@ -179,3 +179,13 @@ type ActivityTimeMatch struct {
 	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
+
+// ResolveImportQueueItem marks a queue item as resolved with the current timestamp.
+func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE import_queue
+		SET status = 'resolved', resolved_at = NOW()
+		WHERE id = $1 AND user_id = $2
+	`, id, userID)
+	return err
+}

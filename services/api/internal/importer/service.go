@@ -642,6 +642,162 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	return result, nil
 }
 
+const importQueueBucket = "skadia-media"
+const importQueuePrefix = "import-queue"
+
+// ProcessOrphanPhoto handles a photo without a known activity.
+// If the photo's TakenAt timestamp falls within a known activity's window, it is
+// immediately processed via ProcessPhoto (status: "matched").
+// Otherwise the photo is stored in S3 under import-queue/{userID}/{hash} and a
+// corresponding import_queue record (queue_type="image_no_match") is created
+// (status: "queued").
+func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBytes []byte, meta PhotoMetadata) (*OrphanResult, error) {
+	// 1. Time-based activity lookup
+	if meta.TakenAt != nil {
+		activityID, err := s.DB.FindActivityIDAtTime(ctx, userID, *meta.TakenAt)
+		if err != nil {
+			slog.Warn("importer: FindActivityIDAtTime failed", "err", err)
+		}
+		if activityID != "" {
+			result, err := s.ProcessPhoto(ctx, userID, activityID, photoBytes, meta)
+			if err != nil {
+				return nil, fmt.Errorf("process orphan photo (matched): %w", err)
+			}
+			return &OrphanResult{Status: "matched", ActivityID: activityID, QueueEntryID: result.PhotoID}, nil
+		}
+	}
+
+	// 2. No match — store in S3 and enqueue for manual review
+	hashArr := sha256.Sum256(photoBytes)
+	fileHash := hex.EncodeToString(hashArr[:])
+
+	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
+
+	// Determine content type
+	ct := meta.ContentType
+	if ct == "" {
+		sniff := photoBytes
+		if len(sniff) > 512 {
+			sniff = sniff[:512]
+		}
+		ct = http.DetectContentType(sniff)
+		if ct == "application/octet-stream" || ct == "application/zip" {
+			ct = contentTypeFromFilename(meta.OriginalFilename)
+		}
+	}
+
+	// Upload original to S3
+	if err := s.Storage.UploadToBucket(ctx, importQueueBucket, s3Key, photoBytes, ct); err != nil {
+		return nil, fmt.Errorf("s3 upload orphan photo: %w", err)
+	}
+
+	// Generate thumbnail (200px) for the queue preview
+	isVideo := strings.HasPrefix(ct, "video/")
+	var thumbData []byte
+	ext := fileExtFromContentType(ct, meta.OriginalFilename)
+	switch {
+	case isVideo:
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		}
+	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		}
+	default:
+		thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
+	}
+
+	s3KeyThumb := ""
+	if thumbData != nil {
+		thumbKey := fmt.Sprintf("%s/%s/%s_thumb.jpg", importQueuePrefix, userID, fileHash)
+		if err := s.Storage.UploadToBucket(ctx, importQueueBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
+			s3KeyThumb = thumbKey
+		} else {
+			slog.Warn("importer: orphan thumb upload failed", "err", err)
+		}
+	}
+
+	fileSize := int64(len(photoBytes))
+	bucket := importQueueBucket
+	queueMeta := map[string]any{
+		"filename": meta.OriginalFilename,
+	}
+	if s3KeyThumb != "" {
+		queueMeta["s3_key_thumb"] = s3KeyThumb
+	}
+
+	queueItem := database.ImportQueueItem{
+		UserID:           userID,
+		QueueType:        "image_no_match",
+		OriginalFilename: meta.OriginalFilename,
+		ContentType:      ct,
+		FileSizeBytes:    &fileSize,
+		S3Bucket:         &bucket,
+		S3Key:            &s3Key,
+		Metadata:         queueMeta,
+	}
+	entryID, err := s.DB.CreateImportQueueItem(ctx, queueItem)
+	if err != nil {
+		return nil, fmt.Errorf("create import queue item: %w", err)
+	}
+
+	return &OrphanResult{Status: "queued", QueueEntryID: entryID}, nil
+}
+
+// ResolveQueuedPhoto assigns a queued image_no_match item to a specific activity.
+// It loads the file from S3, runs ProcessPhoto, marks the queue item as resolved,
+// and cleans up the temporary S3 files.
+func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, targetActivityID string) (*PhotoResult, error) {
+	// 1. Load and validate queue item
+	item, err := s.DB.GetImportQueueItem(ctx, queueEntryID, userID)
+	if err != nil || item == nil {
+		return nil, fmt.Errorf("queue item not found: %w", err)
+	}
+	if item.QueueType != "image_no_match" {
+		return nil, fmt.Errorf("queue item is not an image_no_match entry (got %q)", item.QueueType)
+	}
+	// Ownership already enforced by GetImportQueueItem (WHERE user_id = $2)
+
+	if item.S3Bucket == nil || item.S3Key == nil {
+		return nil, fmt.Errorf("queue item has no stored S3 file")
+	}
+
+	// 2. Download from S3
+	photoBytes, ct, err := s.Storage.DownloadFromBucket(ctx, *item.S3Bucket, *item.S3Key)
+	if err != nil {
+		return nil, fmt.Errorf("s3 download queued photo: %w", err)
+	}
+	if ct == "" {
+		ct = item.ContentType
+	}
+
+	// 3. Process as a normal activity photo
+	meta := PhotoMetadata{
+		OriginalFilename: item.OriginalFilename,
+		ContentType:      ct,
+	}
+	result, err := s.ProcessPhoto(ctx, userID, targetActivityID, photoBytes, meta)
+	if err != nil {
+		return nil, fmt.Errorf("process queued photo: %w", err)
+	}
+
+	if result.Status == "error" {
+		return result, nil
+	}
+
+	// 4. Cleanup: mark resolved + delete S3 files
+	if resolveErr := s.DB.ResolveImportQueueItem(ctx, queueEntryID, userID); resolveErr != nil {
+		slog.Warn("importer: ResolveImportQueueItem failed", "id", queueEntryID, "err", resolveErr)
+	}
+	_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, *item.S3Key)
+	if thumbKey, ok := item.Metadata["s3_key_thumb"].(string); ok && thumbKey != "" {
+		_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, thumbKey)
+	}
+
+	return result, nil
+}
+
 // contentTypeFromFilename derives a MIME type from a filename's extension.
 // Used as fallback when http.DetectContentType returns application/octet-stream.
 func contentTypeFromFilename(filename string) string {

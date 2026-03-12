@@ -449,6 +449,7 @@ func main() {
 			r.Patch("/import-queue/{id}", h.PatchImportQueueItem)
 			r.Delete("/import-queue/{id}", h.DeleteImportQueueItem)
 			r.Post("/import-queue/{id}/assign", h.AssignImportQueueItem)
+			r.Get("/import-queue/{id}/thumb", h.GetImportQueueItemThumb)
 
 			// Tag Zones
 			r.Get("/tag-zones/{tagId}", h.GetTagZone)
