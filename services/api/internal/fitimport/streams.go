@@ -117,6 +117,7 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 // FIT files where a second activity starts from 0) and accumulates an offset
 // so that the returned distance values are monotonically increasing.
 // A reset is detected when distance drops by more than resetThreshold meters.
+// Modifies the slice in-place and returns it.
 func fixDistanceResets(points []model.StreamPoint) []model.StreamPoint {
 	const resetThreshold = 100.0 // meters
 	var prevDist float64
