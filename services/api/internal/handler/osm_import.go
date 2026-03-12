@@ -71,28 +71,29 @@ var categoryToTable = map[string][]string{
 	"lifts":      {"osm_lifts"},
 }
 
-// Env-Vars für Lua-Script
-var categoryEnvVars = map[string]string{
-	"peaks":          "SKADIA_IMPORT_PEAKS",
-	"passes":         "SKADIA_IMPORT_PASSES",
-	"lifts":          "SKADIA_IMPORT_LIFTS",
-	"settlements":    "SKADIA_IMPORT_SETTLEMENTS",
-	"gastronomy":     "SKADIA_IMPORT_GASTRONOMY",
-	"accommodation":  "SKADIA_IMPORT_ACCOMMODATION",
-	"infrastructure": "SKADIA_IMPORT_INFRASTRUCTURE",
-	"transport":      "SKADIA_IMPORT_TRANSPORT",
-	"viewpoints":     "SKADIA_IMPORT_VIEWPOINTS",
-	"shops":          "SKADIA_IMPORT_SHOPS",
-	"sport":          "SKADIA_IMPORT_SPORT",
-	"camping":        "SKADIA_IMPORT_CAMPING",
-	"information":    "SKADIA_IMPORT_INFORMATION",
-	"landmarks":      "SKADIA_IMPORT_LANDMARKS",
-	"religion":       "SKADIA_IMPORT_RELIGION",
-	"ways":           "SKADIA_IMPORT_WAYS",
-	"waterways":      "SKADIA_IMPORT_WATERWAYS",
-	"forests":        "SKADIA_IMPORT_FORESTS",
-	"boundaries":     "SKADIA_IMPORT_BOUNDARIES",
-	"pistes":         "SKADIA_IMPORT_PISTES",
+// Env-Vars für Lua-Script (eine Kategorie kann mehrere Lua-Flags setzen)
+var categoryEnvVars = map[string][]string{
+	"peaks":          {"SKADIA_IMPORT_PEAKS"},
+	"passes":         {"SKADIA_IMPORT_PASSES"},
+	"lifts":          {"SKADIA_IMPORT_LIFTS"},
+	"settlements":    {"SKADIA_IMPORT_SETTLEMENTS"},
+	"gastronomy":     {"SKADIA_IMPORT_GASTRONOMY"},
+	"accommodation":  {"SKADIA_IMPORT_ACCOMMODATION"},
+	"infrastructure": {"SKADIA_IMPORT_INFRASTRUCTURE"},
+	"transport":      {"SKADIA_IMPORT_TRANSPORT"},
+	"viewpoints":     {"SKADIA_IMPORT_VIEWPOINTS"},
+	"shops":          {"SKADIA_IMPORT_SHOPS"},
+	"sport":          {"SKADIA_IMPORT_SPORT"},
+	"camping":        {"SKADIA_IMPORT_CAMPING"},
+	"information":    {"SKADIA_IMPORT_INFORMATION"},
+	"landmarks":      {"SKADIA_IMPORT_LANDMARKS"},
+	"religion":       {"SKADIA_IMPORT_RELIGION"},
+	"ways":           {"SKADIA_IMPORT_WAYS"},
+	"waterways":      {"SKADIA_IMPORT_WATERWAYS"},
+	// forests importiert auch Gletscher und Feuchtgebiete (gleiche Lua-Logik, separate Flags)
+	"forests":    {"SKADIA_IMPORT_FORESTS", "SKADIA_IMPORT_GLACIERS", "SKADIA_IMPORT_WETLANDS"},
+	"boundaries": {"SKADIA_IMPORT_BOUNDARIES"},
+	"pistes":     {"SKADIA_IMPORT_PISTES"},
 }
 
 type osmImportRequest struct {
@@ -257,8 +258,10 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		// Env-Vars für Lua-Script zusammenstellen
 		envVars := os.Environ()
 		for _, cat := range categories {
-			if envVar, ok := categoryEnvVars[cat]; ok {
-				envVars = append(envVars, envVar+"=1")
+			if envVarList, ok := categoryEnvVars[cat]; ok {
+				for _, envVar := range envVarList {
+					envVars = append(envVars, envVar+"=1")
+				}
 			}
 		}
 
