@@ -25,6 +25,8 @@ function JobRow({ job }: { job: ActiveJob }) {
     ? 'Foto-Vorschauen'
     : job.job_type === 'photo_clip_embed'
     ? 'Foto-Indexierung'
+    : job.job_type === 'phash_backfill'
+    ? 'pHash-Berechnung'
     : `Segment „${job.entity_name ?? 'Segment'}`
 
   const pct =
@@ -40,6 +42,8 @@ function JobRow({ job }: { job: ActiveJob }) {
         ? `${job.progress_current} / ${job.progress_total} Thumbnails generiert`
         : job.job_type === 'photo_clip_embed'
         ? `${job.progress_current} / ${job.progress_total} Fotos indexiert`
+        : job.job_type === 'phash_backfill'
+        ? `${job.progress_current} / ${job.progress_total} Fotos berechnet`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
       : isDataImport && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`

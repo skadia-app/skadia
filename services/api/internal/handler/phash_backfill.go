@@ -99,11 +99,16 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// pHash computation from thumbnail data
+			// pHash computation from thumbnail data.
+			// For videos with a thumbnail, the downloaded data is already a JPEG
+			// image — use ComputeFromBytes, not ComputeVideoHash.
+			// Only fall back to ComputeVideoHash when we had to download the
+			// original video file (no thumbnail available).
 			var hashVal uint64
 			var hashErr error
 
-			if photo.IsVideo {
+			usedThumb := photo.S3KeyThumb != "" && key == photo.S3KeyThumb
+			if photo.IsVideo && !usedThumb {
 				durationS := 0.0
 				if photo.DurationS != nil {
 					durationS = *photo.DurationS

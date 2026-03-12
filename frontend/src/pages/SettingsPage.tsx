@@ -14,7 +14,7 @@ import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
-import { recomputePhotoPreviews, recomputePhotoEmbeddings } from '@/api/activityPhotos'
+import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
@@ -1567,6 +1567,7 @@ function HeatmapSettingsSection() {
 
 function ImportSettingsSection() {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const { data: settings } = useQuery({
     queryKey: ['import-settings'],
     queryFn: getImportSettings,
@@ -1575,6 +1576,26 @@ function ImportSettingsSection() {
     mutationFn: updateImportSettings,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['import-settings'] }),
   })
+
+  const [phashBackfillPending, setPhashBackfillPending] = useState(false)
+
+  async function handlePhashBackfill() {
+    setPhashBackfillPending(true)
+    try {
+      const result = await backfillPhash()
+      if (result.status === 'already_running') {
+        addToast({ type: 'info', title: 'Backfill läuft bereits', message: 'Fortschritt im Header-Indikator sichtbar' })
+      } else if ((result.queued ?? 0) === 0) {
+        addToast({ type: 'success', title: 'Alle Fotos haben bereits einen pHash' })
+      } else {
+        addToast({ type: 'info', title: 'pHash-Backfill gestartet', message: `${result.queued} Fotos werden verarbeitet — Fortschritt im Header-Indikator sichtbar` })
+      }
+    } catch {
+      addToast({ type: 'error', title: 'Backfill konnte nicht gestartet werden', duration: 0 })
+    } finally {
+      setPhashBackfillPending(false)
+    }
+  }
 
   const { data: enrichSettings } = useQuery({
     queryKey: ['enrichment-settings'],
@@ -1588,7 +1609,7 @@ function ImportSettingsSection() {
 
   const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
   const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 100
-  const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 2
+  const lengthDiff = enrichSettings?.route_duplicate_length_diff_km ?? 0.5
   const phashBits = enrichSettings?.phash_threshold_bits ?? 3
 
   // Local state for all sliders — visual feedback during drag, commit on release
@@ -1714,13 +1735,15 @@ function ImportSettingsSection() {
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
           <span>Max. Längendifferenz</span>
-          <span className="tabular-nums font-mono">{localLengthDiff} km</span>
+          <span className="tabular-nums font-mono">
+            {localLengthDiff < 1 ? `${Math.round(localLengthDiff * 1000)} m` : `${Math.round(localLengthDiff * 10) / 10} km`}
+          </span>
         </div>
         <input
           type="range"
-          min={0.5}
-          max={10}
-          step={0.5}
+          min={0.1}
+          max={2}
+          step={0.1}
           value={localLengthDiff}
           onChange={e => setLocalLengthDiff(Number(e.target.value))}
           onPointerUp={() => enrichMut.mutate({ route_duplicate_length_diff_km: localLengthDiff })}
@@ -1728,8 +1751,8 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>0,5 km (strenger)</span>
-          <span>10 km (großzügiger)</span>
+          <span>100 m (strenger)</span>
+          <span>2 km (großzügiger)</span>
         </div>
       </div>
 
@@ -1766,6 +1789,20 @@ function ImportSettingsSection() {
           <span>10 Bits (großzügiger)</span>
         </div>
         <p className="text-xs text-neutral-400 mt-1">Standard: 3 Bits</p>
+      </div>
+
+      {/* pHash Backfill */}
+      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePhashBackfill}
+            disabled={phashBackfillPending}
+            className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+          >
+            {phashBackfillPending ? 'Startet…' : 'pHash neu berechnen'}
+          </button>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">Geschieht automatisch beim Import. Nur nötig für Fotos, die vor Einführung der Duplikatserkennung importiert wurden.</p>
+        </div>
       </div>
     </section>
   )

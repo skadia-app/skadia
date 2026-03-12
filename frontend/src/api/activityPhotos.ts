@@ -93,3 +93,7 @@ export async function recomputePhotoEmbeddings(): Promise<{ job_id: string; queu
 export async function recomputePhotoThumbnails(): Promise<{ job_id?: string; queued?: number; fixed?: number; status?: string }> {
   return apiClient('/photos/recompute-thumbnails', { method: 'POST' })
 }
+
+export async function backfillPhash(): Promise<{ job_id?: string; queued?: number; status?: string }> {
+  return apiClient('/admin/phash-backfill', { method: 'POST' })
+}

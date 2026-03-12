@@ -456,8 +456,14 @@ async def _process_photo_embed(msg, pool, nc) -> None:
             await msg.ack()
             return
 
-    # Prefer preview (smaller), fall back to original
-    image_key = data.get("s3_key_preview") or data.get("s3_key", "")
+    # For videos: use original file (need full video for multi-frame extraction).
+    # For images: prefer preview (smaller), fall back to original.
+    content_type = data.get("content_type", "")
+    is_video_file = content_type.lower().startswith("video/")
+    if is_video_file:
+        image_key = data.get("s3_key") or data.get("s3_key_preview", "")
+    else:
+        image_key = data.get("s3_key_preview") or data.get("s3_key", "")
     if not image_key:
         logger.error("photo_embed: no s3_key in message for photo %s", photo_id)
         await msg.ack()
@@ -470,7 +476,7 @@ async def _process_photo_embed(msg, pool, nc) -> None:
 
             image_bytes = await _download_from_s3(s3_bucket, image_key)
 
-            if is_video(image_key, data.get("content_type", "")):
+            if is_video_file or is_video(image_key, content_type):
                 num_frames = max(1, min(10, int(data.get("video_clip_frames", 4) or 4)))
                 logger.info("photo_embed: video detected for photo %s, extracting %d frame(s)", photo_id, num_frames)
                 embedding = await embed_video_bytes(image_bytes, num_frames=num_frames)
@@ -601,7 +607,8 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                 # All other formats (image/*, video/*, HEIC, JXL) are now supported.
                 rows = await conn.fetch(
                     "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview, "
-                    "ap.content_type "
+                    "ap.content_type, "
+                    "ues.video_clip_frames "
                     "FROM activity_photos ap "
                     "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
                     "WHERE ap.clip_embedding IS NULL "
@@ -623,6 +630,7 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                         "s3_key": row["s3_key"],
                         "s3_key_preview": row["s3_key_preview"],
                         "content_type": row.get("content_type") or "",
+                        "video_clip_frames": row.get("video_clip_frames") or 4,
                     }
                     await js.publish(
                         "skadia.photo.embed",
