@@ -7,7 +7,7 @@ export interface RouteWaypoint {
   id: string                      // UUID (frontend-generated)
   latlng: [number, number]
   type: 'start' | 'via' | 'end'
-  poi_id?: number                 // Reference to osm_amenities/osm_peaks
+  poi_id?: number                 // Reference to osm_pois
   poi_name?: string               // e.g. "Bettelwurfhütte (2077m)"
   poi_type?: string               // e.g. "alpine_hut", "peak"
 }

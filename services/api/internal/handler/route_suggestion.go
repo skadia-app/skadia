@@ -72,7 +72,7 @@ type RouteSuggestionResponse struct {
 // SuggestRoutes generates up to 3 round-trip route suggestions starting from
 // the given point. The algorithm:
 //
-//  1. Find the nearest node in the osm_trails pgRouting topology.
+//  1. Find the nearest node in the osm_ways pgRouting topology.
 //  2. Run pgr_drivingDistance to find nodes reachable within half the target
 //     distance (assuming a round-trip; cost column stores travel minutes).
 //  3. Select up to 3 via-points from the reachable set that are spread in

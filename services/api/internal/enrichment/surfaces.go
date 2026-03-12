@@ -50,7 +50,7 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) err
 		return fmt.Errorf("surfaces: delete existing rows: %w", err)
 	}
 
-	// Match the track against osm_trails using a 10 m buffer (consistent with
+	// Match the track against osm_ways using a 10 m buffer (consistent with
 	// surfaces.py BUFFER_M = 10). Aggregate by (surface_type, path_type) and
 	// compute the percentage of total track length.
 	rows, err := db.Pool.Query(ctx, `

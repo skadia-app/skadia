@@ -33,7 +33,7 @@ type IsochroneResponse struct {
 }
 
 // Isochrone computes reachable areas from a start point using pgRouting's
-// pgr_drivingDistance on the osm_trails topology built by Migration 000129.
+// pgr_drivingDistance on the osm_ways topology built by Migration 000151.
 // One convex-hull polygon is returned for each requested time band.  POIs
 // within the outermost band are optionally returned when poi_types is set.
 //
