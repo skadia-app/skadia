@@ -134,6 +134,13 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 		}
 
+		// Map Komoot tour visibility to activity visibility
+		if tour.Status == "public" {
+			data.Visibility = "public"
+		} else {
+			data.Visibility = "private"
+		}
+
 		data.Source = "Komoot"
 		data.FileHash = hashStr
 		data.FileFormat = format

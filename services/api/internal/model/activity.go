@@ -61,6 +61,8 @@ type ActivityData struct {
 
 	Tags []string // existing tags on the activity (for enrichment merge)
 
+	Visibility string // "private", "public", "followers" — empty means default ("private")
+
 	IsIndoor bool
 	IsEbike  bool
 	HasGPS   bool

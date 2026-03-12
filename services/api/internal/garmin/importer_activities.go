@@ -66,6 +66,10 @@ func (a *ActivitiesImporter) Detect(src ExportSource) (bool, int, error) {
 	return count > 0, count, nil
 }
 
+// TODO(visibility): Parse DI_CONNECT/DI-Connect-Fitness/*_summarizedActivities.json to extract
+// the "rule" field ("private"/"public") per activity and map it to data.Visibility.
+// This requires matching summarizedActivities entries to FIT files by Garmin activity ID.
+
 func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
 	result := &ImportResult{}
 

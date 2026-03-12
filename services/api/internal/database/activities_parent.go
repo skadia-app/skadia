@@ -58,7 +58,8 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device,
-			parent_id
+			parent_id,
+			visibility
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -75,7 +76,8 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
 			$34, $35,
 			$36, $37,
-			$38
+			$38,
+			$39
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
@@ -93,6 +95,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
 		parentID,
+		visibilityOrDefault(data.Visibility),
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
@@ -111,7 +114,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		HasGPS:              data.HasGPS,
 		NeedsClassification: data.SportType == "unknown",
 		OriginalFilename:    ptrString(data.OriginalName),
-		Visibility:          "private",
+		Visibility:          visibilityOrDefault(data.Visibility),
 		EnrichmentStatus:    "pending",
 		ParentID:            &parentID,
 	}

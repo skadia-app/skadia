@@ -99,7 +99,8 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			tss, trimp, is_indoor, is_ebike, has_gps,
 			start_location, end_location,
 			original_filename, original_file_format,
-			source, source_device
+			source, source_device,
+			visibility
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -115,7 +116,8 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
 			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
 			$34, $35,
-			$36, $37
+			$36, $37,
+			$38
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
@@ -132,6 +134,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		data.EndLat, data.EndLng,
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
+		visibilityOrDefault(data.Visibility),
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -150,7 +153,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		HasGPS:              data.HasGPS,
 		NeedsClassification: data.SportType == "unknown",
 		OriginalFilename:    ptrString(data.OriginalName),
-		Visibility:          "private",
+		Visibility:          visibilityOrDefault(data.Visibility),
 		EnrichmentStatus:    "pending",
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
@@ -1282,6 +1285,14 @@ func derefOr(p *string, fallback string) string {
 		return *p
 	}
 	return fallback
+}
+
+// visibilityOrDefault returns the given visibility if non-empty, otherwise "private".
+func visibilityOrDefault(v string) string {
+	if v != "" {
+		return v
+	}
+	return "private"
 }
 
 func nilIfEmpty(s string) *string {
