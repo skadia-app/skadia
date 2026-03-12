@@ -303,7 +303,6 @@ function osm2pgsql.process_node(object)
                 geom     = object:as_point(),
             })
         end
-        return
     end
 
     -- Infrastructure: Trinkwasser, WC, Fahrradreparatur (kein Name nötig)
@@ -449,7 +448,7 @@ function osm2pgsql.process_node(object)
                 tags     = build_tags(tags, {'climbing:grade:uiaa','rock','fee'}),
                 geom     = object:as_point(),
             })
-        elseif tags.leisure == 'fitness_station' or tags.leisure == 'outdoor_seating' then
+        elseif tags.leisure == 'fitness_station' then
             if tags.name then
                 tables.pois:insert({
                     osm_id   = object.id,
@@ -600,7 +599,10 @@ function osm2pgsql.process_way(object)
         local hw = tags.highway
         if hw and routable_highways[hw] then
             local lanes_val = nil
-            if tags.lanes then lanes_val = math.floor(tonumber(tags.lanes) or 0) end
+            if tags.lanes then
+                local n = tonumber(tags.lanes)
+                if n and n > 0 then lanes_val = math.floor(n) end
+            end
             tables.ways:insert({
                 osm_id            = object.id,
                 name              = tags.name,
@@ -810,12 +812,7 @@ function osm2pgsql.process_relation(object)
     if (import_all or import_pistes) then
         local piste_types = {downhill=true, nordic=true, skitour=true, sled=true, hike=true, sleigh=true}
         if tags.type == 'multipolygon' and tags['piste:type'] and piste_types[tags['piste:type']] then
-            local mp = object:as_multipolygon()
-            if mp then
-                -- Pisten-Relationen als Linie nicht sinnvoll, als Fläche auch nicht direkt
-                -- Hier wird die Boundary der Relation importiert falls verfügbar
-                -- Das ist eine Vereinfachung — wird in Phase 8c-II verfeinert
-            end
+            -- TODO Phase 8c-II: import piste relation outlines as area
         end
     end
 end
