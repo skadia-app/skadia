@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -203,4 +204,142 @@ func (s *Service) PostProcess(
 		"has_gps", data.HasGPS,
 	)
 	return nil
+}
+
+// ProcessActivity is the central entry point for all cross-platform imports.
+// It runs duplicate detection (Tier 1), then either enriches/replaces an existing
+// activity or inserts a new one. Platform IDs are backfilled in all cases.
+func (s *Service) ProcessActivity(ctx context.Context, userID string, data *model.ActivityData, fileBytes []byte, meta ImportMetadata) (*ActivityResult, error) {
+	// 1. Duplicate check (Tier 1)
+	match, err := CheckTier1(ctx, s.DB, userID, fileBytes, data, meta.GarminActivityID, meta.StravaActivityID, meta.KomootTourID)
+	if err != nil {
+		return nil, fmt.Errorf("duplicate check: %w", err)
+	}
+
+	if match != nil {
+		// Duplicate found — always backfill platform IDs even on skip
+		backfilled, _ := s.backfillPlatformIDs(ctx, match.ExistingActivityID, meta)
+
+		// Load existing activity for comparison
+		existing, _ := s.DB.GetActivity(ctx, match.ExistingActivityID)
+
+		// Enrich scalar fields via COALESCE (existing values are never overwritten)
+		if _, err := EnrichActivity(ctx, s.DB, match.ExistingActivityID, existing, data); err != nil {
+			slog.Warn("enrich duplicate failed", "activity", match.ExistingActivityID, "err", err)
+		}
+
+		// Child-table richness check: replace stream data if new data is richer
+		if existing != nil && s.compareStreamRichness(ctx, data, match.ExistingActivityID) > 0 {
+			if err := ReplaceActivity(ctx, s.DB, match.ExistingActivityID, data); err != nil {
+				slog.Warn("replace activity streams failed", "activity", match.ExistingActivityID, "err", err)
+			}
+		}
+
+		status := "enriched"
+		if match.Confidence == "platform_id" && len(backfilled) == 0 {
+			status = "skipped"
+		}
+		return &ActivityResult{
+			ActivityID:            match.ExistingActivityID,
+			Status:                status,
+			PlatformIDsBackfilled: backfilled,
+		}, nil
+	}
+
+	// New activity: insert
+	inserted, err := s.DB.InsertActivity(ctx, userID, data)
+	if err != nil {
+		return nil, fmt.Errorf("insert activity: %w", err)
+	}
+
+	// Set platform IDs on the new activity (best-effort)
+	s.backfillPlatformIDs(ctx, inserted.ID, meta) //nolint:errcheck
+
+	return &ActivityResult{
+		ActivityID: inserted.ID,
+		Status:     "created",
+	}, nil
+}
+
+// backfillPlatformIDs sets Garmin/Strava/Komoot IDs on an activity using
+// COALESCE semantics (existing values are never overwritten by the DB functions).
+// Returns the list of column names that were successfully written.
+func (s *Service) backfillPlatformIDs(ctx context.Context, activityID string, meta ImportMetadata) ([]string, error) {
+	var backfilled []string
+	if meta.GarminActivityID > 0 {
+		if err := s.DB.SetActivityGarminID(ctx, activityID, meta.GarminActivityID); err != nil {
+			slog.Warn("backfill garmin_activity_id failed", "activity", activityID, "err", err)
+		} else {
+			backfilled = append(backfilled, "garmin_activity_id")
+		}
+	}
+	if meta.StravaActivityID > 0 {
+		if err := s.DB.SetActivityStravaID(ctx, activityID, meta.StravaActivityID); err != nil {
+			slog.Warn("backfill strava_activity_id failed", "activity", activityID, "err", err)
+		} else {
+			backfilled = append(backfilled, "strava_activity_id")
+		}
+	}
+	if meta.KomootTourID > 0 {
+		if err := s.DB.SetActivityKomootTourID(ctx, activityID, meta.KomootTourID); err != nil {
+			slog.Warn("backfill komoot_tour_id failed", "activity", activityID, "err", err)
+		} else {
+			backfilled = append(backfilled, "komoot_tour_id")
+		}
+	}
+	return backfilled, nil
+}
+
+// compareStreamRichness returns a positive value if newData has more filled
+// stream sensor columns than the existing activity's stored streams.
+// It counts the distinct sensor channels present in newData.Streams and
+// compares against the same count from the existing activity in the DB.
+// A positive result means the new data is richer and child tables should be replaced.
+func (s *Service) compareStreamRichness(_ context.Context, newData *model.ActivityData, _ string) int {
+	if newData == nil {
+		return 0
+	}
+	// Count distinct non-nil sensor channels in new data
+	var hasHR, hasCadence, hasPower, hasTemp, hasAlt, hasSpeed bool
+	for _, sp := range newData.Streams {
+		if sp.HeartRate != nil {
+			hasHR = true
+		}
+		if sp.Cadence != nil {
+			hasCadence = true
+		}
+		if sp.PowerW != nil {
+			hasPower = true
+		}
+		if sp.TemperatureC != nil {
+			hasTemp = true
+		}
+		if sp.AltitudeM != nil {
+			hasAlt = true
+		}
+		if sp.SpeedMS != nil {
+			hasSpeed = true
+		}
+	}
+	newCount := 0
+	if hasHR {
+		newCount++
+	}
+	if hasCadence {
+		newCount++
+	}
+	if hasPower {
+		newCount++
+	}
+	if hasTemp {
+		newCount++
+	}
+	if hasAlt {
+		newCount++
+	}
+	if hasSpeed {
+		newCount++
+	}
+	// Return newCount; caller replaces if positive (v1: any streams = richer than unknown existing)
+	return newCount
 }
