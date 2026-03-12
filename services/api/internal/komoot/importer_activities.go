@@ -121,13 +121,12 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
-		// Apply Komoot sport mapping. Komoot is authoritative for sport type on its own tours —
-		// FIT files from Komoot often have no valid sport field (returns "unknown" or "generic").
+		// Komoot API sport always wins — user may have classified the tour differently
+		// than the recording device (e.g. Wahoo ELEMNT records hiking as cycling).
+		// FIT files from Komoot also often have no valid sport field at all.
 		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
-			if data.SportType == "" || data.SportType == "generic" || data.SportType == "unknown" {
-				data.SportType = mapping.SportType
-				data.SubType = mapping.SubType
-			}
+			data.SportType = mapping.SportType
+			data.SubType = mapping.SubType
 			if mapping.IsEbike {
 				data.IsEbike = true
 			}
