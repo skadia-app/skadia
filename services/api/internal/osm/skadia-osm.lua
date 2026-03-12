@@ -146,6 +146,7 @@ local import_glaciers      = os.getenv("SKADIA_IMPORT_GLACIERS")      ~= nil
 local import_wetlands      = os.getenv("SKADIA_IMPORT_WETLANDS")      ~= nil
 local import_boundaries    = os.getenv("SKADIA_IMPORT_BOUNDARIES")    ~= nil
 local import_pistes        = os.getenv("SKADIA_IMPORT_PISTES")        ~= nil
+local import_ferries       = os.getenv("SKADIA_IMPORT_FERRIES")       ~= nil
 
 -- If NO flag is set → import everything (backward compat for shell scripts)
 local import_all = not (import_peaks or import_passes or import_lifts or
@@ -154,7 +155,7 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_shops or import_sport or import_camping or import_information or
     import_landmarks or import_religion or import_ways or import_waterways or
     import_forests or import_glaciers or import_wetlands or
-    import_boundaries or import_pistes)
+    import_boundaries or import_pistes or import_ferries)
 
 -- ============================================================
 -- Helper functions
@@ -644,6 +645,25 @@ function osm2pgsql.process_way(object)
                 operator          = tags.operator,
                 tags              = build_tags(tags, {'name:de','name:en','alt_name','description'}),
                 geom              = object:as_linestring(),
+            })
+        end
+    end
+
+    -- Fährrouten (route=ferry)
+    if (import_all or import_ferries) then
+        if tags.route == 'ferry' then
+            tables.ways:insert({
+                osm_id   = object.id,
+                name     = tags.name,
+                ref      = tags.ref,
+                highway  = 'ferry',
+                operator = tags.operator,
+                access   = tags.access,
+                foot     = tags.foot,
+                bicycle  = tags.bicycle,
+                motor_vehicle = tags.motor_vehicle,
+                tags     = build_tags(tags, {'name:de','name:en','alt_name','description','duration'}),
+                geom     = object:as_linestring(),
             })
         end
     end

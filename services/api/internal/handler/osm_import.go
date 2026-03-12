@@ -38,10 +38,12 @@ var osmCategories = map[string][]string{
 	"religion":       {"osm_pois"},
 	"ways":           {"osm_ways"},
 	"waterways":      {"osm_waterways", "osm_waters"},
-	"forests":        {"osm_forests", "osm_wetlands", "osm_glaciers"},
+	"forests":        {"osm_forests", "osm_glaciers"},
+	"wetlands":       {"osm_wetlands"},
 	"boundaries":     {"osm_boundaries"},
 	"pistes":         {"osm_pistes"},
 	"lifts":          {"osm_lifts"},
+	"ferries":        {}, // shares osm_ways — cleared via DELETE WHERE highway='ferry'
 }
 
 // categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
@@ -65,10 +67,12 @@ var categoryToPOI = map[string][]string{
 var categoryToTable = map[string][]string{
 	"ways":       {"osm_ways"},
 	"waterways":  {"osm_waterways", "osm_waters"},
-	"forests":    {"osm_forests", "osm_wetlands", "osm_glaciers"},
+	"forests":    {"osm_forests", "osm_glaciers"},
+	"wetlands":   {"osm_wetlands"},
 	"boundaries": {"osm_boundaries"},
 	"pistes":     {"osm_pistes"},
 	"lifts":      {"osm_lifts"},
+	// "ferries" intentionally omitted — uses targeted DELETE, not TRUNCATE
 }
 
 // Env-Vars für Lua-Script (eine Kategorie kann mehrere Lua-Flags setzen)
@@ -88,12 +92,14 @@ var categoryEnvVars = map[string][]string{
 	"information":    {"SKADIA_IMPORT_INFORMATION"},
 	"landmarks":      {"SKADIA_IMPORT_LANDMARKS"},
 	"religion":       {"SKADIA_IMPORT_RELIGION"},
-	"ways":           {"SKADIA_IMPORT_WAYS"},
-	"waterways":      {"SKADIA_IMPORT_WATERWAYS"},
-	// forests importiert auch Gletscher und Feuchtgebiete (gleiche Lua-Logik, separate Flags)
-	"forests":    {"SKADIA_IMPORT_FORESTS", "SKADIA_IMPORT_GLACIERS", "SKADIA_IMPORT_WETLANDS"},
+	"ways":       {"SKADIA_IMPORT_WAYS"},
+	"waterways":  {"SKADIA_IMPORT_WATERWAYS"},
+	// forests importiert auch Gletscher (gleiche Flächen-Logik)
+	"forests":    {"SKADIA_IMPORT_FORESTS", "SKADIA_IMPORT_GLACIERS"},
+	"wetlands":   {"SKADIA_IMPORT_WETLANDS"},
 	"boundaries": {"SKADIA_IMPORT_BOUNDARIES"},
 	"pistes":     {"SKADIA_IMPORT_PISTES"},
+	"ferries":    {"SKADIA_IMPORT_FERRIES"},
 }
 
 type osmImportRequest struct {
@@ -191,6 +197,15 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 		_, err := h.DB.Pool.Exec(ctx, "TRUNCATE "+table+" CASCADE")
 		if err != nil {
 			return err
+		}
+	}
+	// Fähren teilen osm_ways — gezieltes DELETE statt TRUNCATE
+	for _, cat := range categories {
+		if cat == "ferries" {
+			if _, err := h.DB.Pool.Exec(ctx, "DELETE FROM osm_ways WHERE highway = 'ferry'"); err != nil {
+				return err
+			}
+			break
 		}
 	}
 	return nil

@@ -11,11 +11,11 @@ const ALL_CATEGORIES = [
   { id: 'settlements',    label: 'Ortschaften',              group: 'POIs' },
   { id: 'gastronomy',     label: 'Gastronomie',              group: 'POIs' },
   { id: 'accommodation',  label: 'Unterkünfte & Hütten',     group: 'POIs' },
-  { id: 'infrastructure', label: 'Infrastruktur (WC/🚰/P)',  group: 'POIs' },
+  { id: 'infrastructure', label: 'Infrastruktur (WC/Wasser/P)', group: 'POIs' },
   { id: 'transport',      label: 'Öffentlicher Verkehr',     group: 'POIs' },
   { id: 'viewpoints',     label: 'Aussichtspunkte',          group: 'POIs' },
   { id: 'shops',          label: 'Geschäfte & Versorgung',   group: 'POIs' },
-  { id: 'sport',          label: 'Sport & Klettern',         group: 'POIs' },
+  { id: 'sport',          label: 'Sportanlagen',             group: 'POIs' },
   { id: 'camping',        label: 'Camping & Feuerstellen',   group: 'POIs' },
   { id: 'information',    label: 'Wegweiser & Info',         group: 'POIs' },
   { id: 'landmarks',      label: 'Gipfelkreuze & Landmarks', group: 'POIs' },
@@ -24,9 +24,10 @@ const ALL_CATEGORIES = [
   { id: 'ways',           label: 'Wegenetz (Routing)',       group: 'Wege' },
   { id: 'lifts',          label: 'Lifte & Seilbahnen',       group: 'Wege' },
   { id: 'pistes',         label: 'Skipisten',                group: 'Wege' },
+  { id: 'ferries',        label: 'Fährrouten',               group: 'Wege' },
   // Flächen
   { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },
-  { id: 'forests',        label: 'Wälder & Natur',           group: 'Flächen' },
+  { id: 'forests',        label: 'Wälder',                   group: 'Flächen' },
   { id: 'wetlands',       label: 'Feuchtgebiete & Moore',    group: 'Flächen' },
   { id: 'boundaries',     label: 'Grenzen',                  group: 'Flächen' },
 ] as const
@@ -105,7 +106,7 @@ export default function OSMImportModal({ onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-border w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
+      <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-border w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold">OSM Import-Assistent</h2>
@@ -195,7 +196,7 @@ export default function OSMImportModal({ onClose }: Props) {
                       {groupAllSelected ? 'Gruppe abwählen' : 'Alle'}
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-1 mb-4">
+                  <div className="grid grid-cols-3 gap-1 mb-4">
                     {groupCats.map(cat => (
                       <label key={cat.id} className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
