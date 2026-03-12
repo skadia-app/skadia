@@ -53,6 +53,12 @@ ALTER INDEX IF EXISTS idx_osm_trails_target RENAME TO idx_osm_ways_target;
 ALTER INDEX IF EXISTS idx_osm_trails_highway RENAME TO idx_osm_ways_highway;
 ALTER INDEX IF EXISTS idx_osm_trails_osm_id RENAME TO idx_osm_ways_osm_id;
 
+-- Rename vertices table if it exists (created by pgr_createTopology, may not exist yet)
+DO $$ BEGIN
+    ALTER TABLE osm_trails_vertices_pgr RENAME TO osm_ways_vertices_pgr;
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
+
 -- Note: osm_trails_vertices_pgr does not exist (pgr_createTopology not yet run)
 -- It will be created as osm_ways_vertices_pgr when topology is built after OSM import.
 
@@ -177,3 +183,7 @@ BEGIN
     RETURN result;
 END;
 $$ LANGUAGE plpgsql STABLE;
+
+-- Grant read access to new tables for skadia_readonly (SQL Agent)
+GRANT SELECT ON osm_pois, osm_pistes, osm_glaciers, osm_wetlands TO skadia_readonly;
+GRANT SELECT ON osm_ways TO skadia_readonly;

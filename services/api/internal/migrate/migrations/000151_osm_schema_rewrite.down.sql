@@ -50,6 +50,11 @@ ALTER TABLE osm_ways DROP COLUMN IF EXISTS network;
 ALTER TABLE osm_ways DROP COLUMN IF EXISTS operator;
 ALTER TABLE osm_ways DROP COLUMN IF EXISTS tags;
 
+DO $$ BEGIN
+    ALTER TABLE osm_ways_vertices_pgr RENAME TO osm_trails_vertices_pgr;
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
+
 -- Rename osm_ways back to osm_trails
 ALTER TABLE osm_ways RENAME TO osm_trails;
 
