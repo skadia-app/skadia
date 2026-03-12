@@ -13,6 +13,7 @@ import { getImportSettings, updateImportSettings, type ImportSettings, type Conf
 import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
+import { type OSMStatus } from '@/api/osm'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -1087,11 +1088,9 @@ function LocalMapAndGeoSection() {
 
   // OSM status
   const [showImportModal, setShowImportModal] = useState(false)
-  const { data: osmStatus } = useQuery({
+  const { data: osmStatus } = useQuery<OSMStatus>({
     queryKey: ['osm-status'],
-    queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()) as Promise<{
-      peaks: number; passes: number; lifts: number; settlements: number; amenities?: number; has_data: boolean
-    }>,
+    queryFn: () => apiFetch('/api/v1/admin/osm-status').then(r => r.json()),
   })
   const importLifts = useMutation({
     mutationFn: () => apiFetch('/api/v1/segments/import-lifts', { method: 'POST' }).then(r => r.json()),

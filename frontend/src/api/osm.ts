@@ -1,5 +1,23 @@
 import { apiClient } from './client'
 
+export interface OSMStatus {
+  categories: Record<string, number>  // e.g. { peak: 79076, settlement: 124881, gastronomy: 45000, ... }
+  ways: number
+  lifts: number
+  pistes: number
+  waterways: number
+  forests: number
+  glaciers: number
+  wetlands: number
+  boundaries: number
+  has_data: boolean
+  // Legacy fields for backwards-compat (may come from older API versions)
+  peaks?: number
+  passes?: number
+  settlements?: number
+  amenities?: number
+}
+
 export interface OSMRegion {
   id: string
   label: string
@@ -15,6 +33,8 @@ export interface OSMRegionsResponse {
 export interface StartOSMImportRequest {
   regions: string[]
   categories: string[]
+  build_brouter?: boolean
+  build_topology?: boolean
 }
 
 export interface StartOSMImportResponse {
