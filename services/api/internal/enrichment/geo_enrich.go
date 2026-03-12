@@ -38,8 +38,8 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string) e
 		}
 	}
 
-	// Surfaces: only active in Full mode (osm_trails must exist and be populated).
-	// Writes to activity_surfaces; skips silently if osm_trails is not present.
+	// Surfaces: only active in Full mode (osm_ways must exist and be populated).
+	// Writes to activity_surfaces; skips silently if osm_ways is not present.
 	if err := EnrichSurfaces(ctx, db, activityID); err != nil {
 		slog.Warn("geo enrichment module failed",
 			"module", "surfaces",
@@ -52,7 +52,7 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string) e
 }
 
 // enrichGeoTagsPeaks finds peaks and passes within 100 m of the track.
-// Categories: 'summit' or 'pass' (based on osm_peaks.type).
+// Categories: 'summit' or 'pass' (based on osm_pois.type within category 'peak'/'pass').
 // Mirrors peaks.py.
 func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string) error {
 	// Delete existing summit/pass tags to allow re-enrichment.
@@ -68,11 +68,12 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 			SELECT track_full AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT p.osm_id, p.name, p.ele, p.type,
+		SELECT p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
 		       ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon
-		FROM osm_peaks p, route
+		FROM osm_pois p, route
 		WHERE ST_DWithin(route.geom::geography, p.geom::geography, 100)
+		  AND p.category IN ('peak', 'pass')
 		  AND p.name IS NOT NULL
 		ORDER BY dist_m
 	`, activityID)
@@ -83,17 +84,17 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 
 	for rows.Next() {
 		var osmID int64
-		var name, peakType string
+		var name, poiCategory string
 		var ele *float64
 		var distM int
 		var lat, lon float64
 
-		if err := rows.Scan(&osmID, &name, &ele, &peakType, &distM, &lat, &lon); err != nil {
+		if err := rows.Scan(&osmID, &name, &ele, &poiCategory, &distM, &lat, &lon); err != nil {
 			return fmt.Errorf("peaks: scan: %w", err)
 		}
 
 		category := "summit"
-		if peakType == "pass" || peakType == "saddle" {
+		if poiCategory == "pass" {
 			category = "pass"
 		}
 
@@ -127,12 +128,13 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			SELECT track_full AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT s.osm_id, s.name, s.place,
+		SELECT s.osm_id, s.name, s.type,
 		       ST_Y(s.geom) AS center_lat,
 		       ST_X(s.geom) AS center_lon
-		FROM osm_settlements s, route
+		FROM osm_pois s, route
 		WHERE ST_DWithin(route.geom::geography, s.geom::geography, 200)
-		ORDER BY s.place, s.name
+		  AND s.category = 'settlement'
+		ORDER BY s.type, s.name
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("settlements: query: %w", err)

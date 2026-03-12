@@ -19,16 +19,26 @@ import (
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 )
 
-// Kategorie-Definitionen: ID → betroffene Tabellen
+// Kategorie-Definitionen: ID → betroffene Tabellen.
+// Kategorien die in osm_pois landen, werden mit einem DELETE-Filter gelöscht (kein TRUNCATE).
 var osmCategories = map[string][]string{
-	"peaks":       {"osm_peaks"},
-	"passes":      {"osm_passes"},
+	"peaks":       {"osm_pois"}, // category='peak' in osm_pois
+	"passes":      {"osm_pois"}, // category='pass' in osm_pois
 	"lifts":       {"osm_lifts"},
-	"settlements": {"osm_settlements"},
-	"amenities":   {"osm_amenities"},
+	"settlements": {"osm_pois"}, // category='settlement' in osm_pois
+	"amenities":   {"osm_pois"}, // non-peak/pass/settlement categories in osm_pois
 	"waterways":   {"osm_waterways", "osm_waters"},
 	"forests":     {"osm_forests"},
 	"boundaries":  {"osm_boundaries"},
+}
+
+// osmCategoryFilter maps import category → SQL WHERE clause for osm_pois DELETE.
+// Empty string means the table is TRUNCATEd normally.
+var osmCategoryFilter = map[string]string{
+	"peaks":       "category = 'peak'",
+	"passes":      "category = 'pass'",
+	"settlements": "category = 'settlement'",
+	"amenities":   "category NOT IN ('peak', 'pass', 'settlement')",
 }
 
 // Env-Vars für Lua-Script
@@ -161,12 +171,18 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		h.DB.UpdateBackgroundJobPhase(ctx, jobID, "import")
 		h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
 
-		// Gewählte Kategorien truncaten
+		// Gewählte Kategorien leeren (osm_pois: DELETE mit Kategorie-Filter; andere: TRUNCATE)
 		for _, cat := range categories {
 			tables := osmCategories[cat]
 			for _, tbl := range tables {
-				if _, err := h.DB.Pool.Exec(ctx, "TRUNCATE TABLE "+tbl); err != nil {
-					slog.Warn("osm import: truncate failed", "table", tbl, "error", err)
+				if filter, ok := osmCategoryFilter[cat]; ok && tbl == "osm_pois" {
+					if _, err := h.DB.Pool.Exec(ctx, "DELETE FROM osm_pois WHERE "+filter); err != nil {
+						slog.Warn("osm import: delete failed", "table", tbl, "filter", filter, "error", err)
+					}
+				} else {
+					if _, err := h.DB.Pool.Exec(ctx, "TRUNCATE TABLE "+tbl); err != nil {
+						slog.Warn("osm import: truncate failed", "table", tbl, "error", err)
+					}
 				}
 			}
 		}
@@ -294,11 +310,14 @@ func buildIndexStatements(categories []string) []string {
 	}
 
 	allIndexes := []indexDef{
-		{"peaks", "osm_peaks_geog_idx", "osm_peaks", "USING gist ((geom::geography))"},
-		{"passes", "osm_passes_geog_idx", "osm_passes", "USING gist ((geom::geography))"},
+		// osm_pois: Partial GIST indexes per category (already created by migration, IF NOT EXISTS is safe)
+		{"peaks", "idx_osm_pois_peak", "osm_pois", "USING gist (geom) WHERE category = 'peak'"},
+		{"passes", "idx_osm_pois_pass", "osm_pois", "USING gist (geom) WHERE category = 'pass'"},
+		{"settlements", "idx_osm_pois_settlement", "osm_pois", "USING gist (geom) WHERE category = 'settlement'"},
+		{"amenities", "idx_osm_pois_gastronomy", "osm_pois", "USING gist (geom) WHERE category = 'gastronomy'"},
+		{"amenities", "idx_osm_pois_accommodation", "osm_pois", "USING gist (geom) WHERE category = 'accommodation'"},
+		{"amenities", "idx_osm_pois_shelter", "osm_pois", "USING gist (geom) WHERE category = 'shelter'"},
 		{"lifts", "osm_lifts_geog_idx", "osm_lifts", "USING gist ((geom::geography))"},
-		{"settlements", "osm_settlements_geog_idx", "osm_settlements", "USING gist ((geom::geography))"},
-		{"amenities", "osm_amenities_geog_idx", "osm_amenities", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waterways_geog_idx", "osm_waterways", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waters_geog_idx", "osm_waters", "USING gist ((geom::geography))"},
 		{"forests", "osm_forests_geog_idx", "osm_forests", "USING gist (geom)"},

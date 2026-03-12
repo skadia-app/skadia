@@ -356,16 +356,16 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			enabledModules = enrichSettings.EnabledModules()
 		}
 
-		// These 5 modules have been migrated to Go SQL (geo_enrich.go) and no
+		// These modules have been migrated to Go SQL (geo_enrich.go / surfaces.go) and no
 		// longer need to run in the Python ML service.
 		migratedToGo := map[string]bool{
 			"peaks": true, "settlements": true, "forests": true,
-			"water": true, "borders": true,
+			"water": true, "borders": true, "surfaces": true,
 		}
 		if enabledModules == nil {
 			// nil means "all enabled" — expand to full list minus migrated ones
 			allModules := []string{
-				"lifts", "commute", "surfaces", "stops",
+				"lifts", "commute", "stops",
 				"intervals", "ascents", "embeddings",
 			}
 			enabledModules = allModules

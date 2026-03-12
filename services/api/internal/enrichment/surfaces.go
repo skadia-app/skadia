@@ -8,24 +8,24 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
-// EnrichSurfaces matches the activity track against osm_trails and writes
+// EnrichSurfaces matches the activity track against osm_ways and writes
 // surface-type statistics to activity_surfaces.
 //
-// Only active in Full mode (osm_trails table must exist and be populated).
+// Only active in Full mode (osm_ways table must exist and be populated).
 // Uses activity_tracks.track_full as the geometry source (identical to surfaces.py).
 // Buffer: 10 m (same as Python module). Minimum segment length: 10 m.
 //
 // On re-enrichment the existing rows for the activity are deleted first.
 func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) error {
-	// Guard: skip silently if osm_trails does not exist (Lite mode).
+	// Guard: skip silently if osm_ways does not exist (Lite mode).
 	var tableExists bool
 	if err := db.Pool.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_trails')",
+		"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_ways')",
 	).Scan(&tableExists); err != nil {
-		return fmt.Errorf("surfaces: check osm_trails existence: %w", err)
+		return fmt.Errorf("surfaces: check osm_ways existence: %w", err)
 	}
 	if !tableExists {
-		slog.Debug("surfaces: osm_trails not available, skipping")
+		slog.Debug("surfaces: osm_ways not available, skipping")
 		return nil
 	}
 
@@ -69,7 +69,7 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) err
 			           )::geography
 			       ) AS match_length_m,
 			       route.total_length_m
-			FROM osm_trails t, route
+			FROM osm_ways t, route
 			WHERE ST_DWithin(route.geom::geography, t.geom::geography, 10)
 			  AND t.surface IS NOT NULL
 		)
