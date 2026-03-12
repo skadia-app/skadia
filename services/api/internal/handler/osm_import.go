@@ -22,40 +22,84 @@ import (
 // Kategorie-Definitionen: ID → betroffene Tabellen.
 // Kategorien die in osm_pois landen, werden mit einem DELETE-Filter gelöscht (kein TRUNCATE).
 var osmCategories = map[string][]string{
-	"peaks":       {"osm_pois"}, // category='peak' in osm_pois
-	"passes":      {"osm_pois"}, // category='pass' in osm_pois
-	"lifts":       {"osm_lifts"},
-	"settlements": {"osm_pois"}, // category='settlement' in osm_pois
-	"amenities":   {"osm_pois"}, // non-peak/pass/settlement categories in osm_pois
-	"waterways":   {"osm_waterways", "osm_waters"},
-	"forests":     {"osm_forests"},
-	"boundaries":  {"osm_boundaries"},
+	"peaks":          {"osm_pois"},
+	"passes":         {"osm_pois"},
+	"settlements":    {"osm_pois"},
+	"gastronomy":     {"osm_pois"},
+	"accommodation":  {"osm_pois"},
+	"infrastructure": {"osm_pois"},
+	"transport":      {"osm_pois"},
+	"viewpoints":     {"osm_pois"},
+	"shops":          {"osm_pois"},
+	"sport":          {"osm_pois"},
+	"camping":        {"osm_pois"},
+	"information":    {"osm_pois"},
+	"landmarks":      {"osm_pois"},
+	"religion":       {"osm_pois"},
+	"ways":           {"osm_ways"},
+	"waterways":      {"osm_waterways", "osm_waters"},
+	"forests":        {"osm_forests", "osm_wetlands", "osm_glaciers"},
+	"boundaries":     {"osm_boundaries"},
+	"pistes":         {"osm_pistes"},
+	"lifts":          {"osm_lifts"},
 }
 
-// osmCategoryFilter maps import category → SQL WHERE clause for osm_pois DELETE.
-// Empty string means the table is TRUNCATEd normally.
-var osmCategoryFilter = map[string]string{
-	"peaks":       "category = 'peak'",
-	"passes":      "category = 'pass'",
-	"settlements": "category = 'settlement'",
-	"amenities":   "category NOT IN ('peak', 'pass', 'settlement')",
+// categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
+var categoryToPOI = map[string][]string{
+	"peaks":          {"peak"},
+	"passes":         {"pass"},
+	"settlements":    {"settlement"},
+	"gastronomy":     {"gastronomy"},
+	"accommodation":  {"accommodation", "shelter"},
+	"infrastructure": {"water_supply", "infrastructure", "parking", "barrier"},
+	"transport":      {"transport"},
+	"viewpoints":     {"viewpoint"},
+	"shops":          {"shop"},
+	"sport":          {"sport"},
+	"camping":        {"camping"},
+	"information":    {"information"},
+	"landmarks":      {"landmark"},
+	"religion":       {"religious"},
+}
+
+var categoryToTable = map[string][]string{
+	"ways":       {"osm_ways"},
+	"waterways":  {"osm_waterways", "osm_waters"},
+	"forests":    {"osm_forests", "osm_wetlands", "osm_glaciers"},
+	"boundaries": {"osm_boundaries"},
+	"pistes":     {"osm_pistes"},
+	"lifts":      {"osm_lifts"},
 }
 
 // Env-Vars für Lua-Script
 var categoryEnvVars = map[string]string{
-	"peaks":       "SKADIA_IMPORT_PEAKS",
-	"passes":      "SKADIA_IMPORT_PASSES",
-	"lifts":       "SKADIA_IMPORT_LIFTS",
-	"settlements": "SKADIA_IMPORT_SETTLEMENTS",
-	"amenities":   "SKADIA_IMPORT_AMENITIES",
-	"waterways":   "SKADIA_IMPORT_WATERWAYS",
-	"forests":     "SKADIA_IMPORT_FORESTS",
-	"boundaries":  "SKADIA_IMPORT_BOUNDARIES",
+	"peaks":          "SKADIA_IMPORT_PEAKS",
+	"passes":         "SKADIA_IMPORT_PASSES",
+	"lifts":          "SKADIA_IMPORT_LIFTS",
+	"settlements":    "SKADIA_IMPORT_SETTLEMENTS",
+	"gastronomy":     "SKADIA_IMPORT_GASTRONOMY",
+	"accommodation":  "SKADIA_IMPORT_ACCOMMODATION",
+	"infrastructure": "SKADIA_IMPORT_INFRASTRUCTURE",
+	"transport":      "SKADIA_IMPORT_TRANSPORT",
+	"viewpoints":     "SKADIA_IMPORT_VIEWPOINTS",
+	"shops":          "SKADIA_IMPORT_SHOPS",
+	"sport":          "SKADIA_IMPORT_SPORT",
+	"camping":        "SKADIA_IMPORT_CAMPING",
+	"information":    "SKADIA_IMPORT_INFORMATION",
+	"landmarks":      "SKADIA_IMPORT_LANDMARKS",
+	"religion":       "SKADIA_IMPORT_RELIGION",
+	"ways":           "SKADIA_IMPORT_WAYS",
+	"waterways":      "SKADIA_IMPORT_WATERWAYS",
+	"forests":        "SKADIA_IMPORT_FORESTS",
+	"boundaries":     "SKADIA_IMPORT_BOUNDARIES",
+	"pistes":         "SKADIA_IMPORT_PISTES",
 }
 
 type osmImportRequest struct {
-	Regions    []string `json:"regions"`
-	Categories []string `json:"categories"`
+	Regions       []string `json:"regions"`
+	Categories    []string `json:"categories"`
+	BuildBRouter  bool     `json:"build_brouter"`
+	BuildTopology bool     `json:"build_topology"`
 }
 
 // ListOSMRegions gibt den Regions-Katalog zurück.
@@ -113,15 +157,47 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go h.runOSMImport(jobID, userID, validRegions, req.Categories)
+	go h.runOSMImport(jobID, userID, validRegions, req)
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 var osmProgressRe = regexp.MustCompile(`Node\((\d+)k`)
 
-func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, categories []string) {
+// clearOSMData löscht die Daten der gewählten Kategorien:
+// osm_pois wird per DELETE mit category-Filter geleert, andere Tabellen per TRUNCATE.
+func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
+	var poiCategories []string
+	var tablesToTruncate []string
+
+	for _, cat := range categories {
+		if pois, ok := categoryToPOI[cat]; ok {
+			poiCategories = append(poiCategories, pois...)
+		}
+		if tables, ok := categoryToTable[cat]; ok {
+			tablesToTruncate = append(tablesToTruncate, tables...)
+		}
+	}
+
+	if len(poiCategories) > 0 {
+		_, err := h.DB.Pool.Exec(ctx,
+			"DELETE FROM osm_pois WHERE category = ANY($1)", poiCategories)
+		if err != nil {
+			return err
+		}
+	}
+	for _, table := range tablesToTruncate {
+		_, err := h.DB.Pool.Exec(ctx, "TRUNCATE "+table+" CASCADE")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
 	ctx := context.Background()
+	categories := req.Categories
 	dataDir := os.Getenv("OSM_DATA_DIR")
 	if dataDir == "" {
 		dataDir = "/data/osm"
@@ -167,24 +243,15 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			return
 		}
 
-		// === Phase 2: TRUNCATE + osm2pgsql ===
+		// === Phase 2: Daten löschen + osm2pgsql ===
 		h.DB.UpdateBackgroundJobPhase(ctx, jobID, "import")
 		h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
 
-		// Gewählte Kategorien leeren (osm_pois: DELETE mit Kategorie-Filter; andere: TRUNCATE)
-		for _, cat := range categories {
-			tables := osmCategories[cat]
-			for _, tbl := range tables {
-				if filter, ok := osmCategoryFilter[cat]; ok && tbl == "osm_pois" {
-					if _, err := h.DB.Pool.Exec(ctx, "DELETE FROM osm_pois WHERE "+filter); err != nil {
-						slog.Warn("osm import: delete failed", "table", tbl, "filter", filter, "error", err)
-					}
-				} else {
-					if _, err := h.DB.Pool.Exec(ctx, "TRUNCATE TABLE "+tbl); err != nil {
-						slog.Warn("osm import: truncate failed", "table", tbl, "error", err)
-					}
-				}
-			}
+		// Gewählte Kategorien leeren
+		if err := h.clearOSMData(ctx, categories); err != nil {
+			slog.Error("osm import: clearOSMData failed", "error", err)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			return
 		}
 
 		// Env-Vars für Lua-Script zusammenstellen
@@ -231,8 +298,13 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			return
 		}
 
-		// PBF-Datei löschen um Speicher zu sparen
-		os.Remove(pbfPath)
+		// PBF für BRouter-Build aufbewahren wenn angefordert
+		if req.BuildBRouter {
+			// PBF bleibt für scripts/brouter-build-segments.sh erhalten
+			slog.Info("osm import: PBF preserved for BRouter build", "path", pbfPath)
+		} else {
+			os.Remove(pbfPath)
+		}
 	}
 
 	// === Phase 3: Indizieren ===
@@ -245,8 +317,35 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			slog.Warn("osm import: index step failed", "stmt", stmt, "error", err)
 		}
 	}
-
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(len(indexSteps)))
+
+	// === Phase 4: Optimieren ===
+	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "optimize")
+
+	optimizeQueries := []string{
+		"UPDATE osm_pois SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_ways SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_lifts SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_waterways SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_pistes SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_forests SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_waters SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_glaciers SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_wetlands SET geom = ST_QuantizeCoordinates(geom, 6)",
+		"UPDATE osm_ways SET length_m = ST_Length(geom::geography) WHERE length_m IS NULL OR length_m = 0",
+		"VACUUM ANALYZE osm_pois",
+		"VACUUM ANALYZE osm_ways",
+	}
+	for _, q := range optimizeQueries {
+		preview := q
+		if len(preview) > 50 {
+			preview = preview[:50]
+		}
+		if _, err := h.DB.Pool.Exec(ctx, q); err != nil {
+			slog.Warn("osm import: optimize step failed", "query", preview, "error", err)
+		}
+	}
+
 	h.DB.CompleteBackgroundJob(ctx, jobID, false)
 	slog.Info("osm import: completed", "job_id", jobID)
 }
@@ -310,22 +409,33 @@ func buildIndexStatements(categories []string) []string {
 	}
 
 	allIndexes := []indexDef{
-		// osm_pois: Partial GIST indexes per category (already created by migration, IF NOT EXISTS is safe)
-		{"peaks", "idx_osm_pois_peak", "osm_pois", "USING gist (geom) WHERE category = 'peak'"},
-		{"passes", "idx_osm_pois_pass", "osm_pois", "USING gist (geom) WHERE category = 'pass'"},
-		{"settlements", "idx_osm_pois_settlement", "osm_pois", "USING gist (geom) WHERE category = 'settlement'"},
-		{"amenities", "idx_osm_pois_gastronomy", "osm_pois", "USING gist (geom) WHERE category = 'gastronomy'"},
-		{"amenities", "idx_osm_pois_accommodation", "osm_pois", "USING gist (geom) WHERE category = 'accommodation'"},
-		{"amenities", "idx_osm_pois_shelter", "osm_pois", "USING gist (geom) WHERE category = 'shelter'"},
 		{"lifts", "osm_lifts_geog_idx", "osm_lifts", "USING gist ((geom::geography))"},
+		{"ways", "osm_ways_geog_idx", "osm_ways", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waterways_geog_idx", "osm_waterways", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waters_geog_idx", "osm_waters", "USING gist ((geom::geography))"},
 		{"forests", "osm_forests_geog_idx", "osm_forests", "USING gist (geom)"},
+		{"forests", "osm_wetlands_geog_idx", "osm_wetlands", "USING gist ((geom::geography))"},
+		{"forests", "osm_glaciers_geog_idx", "osm_glaciers", "USING gist ((geom::geography))"},
 		{"boundaries", "osm_boundaries_geog_idx", "osm_boundaries", "USING gist ((geom::geography))"},
+		{"pistes", "osm_pistes_geog_idx", "osm_pistes", "USING gist ((geom::geography))"},
 	}
 
 	var stmts []string
 	analyzedTables := make(map[string]bool)
+
+	// osm_pois: ANALYZE wenn mindestens eine POI-Kategorie importiert wurde
+	poiCats := []string{
+		"peaks", "passes", "settlements", "gastronomy", "accommodation",
+		"infrastructure", "transport", "viewpoints", "shops", "sport",
+		"camping", "information", "landmarks", "religion",
+	}
+	for _, pc := range poiCats {
+		if catSet[pc] && !analyzedTables["osm_pois"] {
+			stmts = append(stmts, "ANALYZE osm_pois")
+			analyzedTables["osm_pois"] = true
+			break
+		}
+	}
 
 	for _, idx := range allIndexes {
 		if !catSet[idx.cat] {
