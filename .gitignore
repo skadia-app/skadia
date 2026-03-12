@@ -13,7 +13,8 @@ data/tiles/*
 !data/tiles/.gitkeep
 
 # BRouter: Segmente (rd5, binär, mehrere GB) ignorieren; Profile und Verzeichnisstruktur behalten
-data/brouter/segments/
+data/brouter/segments/*
+!data/brouter/segments/.gitkeep
 data/dem/
 
 # Python
