@@ -3,7 +3,6 @@ package komoot
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,8 +12,7 @@ import (
 
 	"github.com/bep/imagemeta"
 
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
-	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 )
 
 // PhotosImporter imports photos from tour cover_images (own photos uploaded directly to a tour).
@@ -81,27 +79,8 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 				continue
 			}
 
-			// SHA256 hash for dedup
-			hashBytes := sha256.Sum256(data)
-			hash := fmt.Sprintf("%x", hashBytes)
-
-			// Skip if already exists
-			if p.DB != nil {
-				if exists, err := p.DB.ActivityPhotoExistsByHash(ctx, p.UserID, hash); err == nil && exists {
-					result.Skipped++
-					continue
-				}
-			}
-
-			// Determine content type and extension
+			// Determine content type for EXIF decoding
 			contentType := komootPhotoContentType(data, imageURL)
-			ext := filepath.Ext(imageURL)
-			if idx2 := strings.Index(ext, "?"); idx2 > 0 {
-				ext = ext[:idx2]
-			}
-			if ext == "" {
-				ext = ".jpg"
-			}
 
 			// EXIF: extract taken_at and GPS coords
 			var takenAt *time.Time
@@ -122,76 +101,31 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			}
 			// else: no coordinates at all — locationSource stays "" and lat/lng stay nil
 
-			// S3 paths
-			s3Key := fmt.Sprintf("activity-photos/%s/%s%s", p.UserID, hash, ext)
-			bucket := "skadia-media"
-
-			// Thumbnail (200px) + Preview
-			s3KeyThumb := s3Key
-			s3KeyPreview := ""
-
-			thumbData, _ := imageutil.Resize(data, 200, 200, 80)
-			var previewData []byte
-			if p.DB != nil {
-				if settings, err := p.DB.GetEnrichmentSettings(ctx, p.UserID); err == nil {
-					if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-						previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
-					}
-				}
-			}
-
-			if p.Storage != nil {
-				if err := p.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
-					slog.Warn("komoot photos: s3 upload failed", "url", imageURL, "error", err)
-					result.Errors = append(result.Errors, fmt.Sprintf("s3 upload (tour %d): %s", tourID, err))
-					continue
-				}
-
-				if thumbData != nil {
-					s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", p.UserID, hash)
-					if err := p.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-						slog.Warn("komoot photos: s3 thumb upload failed", "url", imageURL, "error", err)
-						s3KeyThumb = s3Key
-					}
-				}
-
-				if previewData != nil {
-					s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", p.UserID, hash)
-					if err := p.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-						slog.Warn("komoot photos: s3 preview upload failed", "url", imageURL, "error", err)
-						s3KeyPreview = ""
-					}
-				}
-			}
-
-			actIDPtr := &activityID
-
-			photo := model.ActivityPhoto{
-				UserID:           p.UserID,
-				ActivityID:       actIDPtr,
-				S3Bucket:         bucket,
-				S3Key:            s3Key,
-				S3KeyThumb:       s3KeyThumb,
-				S3KeyPreview:     s3KeyPreview,
+			photoMeta := importer.PhotoMetadata{
 				OriginalFilename: fmt.Sprintf("komoot-tour-%d-%d.jpg", tourID, item.ID),
 				ContentType:      contentType,
-				FileSizeBytes:    int64(len(data)),
-				FileHash:         &hash,
 				TakenAt:          takenAt,
 				Lat:              lat,
 				Lng:              lng,
-				LocationSource:   func() *string { if locationSource == "" { return nil }; return &locationSource }(),
+				LocationSource:   locationSource,
+				SourcePlatform:   "komoot",
 			}
 
-			if p.DB != nil {
-				if _, err := p.DB.InsertActivityPhoto(ctx, photo); err != nil {
-					slog.Warn("komoot photos: insert failed", "url", imageURL, "error", err)
-					result.Errors = append(result.Errors, fmt.Sprintf("insert photo (tour %d): %s", tourID, err))
-					continue
-				}
+			photoResult, photoErr := p.ImportService.ProcessPhoto(ctx, p.UserID, activityID, data, photoMeta)
+			if photoErr != nil {
+				slog.Warn("komoot photos: process failed", "url", imageURL, "error", photoErr)
+				result.Errors = append(result.Errors, fmt.Sprintf("process photo (tour %d): %s", tourID, photoErr))
+				continue
 			}
 
-			result.Imported++
+			switch photoResult.Status {
+			case "created":
+				result.Imported++
+			case "duplicate_exact", "duplicate_phash":
+				result.Skipped++
+			case "replaced":
+				result.Imported++
+			}
 		}
 	}
 

@@ -303,11 +303,12 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := komoot.KomootImportParams{
-			DB:      h.DB,
-			Storage: h.Storage,
-			UserID:  userID,
-			TourIDs: req.TourIDs,
-			Options: req.Options,
+			DB:            h.DB,
+			Storage:       h.Storage,
+			ImportService: h.ImportService,
+			UserID:        userID,
+			TourIDs:       req.TourIDs,
+			Options:       req.Options,
 			OnProgress: func(current, total int, msg string) {
 				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(current))
 				slog.Debug("komoot import progress", "job_id", jobID, "current", current, "total", total, "msg", msg)

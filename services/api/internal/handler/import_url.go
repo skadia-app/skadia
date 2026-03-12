@@ -17,14 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
@@ -178,31 +175,16 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return nil, &importError{importErrParse, fmt.Sprintf("failed to parse %s file: %s", format, err)}
 	}
 
-	// Duplicate check
-	match, err := importer.CheckTier1(ctx, h.DB, userID, fileBytes, actData, 0, 0, 0)
-	if err != nil {
-		slog.Warn("import_url: tier-1 check failed", "file", filename, "error", err)
-	} else if match != nil {
-		settings, _ := h.DB.GetImportSettings(ctx, userID)
-		strategy := importer.StrategyEnrichMissing
-		if settings != nil {
-			strategy = importer.ConflictStrategy(settings.ConflictStrategy)
-		}
-		switch strategy {
-		case importer.StrategyReplaceAll:
-			_ = importer.ReplaceActivity(ctx, h.DB, match.ExistingActivityID, actData)
-			slog.Info("import_url: activity replaced", "id", match.ExistingActivityID)
-		case importer.StrategySkip:
-			slog.Info("import_url: duplicate skipped", "id", match.ExistingActivityID)
-		default:
-			existing, _ := h.DB.GetActivity(ctx, match.ExistingActivityID)
-			n, _ := importer.EnrichActivity(ctx, h.DB, match.ExistingActivityID, existing, actData)
-			slog.Info("import_url: activity enriched", "id", match.ExistingActivityID, "fields", n)
-		}
-		return &importBytesResult{Duplicate: true}, nil
+	// Set file hash on data before processing
+	hash := sha256.Sum256(fileBytes)
+	hashStr := hex.EncodeToString(hash[:])
+	actData.FileHash = hashStr
+
+	if actData.SportType == "unknown" {
+		slog.Warn("import_url: sport type unknown", "filename", filename, "format", format)
 	}
 
-	// Time overlap check
+	// Time overlap check (informational warnings only)
 	var warnings []string
 	if !actData.StartedAt.IsZero() && !actData.EndedAt.IsZero() {
 		overlap, overlapErr := h.DB.CheckTimeOverlap(ctx, userID, actData.StartedAt, actData.EndedAt)
@@ -213,123 +195,54 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		}
 	}
 
-	// SHA256 hash
-	hash := sha256.Sum256(fileBytes)
-	hashStr := hex.EncodeToString(hash[:])
-	actData.FileHash = hashStr
-
-	if actData.SportType == "unknown" {
-		slog.Warn("import_url: sport type unknown", "filename", filename, "format", format)
+	// Delegate duplicate detection + insert to ImportService
+	result, processErr := h.ImportService.ProcessActivity(ctx, userID, actData, fileBytes, importer.ImportMetadata{SourcePlatform: "url"})
+	if processErr != nil {
+		slog.Error("import_url: process activity failed", "error", processErr)
+		return nil, &importError{importErrGeneral, "failed to process activity"}
 	}
 
-	// Upload original to Garage
+	// Duplicate handled (enriched / replaced / skipped) — no new activity
+	if result.Status != "created" {
+		slog.Info("import_url: duplicate handled", "status", result.Status, "id", result.ActivityID)
+		return &importBytesResult{Duplicate: true}, nil
+	}
+
+	// New activity created: upload original to Garage + run PostProcess
 	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
-	if err := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-		slog.Error("import_url: S3 upload failed", "error", err)
+	if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
+		slog.Error("import_url: S3 upload failed", "error", uploadErr)
 		return nil, &importError{importErrStorage, "failed to store file"}
 	}
 
-	// Insert into database
-	activity, err := h.DB.InsertActivity(ctx, userID, actData)
-	if err != nil {
-		slog.Error("import_url: insert activity failed", "error", err)
-		return nil, &importError{importErrGeneral, "failed to save activity"}
-	}
-
-	// Stage 1 Enrichment (synchronous, ~50ms)
-	if actData.HasGPS && actData.StartLat != 0 {
-		enrichment.RunStage1(ctx, h.DB, userID, activity.ID, actData, h.Events)
-	}
-
-	_ = h.DB.InsertStreams(ctx, activity.ID, actData.Streams)
-	if len(actData.RRIntervals) > 0 {
-		_ = h.DB.InsertRRIntervals(ctx, activity.ID, actData.RRIntervals)
-	}
-	_ = h.DB.InsertTrack(ctx, activity.ID, actData.TrackPoints)
-
-	if len(actData.TrackPoints) >= 2 {
-		var subTypePtr *string
-		if actData.SubType != "" {
-			subTypePtr = &actData.SubType
-		}
-		_ = h.DB.InsertHeatmapLine(ctx, userID, activity.ID, actData.SportType, subTypePtr, actData.StartedAt)
-		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-		interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
-		_ = h.DB.InsertHeatmapPoints(ctx, userID, activity.ID, actData.SportType, subTypePtr, actData.StartedAt, interval)
-	}
-
-	_ = h.DB.InsertSensors(ctx, activity.ID, actData.Sensors)
-	_ = h.DB.InsertLaps(ctx, activity.ID, actData.Laps)
-	_ = h.DB.InsertSplits(ctx, activity.ID, actData.Splits)
-	_ = h.DB.InsertSplitSummaries(ctx, activity.ID, actData.SplitSummaries)
-	_ = h.DB.InsertLengths(ctx, activity.ID, actData.Lengths)
-	_ = h.DB.InsertClimbProEvents(ctx, activity.ID, actData.ClimbProEvents)
-
-	if len(actData.TimeInZoneData) > 0 {
-		_ = h.DB.SaveTimeInZones(ctx, activity.ID, actData.TimeInZoneData)
-	}
-
 	if format == "fit" && actData.UserProfileImport != nil {
-		if err := h.DB.SetUserProfileFieldsIfNull(ctx, userID, actData.UserProfileImport); err != nil {
-			slog.Warn("import_url: set user profile fields failed", "error", err)
+		if profErr := h.DB.SetUserProfileFieldsIfNull(ctx, userID, actData.UserProfileImport); profErr != nil {
+			slog.Warn("import_url: set user profile fields failed", "error", profErr)
 		}
 	}
 
-	metaKey := s3Key + ".meta"
-	_ = h.DB.UpdateActivityFileInfo(ctx, activity.ID, "skadia-originals", s3Key, format, filename, metaKey)
-
-	meta := sidecar.GenerateMeta(activity.ID, actData)
-	if metaBytes, metaErr := meta.Marshal(); metaErr == nil {
-		_ = h.Storage.Upload(ctx, metaKey, metaBytes, "application/json")
+	activity, getErr := h.DB.GetActivity(ctx, result.ActivityID)
+	if getErr != nil || activity == nil {
+		slog.Error("import_url: failed to fetch inserted activity", "id", result.ActivityID, "error", getErr)
+		return nil, &importError{importErrGeneral, "failed to fetch inserted activity"}
 	}
 
-	if h.Events != nil {
-		_ = h.Events.PublishActivityUploaded(event.ActivityUploadedEvent{
-			ActivityID: activity.ID,
-			UserID:     userID,
-			SportType:  actData.SportType,
-			HasGPS:     actData.HasGPS,
-		})
-		h.Events.PublishAnalyticsInvalidate(userID)
-	}
-
-	if h.ShadowFS != nil {
-		if err := h.WriteShadowForActivity(ctx, userID, activity.ID, actData, fileBytes); err != nil {
-			slog.Error("import_url: shadow fs write failed", "id", activity.ID, "error", err)
-		}
-	}
-
-	if actData.HasGPS {
-		var gearIDPtr *string
-		if activity.GearID != nil {
-			gearIDPtr = activity.GearID
-		}
-		go func() {
-			bgCtx := context.Background()
-			MatchActivitySegments(bgCtx, h.DB, activity.ID, userID, actData.SportType, actData.SubType, gearIDPtr, activity.StartedAt)
-			if h.DB.IsLapDetectionEnabled(bgCtx, userID) {
-				gpsStream, gpsErr := h.DB.GetActivityGPSStream(bgCtx, activity.ID)
-				if gpsErr == nil && len(gpsStream) >= 20 {
-					if laps := DetectLaps(bgCtx, h.DB, activity.ID, gpsStream); len(laps) > 0 {
-						_ = h.DB.InsertDetectedLaps(bgCtx, activity.ID, laps)
-					}
-				}
-			}
-		}()
+	if postErr := h.ImportService.PostProcess(ctx, userID, result.ActivityID, actData, fileBytes, s3Key, format, filename); postErr != nil {
+		slog.Error("import_url: post-process failed", "id", result.ActivityID, "error", postErr)
 	}
 
 	// Re-fetch full activity for response
-	full, err := h.DB.GetActivity(ctx, activity.ID)
+	full, err := h.DB.GetActivity(ctx, result.ActivityID)
 	if err != nil || full == nil {
 		full = activity
 	}
 
 	slog.Info("import_url: activity imported",
-		"id", activity.ID,
+		"id", result.ActivityID,
 		"sport", actData.SportType,
 		"format", format,
 		"filename", filename,

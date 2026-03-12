@@ -29,12 +29,13 @@ func (i *ActivitiesImporter) Priority() int       { return 20 }
 
 // KomootImportParams bundles everything the Komoot importers need.
 type KomootImportParams struct {
-	DB         *database.DB
-	Storage    *storage.S3Client
-	UserID     string
-	TourIDs    []int64 // nil/empty = all tours
-	Options    importer.ImportOptions
-	OnProgress func(current, total int, msg string)
+	DB            *database.DB
+	Storage       *storage.S3Client
+	ImportService *importer.Service // centralised duplicate detection + insert
+	UserID        string
+	TourIDs       []int64 // nil/empty = all tours
+	Options       importer.ImportOptions
+	OnProgress    func(current, total int, msg string)
 }
 
 // KomootImportResult summarises the outcome of an import run.
@@ -46,9 +47,8 @@ type KomootImportResult struct {
 }
 
 // Import fetches all tour_recorded tours from Komoot and imports them as activities.
-// Duplicate detection:
-//  1. Komoot Tour-ID (most reliable — exact match)
-//  2. File hash + temporal match via importer.CheckTier1
+// Duplicate detection is delegated to ImportService.ProcessActivity which runs
+// Tier-0 (Komoot Tour-ID) and Tier-1 (file hash + temporal match) internally.
 func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (*KomootImportResult, error) {
 	result := &KomootImportResult{
 		TourActivityMap: make(map[int64]string),
@@ -97,18 +97,6 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			continue
 		}
 
-		// Tier-0: Komoot Tour-ID (most reliable dedup)
-		exists, err := p.DB.ActivityExistsByKomootTourID(ctx, p.UserID, tour.ID)
-		if err != nil {
-			slog.Warn("komoot activities: tour ID check failed", "tour_id", tour.ID, "error", err)
-		}
-		if exists {
-			existingID, _ := p.DB.GetActivityIDByKomootTourID(ctx, p.UserID, tour.ID)
-			result.TourActivityMap[tour.ID] = existingID
-			result.Skipped++
-			continue
-		}
-
 		// Download FIT (preferred) or GPX
 		fileBytes, format, err := i.Client.DownloadFIT(ctx, tour.ID)
 		if err != nil {
@@ -153,32 +141,24 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data.OriginalName = tour.Name
 		}
 
-		// Tier-1: File hash + temporal dedup
-		match, dupErr := importer.CheckTier1(ctx, p.DB, p.UserID, fileBytes, data, 0, 0, tour.ID)
-		if dupErr != nil {
-			slog.Warn("komoot activities: tier-1 check failed", "tour_id", tour.ID, "error", dupErr)
-			result.Errors = append(result.Errors, fmt.Sprintf("dedup tour %d: %s", tour.ID, dupErr))
+		// Duplicate detection + insert via ImportService (handles Tier-0 via KomootTourID + Tier-1 hash/temporal)
+		actResult, processErr := p.ImportService.ProcessActivity(ctx, p.UserID, data, fileBytes,
+			importer.ImportMetadata{KomootTourID: tour.ID, SourcePlatform: "komoot"})
+		if processErr != nil {
+			slog.Warn("komoot activities: process failed", "tour_id", tour.ID, "error", processErr)
+			result.Errors = append(result.Errors, fmt.Sprintf("process tour %d: %s", tour.ID, processErr))
 			continue
 		}
-		if match != nil {
-			switch p.Options.ConflictStrategy {
-			case importer.StrategyReplaceAll:
-				_ = importer.ReplaceActivity(ctx, p.DB, match.ExistingActivityID, data)
-			case importer.StrategySkip:
-				// explicit skip — no enrichment
-			default: // enrich_missing
-				existing, getErr := p.DB.GetActivity(ctx, match.ExistingActivityID)
-				if getErr != nil {
-					slog.Warn("komoot activities: cannot fetch existing activity for enrich",
-						"id", match.ExistingActivityID, "error", getErr)
-				}
-				_, _ = importer.EnrichActivity(ctx, p.DB, match.ExistingActivityID, existing, data)
-			}
-			_ = p.DB.SetActivityKomootTourID(ctx, match.ExistingActivityID, tour.ID)
-			result.TourActivityMap[tour.ID] = match.ExistingActivityID
+
+		// Always populate TourActivityMap — even for duplicates — so the PhotosImporter can look up the activity ID.
+		result.TourActivityMap[tour.ID] = actResult.ActivityID
+
+		if actResult.Status != "created" {
 			result.Skipped++
 			continue
 		}
+
+		activityID := actResult.ActivityID
 
 		// Upload original file to S3
 		var s3Key string
@@ -193,33 +173,20 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 		}
 
-		// Insert activity
-		activity, err := p.DB.InsertActivity(ctx, p.UserID, data)
-		if err != nil {
-			slog.Warn("komoot activities: insert failed", "tour_id", tour.ID, "error", err)
-			result.Errors = append(result.Errors, fmt.Sprintf("insert tour %d: %s", tour.ID, err))
-			continue
-		}
-
-		// Set komoot_tour_id for future dedup
-		if err := p.DB.SetActivityKomootTourID(ctx, activity.ID, tour.ID); err != nil {
-			slog.Warn("komoot activities: set komoot_tour_id failed", "error", err)
-		}
-
 		// Set title
 		if tour.Name != "" {
-			_ = p.DB.UpdateEnrichmentFields(ctx, activity.ID, map[string]any{"title": tour.Name})
+			_ = p.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"title": tour.Name})
 		}
 
 		// Update file info in DB
 		if s3Key != "" {
 			metaKey := s3Key + ".meta"
 			bucket := "skadia-originals"
-			if err := p.DB.UpdateActivityFileInfo(ctx, activity.ID, bucket, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format), metaKey); err != nil {
+			if err := p.DB.UpdateActivityFileInfo(ctx, activityID, bucket, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format), metaKey); err != nil {
 				slog.Warn("komoot activities: update file info failed", "error", err)
 			}
 			// Write .meta sidecar
-			meta := sidecar.GenerateMeta(activity.ID, data)
+			meta := sidecar.GenerateMeta(activityID, data)
 			if metaBytes, err := meta.Marshal(); err == nil {
 				if err := p.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
 					slog.Warn("komoot activities: meta upload failed", "error", err)
@@ -229,12 +196,12 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Insert streams, track, heatmap
 		if len(data.Streams) > 0 {
-			if err := p.DB.InsertStreams(ctx, activity.ID, data.Streams); err != nil {
+			if err := p.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
 				slog.Warn("komoot activities: insert streams failed", "error", err)
 			}
 		}
 		if len(data.TrackPoints) > 0 {
-			if err := p.DB.InsertTrack(ctx, activity.ID, data.TrackPoints); err != nil {
+			if err := p.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
 				slog.Warn("komoot activities: insert track failed", "error", err)
 			}
 			if len(data.TrackPoints) >= 2 {
@@ -242,27 +209,26 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				if data.SubType != "" {
 					subTypePtr = &data.SubType
 				}
-				if err := p.DB.InsertHeatmapLine(ctx, p.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
+				if err := p.DB.InsertHeatmapLine(ctx, p.UserID, activityID, data.SportType, subTypePtr, data.StartedAt); err != nil {
 					slog.Warn("komoot activities: insert heatmap line failed", "error", err)
 				}
 				interval, _ := p.DB.GetUserHeatmapInterval(ctx, p.UserID)
-				if err := p.DB.InsertHeatmapPoints(ctx, p.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
+				if err := p.DB.InsertHeatmapPoints(ctx, p.UserID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
 					slog.Warn("komoot activities: insert heatmap points failed", "error", err)
 				}
 			}
 		}
 		if len(data.Laps) > 0 {
-			if err := p.DB.InsertLaps(ctx, activity.ID, data.Laps); err != nil {
+			if err := p.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
 				slog.Warn("komoot activities: insert laps failed", "error", err)
 			}
 		}
 
 		// Stage 1 enrichment
 		if data.HasGPS && data.StartLat != 0 {
-			enrichment.RunStage1(ctx, p.DB, p.UserID, activity.ID, data)
+			enrichment.RunStage1(ctx, p.DB, p.UserID, activityID, data)
 		}
 
-		result.TourActivityMap[tour.ID] = activity.ID
 		result.Imported++
 	}
 

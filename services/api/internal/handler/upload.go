@@ -130,13 +130,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		// Single-session FIT — fall through with the parsed data
 		data := activities[0]
 
-		// Duplicate check
-		match, checkErr := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0, 0)
-		if checkErr != nil {
-			slog.Error("duplicate check failed", "error", checkErr)
-		} else if match != nil {
-			h.handleDuplicateMatch(w, r, userID, match, data)
-			return
+		data.FileHash = hashStr
+		if data.SportType == "unknown" {
+			slog.Warn("sport type unknown", "filename", filename, "format", format)
 		}
 
 		// Time overlap check
@@ -149,22 +145,33 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		data.FileHash = hashStr
-		if data.SportType == "unknown" {
-			slog.Warn("sport type unknown", "filename", filename, "format", format)
+		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui"})
+		if processErr != nil {
+			slog.Error("process activity failed", "error", processErr)
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
+			return
 		}
 
+		switch fitResult.Status {
+		case "skipped":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      "duplicate",
+				"activity_id": fitResult.ActivityID,
+			})
+			return
+		case "enriched", "replaced":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      fitResult.Status,
+				"activity_id": fitResult.ActivityID,
+			})
+			return
+		}
+
+		// "created": upload original to S3, run post-processing
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 		if uploadErr := h.Storage.Upload(r.Context(), s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
 			slog.Error("S3 upload failed", "error", uploadErr)
 			writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
-			return
-		}
-
-		activity, insertErr := h.DB.InsertActivity(r.Context(), userID, data)
-		if insertErr != nil {
-			slog.Error("insert activity failed", "error", insertErr)
-			writeError(w, http.StatusInternalServerError, "Database Error", "failed to save activity", r.URL.Path)
 			return
 		}
 
@@ -175,11 +182,17 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		h.postInsertActivity(r.Context(), userID, activity, data, fileBytes, s3Key, format, filename)
+		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
+		if fitActivity == nil {
+			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
+			return
+		}
 
-		full, _ := h.DB.GetActivity(r.Context(), activity.ID)
+		h.postInsertActivity(r.Context(), userID, fitActivity, data, fileBytes, s3Key, format, filename)
+
+		full, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
 		if full == nil {
-			full = activity
+			full = fitActivity
 		}
 		writeJSON(w, http.StatusCreated, model.UploadResponse{Activity: full, Warnings: warnings})
 		return
@@ -200,29 +213,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Duplicate check via central DuplicateDetector
-	match, err := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0, 0)
-	if err != nil {
-		slog.Error("duplicate check failed", "error", err)
-		// Not fatal — continue with normal import on error
-	} else if match != nil {
-		h.handleDuplicateMatch(w, r, userID, match, data)
-		return
-	}
-
-	// Time overlap check
-	var warnings []string
-	if !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
-		overlap, err := h.DB.CheckTimeOverlap(r.Context(), userID, data.StartedAt, data.EndedAt)
-		if err != nil {
-			slog.Error("time overlap check failed", "error", err)
-		} else if overlap != nil {
-			warnings = append(warnings, "time_overlap:"+overlap.ID)
-			slog.Warn("activity time overlaps with existing",
-				"existing_id", overlap.ID, "filename", filename)
-		}
-	}
-
 	data.FileHash = hashStr
 
 	// Warn if sport type could not be determined
@@ -231,7 +221,42 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			"filename", filename, "format", format)
 	}
 
-	// Upload original to Garage
+	// Time overlap check
+	var warnings []string
+	if !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+		overlap, overlapErr := h.DB.CheckTimeOverlap(r.Context(), userID, data.StartedAt, data.EndedAt)
+		if overlapErr != nil {
+			slog.Error("time overlap check failed", "error", overlapErr)
+		} else if overlap != nil {
+			warnings = append(warnings, "time_overlap:"+overlap.ID)
+			slog.Warn("activity time overlaps with existing",
+				"existing_id", overlap.ID, "filename", filename)
+		}
+	}
+
+	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui"})
+	if processErr != nil {
+		slog.Error("process activity failed", "error", processErr)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
+		return
+	}
+
+	switch gpxResult.Status {
+	case "skipped":
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":      "duplicate",
+			"activity_id": gpxResult.ActivityID,
+		})
+		return
+	case "enriched", "replaced":
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":      gpxResult.Status,
+			"activity_id": gpxResult.ActivityID,
+		})
+		return
+	}
+
+	// "created": upload original to Garage, run post-processing
 	ext := format
 	if ext == "" {
 		ext = strings.TrimPrefix(filepath.Ext(filename), ".")
@@ -239,27 +264,24 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, ext)
 
 	contentType := "application/xml"
-
 	if err := h.Storage.Upload(r.Context(), s3Key, fileBytes, contentType); err != nil {
 		slog.Error("S3 upload failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 		return
 	}
 
-	// Insert into database
-	activity, err := h.DB.InsertActivity(r.Context(), userID, data)
-	if err != nil {
-		slog.Error("insert activity failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database Error", "failed to save activity", r.URL.Path)
+	gpxActivity, _ := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
+	if gpxActivity == nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 		return
 	}
 
-	h.postInsertActivity(r.Context(), userID, activity, data, fileBytes, s3Key, format, filename)
+	h.postInsertActivity(r.Context(), userID, gpxActivity, data, fileBytes, s3Key, format, filename)
 
 	// Re-fetch full activity for response
-	full, err := h.DB.GetActivity(r.Context(), activity.ID)
+	full, err := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
 	if err != nil || full == nil {
-		full = activity
+		full = gpxActivity
 	}
 
 	resp := model.UploadResponse{
