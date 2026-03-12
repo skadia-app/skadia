@@ -10,7 +10,7 @@ import (
 )
 
 // BuildTrailTopology startet einen Background-Job der die pgRouting-Topologie
-// für osm_trails aufbaut und Lift-Daten aus osm_lifts importiert.
+// für osm_ways aufbaut und Lift-Daten aus osm_lifts importiert.
 // POST /api/v1/trails/build-topology
 func (h *Handler) BuildTrailTopology(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
@@ -44,12 +44,12 @@ func (h *Handler) runTrailTopologyBuild(jobID string) {
 		}
 	}()
 
-	// Phase 1: pgr_createTopology für alle osm_trails
+	// Phase 1: pgr_createTopology für alle osm_ways
 	if err := h.DB.UpdateBackgroundJobPhase(ctx, jobID, "topology"); err != nil {
 		slog.Warn("trail topology: failed to update phase", "error", err)
 	}
 	_, err := h.DB.Pool.Exec(ctx, `
-		SELECT pgr_createTopology('osm_trails', 0.00001, 'geom', 'id', 'source', 'target')
+		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
 	`)
 	if err != nil {
 		slog.Error("trail topology: pgr_createTopology failed", "error", err, "job_id", jobID)
@@ -63,7 +63,7 @@ func (h *Handler) runTrailTopologyBuild(jobID string) {
 		slog.Warn("trail topology: failed to update phase", "error", err)
 	}
 	_, err = h.DB.Pool.Exec(ctx, `
-		UPDATE osm_trails SET
+		UPDATE osm_ways SET
 			cost = CASE
 				WHEN is_lift THEN 0.001
 				WHEN oneway  THEN -1
@@ -87,16 +87,16 @@ func (h *Handler) runTrailTopologyBuild(jobID string) {
 	}
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 2)
 
-	// Phase 3: Lifte aus osm_lifts in osm_trails importieren (E12: WHERE NOT EXISTS)
+	// Phase 3: Lifte aus osm_lifts in osm_ways importieren (E12: WHERE NOT EXISTS)
 	if err := h.DB.UpdateBackgroundJobPhase(ctx, jobID, "lift_merge"); err != nil {
 		slog.Warn("trail topology: failed to update phase", "error", err)
 	}
 	_, err = h.DB.Pool.Exec(ctx, `
-		INSERT INTO osm_trails (osm_id, highway, name, length_m, avg_slope, is_lift, geom)
+		INSERT INTO osm_ways (osm_id, highway, name, length_m, avg_slope, is_lift, geom)
 		SELECT l.osm_id, 'lift', l.name, ST_Length(l.geom::geography), 0.0, TRUE, l.geom
 		FROM osm_lifts l
 		WHERE NOT EXISTS (
-			SELECT 1 FROM osm_trails t
+			SELECT 1 FROM osm_ways t
 			WHERE t.osm_id = l.osm_id AND t.is_lift = TRUE
 		)
 	`)
@@ -112,7 +112,7 @@ func (h *Handler) runTrailTopologyBuild(jobID string) {
 		slog.Warn("trail topology: failed to update phase", "error", err)
 	}
 	_, err = h.DB.Pool.Exec(ctx, `
-		SELECT pgr_createTopology('osm_trails', 0.00001, 'geom', 'id', 'source', 'target')
+		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
 	`)
 	if err != nil {
 		// Nicht fatal — Topologie läuft auf bereits vorhandenen Knoten; nur warnen

@@ -33,7 +33,7 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 		// Trail topology built (source column populated by pgr_createTopology)?
 		var trailCount int
 		if err := pool.QueryRow(ctx,
-			"SELECT COUNT(*) FROM osm_trails WHERE source IS NOT NULL").Scan(&trailCount); err == nil && trailCount > 0 {
+			"SELECT COUNT(*) FROM osm_ways WHERE source IS NOT NULL").Scan(&trailCount); err == nil && trailCount > 0 {
 			caps.Routing = true
 			caps.Isochrone = true
 			caps.SurfaceEnrich = true
@@ -58,12 +58,8 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 		caps.DEMCorrection = true
 	}
 
-	// Full-mode OSM? (PgOSM Flex tables in osm schema)
-	var osmFull int
-	if err := pool.QueryRow(ctx,
-		"SELECT 1 FROM information_schema.tables WHERE table_schema='osm' AND table_name='road_line'").Scan(&osmFull); err == nil {
-		caps.OfflineMap = true
-	}
+	// OfflineMap is available whenever routing is available (osm_ways imported).
+	caps.OfflineMap = caps.Routing
 
 	// Route suggestion requires full routing stack
 	caps.RouteSuggestion = caps.Routing && caps.DEMCorrection && caps.SurfaceEnrich

@@ -31,14 +31,14 @@ type IsochronePolygon struct {
 	GeoJSON json.RawMessage `json:"geojson"`
 }
 
-// NearestTrailNode finds the nearest node in the osm_trails topology to the
+// NearestTrailNode finds the nearest node in the osm_ways topology to the
 // given [lng, lat] coordinate and returns its node ID.
 // Returns pgx.ErrNoRows (wrapped) if no trail topology has been built yet.
 func (db *DB) NearestTrailNode(ctx context.Context, lngLat [2]float64) (int64, error) {
 	var nodeID int64
 	err := db.Pool.QueryRow(ctx, `
 		SELECT v.id
-		FROM osm_trails_vertices_pgr v
+		FROM osm_ways_vertices_pgr v
 		ORDER BY v.the_geom <-> ST_SetSRID(ST_MakePoint($1, $2), 4326)
 		LIMIT 1
 	`, lngLat[0], lngLat[1]).Scan(&nodeID)
@@ -59,7 +59,7 @@ func (db *DB) DrivingDistance(ctx context.Context, startNode int64, maxMinutes f
 	rows, err := db.Pool.Query(ctx, `
 		SELECT node, agg_cost
 		FROM pgr_drivingDistance(
-			'SELECT id, source, target, cost, reverse_cost FROM osm_trails WHERE cost > 0',
+			'SELECT id, source, target, cost, reverse_cost FROM osm_ways WHERE cost > 0',
 			$1,
 			$2
 		)
@@ -94,7 +94,7 @@ func (db *DB) BuildIsochronePolygons(ctx context.Context, reachable []ReachableN
 	}
 
 	// Build a temporary VALUES list of (node_id, cost) to pass to SQL.
-	// We query the vertex coordinates from osm_trails_vertices_pgr and compute
+	// We query the vertex coordinates from osm_ways_vertices_pgr and compute
 	// an alpha shape per time band.
 	var polygons []IsochronePolygon
 
@@ -120,7 +120,7 @@ func (db *DB) BuildIsochronePolygons(ctx context.Context, reachable []ReachableN
 		err := db.Pool.QueryRow(ctx, `
 			WITH pts AS (
 				SELECT the_geom
-				FROM osm_trails_vertices_pgr
+				FROM osm_ways_vertices_pgr
 				WHERE id = ANY($1)
 			),
 			hull AS (
@@ -143,7 +143,7 @@ func (db *DB) BuildIsochronePolygons(ctx context.Context, reachable []ReachableN
 }
 
 // ResolveNodeCoordinates fetches the [lng, lat] for each node in the reachable
-// slice from osm_trails_vertices_pgr. The result map key is the node ID.
+// slice from osm_ways_vertices_pgr. The result map key is the node ID.
 // Nodes not found in the topology are silently omitted.
 func (db *DB) ResolveNodeCoordinates(ctx context.Context, reachable []ReachableNode) (map[int64][2]float64, error) {
 	if len(reachable) == 0 {
@@ -157,7 +157,7 @@ func (db *DB) ResolveNodeCoordinates(ctx context.Context, reachable []ReachableN
 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, ST_X(the_geom) AS lng, ST_Y(the_geom) AS lat
-		FROM osm_trails_vertices_pgr
+		FROM osm_ways_vertices_pgr
 		WHERE id = ANY($1)
 	`, nodeIDs)
 	if err != nil {
@@ -181,7 +181,7 @@ func (db *DB) ResolveNodeCoordinates(ctx context.Context, reachable []ReachableN
 	return result, nil
 }
 
-// GetVisitedTrailIDs returns the set of osm_trails node IDs (source and target)
+// GetVisitedTrailIDs returns the set of osm_ways node IDs (source and target)
 // that the user has already visited according to heatmap_trail_matches.
 // The returned map can be used to identify unvisited ("unknown") nodes when
 // selecting via-points in the route suggestion algorithm.
@@ -189,7 +189,7 @@ func (db *DB) GetVisitedTrailIDs(ctx context.Context, userID string) (map[int64]
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.source, t.target
 		FROM heatmap_trail_matches m
-		JOIN osm_trails t ON t.id = m.trail_id
+		JOIN osm_ways t ON t.id = m.trail_id
 		WHERE m.user_id = $1
 	`, userID)
 	if err != nil {
@@ -217,10 +217,10 @@ func (db *DB) GetVisitedTrailIDs(ctx context.Context, userID string) (map[int64]
 	return visited, nil
 }
 
-// FindPOIsInIsochrone finds amenities (from osm_amenities) and peaks
-// (from osm_peaks) of the requested types that lie inside the convex hull of
-// reachable nodes.  poiTypes may include values like "hut", "cafe",
-// "restaurant", "peak", "viewpoint".
+// FindPOIsInIsochrone finds points of interest (from osm_pois) of the
+// requested types that lie inside the convex hull of reachable nodes.
+// poiTypes may include values like "hut", "cafe", "restaurant", "peak",
+// "viewpoint".
 func (db *DB) FindPOIsInIsochrone(ctx context.Context, reachable []ReachableNode, poiTypes []string) ([]IsochronePOI, error) {
 	if len(reachable) == 0 || len(poiTypes) == 0 {
 		return nil, nil
@@ -234,19 +234,14 @@ func (db *DB) FindPOIsInIsochrone(ctx context.Context, reachable []ReachableNode
 	rows, err := db.Pool.Query(ctx, `
 		WITH hull AS (
 			SELECT ST_ConvexHull(ST_Collect(the_geom)) AS geom
-			FROM osm_trails_vertices_pgr
+			FROM osm_ways_vertices_pgr
 			WHERE id = ANY($1)
 		)
-		SELECT a.name, a.subtype, ST_Y(a.geom::geometry) AS lat, ST_X(a.geom::geometry) AS lng, a.osm_id
-		FROM osm_amenities a, hull h
-		WHERE ST_Within(a.geom::geometry, h.geom)
-		  AND a.subtype = ANY($2)
-		UNION ALL
-		SELECT p.name, p.type, ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng, p.osm_id
-		FROM osm_peaks p, hull h
+		SELECT p.name, p.subtype, ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng, p.osm_id
+		FROM osm_pois p, hull h
 		WHERE ST_Within(p.geom, h.geom)
-		  AND p.type = ANY($2)
-		ORDER BY name
+		  AND p.subtype = ANY($2)
+		ORDER BY p.name
 		LIMIT 500
 	`, nodeIDs, poiTypes)
 	if err != nil {
