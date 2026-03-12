@@ -107,11 +107,12 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		registry := h.buildStravaRegistry()
 
 		params := strava.ImportParams{
-			Source:  src,
-			UserID:  userID,
-			DB:      h.DB,
-			Storage: h.Storage,
-			JobID:   jobID,
+			Source:        src,
+			UserID:        userID,
+			DB:            h.DB,
+			Storage:       h.Storage,
+			ImportService: h.ImportService,
+			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
 				if err := h.DB.UpdateStravaImportCurrentModule(bgCtx, jobID, msg); err != nil {
 					slog.Warn("strava import: update current module failed", "error", err)
@@ -183,11 +184,12 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := strava.ImportParams{
-			Source:  src,
-			UserID:  userID,
-			DB:      h.DB,
-			Storage: h.Storage,
-			JobID:   jobID,
+			Source:        src,
+			UserID:        userID,
+			DB:            h.DB,
+			Storage:       h.Storage,
+			ImportService: h.ImportService,
+			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
 				if err := h.DB.UpdateStravaImportCurrentModule(bgCtx, jobID, msg); err != nil {
 					slog.Warn("strava import (zip): update current module failed", "error", err)

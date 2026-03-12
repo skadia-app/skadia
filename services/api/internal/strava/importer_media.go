@@ -15,6 +15,7 @@ import (
 	"github.com/bep/imagemeta"
 
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -89,158 +90,76 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		}
 
 		// Primary: look up activity via activities.csv Medien mapping
-		var activityIDPtr *string
+		var activityID string
 		uuid := mediaUUID(relPath)
 		if actID, ok := uuidToActivityID[uuid]; ok {
-			activityIDPtr = &actID
+			activityID = actID
 		}
 
 		// Fallback: match by EXIF timestamp if no direct mapping found
-		if activityIDPtr == nil && takenAt != nil && params.DB != nil {
+		if activityID == "" && takenAt != nil && params.DB != nil {
 			if actID, err := params.DB.FindActivityIDAtTime(ctx, params.UserID, *takenAt); err == nil && actID != "" {
-				activityIDPtr = &actID
+				activityID = actID
 			}
 		}
 
-		// Hash for dedup / S3 key
-		hashBytes := sha256.Sum256(data)
-		hash := fmt.Sprintf("%x", hashBytes)
-
-		// Skip if photo with same hash already exists for this user
-		if params.DB != nil {
-			if exists, err := params.DB.ActivityPhotoExistsByHash(ctx, params.UserID, hash); err == nil && exists {
-				result.Skipped++
-				continue
-			}
+		// Determine location source
+		locationSource := ""
+		if lat != nil {
+			locationSource = "exif"
+		} else if activityID != "" {
+			locationSource = "activity_track"
 		}
 
-		// S3 paths
-		ext := filepath.Ext(relPath)
-		if ext == "" {
-			ext = ".jpg"
-		}
-		s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
-		bucket := "skadia-media"
-
-		// Guard: if content-type detection returned image/* but the file extension is a
-		// known video container, trust the extension. This prevents the bug where a video
-		// file gets stored with content_type=image/jpeg and its raw .mp4 path used as thumb.
-		if !isVideo && isVideoExtension(ext) {
-			isVideo = true
-			contentType = detectMediaContentType(data, relPath) // re-detect with ext fallback
-			if !isVideoContentType(contentType) {
-				// Extension was the stronger signal; pick a safe video content type from ext.
-				contentType = videoContentTypeFromExt(ext)
-			}
-		}
-
-		// Thumbnail (200px) + Preview generieren.
-		// Videos: ffmpeg für beide (Frame 0 → thumb, Videomitte → preview).
-		// HEIC/JXL: ffmpeg, da image.Decode() diese Formate nicht unterstützt.
-		// Andere Bilder: imageutil.Resize().
-		s3KeyThumb := s3Key // fallback: original as thumb (overwritten below if thumb generated)
-		s3KeyPreview := ""
-
-		var thumbData []byte
-		var previewData []byte
-
-		useFFmpeg := isVideo || contentType == "image/heic" || contentType == "image/heif" || contentType == "image/jxl"
-
-		if isVideo {
-			// Metadaten für Offset-Berechnung (Videomitte)
-			var midOffset float64
-			if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
-				midOffset = meta.DurationS / 2
-			}
-			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-			previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
-		} else if useFFmpeg {
-			thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-			if params.DB != nil {
-				if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
-					if maxW, _ := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-						previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
-					}
-				}
-			}
-		} else {
-			thumbData, _ = imageutil.Resize(data, 200, 200, 80)
-			if params.DB != nil {
-				if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
-					if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-						previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
-					}
-				}
-			}
-		}
-
-		if params.Storage != nil {
-			if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
-				slog.Warn("strava media: s3 upload failed", "file", relPath, "error", err)
-				result.Errors = append(result.Errors, fmt.Sprintf("s3 upload %s: %s", relPath, err))
-				continue
-			}
-
-			if thumbData != nil {
-				s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
-				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-					slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
-					s3KeyThumb = s3Key
-				}
-			}
-
-			if previewData != nil {
-				s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
-				if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-					slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
-					s3KeyPreview = ""
-				}
-			}
-		}
-
-		photo := model.ActivityPhoto{
-			UserID:           params.UserID,
-			ActivityID:       activityIDPtr,
-			S3Bucket:         bucket,
-			S3Key:            s3Key,
-			S3KeyThumb:       s3KeyThumb,
-			S3KeyPreview:     s3KeyPreview,
+		photoMeta := importer.PhotoMetadata{
 			OriginalFilename: filepath.Base(relPath),
 			ContentType:      contentType,
-			FileSizeBytes:    int64(len(data)),
-			FileHash:         &hash,
 			TakenAt:          takenAt,
 			Lat:              lat,
 			Lng:              lng,
-			IsVideo:          isVideo,
+			LocationSource:   locationSource,
+			SourcePlatform:   "strava",
 		}
 
-		if isVideo {
-			if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
-				photo.DurationS = &meta.DurationS
-				photo.VideoWidth = &meta.Width
-				photo.VideoHeight = &meta.Height
+		// --- Use ImportService pipeline when available ---
+		if params.ImportService != nil {
+			if activityID != "" {
+				photoResult, processErr := params.ImportService.ProcessPhoto(ctx, params.UserID, activityID, data, photoMeta)
+				if processErr != nil {
+					slog.Warn("strava media: ProcessPhoto failed", "file", relPath, "error", processErr)
+					result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", relPath, processErr))
+					continue
+				}
+				switch photoResult.Status {
+				case "duplicate_exact", "duplicate_phash":
+					result.Skipped++
+				default:
+					result.Imported++
+				}
+			} else {
+				orphanResult, orphanErr := params.ImportService.ProcessOrphanPhoto(ctx, params.UserID, data, photoMeta)
+				if orphanErr != nil {
+					slog.Warn("strava media: ProcessOrphanPhoto failed", "file", relPath, "error", orphanErr)
+					result.Errors = append(result.Errors, fmt.Sprintf("orphan %s: %s", relPath, orphanErr))
+					continue
+				}
+				switch orphanResult.Status {
+				case "queued", "matched":
+					result.Imported++
+				default:
+					result.Skipped++
+				}
 			}
+			continue
 		}
 
-		if lat != nil {
-			ls := "exif"
-			photo.LocationSource = &ls
-		} else if activityIDPtr != nil && (lat == nil) {
-			// For videos and images without EXIF GPS: location comes from activity track.
-			ls := "activity_track"
-			photo.LocationSource = &ls
+		// --- Legacy path (no ImportService): inline processing ---
+		imported := m.legacyImportPhoto(ctx, params, relPath, data, contentType, isVideo, takenAt, lat, lng, activityID)
+		if imported {
+			result.Imported++
+		} else {
+			result.Skipped++
 		}
-
-		if params.DB != nil {
-			if _, err := params.DB.InsertActivityPhoto(ctx, photo); err != nil {
-				slog.Warn("strava media: insert photo failed", "file", relPath, "error", err)
-				result.Errors = append(result.Errors, fmt.Sprintf("insert %s: %s", relPath, err))
-				continue
-			}
-		}
-
-		result.Imported++
 	}
 
 	slog.Info("strava media import done",
@@ -249,6 +168,155 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		"errors", len(result.Errors),
 	)
 	return result, nil
+}
+
+// legacyImportPhoto handles a single photo when ImportService is not available.
+// Returns true if the photo was imported, false if it was skipped or an error occurred.
+func (m *MediaImporter) legacyImportPhoto(
+	ctx context.Context,
+	params ImportParams,
+	relPath string,
+	data []byte,
+	contentType string,
+	isVideo bool,
+	takenAt *time.Time,
+	lat, lng *float64,
+	activityID string,
+) bool {
+	ext := filepath.Ext(relPath)
+	if ext == "" {
+		ext = ".jpg"
+	}
+
+	// Guard: if content-type detection returned image/* but the file extension is a
+	// known video container, trust the extension.
+	if !isVideo && isVideoExtension(ext) {
+		isVideo = true
+		contentType = detectMediaContentType(data, relPath)
+		if !isVideoContentType(contentType) {
+			contentType = videoContentTypeFromExt(ext)
+		}
+	}
+
+	// Hash for dedup / S3 key
+	hashBytes := sha256.Sum256(data)
+	hash := fmt.Sprintf("%x", hashBytes)
+
+	// Skip if photo with same hash already exists for this user
+	if params.DB != nil {
+		if exists, err := params.DB.ActivityPhotoExistsByHash(ctx, params.UserID, hash); err == nil && exists {
+			return false
+		}
+	}
+
+	// S3 paths
+	bucket := "skadia-media"
+	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
+
+	// Thumbnail (200px) + Preview generation
+	s3KeyThumb := s3Key
+	s3KeyPreview := ""
+	var thumbData []byte
+	var previewData []byte
+
+	useFFmpeg := isVideo || contentType == "image/heic" || contentType == "image/heif" || contentType == "image/jxl"
+
+	if isVideo {
+		var midOffset float64
+		if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
+			midOffset = meta.DurationS / 2
+		}
+		thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
+		previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
+	} else if useFFmpeg {
+		thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
+		if params.DB != nil {
+			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
+				if maxW, _ := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
+				}
+			}
+		}
+	} else {
+		thumbData, _ = imageutil.Resize(data, 200, 200, 80)
+		if params.DB != nil {
+			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
+				if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
+					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
+				}
+			}
+		}
+	}
+
+	if params.Storage != nil {
+		if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
+			slog.Warn("strava media: s3 upload failed", "file", relPath, "error", err)
+			return false
+		}
+
+		if thumbData != nil {
+			s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
+			if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+				slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
+				s3KeyThumb = s3Key
+			}
+		}
+
+		if previewData != nil {
+			s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
+			if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+				slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
+				s3KeyPreview = ""
+			}
+		}
+	}
+
+	var activityIDPtr *string
+	if activityID != "" {
+		activityIDPtr = &activityID
+	}
+
+	photo := model.ActivityPhoto{
+		UserID:           params.UserID,
+		ActivityID:       activityIDPtr,
+		S3Bucket:         bucket,
+		S3Key:            s3Key,
+		S3KeyThumb:       s3KeyThumb,
+		S3KeyPreview:     s3KeyPreview,
+		OriginalFilename: filepath.Base(relPath),
+		ContentType:      contentType,
+		FileSizeBytes:    int64(len(data)),
+		FileHash:         &hash,
+		TakenAt:          takenAt,
+		Lat:              lat,
+		Lng:              lng,
+		IsVideo:          isVideo,
+	}
+
+	if isVideo {
+		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
+			photo.DurationS = &meta.DurationS
+			photo.VideoWidth = &meta.Width
+			photo.VideoHeight = &meta.Height
+		}
+	}
+
+	if lat != nil {
+		ls := "exif"
+		photo.LocationSource = &ls
+	} else if activityIDPtr != nil {
+		ls := "activity_track"
+		photo.LocationSource = &ls
+	}
+
+	if params.DB != nil {
+		if _, err := params.DB.InsertActivityPhoto(ctx, photo); err != nil {
+			slog.Warn("strava media: insert photo failed", "file", relPath, "error", err)
+			return false
+		}
+	}
+
+	return true
 }
 
 // buildMediaActivityMap reads activities.csv and returns a map from media UUID

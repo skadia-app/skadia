@@ -270,47 +270,95 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-	var hashStr string
-	if len(fileBytes) > 0 {
-		// Parse the file to fill GPS/stream data
-		var parseErr error
-		var parsedData *model.ActivityData
-		switch format {
-		case "fit":
-			parsedData, parseErr = fitimport.ParseFIT(bytes.NewReader(fileBytes), filename)
-		case "gpx":
-			parsedData, parseErr = gpximport.ParseGPX(bytes.NewReader(fileBytes), filename)
-		case "tcx":
-			parsedData, parseErr = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
+		var hashStr string
+		if len(fileBytes) > 0 {
+			// Parse the file to fill GPS/stream data
+			var parseErr error
+			var parsedData *model.ActivityData
+			switch format {
+			case "fit":
+				parsedData, parseErr = fitimport.ParseFIT(bytes.NewReader(fileBytes), filename)
+			case "gpx":
+				parsedData, parseErr = gpximport.ParseGPX(bytes.NewReader(fileBytes), filename)
+			case "tcx":
+				parsedData, parseErr = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
+			}
+
+			if parseErr != nil {
+				slog.Warn("strava activities: parse failed — using CSV metadata only",
+					"file", filename, "format", format, "error", parseErr)
+				// Continue with CSV-only data
+			} else if parsedData != nil {
+				// Merge parsed data: prefer parsed GPS/stream data, keep CSV metrics where missing
+				mergeActivityData(data, parsedData)
+			}
+
+			// Compute hash for storage key
+			hash := sha256.Sum256(fileBytes)
+			hashStr = hex.EncodeToString(hash[:])
+			data.FileHash = hashStr
+			data.FileFormat = format
+		} else if filename != "" {
+			// File reading or decompression failed: generate a synthetic hash based on filename + timestamp
+			// so that InsertActivity() gets a FileHash that the download handler can detect
+			h := sha256.New()
+			h.Write([]byte(filename))
+			h.Write([]byte(startedAt.String()))
+			hashStr = hex.EncodeToString(h.Sum(nil))
+			// Mark this as a fallback hash: "-missing" suffix indicates file was not successfully retrieved
+			data.FileHash = hashStr + "-missing"
+			// Do not set FileFormat since we don't know it
 		}
 
-		if parseErr != nil {
-			slog.Warn("strava activities: parse failed — using CSV metadata only",
-				"file", filename, "format", format, "error", parseErr)
-			// Continue with CSV-only data
-		} else if parsedData != nil {
-			// Merge parsed data: prefer parsed GPS/stream data, keep CSV metrics where missing
-			mergeActivityData(data, parsedData)
+		// Upload original file to Garage (must happen before PostProcess which writes the sidecar)
+		var s3Key string
+		if len(fileBytes) > 0 && params.Storage != nil {
+			s3Key = fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+			contentType := "application/octet-stream"
+			if format == "gpx" || format == "tcx" {
+				contentType = "application/xml"
+			}
+			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+				slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
+			}
 		}
 
-		// Compute hash for storage key
-		hash := sha256.Sum256(fileBytes)
-		hashStr = hex.EncodeToString(hash[:])
-		data.FileHash = hashStr
-		data.FileFormat = format
-	} else if filename != "" {
-		// File reading or decompression failed: generate a synthetic hash based on filename + timestamp
-		// so that InsertActivity() gets a FileHash that the download handler can detect
-		h := sha256.New()
-		h.Write([]byte(filename))
-		h.Write([]byte(startedAt.String()))
-		hashStr = hex.EncodeToString(h.Sum(nil))
-		// Mark this as a fallback hash: "-missing" suffix indicates file was not successfully retrieved
-		data.FileHash = hashStr + "-missing"
-		// Do not set FileFormat since we don't know it
-	}
+		// --- Use ImportService pipeline when available ---
+		if params.ImportService != nil {
+			importMeta := importer.ImportMetadata{
+				StravaActivityID: stravaID,
+				SourcePlatform:   "strava",
+			}
+			actResult, err := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, importMeta)
+			if err != nil {
+				slog.Warn("strava activities: ProcessActivity failed", "strava_id", stravaID, "error", err)
+				result.Errors = append(result.Errors, fmt.Sprintf("process strava_id=%d: %s", stravaID, err))
+				continue
+			}
 
-	// Duplicate check (hash + strava_activity_id + temporal)
+			if actResult.Status == "skipped" || actResult.Status == "enriched" {
+				result.Skipped++
+				continue
+			}
+
+			// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, sidecar, NATS…)
+			if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, filename); err != nil {
+				slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
+			}
+
+			// Apply Strava-specific enrichment: activity name + weather from CSV
+			enrichFields := buildStravaEnrichFields(activityName, row, hdr)
+			if len(enrichFields) > 0 {
+				if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
+					slog.Warn("strava activities: update enrichment fields failed", "error", err)
+				}
+			}
+
+			result.Imported++
+			continue
+		}
+
+		// --- Legacy path (ImportService not wired): inline duplicate check + insert ---
 		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, 0, stravaID, 0)
 		if dupErr != nil {
 			slog.Warn("strava activities: duplicate check failed", "error", dupErr)
@@ -338,19 +386,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Upload original file to Garage
-		var s3Key string
-		if len(fileBytes) > 0 && params.Storage != nil {
-			s3Key = fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-			contentType := "application/octet-stream"
-			if format == "gpx" || format == "tcx" {
-				contentType = "application/xml"
-			}
-			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-				slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
-			}
-		}
-
 		// --- Insert activity into DB ---
 		activity, err := params.DB.InsertActivity(ctx, params.UserID, data)
 		if err != nil {
@@ -366,18 +401,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-		// Set title and description via enrichment fields
-		enrichFields := make(map[string]any)
-		if activityName != "" {
-			enrichFields["title"] = activityName
-		}
-
-		// Apply weather from CSV (no external API call needed)
-		weatherFields := extractWeatherFields(row, hdr)
-		for k, v := range weatherFields {
-			enrichFields[k] = v
-		}
-
+		// Apply Strava-specific enrichment: title + weather from CSV
+		enrichFields := buildStravaEnrichFields(activityName, row, hdr)
 		if len(enrichFields) > 0 {
 			if err := params.DB.UpdateEnrichmentFields(ctx, activity.ID, enrichFields); err != nil {
 				slog.Warn("strava activities: update enrichment fields failed", "error", err)
@@ -392,8 +417,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				slog.Warn("strava activities: update file info failed", "error", err)
 			}
 			// Write .meta sidecar
-			meta := sidecar.GenerateMeta(activity.ID, data)
-			if metaBytes, err := meta.Marshal(); err == nil {
+			metaObj := sidecar.GenerateMeta(activity.ID, data)
+			if metaBytes, err := metaObj.Marshal(); err == nil {
 				if err := params.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
 					slog.Warn("strava activities: meta upload failed", "error", err)
 				}
@@ -448,7 +473,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 
 		// Stage 1 enrichment (reverse geocode, auto-title, etc.)
-		// Skip weather fetch because we already have it from CSV
+		// Skip weather fetch because we already have it from CSV.
+		// Events publisher is not available in the legacy path; pass nil (variadic).
 		if data.HasGPS && data.StartLat != 0 {
 			enrichment.RunStage1(ctx, params.DB, params.UserID, activity.ID, data)
 		}
@@ -462,6 +488,19 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		"errors", len(result.Errors),
 	)
 	return result, nil
+}
+
+// buildStravaEnrichFields builds the enrichment field map for Strava-specific metadata:
+// the activity title and weather data from the CSV row.
+func buildStravaEnrichFields(activityName string, row []string, hdr map[string]int) map[string]any {
+	fields := make(map[string]any)
+	if activityName != "" {
+		fields["title"] = activityName
+	}
+	for k, v := range extractWeatherFields(row, hdr) {
+		fields[k] = v
+	}
+	return fields
 }
 
 // readStravaActivityFile reads and optionally decompresses an activity file.
@@ -778,4 +817,3 @@ func mapStravaWeatherCondition(code int) string {
 		return ""
 	}
 }
-
