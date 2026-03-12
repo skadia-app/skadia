@@ -293,6 +293,7 @@ func main() {
 			r.Post("/admin/backfill-weather", h.BackfillWeather)
 			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
 			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
+			r.Post("/admin/phash-backfill", h.StartPhashBackfill)
 			r.Get("/admin/osm-status", h.GetOSMStatus)
 			r.Get("/admin/osm-regions", h.ListOSMRegions)
 			r.Post("/admin/osm-import/start", h.StartOSMImport)
