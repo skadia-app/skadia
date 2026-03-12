@@ -121,9 +121,10 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
-		// Apply Komoot sport mapping (Komoot sport takes priority when parser returns generic/unknown)
+		// Apply Komoot sport mapping. Komoot is authoritative for sport type on its own tours —
+		// FIT files from Komoot often have no valid sport field (returns "unknown" or "generic").
 		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
-			if data.SportType == "" || data.SportType == "generic" {
+			if data.SportType == "" || data.SportType == "generic" || data.SportType == "unknown" {
 				data.SportType = mapping.SportType
 				data.SubType = mapping.SubType
 			}
