@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 export interface ActiveJob {
   id: string
-  job_type: 'segment_recompute' | 'activity_recompute_all' | 'osm_import' | 'photo_preview_recompute' | 'garmin_import' | 'strava_import'
+  job_type: 'segment_recompute' | 'activity_recompute_all' | 'osm_import' | 'photo_preview_recompute' | 'garmin_import' | 'strava_import' | 'komoot_import' | 'phash_backfill' | 'photo_clip_embed' | 'recompute_multisport'
   entity_id?: string
   entity_name?: string
   status: 'running' | 'completed' | 'failed'

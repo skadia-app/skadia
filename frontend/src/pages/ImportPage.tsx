@@ -1053,6 +1053,7 @@ function KomootImportPanel() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const lastPhaseRef = useRef<string | null>(null)
+  const lastProgressRef = useRef<number>(-1)
 
   function appendLog(message: string) {
     setLog(prev => {
@@ -1074,9 +1075,16 @@ function KomootImportPanel() {
           appendLog(`Phase: ${j.phase}`)
         }
 
+        const cur = j.progress_current ?? 0
+        const total = j.progress_total ?? 0
+        if (j.phase === 'import' && total > 0 && cur !== lastProgressRef.current) {
+          lastProgressRef.current = cur
+          appendLog(`Tour ${cur} / ${total}`)
+        }
+
         if (j.status === 'completed' && lastPhaseRef.current !== '__completed__') {
           lastPhaseRef.current = '__completed__'
-          appendLog('Abgeschlossen')
+          appendLog(`Abgeschlossen — ${lastProgressRef.current > 0 ? `${lastProgressRef.current} Touren importiert` : 'fertig'}`)
         }
         if (j.status === 'failed' && lastPhaseRef.current !== '__failed__') {
           lastPhaseRef.current = '__failed__'
@@ -1125,6 +1133,7 @@ function KomootImportPanel() {
         setPhase('import')
         setImporting(true)
         lastPhaseRef.current = null
+        lastProgressRef.current = -1
         appendLog('Verbinde mit laufendem Import…')
         startPolling(savedId)
       } catch {

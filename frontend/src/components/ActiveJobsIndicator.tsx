@@ -11,7 +11,7 @@ import {
 
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMImport = job.job_type === 'osm_import'
-  const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import'
+  const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
 
   const label = isOSMImport
     ? 'OSM-Import'
@@ -19,15 +19,21 @@ function JobRow({ job }: { job: ActiveJob }) {
     ? 'Garmin-Import'
     : job.job_type === 'strava_import'
     ? 'Strava-Import'
+    : job.job_type === 'komoot_import'
+    ? 'Komoot-Import'
     : job.job_type === 'activity_recompute_all'
     ? 'Alle Aktivitäten neu berechnen'
+    : job.job_type === 'recompute_multisport'
+    ? 'Multisport neu berechnen'
     : job.job_type === 'photo_preview_recompute'
     ? 'Foto-Vorschauen'
     : job.job_type === 'photo_clip_embed'
     ? 'Foto-Indexierung'
     : job.job_type === 'phash_backfill'
     ? 'pHash-Berechnung'
-    : `Segment „${job.entity_name ?? 'Segment'}`
+    : job.job_type === 'segment_recompute'
+    ? `Segment „${job.entity_name ?? 'Segment'}"`
+    : job.entity_name ?? job.job_type
 
   const pct =
     !isOSMImport && job.progress_total > 0
@@ -45,8 +51,10 @@ function JobRow({ job }: { job: ActiveJob }) {
         : job.job_type === 'phash_backfill'
         ? `${job.progress_current} / ${job.progress_total} Fotos berechnet`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
-      : isDataImport && job.status === 'running' && job.progress_total > 0
+      : (job.job_type === 'garmin_import' || job.job_type === 'strava_import') && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`
+      : job.job_type === 'komoot_import' && job.status === 'running' && job.progress_total > 0
+      ? `${job.progress_current} / ${job.progress_total} Touren`
       : null
 
   const downloadPct =
