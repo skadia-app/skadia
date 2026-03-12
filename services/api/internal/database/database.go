@@ -2830,6 +2830,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 }
 
 // UpdateEnrichmentFields updates enrichment-related fields on an activity.
+// Always overwrites existing values — use UpdateEnrichmentFieldsSafe for lock-free fill-in semantics.
 func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
@@ -2852,6 +2853,38 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("update enrichment fields: %w", err)
+	}
+	return nil
+}
+
+// UpdateEnrichmentFieldsSafe updates enrichment-related fields on an activity using
+// COALESCE semantics: each column is only written if the existing DB value is NULL.
+// This is safe for concurrent imports — parallel importers cannot overwrite each
+// other's data and will never replace a real value with a zero/null.
+// updated_at is always refreshed regardless of COALESCE.
+func (db *DB) UpdateEnrichmentFieldsSafe(ctx context.Context, activityID string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var sets []string
+	var args []any
+	args = append(args, activityID) // $1
+	argIdx := 2
+
+	for col, val := range fields {
+		// COALESCE(col, $N): keeps existing non-NULL value, writes $N only when NULL
+		sets = append(sets, fmt.Sprintf("%s = COALESCE(%s, $%d)", col, col, argIdx))
+		args = append(args, val)
+		argIdx++
+	}
+
+	sets = append(sets, "updated_at = NOW()")
+
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
+	_, err := db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update enrichment fields safe: %w", err)
 	}
 	return nil
 }

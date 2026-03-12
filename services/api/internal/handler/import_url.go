@@ -179,7 +179,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 	}
 
 	// Duplicate check
-	match, err := importer.CheckTier1(ctx, h.DB, userID, fileBytes, actData, 0, 0)
+	match, err := importer.CheckTier1(ctx, h.DB, userID, fileBytes, actData, 0, 0, 0)
 	if err != nil {
 		slog.Warn("import_url: tier-1 check failed", "file", filename, "error", err)
 	} else if match != nil {

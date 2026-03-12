@@ -48,7 +48,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	}
 
 	// Duplicate check
-	match, err := importer.CheckTier1(ctx, h.DB, userID, fileBytes, data, 0, 0)
+	match, err := importer.CheckTier1(ctx, h.DB, userID, fileBytes, data, 0, 0, 0)
 	if err != nil {
 		slog.Warn("hotfolder: tier-1 check failed", "file", filename, "error", err)
 	} else if match != nil {

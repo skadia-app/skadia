@@ -154,7 +154,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		}
 
 		// Tier-1: File hash + temporal dedup
-		match, dupErr := importer.CheckTier1(ctx, p.DB, p.UserID, fileBytes, data, 0, 0)
+		match, dupErr := importer.CheckTier1(ctx, p.DB, p.UserID, fileBytes, data, 0, 0, tour.ID)
 		if dupErr != nil {
 			slog.Warn("komoot activities: tier-1 check failed", "tour_id", tour.ID, "error", dupErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("dedup tour %d: %s", tour.ID, dupErr))

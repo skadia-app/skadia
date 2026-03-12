@@ -161,7 +161,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 
 		// Duplicate check (hash + garmin_activity_id + temporal)
-		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, garminActivityID, 0)
+		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, garminActivityID, 0, 0)
 		if dupErr != nil {
 			slog.Warn("garmin activities: duplicate check failed", "error", dupErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("dedup %s: %s", ref.fileName, dupErr))

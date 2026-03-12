@@ -219,7 +219,7 @@ func restoreOne(
 	}
 
 	// Duplikat-Check (Tier-1)
-	match, err := importer.CheckTier1(ctx, db, meta.UserID, fileBytes, data, 0, 0)
+	match, err := importer.CheckTier1(ctx, db, meta.UserID, fileBytes, data, 0, 0, 0)
 	if err != nil {
 		slog.Warn("duplikat-check fehlgeschlagen, importiere trotzdem", "error", err)
 	}

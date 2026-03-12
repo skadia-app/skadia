@@ -17,7 +17,7 @@ import (
 // fileBytes: Rohdaten der Datei (für SHA256-Hash)
 // data: geparste Aktivitätsdaten (kann nil sein)
 // garminID, stravaID: Plattform-IDs (0 = nicht vorhanden)
-func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes []byte, data *model.ActivityData, garminID, stravaID int64) (*DuplicateMatch, error) {
+func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes []byte, data *model.ActivityData, garminID, stravaID, komootTourID int64) (*DuplicateMatch, error) {
 	// 1. File-Hash (SHA256)
 	hash := sha256.Sum256(fileBytes)
 	hashStr := hex.EncodeToString(hash[:])
@@ -57,7 +57,18 @@ func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes [
 		}
 	}
 
-	// 4. Temporal Match: Zeitstempel ±60s + Sport + Distanz ±5%
+	// 4. Komoot-ID Check — analog to Garmin/Strava: no MissingFields at platform_id confidence
+	if komootTourID > 0 {
+		existingID, err := db.GetActivityIDByKomootTourID(ctx, userID, komootTourID)
+		if err == nil && existingID != "" {
+			return &DuplicateMatch{
+				ExistingActivityID: existingID,
+				Confidence:         "platform_id",
+			}, nil
+		}
+	}
+
+	// 5. Temporal Match: Zeitstempel ±60s + Sport + Distanz ±5%
 	if data != nil && !data.StartedAt.IsZero() {
 		from := data.StartedAt.Add(-60 * time.Second)
 		to := data.StartedAt.Add(60 * time.Second)

@@ -134,7 +134,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		data := activities[0]
 
 		// Duplicate check
-		match, checkErr := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0)
+		match, checkErr := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0, 0)
 		if checkErr != nil {
 			slog.Error("duplicate check failed", "error", checkErr)
 		} else if match != nil {
@@ -204,7 +204,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Duplicate check via central DuplicateDetector
-	match, err := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0)
+	match, err := importer.CheckTier1(r.Context(), h.DB, userID, fileBytes, data, 0, 0, 0)
 	if err != nil {
 		slog.Error("duplicate check failed", "error", err)
 		// Not fatal — continue with normal import on error

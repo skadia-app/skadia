@@ -311,7 +311,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 	}
 
 	// Duplicate check (hash + strava_activity_id + temporal)
-		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, 0, stravaID)
+		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, 0, stravaID, 0)
 		if dupErr != nil {
 			slog.Warn("strava activities: duplicate check failed", "error", dupErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("dedup strava_id=%d: %s", stravaID, dupErr))
