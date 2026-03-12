@@ -6,10 +6,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 )
+
+// komootCDNHosts is the allowlist for photo CDN hostnames.
+// Only URLs with these hosts are downloaded to prevent SSRF.
+var komootCDNHosts = map[string]bool{
+	"images.komoot.de":           true,
+	"cdn.komoot.de":              true,
+	"photos.komoot.de":           true,
+}
 
 const (
 	baseURL      = "https://api.komoot.de"
@@ -219,12 +228,22 @@ func (c *Client) downloadFile(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
 }
 
-// DownloadPhoto downloads a photo from CDN (no auth needed).
-// Strips query params from URL to get max quality.
+// DownloadPhoto downloads a photo from a Komoot CDN URL (no auth needed).
+// Validates the host against an allowlist to prevent SSRF attacks.
+// Strips query params to get max quality.
 func DownloadPhoto(ctx context.Context, imageURL string) ([]byte, error) {
 	// Strip query params for original quality
 	if idx := strings.Index(imageURL, "?"); idx > 0 {
 		imageURL = imageURL[:idx]
+	}
+
+	// Validate host against CDN allowlist (SSRF prevention)
+	parsed, err := url.Parse(imageURL)
+	if err != nil {
+		return nil, fmt.Errorf("photo URL parse error: %w", err)
+	}
+	if !komootCDNHosts[parsed.Hostname()] {
+		return nil, fmt.Errorf("photo URL host %q not in Komoot CDN allowlist", parsed.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)

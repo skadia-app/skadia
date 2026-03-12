@@ -17,8 +17,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// PhotosImporter imports photos from tour timelines (type=="photo" only — own photos).
+// PhotosImporter imports photos from tour cover_images (own photos uploaded directly to a tour).
 // Must run AFTER ActivitiesImporter to have TourActivityMap populated.
+// Note: Komoot does NOT use type "photo" in the timeline — own photos come via cover_images.
 type PhotosImporter struct {
 	Client          *Client
 	TourActivityMap map[int64]string // komoot_tour_id → skadia activity.ID (from ActivitiesImporter)
@@ -28,7 +29,7 @@ func (i *PhotosImporter) Name() string        { return "photos" }
 func (i *PhotosImporter) Description() string { return "Tour-Fotos" }
 func (i *PhotosImporter) Priority() int       { return 40 }
 
-// Import downloads and stores own photos (type=="photo") from each tour's timeline.
+// Import downloads and stores own photos from each tour's cover_images (directly uploaded tour photos).
 func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*KomootImportResult, error) {
 	result := &KomootImportResult{}
 
@@ -57,18 +58,17 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			continue
 		}
 
-		items := detail.Embedded.Timeline.Embedded.Items
+		// cover_images = photos uploaded directly to the tour by the owner.
+		// Komoot does NOT use type "photo" in the timeline; own photos come via cover_images.
+		items := detail.Embedded.CoverImages.Embedded.Items
 		for _, item := range items {
 			if ctx.Err() != nil {
 				break
 			}
 
-			// Only own photos (type=="photo")
-			if item.Type != "photo" {
-				continue
-			}
-
-			imageURL := item.Embedded.Reference.Src
+			// cover_images contains only the tour owner's own photos.
+			// highlight_id > 0 means the photo was associated with a Highlight by the user — still their own photo, import it.
+			imageURL := item.Src
 			if imageURL == "" {
 				result.Skipped++
 				continue
@@ -108,20 +108,19 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			var lat, lng *float64
 			takenAt, lat, lng = extractKomootEXIF(data, contentType)
 
-			// Fallback GPS from timeline location
+			// Fallback GPS from cover_image location field
 			var locationSource string
 			if lat != nil {
 				locationSource = "exif"
-			} else if item.Embedded.Reference.Location != nil &&
-				(item.Embedded.Reference.Location.Lat != 0 || item.Embedded.Reference.Location.Lng != 0) {
-				la := item.Embedded.Reference.Location.Lat
-				lo := item.Embedded.Reference.Location.Lng
+			} else if item.Location != nil &&
+				(item.Location.Lat != 0 || item.Location.Lng != 0) {
+				la := item.Location.Lat
+				lo := item.Location.Lng
 				lat = &la
 				lng = &lo
-				locationSource = "manual"
-			} else {
 				locationSource = "activity_track"
 			}
+			// else: no coordinates at all — locationSource stays "" and lat/lng stay nil
 
 			// S3 paths
 			s3Key := fmt.Sprintf("activity-photos/%s/%s%s", p.UserID, hash, ext)
@@ -174,14 +173,14 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 				S3Key:            s3Key,
 				S3KeyThumb:       s3KeyThumb,
 				S3KeyPreview:     s3KeyPreview,
-				OriginalFilename: filepath.Base(imageURL),
+				OriginalFilename: fmt.Sprintf("komoot-tour-%d-%d.jpg", tourID, item.ID),
 				ContentType:      contentType,
 				FileSizeBytes:    int64(len(data)),
 				FileHash:         &hash,
 				TakenAt:          takenAt,
 				Lat:              lat,
 				Lng:              lng,
-				LocationSource:   &locationSource,
+				LocationSource:   func() *string { if locationSource == "" { return nil }; return &locationSource }(),
 			}
 
 			if p.DB != nil {

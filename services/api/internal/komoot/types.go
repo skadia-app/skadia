@@ -51,7 +51,27 @@ type TourDetailResponse struct {
 				Items []TimelineItem `json:"items"`
 			} `json:"_embedded"`
 		} `json:"timeline"`
+		// cover_images: photos uploaded directly to the tour by the owner (own photos, not highlight contributions).
+		// Requires cover_images in ?_embedded= parameter.
+		CoverImages struct {
+			Embedded struct {
+				Items []CoverImageItem `json:"items"`
+			} `json:"_embedded"`
+		} `json:"cover_images"`
 	} `json:"_embedded"`
+}
+
+// CoverImageItem is a photo uploaded directly to a tour by its owner.
+// highlight_id == 0 means a direct tour photo; > 0 means associated with a highlight.
+type CoverImageItem struct {
+	ID          int64  `json:"id"`
+	Src         string `json:"src"`
+	HighlightID int64  `json:"highlight_id"`
+	ClientHash  string `json:"client_hash"`
+	Location    *struct {
+		Lat float64 `json:"lat"`
+		Lng float64 `json:"lng"`
+	} `json:"location"`
 }
 
 // CoordinateItem is a single GPS point in a tour track.
@@ -62,12 +82,13 @@ type CoordinateItem struct {
 	T   int64   `json:"t"` // milliseconds offset from tour start
 }
 
-// TimelineItem is a single entry in the tour timeline (photo, highlight, poi, etc.).
+// TimelineItem is a single entry in the tour timeline (highlight, poi, etc.).
+// Note: Komoot does NOT use type "photo" in the timeline — own tour photos come via cover_images.
 type TimelineItem struct {
-	Type     string `json:"type"` // "photo", "highlight", "poi"
+	Type     string `json:"type"` // "highlight", "poi"
 	Embedded struct {
 		Reference struct {
-			Src      string `json:"src"` // image CDN URL
+			Src      string `json:"src"`
 			Location *struct {
 				Lat float64 `json:"lat"`
 				Lng float64 `json:"lng"`
