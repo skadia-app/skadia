@@ -94,9 +94,17 @@ github.com/bep/imagemeta
 ## explicit; go 1.18
 github.com/clipperhouse/uax29/v2/graphemes
 github.com/clipperhouse/uax29/v2/internal/iterators
+# github.com/corona10/goimagehash v1.1.0
+## explicit
+github.com/corona10/goimagehash
+github.com/corona10/goimagehash/etcs
+github.com/corona10/goimagehash/transforms
 # github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 ## explicit; go 1.17
 github.com/decred/dcrd/dcrec/secp256k1/v4
+# github.com/disintegration/imaging v1.6.2
+## explicit
+github.com/disintegration/imaging
 # github.com/fsnotify/fsnotify v1.9.0
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
@@ -228,6 +236,9 @@ github.com/nats-io/nkeys
 # github.com/nats-io/nuid v1.0.1
 ## explicit
 github.com/nats-io/nuid
+# github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
+## explicit
+github.com/nfnt/resize
 # github.com/pdfcpu/pdfcpu v0.11.1
 ## explicit; go 1.24.0
 github.com/pdfcpu/pdfcpu/internal/corefont/metrics
