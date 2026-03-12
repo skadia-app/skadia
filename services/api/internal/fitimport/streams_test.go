@@ -98,6 +98,39 @@ func TestFixDistanceResets_SmallDrop(t *testing.T) {
 	}
 }
 
+// TestFixDistanceResets_ThreeSegments — drei gemergde Segmente (dreifacher Reset).
+// Prüft, dass offset korrekt als Summe der Raw-Maxima akkumuliert wird:
+// prevDist verfolgt den Raw-Wert (nicht den akkumulierten), damit offset beim
+// zweiten Reset nur den Raw-Peak des zweiten Segments addiert (nicht den
+// bereits akkumulierten Wert). Ergebnis: 500+400+300 = 1200m Total.
+func TestFixDistanceResets_ThreeSegments(t *testing.T) {
+	now := time.Now()
+	points := []model.StreamPoint{
+		// Segment 1: raw 0→500
+		{Time: now, DistanceM: fptr(0.0)},
+		{Time: now.Add(1 * time.Second), DistanceM: fptr(500.0)},
+		// Reset 1: raw → 0.1 (offset becomes 500)
+		{Time: now.Add(2 * time.Second), DistanceM: fptr(0.1)},
+		{Time: now.Add(3 * time.Second), DistanceM: fptr(400.0)},
+		// Reset 2: raw → 0.2 (offset becomes 500+400=900)
+		{Time: now.Add(4 * time.Second), DistanceM: fptr(0.2)},
+		{Time: now.Add(5 * time.Second), DistanceM: fptr(300.0)},
+	}
+	got := fixDistanceResets(points)
+	// Segment 1: 0→500 (no offset)
+	// After Reset 1: 0.1+500=500.1, 400+500=900
+	// After Reset 2: 0.2+900=900.2, 300+900=1200
+	want := []float64{0.0, 500.0, 500.1, 900.0, 900.2, 1200.0}
+	for i, w := range want {
+		if got[i].DistanceM == nil {
+			t.Fatalf("point %d: DistanceM is nil, want %f", i, w)
+		}
+		if absF(*got[i].DistanceM-w) > 0.01 {
+			t.Errorf("point %d: got %f, want %f", i, *got[i].DistanceM, w)
+		}
+	}
+}
+
 func absF(x float64) float64 {
 	if x < 0 {
 		return -x
