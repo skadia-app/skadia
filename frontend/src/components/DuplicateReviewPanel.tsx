@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { type FusionQueueEntry } from '@/api/importWizard'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 interface DuplicateReviewPanelProps {
   entries: FusionQueueEntry[]
@@ -104,8 +105,8 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { id: entry.activity_id_a, sport: entry.sport_type_a },
-                    { id: entry.activity_id_b, sport: entry.sport_type_b },
+                    { id: entry.activity_id_a, sport: entry.sport_type_a, subType: entry.sub_type_a, isEbike: entry.is_ebike_a },
+                    { id: entry.activity_id_b, sport: entry.sport_type_b, subType: entry.sub_type_b, isEbike: entry.is_ebike_b },
                   ].map(opt => (
                     <button
                       key={opt.id}
@@ -116,7 +117,8 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                           : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
-                      {opt.sport}
+                      {sportLabel(opt.sport, opt.subType)}
+                      {opt.isEbike && <span className="ml-1 opacity-75">⚡</span>}
                     </button>
                   ))}
                 </div>

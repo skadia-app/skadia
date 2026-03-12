@@ -109,6 +109,10 @@ export interface FusionQueueEntry {
   started_at_b: string
   sport_type_a: string   // können verschieden sein! (z.B. "cycling" vs "hiking")
   sport_type_b: string
+  sub_type_a: string
+  sub_type_b: string
+  is_ebike_a: boolean
+  is_ebike_b: boolean
   distance_m_a: number
   distance_m_b: number
   overlap_percent: number

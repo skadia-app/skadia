@@ -3423,16 +3423,32 @@ func (db *DB) UpdateImportSettings(ctx context.Context, userID string, s *model.
 
 // FindActivitiesByTimeRange findet Aktivitäten in einem Zeitfenster mit passendem Sport.
 // Wird für Tier-1 Temporal-Matching im DuplicateDetector verwendet.
+// Sport-Filter wird nur angewendet wenn sportType bekannt ist (nicht "unknown"/"generic"/leer),
+// damit plattformübergreifende Duplikate erkannt werden (z.B. Garmin "cycling" vs Komoot "unknown").
 func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from, to time.Time, sportType string) ([]model.Activity, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT id, sport_type, started_at, distance_m,
-		        avg_heart_rate, max_heart_rate, avg_power_w, max_power_w,
-		        avg_cadence, avg_temperature_c, elevation_gain_m
-		 FROM activities
-		 WHERE user_id = $1 AND started_at BETWEEN $2 AND $3 AND sport_type = $4
-		 LIMIT 5`,
-		userID, from, to, sportType,
-	)
+	knownSport := sportType != "" && sportType != "unknown" && sportType != "generic"
+
+	var query string
+	var args []any
+	if knownSport {
+		query = `SELECT id, sport_type, started_at, distance_m,
+		                avg_heart_rate, max_heart_rate, avg_power_w, max_power_w,
+		                avg_cadence, avg_temperature_c, elevation_gain_m
+		         FROM activities
+		         WHERE user_id = $1 AND started_at BETWEEN $2 AND $3 AND sport_type = $4
+		         LIMIT 5`
+		args = []any{userID, from, to, sportType}
+	} else {
+		query = `SELECT id, sport_type, started_at, distance_m,
+		                avg_heart_rate, max_heart_rate, avg_power_w, max_power_w,
+		                avg_cadence, avg_temperature_c, elevation_gain_m
+		         FROM activities
+		         WHERE user_id = $1 AND started_at BETWEEN $2 AND $3
+		         LIMIT 5`
+		args = []any{userID, from, to}
+	}
+
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

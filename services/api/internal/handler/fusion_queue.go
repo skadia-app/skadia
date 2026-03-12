@@ -11,6 +11,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // FusionQueueEntry ist ein angereichter FusionCandidate für die API.
 // sport_type_a und sport_type_b können unterschiedlich sein — z.B. wenn dieselbe
 // Wanderung auf einem Radcomputer als "cycling" und auf einem GPSmap als "hiking" geloggt wurde.
@@ -24,6 +31,10 @@ type FusionQueueEntry struct {
 	StartedAtB     string  `json:"started_at_b"`
 	SportTypeA     string  `json:"sport_type_a"`
 	SportTypeB     string  `json:"sport_type_b"`
+	SubTypeA       string  `json:"sub_type_a"`
+	SubTypeB       string  `json:"sub_type_b"`
+	IsEbikeA       bool    `json:"is_ebike_a"`
+	IsEbikeB       bool    `json:"is_ebike_b"`
 	DistanceMa     float64 `json:"distance_m_a"`
 	DistanceMb     float64 `json:"distance_m_b"`
 	OverlapPercent float64 `json:"overlap_percent"`
@@ -115,6 +126,10 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 				StartedAtB:     actB.StartedAt.Format("2006-01-02T15:04:05Z"),
 				SportTypeA:     actA.SportType,
 				SportTypeB:     actB.SportType,
+				SubTypeA:       derefStr(actA.SubType),
+				SubTypeB:       derefStr(actB.SubType),
+				IsEbikeA:       actA.IsEbike,
+				IsEbikeB:       actB.IsEbike,
 				OverlapPercent: math.Round(c.OverlapPercent*10) / 10,
 				FieldRichnessA: c.FieldRichnessA,
 				FieldRichnessB: c.FieldRichnessB,
