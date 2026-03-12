@@ -142,6 +142,8 @@ local import_religion      = os.getenv("SKADIA_IMPORT_RELIGION")      ~= nil
 local import_ways          = os.getenv("SKADIA_IMPORT_WAYS")          ~= nil
 local import_waterways     = os.getenv("SKADIA_IMPORT_WATERWAYS")     ~= nil
 local import_forests       = os.getenv("SKADIA_IMPORT_FORESTS")       ~= nil
+local import_glaciers      = os.getenv("SKADIA_IMPORT_GLACIERS")      ~= nil
+local import_wetlands      = os.getenv("SKADIA_IMPORT_WETLANDS")      ~= nil
 local import_boundaries    = os.getenv("SKADIA_IMPORT_BOUNDARIES")    ~= nil
 local import_pistes        = os.getenv("SKADIA_IMPORT_PISTES")        ~= nil
 
@@ -151,7 +153,8 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_infrastructure or import_transport or import_viewpoints or
     import_shops or import_sport or import_camping or import_information or
     import_landmarks or import_religion or import_ways or import_waterways or
-    import_forests or import_boundaries or import_pistes)
+    import_forests or import_glaciers or import_wetlands or
+    import_boundaries or import_pistes)
 
 -- ============================================================
 -- Helper functions
@@ -629,7 +632,7 @@ function osm2pgsql.process_way(object)
                 horse             = tags.horse,
                 ski               = tags.ski,
                 oneway            = (tags.oneway == 'yes' or tags.oneway == '1') or false,
-                oneway_bicycle    = (tags['oneway:bicycle'] == 'no') or false,
+                oneway_bicycle    = (tags['oneway:bicycle'] ~= 'no' and tags.oneway == 'yes') or false,
                 bridge            = (tags.bridge == 'yes') or false,
                 tunnel            = (tags.tunnel == 'yes') or false,
                 ford              = (tags.ford == 'yes') or false,
@@ -775,7 +778,7 @@ function osm2pgsql.process_relation(object)
     end
 
     -- Gletscher
-    if (import_all or import_forests) then  -- Gletscher unter forests-Flag
+    if (import_all or import_glaciers) then
         if tags.type == 'multipolygon' and tags.natural == 'glacier' then
             local mp = object:as_multipolygon()
             if mp then
@@ -789,7 +792,7 @@ function osm2pgsql.process_relation(object)
     end
 
     -- Feuchtgebiete
-    if (import_all or import_forests) then  -- Wetlands unter forests-Flag
+    if (import_all or import_wetlands) then
         if tags.type == 'multipolygon' and tags.natural == 'wetland' then
             local mp = object:as_multipolygon()
             if mp then
