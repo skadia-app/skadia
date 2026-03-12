@@ -655,15 +655,34 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 		base.MaxPowerW = parsed.MaxPowerW
 	}
 
-	// Sport type: Strava API wins when it provides a known value (user may have corrected it
-	// manually, e.g. Wahoo ELEMNT records hiking as cycling but Strava shows "Wandern").
-	// If Strava couldn't map the sport (returns "generic"), fall back to the FIT parser result.
+	// Sport type merge strategy:
+	// - Strava CSV "Aktivitätsart" is a lossy localized string that collapses specific
+	//   types into broad categories (e.g., mountain_biking → "Radfahren", bouldering → "Klettern")
+	// - FIT/GPX files contain precise sport/sub-sport IDs from the recording device
+	// - When Strava gave a broad category and the device has a more specific variant
+	//   in the same sport family, prefer the device data
+	// - When they disagree on family, prefer Strava (user may have corrected it,
+	//   e.g. Wahoo ELEMNT records hiking as cycling but Strava shows "Wandern")
 	base.FitSportID = parsed.FitSportID
 	base.FitSubSportID = parsed.FitSubSportID
-	if (base.SportType == "" || base.SportType == "generic" || base.SportType == "unknown") &&
-		parsed.SportType != "" && parsed.SportType != "generic" && parsed.SportType != "unknown" {
-		base.SportType = parsed.SportType
-		base.SubType = parsed.SubType
+	if parsed.SportType != "" && parsed.SportType != "generic" && parsed.SportType != "unknown" {
+		if base.SportType == "" || base.SportType == "generic" || base.SportType == "unknown" {
+			// Strava couldn't map the sport → use device data
+			base.SportType = parsed.SportType
+			base.SubType = parsed.SubType
+		} else if isSportRefinement(base.SportType, parsed.SportType) {
+			// Device has more specific sport in same family → prefer device
+			base.SportType = parsed.SportType
+			base.SubType = parsed.SubType
+		} else if base.SportType == parsed.SportType && base.SubType == "" && parsed.SubType != "" && parsed.SubType != "generic" {
+			// Same sport type but device has sub-type that Strava CSV lost (e.g. bouldering)
+			base.SubType = parsed.SubType
+		}
+	}
+
+	// IsEbike: device data is authoritative (FIT has sub-sport ID for e-bike detection)
+	if parsed.IsEbike {
+		base.IsEbike = true
 	}
 
 	// UserProfileImport from FIT
@@ -853,4 +872,35 @@ func mapStravaWeatherCondition(code int) string {
 	default:
 		return ""
 	}
+}
+
+// sportRefinements maps broad Strava CSV sport types to the set of more specific
+// device-recorded types that should take precedence.
+var sportRefinements = map[string]map[string]bool{
+	"cycling": {
+		"mountain_biking": true,
+		"gravel_cycling":  true,
+		"indoor_cycling":  true,
+		"virtual_ride":    true,
+	},
+	"running": {
+		"trail_running":     true,
+		"treadmill_running": true,
+	},
+	"swimming": {
+		"open_water_swimming": true,
+	},
+}
+
+// isSportRefinement returns true when 'specific' is a known more-specific variant
+// of 'broad' within the same sport family.
+func isSportRefinement(broad, specific string) bool {
+	if broad == specific {
+		return false
+	}
+	refinements, ok := sportRefinements[broad]
+	if !ok {
+		return false
+	}
+	return refinements[specific]
 }
