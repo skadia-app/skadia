@@ -304,7 +304,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			COALESCE(a.elevation_source, 'device'),
 			COALESCE(a.distance_source, 'device'),
 			a.parent_id,
-			a.fusion_sources
+			a.fusion_sources,
+			a.garmin_activity_id, a.strava_activity_id, a.komoot_tour_id
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		WHERE a.id = $1`, id,
@@ -334,6 +335,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.DistanceSource,
 		&a.ParentID,
 		&a.FusionSources,
+		&a.GarminActivityID, &a.StravaActivityID, &a.KomootTourID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -2906,7 +2908,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			enable_stops, enable_intervals, enable_ascents, enable_embeddings,
 			photo_preview_size, terra_incognita_radius_m,
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
-			video_clip_frames`,
+			video_clip_frames, phash_threshold_bits`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -2918,7 +2920,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.EnableStops, &s.EnableIntervals, &s.EnableAscents, &s.EnableEmbeddings,
 		&s.PhotoPreviewSize, &s.TerraIncognitaRadiusM,
 		&s.RouteDuplicateHausdorffM, &s.RouteDuplicateLengthDiffKm,
-		&s.VideoClipFrames,
+		&s.VideoClipFrames, &s.PhashThresholdBits,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)

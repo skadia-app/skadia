@@ -222,6 +222,10 @@ type Activity struct {
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
 	// Fusion result: maps stream fields to source activity IDs.
 	FusionSources json.RawMessage `json:"fusion_sources,omitempty"`
+	// Platform IDs for deep-linking back to the source platform.
+	GarminActivityID *int64 `json:"garmin_activity_id,omitempty"`
+	StravaActivityID *int64 `json:"strava_activity_id,omitempty"`
+	KomootTourID     *int64 `json:"komoot_tour_id,omitempty"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.
@@ -730,6 +734,9 @@ type EnrichmentSettings struct {
 
 	// Number of frames to extract from videos for CLIP embedding (1–10, Migration 000146).
 	VideoClipFrames int `json:"video_clip_frames"`
+
+	// pHash Hamming-distance threshold for photo deduplication (1–10, Migration 000149).
+	PhashThresholdBits int `json:"phash_threshold_bits"`
 }
 
 // EnabledModules returns the list of Stage-2 module names that are currently

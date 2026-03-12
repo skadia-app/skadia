@@ -964,6 +964,41 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
             </button>
           </div>
         )}
+        {(activity.garmin_activity_id || activity.strava_activity_id || activity.komoot_tour_id) && (
+          <div className="flex gap-2 items-center text-sm text-muted-foreground mt-1">
+            <span>Auf:</span>
+            {activity.garmin_activity_id && (
+              <a
+                href={`https://connect.garmin.com/modern/activity/${activity.garmin_activity_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline"
+              >
+                Garmin Connect ↗
+              </a>
+            )}
+            {activity.strava_activity_id && (
+              <a
+                href={`https://www.strava.com/activities/${activity.strava_activity_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline"
+              >
+                Strava ↗
+              </a>
+            )}
+            {activity.komoot_tour_id && (
+              <a
+                href={`https://www.komoot.com/tour/${activity.komoot_tour_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline"
+              >
+                Komoot ↗
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Edit Button — trim/split/merge not applicable for multisport parents */}

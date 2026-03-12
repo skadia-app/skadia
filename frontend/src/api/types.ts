@@ -105,6 +105,10 @@ export interface Activity {
   child_count?: number
   // Fusion result: maps stream fields to source activity IDs.
   fusion_sources?: Record<string, string> | null
+  // Platform IDs for deep-linking back to the source platform.
+  garmin_activity_id?: number | null
+  strava_activity_id?: number | null
+  komoot_tour_id?: number | null
 }
 
 export interface ActivitiesResponse {
