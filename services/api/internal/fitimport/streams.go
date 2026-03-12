@@ -110,5 +110,29 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 		streams = append(streams, sp)
 	}
 
-	return streams
+	return fixDistanceResets(streams)
+}
+
+// fixDistanceResets detects distance counter resets (common in GOTOES-merged
+// FIT files where a second activity starts from 0) and accumulates an offset
+// so that the returned distance values are monotonically increasing.
+// A reset is detected when distance drops by more than resetThreshold meters.
+func fixDistanceResets(points []model.StreamPoint) []model.StreamPoint {
+	const resetThreshold = 100.0 // meters
+	var prevDist float64
+	var offset float64
+	for i := range points {
+		if points[i].DistanceM == nil {
+			continue
+		}
+		dist := *points[i].DistanceM
+		if prevDist > 0 && dist+resetThreshold < prevDist {
+			// Distance counter reset detected — accumulate offset
+			offset += prevDist
+		}
+		prevDist = dist
+		accumulated := dist + offset
+		points[i].DistanceM = &accumulated
+	}
+	return points
 }
