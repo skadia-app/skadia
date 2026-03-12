@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -80,50 +78,29 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(activities) > 1 {
-			// Multisport: create parent activity + one child per session
-			parentAct := &model.Activity{
-				ID:        uuid.New().String(),
-				UserID:    userID,
-				SportType: "multisport",
-				Title:     strPtr("Multisport"),
-				StartedAt: activities[0].StartedAt,
+			// S3 upload first (shared by all children)
+			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
+			if uploadErr := h.Storage.Upload(r.Context(), s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+				slog.Warn("s3 upload for multisport failed", "error", uploadErr)
 			}
-			if insertErr := h.DB.InsertMultisportParent(r.Context(), parentAct); insertErr != nil {
-				slog.Error("insert multisport parent failed", "error", insertErr)
-				writeError(w, http.StatusInternalServerError, "Database Error", "failed to save multisport parent", r.URL.Path)
+
+			msResult, msErr := h.ImportService.ProcessMultisport(
+				r.Context(), userID, activities, fileBytes, hashStr,
+				s3Key, format, filename,
+				importer.ImportMetadata{SourcePlatform: "webui"},
+			)
+			if msErr != nil {
+				writeError(w, http.StatusInternalServerError, "Import Error", msErr.Error(), r.URL.Path)
 				return
 			}
 
-			// Upload original file once (shared by all children)
-			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-			if uploadErr := h.Storage.Upload(r.Context(), s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
-				slog.Error("S3 upload failed", "error", uploadErr)
+			// Return parent activity
+			parentAct, _ := h.DB.GetActivity(r.Context(), msResult.ParentID)
+			if parentAct != nil {
+				writeJSON(w, http.StatusCreated, parentAct)
+			} else {
+				writeJSON(w, http.StatusCreated, map[string]string{"parent_id": msResult.ParentID})
 			}
-
-			for i, childData := range activities {
-				childData.FileHash = hashStr
-				childActivity, childErr := h.DB.InsertActivityWithParent(r.Context(), userID, childData, parentAct.ID)
-				if childErr != nil {
-					slog.Warn("insert child activity failed", "session", i, "err", childErr)
-					continue
-				}
-				// TODO(multisport): Transition sessions (sport_type="transition") need no
-			// Stage-2 Geo/ML enrichment. postInsertActivity already skips Stage-1
-			// implicitly when data.HasGPS is false (transitions have no GPS track).
-			// A future improvement: suppress PublishStage2Ready for transitions so
-			// that the ML service does not queue unnecessary enrichment jobs.
-			h.postInsertActivity(r.Context(), userID, childActivity, childData, fileBytes, s3Key, format, filename)
-			}
-
-			if aggrErr := h.DB.AggregateParentMetrics(r.Context(), parentAct.ID); aggrErr != nil {
-				slog.Warn("aggregate parent metrics failed", "id", parentAct.ID, "err", aggrErr)
-			}
-
-			if h.Events != nil {
-				h.Events.PublishAnalyticsInvalidate(userID)
-			}
-
-			writeJSON(w, http.StatusCreated, parentAct)
 			return
 		}
 
@@ -290,9 +267,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, resp)
 }
-
-// strPtr returns a pointer to a string literal (for model fields that require *string).
-func strPtr(s string) *string { return &s }
 
 // handleDuplicateMatch processes a duplicate activity match according to user conflict strategy.
 func (h *Handler) handleDuplicateMatch(w http.ResponseWriter, r *http.Request, userID string, match *importer.DuplicateMatch, data *model.ActivityData) {
