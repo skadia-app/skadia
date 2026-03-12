@@ -24,6 +24,10 @@ type ActivityPhoto struct {
 	DurationS   *float64 `json:"duration_s,omitempty"`   // Video-Länge in Sekunden
 	VideoWidth  *int     `json:"video_width,omitempty"`
 	VideoHeight *int     `json:"video_height,omitempty"`
+	// Image metadata
+	PHash  *int64 `json:"phash,omitempty" db:"phash"`
+	Width  *int   `json:"width,omitempty" db:"width"`
+	Height *int   `json:"height,omitempty" db:"height"`
 	// Computed URLs (nicht in DB)
 	ThumbURL   string `json:"thumb_url,omitempty"`
 	PreviewURL string `json:"preview_url,omitempty"` // large preview (WQHD/4K) or same as full_url

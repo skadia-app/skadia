@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Layer 1: Dependencies (cached unless go.mod/go.sum change)
 COPY go.mod go.sum ./
-RUN go mod download
+RUN GONOSUMCHECK=* GOFLAGS=-mod=mod go mod download
 
 # Layer 2: Embedded resources (cached unless migrations/lua change)
 COPY internal/migrate/migrations/ internal/migrate/migrations/
@@ -13,7 +13,7 @@ COPY internal/osm/skadia-osm.lua internal/osm/skadia-osm.lua
 # Layer 3: All source code (rebuilt on any .go file change)
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o /api ./cmd/api
+    CGO_ENABLED=0 go build -mod=mod -o /api ./cmd/api
 
 FROM debian:trixie-slim
 

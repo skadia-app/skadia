@@ -14,20 +14,24 @@ func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (m
 			(user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 			 original_filename, content_type, file_size_bytes, file_hash,
 			 taken_at, lat, lng, location_source,
-			 is_video, duration_s, video_width, video_height)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			 is_video, duration_s, video_width, video_height,
+			 phash, width, height)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		          original_filename, content_type, file_size_bytes, file_hash,
 		          taken_at, lat, lng, location_source, created_at,
-		          is_video, duration_s, video_width, video_height
+		          is_video, duration_s, video_width, video_height,
+		          phash, width, height
 	`, p.UserID, p.ActivityID, p.S3Bucket, p.S3Key, p.S3KeyThumb, p.S3KeyPreview,
 		p.OriginalFilename, p.ContentType, p.FileSizeBytes, p.FileHash,
 		p.TakenAt, p.Lat, p.Lng, p.LocationSource,
 		p.IsVideo, p.DurationS, p.VideoWidth, p.VideoHeight,
+		p.PHash, p.Width, p.Height,
 	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.S3Bucket, &out.S3Key, &out.S3KeyThumb, &out.S3KeyPreview,
 		&out.OriginalFilename, &out.ContentType, &out.FileSizeBytes, &out.FileHash,
 		&out.TakenAt, &out.Lat, &out.Lng, &out.LocationSource, &out.CreatedAt,
-		&out.IsVideo, &out.DurationS, &out.VideoWidth, &out.VideoHeight)
+		&out.IsVideo, &out.DurationS, &out.VideoWidth, &out.VideoHeight,
+		&out.PHash, &out.Width, &out.Height)
 	return out, err
 }
 
@@ -424,6 +428,92 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 		s.StartedAt = &t
 	}
 	return s
+}
+
+// PhotoHashRow holds pHash comparison data for a single photo.
+type PhotoHashRow struct {
+	ID     string
+	PHash  *int64
+	Width  *int
+	Height *int
+}
+
+// GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
+func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, phash, width, height FROM activity_photos
+		 WHERE activity_id = $1 AND phash IS NOT NULL`,
+		activityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []PhotoHashRow
+	for rows.Next() {
+		var r PhotoHashRow
+		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// UpdateActivityPhotoPHash updates the pHash for a photo.
+func (db *DB) UpdateActivityPhotoPHash(ctx context.Context, photoID string, phash int64) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activity_photos SET phash = $1 WHERE id = $2`,
+		phash, photoID)
+	return err
+}
+
+// UpdateActivityPhotoDimensions updates width and height.
+func (db *DB) UpdateActivityPhotoDimensions(ctx context.Context, photoID string, width, height int) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activity_photos SET width = $1, height = $2 WHERE id = $3`,
+		width, height, photoID)
+	return err
+}
+
+// ReplaceActivityPhotoFile replaces S3 keys and dimensions while preserving metadata.
+func (db *DB) ReplaceActivityPhotoFile(ctx context.Context, photoID string, s3Key, s3KeyThumb, s3KeyPreview string, fileSize int64, fileHash string, width, height int, phash int64) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activity_photos
+		 SET s3_key = $1, s3_key_thumb = $2, s3_key_preview = $3,
+		     file_size_bytes = $4, file_hash = $5, width = $6, height = $7, phash = $8
+		 WHERE id = $9`,
+		s3Key, s3KeyThumb, s3KeyPreview, fileSize, fileHash, width, height, phash, photoID)
+	return err
+}
+
+// BackfillPhotoRow holds data for pHash backfill processing.
+type BackfillPhotoRow struct {
+	ID         string
+	S3KeyThumb string
+	IsVideo    bool
+	DurationS  *float64
+}
+
+// PhotosWithoutPHash returns all photo IDs that need pHash backfill.
+func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]BackfillPhotoRow, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, s3_key_thumb, is_video, duration_s FROM activity_photos
+		 WHERE user_id = $1 AND phash IS NULL
+		 ORDER BY created_at`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []BackfillPhotoRow
+	for rows.Next() {
+		var r BackfillPhotoRow
+		if err := rows.Scan(&r.ID, &r.S3KeyThumb, &r.IsVideo, &r.DurationS); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
 }
 
 func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhotoEntry, error) {
