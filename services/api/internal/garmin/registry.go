@@ -24,6 +24,7 @@ type ImportParams struct {
 	UserID           string
 	DB               *database.DB
 	Storage          *storage.S3Client
+	ImportService    *importer.Service // shared post-processing pipeline (optional, used by ActivitiesImporter)
 	JobID            string
 	OnProgress       func(current, total int, msg string)
 	OnModuleComplete func(completed, total int, moduleName string)

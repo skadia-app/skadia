@@ -13,12 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
@@ -134,7 +132,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Parse activity file first (needed for temporal duplicate check)
+		// Parse activity file (Garmin-specific: FIT/GPX/TCX)
 		var data *model.ActivityData
 		switch format {
 		case "fit":
@@ -160,7 +158,56 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Duplicate check (hash + garmin_activity_id + temporal)
+		if data.Source == "" {
+			data.Source = "Garmin"
+		}
+
+		// Use ImportService when available (preferred path: unified dedup + post-processing)
+		if params.ImportService != nil {
+			// Compute file hash and set it on data before ProcessActivity (mirrors upload handler)
+			hashArr := sha256.Sum256(fileBytes)
+			hashStr := hex.EncodeToString(hashArr[:])
+			data.FileHash = hashStr
+
+			meta := importer.ImportMetadata{
+				GarminActivityID: garminActivityID,
+				SourcePlatform:   "garmin",
+			}
+			actResult, processErr := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, meta)
+			if processErr != nil {
+				slog.Warn("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
+				result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", ref.fileName, processErr))
+				continue
+			}
+
+			if actResult.Status != "created" {
+				// Duplicate or enriched — count as skipped for import stats
+				result.Skipped++
+				continue
+			}
+
+			// New activity inserted — upload to S3 then run post-processing
+			// (NATS events, Shadow FS, Segment matching, Lap detection, Heatmap, etc.)
+			s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+			contentType := "application/octet-stream"
+			if format == "gpx" || format == "tcx" {
+				contentType = "application/xml"
+			}
+			if params.Storage != nil {
+				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+					slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
+					// Continue — DB insert already done; post-processing still runs
+				}
+			}
+			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, ref.fileName); postErr != nil {
+				slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
+				// Non-fatal: activity is already stored
+			}
+			result.Imported++
+			continue
+		}
+
+		// Fallback path (no ImportService configured): legacy inline logic
 		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, garminActivityID, 0, 0)
 		if dupErr != nil {
 			slog.Warn("garmin activities: duplicate check failed", "error", dupErr)
@@ -180,7 +227,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				}
 				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, existing, data)
 			}
-			// Ensure garmin_activity_id is set on the existing activity
 			if garminActivityID > 0 {
 				_ = params.DB.SetActivityGarminID(ctx, match.ExistingActivityID, garminActivityID)
 			}
@@ -188,114 +234,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Compute file hash for storage key
-		hash := sha256.Sum256(fileBytes)
-		hashStr := hex.EncodeToString(hash[:])
-		data.FileHash = hashStr
-		if data.Source == "" {
-			data.Source = "Garmin"
-		}
-
-		// Upload original to Garage
-		s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-		contentType := "application/octet-stream"
-		if format == "gpx" || format == "tcx" {
-			contentType = "application/xml"
-		}
-		if params.Storage != nil {
-			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-				slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
-				// Continue anyway – we still insert into DB
-			}
-		}
-
-		// Insert activity into DB
-		activity, err := params.DB.InsertActivity(ctx, params.UserID, data)
-		if err != nil {
-			slog.Warn("garmin activities: insert failed", "file", ref.fileName, "error", err)
-			result.Errors = append(result.Errors, fmt.Sprintf("insert %s: %s", ref.fileName, err))
+		activity, insertErr := params.DB.InsertActivity(ctx, params.UserID, data)
+		if insertErr != nil {
+			slog.Warn("garmin activities: insert failed", "file", ref.fileName, "error", insertErr)
+			result.Errors = append(result.Errors, fmt.Sprintf("insert %s: %s", ref.fileName, insertErr))
 			continue
 		}
-
-		// Set garmin_activity_id
 		if garminActivityID > 0 {
-			if err := params.DB.SetActivityGarminID(ctx, activity.ID, garminActivityID); err != nil {
-				slog.Warn("garmin activities: set garmin_activity_id failed", "error", err)
-			}
+			_ = params.DB.SetActivityGarminID(ctx, activity.ID, garminActivityID)
 		}
-
-		// Update file info
-		metaKey := s3Key + ".meta"
-		bucket := "skadia-originals"
-		if params.Storage != nil {
-			if err := params.DB.UpdateActivityFileInfo(ctx, activity.ID, bucket, s3Key, format, ref.fileName, metaKey); err != nil {
-				slog.Warn("garmin activities: update file info failed", "error", err)
-			}
-			// Write .meta sidecar
-			meta := sidecar.GenerateMeta(activity.ID, data)
-			if metaBytes, err := meta.Marshal(); err == nil {
-				if err := params.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-					slog.Warn("garmin activities: meta upload failed", "error", err)
-				}
-			}
-		}
-
-		// Insert streams, track, and heatmap
-		if err := params.DB.InsertStreams(ctx, activity.ID, data.Streams); err != nil {
-			slog.Warn("garmin activities: insert streams failed", "error", err)
-		}
-		if len(data.RRIntervals) > 0 {
-			if err := params.DB.InsertRRIntervals(ctx, activity.ID, data.RRIntervals); err != nil {
-				slog.Warn("garmin activities: insert rr intervals failed", "error", err)
-			}
-		}
-		if err := params.DB.InsertTrack(ctx, activity.ID, data.TrackPoints); err != nil {
-			slog.Warn("garmin activities: insert track failed", "error", err)
-		}
-		if len(data.TrackPoints) >= 2 {
-			var subTypePtr *string
-			if data.SubType != "" {
-				subTypePtr = &data.SubType
-			}
-			if err := params.DB.InsertHeatmapLine(ctx, params.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-				slog.Warn("garmin activities: insert heatmap line failed", "error", err)
-			}
-			interval, _ := params.DB.GetUserHeatmapInterval(ctx, params.UserID)
-			if err := params.DB.InsertHeatmapPoints(ctx, params.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-				slog.Warn("garmin activities: insert heatmap points failed", "error", err)
-			}
-		}
-
-		// Insert sensors, laps, splits, lengths, climb pro
-		if err := params.DB.InsertSensors(ctx, activity.ID, data.Sensors); err != nil {
-			slog.Warn("garmin activities: insert sensors failed", "error", err)
-		}
-		if err := params.DB.InsertLaps(ctx, activity.ID, data.Laps); err != nil {
-			slog.Warn("garmin activities: insert laps failed", "error", err)
-		}
-		if err := params.DB.InsertSplits(ctx, activity.ID, data.Splits); err != nil {
-			slog.Warn("garmin activities: insert splits failed", "error", err)
-		}
-		if err := params.DB.InsertSplitSummaries(ctx, activity.ID, data.SplitSummaries); err != nil {
-			slog.Warn("garmin activities: insert split summaries failed", "error", err)
-		}
-		if err := params.DB.InsertLengths(ctx, activity.ID, data.Lengths); err != nil {
-			slog.Warn("garmin activities: insert lengths failed", "error", err)
-		}
-		if err := params.DB.InsertClimbProEvents(ctx, activity.ID, data.ClimbProEvents); err != nil {
-			slog.Warn("garmin activities: insert climb pro events failed", "error", err)
-		}
-		if len(data.TimeInZoneData) > 0 {
-			if err := params.DB.SaveTimeInZones(ctx, activity.ID, data.TimeInZoneData); err != nil {
-				slog.Warn("garmin activities: save time in zones failed", "error", err)
-			}
-		}
-
-		// Stage 1 enrichment
-		if data.HasGPS && data.StartLat != 0 {
-			enrichment.RunStage1(ctx, params.DB, params.UserID, activity.ID, data)
-		}
-
 		result.Imported++
 	}
 

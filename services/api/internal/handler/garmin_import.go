@@ -105,11 +105,12 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		registry := h.buildGarminRegistry()
 
 		params := garmin.ImportParams{
-			Source:  src,
-			UserID:  userID,
-			DB:      h.DB,
-			Storage: h.Storage,
-			JobID:   jobID,
+			Source:        src,
+			UserID:        userID,
+			DB:            h.DB,
+			Storage:       h.Storage,
+			ImportService: h.ImportService,
+			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
 				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
 					slog.Warn("garmin import: update current module failed", "error", err)
@@ -181,11 +182,12 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := garmin.ImportParams{
-			Source:  src,
-			UserID:  userID,
-			DB:      h.DB,
-			Storage: h.Storage,
-			JobID:   jobID,
+			Source:        src,
+			UserID:        userID,
+			DB:            h.DB,
+			Storage:       h.Storage,
+			ImportService: h.ImportService,
+			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
 				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
 					slog.Warn("garmin import (zip): update current module failed", "error", err)
