@@ -27,6 +27,7 @@ const ALL_CATEGORIES = [
   // Flächen
   { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },
   { id: 'forests',        label: 'Wälder & Natur',           group: 'Flächen' },
+  { id: 'wetlands',       label: 'Feuchtgebiete & Moore',    group: 'Flächen' },
   { id: 'boundaries',     label: 'Grenzen',                  group: 'Flächen' },
 ] as const
 
