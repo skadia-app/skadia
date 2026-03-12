@@ -10,7 +10,7 @@ import (
 // SetActivityKomootTourID sets the komoot_tour_id on an existing activity.
 func (db *DB) SetActivityKomootTourID(ctx context.Context, activityID string, tourID int64) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET komoot_tour_id = $2 WHERE id = $1`,
+		`UPDATE activities SET komoot_tour_id = COALESCE(komoot_tour_id, $2) WHERE id = $1`,
 		activityID, tourID,
 	)
 	return err

@@ -196,6 +196,7 @@ func (db *DB) FindActivityIDAtTime(ctx context.Context, userID string, ts time.T
 	err := db.Pool.QueryRow(ctx,
 		`SELECT id FROM activities
 		 WHERE user_id = $1
+		   AND deleted_at IS NULL
 		   AND started_at <= $2 + INTERVAL '30 minutes'
 		   AND (ended_at IS NULL OR ended_at >= $2 - INTERVAL '30 minutes')
 		 ORDER BY ABS(EXTRACT(EPOCH FROM (started_at - $2)))
@@ -258,7 +259,7 @@ func (db *DB) PrivacyZoneExistsByName(ctx context.Context, userID, name string) 
 // SetActivityStravaID sets the strava_activity_id on an existing activity.
 func (db *DB) SetActivityStravaID(ctx context.Context, activityID string, stravaID int64) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET strava_activity_id = $2 WHERE id = $1`,
+		`UPDATE activities SET strava_activity_id = COALESCE(strava_activity_id, $2) WHERE id = $1`,
 		activityID, stravaID,
 	)
 	return err

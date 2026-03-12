@@ -6,7 +6,7 @@ import { apiClient } from './client'
 
 export interface ImportQueueItem {
   id: string
-  item_type: 'image_no_exif' | 'image_ambiguous' | 'pdf_untyped' | 'duplicate' | 'import_error'
+  item_type: 'image_no_exif' | 'image_ambiguous' | 'image_no_match' | 'pdf_untyped' | 'duplicate' | 'import_error'
   status: 'pending' | 'resolved' | 'dismissed'
   filename: string
   file_size?: number

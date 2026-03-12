@@ -250,7 +250,9 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 			}, nil
 
 		case StrategyReplaceAll:
-			// Replace all stream/child data unconditionally
+			// Replace all stream/child data unconditionally.
+			// Note: caller must run PostProcess on "replaced" status to rebuild
+			// heatmap, segments, and other derived data.
 			if err := ReplaceActivity(ctx, s.DB, match.ExistingActivityID, data); err != nil {
 				slog.Warn("replace activity streams failed", "activity", match.ExistingActivityID, "err", err)
 			}

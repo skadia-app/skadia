@@ -32,7 +32,7 @@ func buildEnrichFields(_ *model.Activity, newData *model.ActivityData) map[strin
 	if newData.AvgCadence > 0 {
 		fields["avg_cadence"] = newData.AvgCadence
 	}
-	if newData.AvgTemperatureC > 0 {
+	if newData.AvgTemperatureC != 0 {
 		fields["avg_temperature_c"] = newData.AvgTemperatureC
 	}
 	if newData.ElevationGainM > 0 {
@@ -41,10 +41,10 @@ func buildEnrichFields(_ *model.Activity, newData *model.ActivityData) map[strin
 	if newData.ElevationLossM > 0 {
 		fields["elevation_loss_m"] = newData.ElevationLossM
 	}
-	if newData.MaxElevationM > 0 {
+	if newData.MaxElevationM != 0 {
 		fields["max_elevation_m"] = newData.MaxElevationM
 	}
-	if newData.MinElevationM > 0 {
+	if newData.MinElevationM != 0 {
 		fields["min_elevation_m"] = newData.MinElevationM
 	}
 	if newData.MovingTimeS > 0 {

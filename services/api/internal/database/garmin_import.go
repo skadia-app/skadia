@@ -204,7 +204,7 @@ func (db *DB) ListActiveGarminImportJobs(ctx context.Context, userID string) ([]
 // SetActivityGarminID sets the garmin_activity_id on an existing activity.
 func (db *DB) SetActivityGarminID(ctx context.Context, activityID string, garminID int64) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET garmin_activity_id = $2 WHERE id = $1`,
+		`UPDATE activities SET garmin_activity_id = COALESCE(garmin_activity_id, $2) WHERE id = $1`,
 		activityID, garminID,
 	)
 	return err

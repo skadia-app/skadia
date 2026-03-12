@@ -13,7 +13,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -179,28 +178,12 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 		}
 
-		// Set title
+		// Set Komoot tour title (before PostProcess which may generate auto-title)
 		if tour.Name != "" {
 			_ = p.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"title": tour.Name})
 		}
 
-		// Update file info in DB
-		if s3Key != "" {
-			metaKey := s3Key + ".meta"
-			bucket := "skadia-originals"
-			if err := p.DB.UpdateActivityFileInfo(ctx, activityID, bucket, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format), metaKey); err != nil {
-				slog.Warn("komoot activities: update file info failed", "error", err)
-			}
-			// Write .meta sidecar
-			meta := sidecar.GenerateMeta(activityID, data)
-			if metaBytes, err := meta.Marshal(); err == nil {
-				if err := p.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-					slog.Warn("komoot activities: meta upload failed", "error", err)
-				}
-			}
-		}
-
-		// PostProcess handles streams, track, heatmap, laps, segment matching, Stage 1 enrichment etc.
+		// PostProcess handles file info, sidecar, streams, track, heatmap, laps, segment matching, Stage 1 etc.
 		if err := p.ImportService.PostProcess(ctx, p.UserID, activityID, data, fileBytes, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format)); err != nil {
 			slog.Warn("komoot activities: PostProcess failed", "tour_id", tour.ID, "activity_id", activityID, "error", err)
 		}

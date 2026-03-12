@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import { useToast } from '@/lib/toast'
@@ -24,11 +24,11 @@ function ActivitySearchModal({ onSelect, onClose }: ActivitySearchModalProps) {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleQueryChange = useCallback((value: string) => {
     setQuery(value)
-    // Simple debounce via timeout
-    const t = setTimeout(() => setDebouncedQuery(value), 300)
-    return () => clearTimeout(t)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebouncedQuery(value), 300)
   }, [])
 
   const { data, isLoading } = useQuery({
@@ -145,6 +145,7 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
   const typeLabel: Record<ImportQueueItem['item_type'], string> = {
     image_no_exif: 'Kein EXIF-Datum',
     image_ambiguous: 'Mehrdeutig',
+    image_no_match: 'Foto ohne Zuordnung',
     pdf_untyped: 'PDF',
     duplicate: 'Duplikat',
     import_error: 'Fehler',
