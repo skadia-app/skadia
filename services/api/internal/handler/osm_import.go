@@ -66,7 +66,7 @@ var categoryToPOI = map[string][]string{
 }
 
 var categoryToTable = map[string][]string{
-	"ways":       {"osm_ways"},
+	// "ways" intentionally omitted — uses targeted DELETE to preserve ferry/via_ferrata rows
 	"waterways":  {"osm_waterways", "osm_waters"},
 	"forests":    {"osm_forests", "osm_glaciers"},
 	"wetlands":   {"osm_wetlands"},
@@ -201,10 +201,14 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 			return err
 		}
 	}
-	// Fähren + Kletterrouten teilen osm_ways — gezieltes DELETE statt TRUNCATE
+	// osm_ways wird nie per TRUNCATE geleert — gezieltes DELETE schützt ferry/via_ferrata-Rows
+	// die ggf. als separate Kategorie importiert wurden.
 	for _, cat := range categories {
 		var sql string
 		switch cat {
+		case "ways":
+			// Löscht alles außer Ferry/Climbing (die über eigene Kategorien verwaltet werden)
+			sql = "DELETE FROM osm_ways WHERE highway NOT IN ('ferry', 'via_ferrata')"
 		case "ferries":
 			sql = "DELETE FROM osm_ways WHERE highway = 'ferry'"
 		case "climbing":
@@ -440,7 +444,7 @@ func buildIndexStatements(categories []string) []string {
 		{"waterways", "osm_waterways_geog_idx", "osm_waterways", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waters_geog_idx", "osm_waters", "USING gist ((geom::geography))"},
 		{"forests", "osm_forests_geog_idx", "osm_forests", "USING gist (geom)"},
-		{"forests", "osm_wetlands_geog_idx", "osm_wetlands", "USING gist ((geom::geography))"},
+		{"wetlands", "osm_wetlands_geog_idx", "osm_wetlands", "USING gist ((geom::geography))"},
 		{"forests", "osm_glaciers_geog_idx", "osm_glaciers", "USING gist ((geom::geography))"},
 		{"boundaries", "osm_boundaries_geog_idx", "osm_boundaries", "USING gist ((geom::geography))"},
 		{"pistes", "osm_pistes_geog_idx", "osm_pistes", "USING gist ((geom::geography))"},

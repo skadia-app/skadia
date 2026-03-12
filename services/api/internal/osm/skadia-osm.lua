@@ -650,7 +650,9 @@ function osm2pgsql.process_way(object)
         end
     end
 
-    -- Kletterrouten & Via Ferrata (highway=via_ferrata)
+    -- Kletterrouten & Via Ferrata (highway=via_ferrata auf Ways)
+    -- TODO: Mehrteilige Via-Ferrata-Routen in OSM sind oft als Relationen (type=route,
+    -- route=via_ferrata) modelliert. process_relation unterstützt das aktuell nicht.
     if (import_all or import_ways or import_climbing) then
         if tags.highway == 'via_ferrata' then
             tables.ways:insert({
@@ -670,7 +672,9 @@ function osm2pgsql.process_way(object)
         end
     end
 
-    -- Fährrouten (route=ferry)
+    -- Fährrouten (route=ferry auf Ways)
+    -- TODO: Viele Fährlinien in OSM sind als Relationen (type=route, route=ferry) modelliert
+    -- und werden hier nicht erfasst. process_relation unterstützt aktuell keine Fähr-Relationen.
     if (import_all or import_ferries) then
         if tags.route == 'ferry' then
             tables.ways:insert({
