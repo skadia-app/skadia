@@ -655,11 +655,16 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 		base.MaxPowerW = parsed.MaxPowerW
 	}
 
-	// Sport type always comes from Strava API (user may have corrected it manually in Strava).
-	// FIT files often contain the wrong sport (e.g. Wahoo ELEMNT records hiking as cycling).
-	// Only carry over FIT sub-sport IDs for internal reference — not the sport type itself.
+	// Sport type: Strava API wins when it provides a known value (user may have corrected it
+	// manually, e.g. Wahoo ELEMNT records hiking as cycling but Strava shows "Wandern").
+	// If Strava couldn't map the sport (returns "generic"), fall back to the FIT parser result.
 	base.FitSportID = parsed.FitSportID
 	base.FitSubSportID = parsed.FitSubSportID
+	if (base.SportType == "" || base.SportType == "generic" || base.SportType == "unknown") &&
+		parsed.SportType != "" && parsed.SportType != "generic" && parsed.SportType != "unknown" {
+		base.SportType = parsed.SportType
+		base.SubType = parsed.SubType
+	}
 
 	// UserProfileImport from FIT
 	if parsed.UserProfileImport != nil {
