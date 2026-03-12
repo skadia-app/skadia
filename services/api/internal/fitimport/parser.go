@@ -57,8 +57,10 @@ func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, 
 			nonMultisportSports = append(nonMultisportSports, s.Sport)
 		}
 	}
-	if allSameSport(nonMultisportSports) {
+	if len(nonMultisportSports) >= 2 && allSameSport(nonMultisportSports) {
 		// All sessions are the same sport — treat as single activity.
+		// Requires at least 2 non-multisport sessions to avoid misclassifying
+		// partial multisport recordings (1 multisport summary + 1 discipline).
 		// buildActivityData uses sessions[0] for aggregate metrics, which is
 		// correct for GOTOES files (each session has its own partial totals;
 		// Strava CSV metadata will override distance/time anyway).

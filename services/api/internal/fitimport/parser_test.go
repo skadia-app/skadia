@@ -29,7 +29,7 @@ func TestAllSameSport_Empty(t *testing.T) {
 	}
 }
 
-// TestAllSameSport_SingleElement — Einzelelement → true
+// TestAllSameSport_Single — Einzelelement → true
 func TestAllSameSport_Single(t *testing.T) {
 	sports := []typedef.Sport{typedef.SportRunning}
 	if !allSameSport(sports) {
