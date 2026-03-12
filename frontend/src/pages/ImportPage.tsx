@@ -1026,7 +1026,7 @@ function KomootImportPanel() {
   const [scanError, setScanError] = useState<string | null>(null)
 
   // Credential persistence
-  const [saveCredentials, setSaveCredentials] = useState(true)
+  const [saveCredentials, setSaveCredentials] = useState(false)
   const [hasStoredCredentials, setHasStoredCredentials] = useState<boolean | null>(null)
   const [storedEmail, setStoredEmail] = useState('')
   const [deletingCredentials, setDeletingCredentials] = useState(false)
@@ -1392,6 +1392,9 @@ function KomootImportPanel() {
                 <input type="checkbox" checked={importPhotos} onChange={e => setImportPhotos(e.target.checked)} className="w-4 h-4 accent-accent-DEFAULT" disabled={!importRecorded} />
                 <span className={`text-sm ${!importRecorded ? 'text-neutral-400' : ''}`}>Fotos importieren</span>
               </label>
+              {importPhotos && importRecorded && (
+                <p className="text-xs text-neutral-400 pl-7">Anzahl erst nach Import bekannt — erfordert Abruf aller Tourdetails</p>
+              )}
             </div>
 
             {/* Konflikt-Strategie */}
