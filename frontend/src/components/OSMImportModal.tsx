@@ -24,6 +24,7 @@ const ALL_CATEGORIES = [
   { id: 'ways',           label: 'Wegenetz (Routing)',       group: 'Wege' },
   { id: 'lifts',          label: 'Lifte & Seilbahnen',       group: 'Wege' },
   { id: 'pistes',         label: 'Skipisten',                group: 'Wege' },
+  { id: 'climbing',       label: 'Kletterrouten & Via Ferrata', group: 'Wege' },
   { id: 'ferries',        label: 'Fährrouten',               group: 'Wege' },
   // Flächen
   { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },

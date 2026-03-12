@@ -147,6 +147,7 @@ local import_wetlands      = os.getenv("SKADIA_IMPORT_WETLANDS")      ~= nil
 local import_boundaries    = os.getenv("SKADIA_IMPORT_BOUNDARIES")    ~= nil
 local import_pistes        = os.getenv("SKADIA_IMPORT_PISTES")        ~= nil
 local import_ferries       = os.getenv("SKADIA_IMPORT_FERRIES")       ~= nil
+local import_climbing      = os.getenv("SKADIA_IMPORT_CLIMBING")      ~= nil
 
 -- If NO flag is set → import everything (backward compat for shell scripts)
 local import_all = not (import_peaks or import_passes or import_lifts or
@@ -155,7 +156,7 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_shops or import_sport or import_camping or import_information or
     import_landmarks or import_religion or import_ways or import_waterways or
     import_forests or import_glaciers or import_wetlands or
-    import_boundaries or import_pistes or import_ferries)
+    import_boundaries or import_pistes or import_ferries or import_climbing)
 
 -- ============================================================
 -- Helper functions
@@ -184,7 +185,7 @@ end
 
 local routable_highways = {
     path=true, footway=true, cycleway=true, track=true, bridleway=true,
-    steps=true, via_ferrata=true, pedestrian=true, living_street=true,
+    steps=true, pedestrian=true, living_street=true,
     residential=true, unclassified=true, service=true,
     tertiary=true, tertiary_link=true,
     secondary=true, secondary_link=true,
@@ -644,6 +645,26 @@ function osm2pgsql.process_way(object)
                 network           = tags.network,
                 operator          = tags.operator,
                 tags              = build_tags(tags, {'name:de','name:en','alt_name','description'}),
+                geom              = object:as_linestring(),
+            })
+        end
+    end
+
+    -- Kletterrouten & Via Ferrata (highway=via_ferrata)
+    if (import_all or import_ways or import_climbing) then
+        if tags.highway == 'via_ferrata' then
+            tables.ways:insert({
+                osm_id            = object.id,
+                name              = tags.name,
+                ref               = tags.ref,
+                highway           = 'via_ferrata',
+                surface           = tags.surface,
+                via_ferrata_scale = tags.via_ferrata_scale,
+                sac_scale         = tags.sac_scale,
+                trail_visibility  = tags.trail_visibility,
+                access            = tags.access,
+                foot              = tags.foot,
+                tags              = build_tags(tags, {'name:de','name:en','alt_name','description','climbing:grade:uiaa','operator'}),
                 geom              = object:as_linestring(),
             })
         end

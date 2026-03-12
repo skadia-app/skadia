@@ -44,6 +44,7 @@ var osmCategories = map[string][]string{
 	"pistes":         {"osm_pistes"},
 	"lifts":          {"osm_lifts"},
 	"ferries":        {}, // shares osm_ways — cleared via DELETE WHERE highway='ferry'
+	"climbing":       {}, // shares osm_ways — cleared via DELETE WHERE highway='via_ferrata'
 }
 
 // categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
@@ -99,7 +100,8 @@ var categoryEnvVars = map[string][]string{
 	"wetlands":   {"SKADIA_IMPORT_WETLANDS"},
 	"boundaries": {"SKADIA_IMPORT_BOUNDARIES"},
 	"pistes":     {"SKADIA_IMPORT_PISTES"},
-	"ferries":    {"SKADIA_IMPORT_FERRIES"},
+	"ferries":   {"SKADIA_IMPORT_FERRIES"},
+	"climbing":  {"SKADIA_IMPORT_CLIMBING"},
 }
 
 type osmImportRequest struct {
@@ -199,13 +201,19 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 			return err
 		}
 	}
-	// Fähren teilen osm_ways — gezieltes DELETE statt TRUNCATE
+	// Fähren + Kletterrouten teilen osm_ways — gezieltes DELETE statt TRUNCATE
 	for _, cat := range categories {
-		if cat == "ferries" {
-			if _, err := h.DB.Pool.Exec(ctx, "DELETE FROM osm_ways WHERE highway = 'ferry'"); err != nil {
+		var sql string
+		switch cat {
+		case "ferries":
+			sql = "DELETE FROM osm_ways WHERE highway = 'ferry'"
+		case "climbing":
+			sql = "DELETE FROM osm_ways WHERE highway = 'via_ferrata'"
+		}
+		if sql != "" {
+			if _, err := h.DB.Pool.Exec(ctx, sql); err != nil {
 				return err
 			}
-			break
 		}
 	}
 	return nil
