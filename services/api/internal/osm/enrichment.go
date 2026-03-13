@@ -141,3 +141,152 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: noise_score complete")
 	return nil
 }
+
+// EnrichTrafficClass calculates traffic class (1-6) for primary/secondary/tertiary roads.
+// Adapted from BRouter's brouter.sql formula.
+// Uses pool.Acquire() for connection pinning (TEMP tables across steps).
+// P3-TODO: industrial_factor returns 0 until Lua imports landuse=industrial.
+func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
+	slog.Info("enrichment: starting traffic_class")
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment traffic_class: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	steps := []struct {
+		name string
+		sql  string
+	}{
+		// SRID 3857: ST_Y returns meters, need ST_Transform for lat in degrees
+		{"cities_pop", `
+			CREATE TEMP TABLE cities_pop AS
+			SELECT osm_id, name,
+				(tags->>'population')::numeric AS population,
+				geom,
+				COS(RADIANS(ST_Y(ST_Transform(geom, 4326)))) AS merca_coef
+			FROM osm_pois
+			WHERE category = 'settlement'
+			  AND (tags->>'population') ~ '^\d+$'
+			  AND (tags->>'population')::numeric > 200
+		`},
+		{"industrial_areas", `
+			CREATE TEMP TABLE industrial_areas AS
+			SELECT osm_id, geom,
+				ST_Area(ST_Transform(geom, 4326)::geography) AS area_m2,
+				ST_Centroid(geom) AS centroid
+			FROM osm_boundaries
+			WHERE boundary_type IN ('industrial', 'retail')
+			  AND ST_Area(ST_Transform(geom, 4326)::geography) > 20000
+		`},
+		// Data is already in 3857 (meters), 10km grid cells, 50km buffer
+		{"routing_grid", `
+			CREATE TEMP TABLE routing_grid AS
+			SELECT (ST_SquareGrid(10000,
+				(SELECT ST_Expand(ST_Extent(geom), 50000) FROM osm_ways WHERE highway IS NOT NULL)
+			)).geom
+		`},
+		// ST_Length via geography for accurate meter-based density
+		{"motorway_density", `
+			CREATE TEMP TABLE motorway_density AS
+			SELECT g.geom AS cell,
+				COALESCE(SUM(ST_Length(ST_Transform(w.geom, 4326)::geography) / 6430), 0) AS factor
+			FROM routing_grid g
+			LEFT JOIN osm_ways w ON ST_Intersects(w.geom, g.geom)
+			  AND w.highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')
+			GROUP BY g.geom
+		`},
+		{"highway_density", `
+			CREATE TEMP TABLE highway_density AS
+			SELECT g.geom AS cell,
+				COALESCE(SUM(ST_Length(ST_Transform(w.geom, 4326)::geography) / 6430), 0) AS factor
+			FROM routing_grid g
+			LEFT JOIN osm_ways w ON ST_Intersects(w.geom, g.geom)
+			  AND w.highway IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary')
+			GROUP BY g.geom
+		`},
+		// Distance calculations need ST_Transform to 4326 for geography
+		{"populate_factor", `
+			CREATE TEMP TABLE populate_factor AS
+			SELECT g.geom AS cell,
+				COALESCE(SUM(
+					c.population * c.merca_coef / NULLIF(ST_Distance(
+						ST_Transform(ST_Centroid(g.geom), 4326)::geography,
+						ST_Transform(c.geom, 4326)::geography
+					) / 1000.0, 0)
+				), 0) AS factor
+			FROM routing_grid g
+			LEFT JOIN cities_pop c ON ST_DWithin(
+				ST_Transform(ST_Centroid(g.geom), 4326)::geography,
+				ST_Transform(c.geom, 4326)::geography, 50000)
+			GROUP BY g.geom
+		`},
+		{"industrial_factor", `
+			CREATE TEMP TABLE industrial_factor AS
+			SELECT g.geom AS cell,
+				COALESCE(SUM(
+					i.area_m2 / NULLIF(ST_Distance(
+						ST_Transform(ST_Centroid(g.geom), 4326)::geography,
+						ST_Transform(i.centroid, 4326)::geography
+					) / 1000.0, 0)
+				), 0) AS factor
+			FROM routing_grid g
+			LEFT JOIN industrial_areas i ON ST_DWithin(
+				ST_Transform(ST_Centroid(g.geom), 4326)::geography,
+				ST_Transform(i.centroid, 4326)::geography, 20000)
+			GROUP BY g.geom
+		`},
+		// osm_ways.geom is already in 3857, grid is in 3857 — direct ST_Intersects
+		{"classify", `
+			UPDATE osm_ways w SET traffic_class = sub.tc
+			FROM (
+				SELECT inner_q.way_id,
+					(CASE
+						WHEN inner_q.traffic_raw < 6  THEN 1
+						WHEN inner_q.traffic_raw < 10 THEN 2
+						WHEN inner_q.traffic_raw < 19 THEN 3
+						WHEN inner_q.traffic_raw < 35 THEN 4
+						WHEN inner_q.traffic_raw < 70 THEN 5
+						ELSE 6
+					END)::SMALLINT AS tc
+				FROM (
+					SELECT w3.way_id,
+						COALESCE(p.factor, 0) * 0.3
+						+ COALESCE(i.factor, 0) * 0.2
+						+ COALESCE(md.factor, 0) * 30.0
+						+ COALESCE(hd.factor, 0) * 5.0
+						AS traffic_raw
+					FROM osm_ways w3
+					JOIN routing_grid g ON ST_Intersects(w3.geom, g.geom)
+					LEFT JOIN populate_factor p ON p.cell = g.geom
+					LEFT JOIN industrial_factor i ON i.cell = g.geom
+					LEFT JOIN motorway_density md ON md.cell = g.geom
+					LEFT JOIN highway_density hd ON hd.cell = g.geom
+					WHERE w3.highway IN ('primary','primary_link','secondary','secondary_link','tertiary')
+				) inner_q
+			) sub
+			WHERE w.way_id = sub.way_id
+		`},
+	}
+
+	for _, step := range steps {
+		slog.Info("enrichment: traffic_class step", "step", step.name)
+		if _, err := conn.Exec(ctx, step.sql); err != nil {
+			return fmt.Errorf("enrichment traffic_class step %s: %w", step.name, err)
+		}
+	}
+
+	// Cleanup temp tables (on the pinned connection)
+	for _, t := range []string{"cities_pop", "industrial_areas", "routing_grid",
+		"motorway_density", "highway_density", "populate_factor", "industrial_factor"} {
+		conn.Exec(ctx, "DROP TABLE IF EXISTS "+t)
+	}
+
+	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
+	if err != nil {
+		slog.Warn("enrichment: ANALYZE after traffic_class failed", "error", err)
+	}
+	slog.Info("enrichment: traffic_class complete")
+	return nil
+}
