@@ -164,7 +164,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment noise_score: default: %w", err)
 	}
 
-	conn.Exec(ctx, "DROP VIEW IF EXISTS noise_sources")
+	defer conn.Exec(ctx, "DROP VIEW IF EXISTS noise_sources")
 
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
 	if err != nil {
@@ -186,6 +186,12 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment traffic_class: acquire conn: %w", err)
 	}
 	defer conn.Release()
+	defer func() {
+		for _, t := range []string{"cities_pop", "industrial_areas", "routing_grid",
+			"motorway_density", "highway_density", "populate_factor", "industrial_factor"} {
+			conn.Exec(ctx, "DROP TABLE IF EXISTS "+t)
+		}
+	}()
 
 	steps := []struct {
 		name string
@@ -309,12 +315,6 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 
-	// Cleanup temp tables (on the pinned connection)
-	for _, t := range []string{"cities_pop", "industrial_areas", "routing_grid",
-		"motorway_density", "highway_density", "populate_factor", "industrial_factor"} {
-		conn.Exec(ctx, "DROP TABLE IF EXISTS "+t)
-	}
-
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
 	if err != nil {
 		slog.Warn("enrichment: ANALYZE after traffic_class failed", "error", err)
@@ -380,6 +380,9 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 
 // EnrichRouteMembership populates osm_route_way_members junction table
 // and sets is_cycleroute/is_hikeroute flags with network level.
+// NOTE: Uses spatial proximity (ST_DWithin 15m) as proxy for relation membership.
+// This may produce false positives for nearby but unrelated ways.
+// P3-TODO: Import explicit relation membership via Lua script for precise matching.
 func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting route_membership")
 
@@ -522,7 +525,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 		{"split_ways", 80, `
 			INSERT INTO osm_ways_noded
 			WITH ways_to_split AS (
-				SELECT DISTINCT ON (w.way_id) w.*, ST_Collect(sn.pt) AS split_points
+				SELECT w.*, ST_Collect(sn.pt) AS split_points
 				FROM osm_ways w
 				JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.01)
 				WHERE w.highway IS NOT NULL
