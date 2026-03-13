@@ -42,8 +42,8 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 }
 
 // EnrichForestPct calculates forest coverage percentage for each way in osm_ways.
-// Uses batched 50km tiles (SRID 3857 = meters) for memory control.
-// ST_Length ratio in 3857 is acceptable — Mercator distortion cancels out in numerator/denominator.
+// Uses batched ~50km tiles (SRID 4326 = degrees) for memory control.
+// ST_Length(geom::geography) returns meters — used for accurate ratio calculation.
 // Requires: osm_ways.forest_pct column (migration 000157), osm_forests table.
 func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting forest_pct")
@@ -54,8 +54,8 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 			data_extent GEOMETRY;
 			processed INT := 0;
 		BEGIN
-			-- SRID 3857: units are meters. 10000 = 10km buffer.
-			SELECT ST_Expand(ST_Extent(geom), 10000) INTO data_extent
+			-- SRID 4326: units are degrees. 0.09 ≈ 10km buffer at 47°N.
+			SELECT ST_Expand(ST_Extent(geom), 0.09) INTO data_extent
 			FROM osm_ways WHERE highway IS NOT NULL;
 
 			IF data_extent IS NULL THEN
@@ -63,14 +63,14 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 				RETURN;
 			END IF;
 
-			-- 50000 = 50km grid cells (3857 meters)
-			FOR tile IN SELECT * FROM ST_SquareGrid(50000, data_extent) LOOP
+			-- 0.45 ≈ 50km grid cells at 47°N (4326 degrees)
+			FOR tile IN SELECT * FROM ST_SquareGrid(0.45, data_extent) LOOP
 				UPDATE osm_ways w SET forest_pct = COALESCE(sub.pct, 0)
 				FROM (
 					SELECT w2.way_id,
 						LEAST(100, ROUND(
-							100.0 * SUM(ST_Length(ST_Intersection(w2.geom, f.geom)))
-							/ NULLIF(ST_Length(w2.geom), 0)
+							100.0 * SUM(ST_Length(ST_Intersection(w2.geom, f.geom)::geography))
+							/ NULLIF(ST_Length(w2.geom::geography), 0)
 						))::SMALLINT AS pct
 					FROM osm_ways w2
 					LEFT JOIN osm_forests f ON ST_Intersects(w2.geom, f.geom)
@@ -98,7 +98,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 // EnrichNoiseScore calculates noise exposure score (0-100) for each way.
 // Sources: road hierarchy proximity + aerodromes.
 // Uses pool.Acquire() for connection pinning (TEMP VIEW needs same connection).
-// SRID 3857: must ST_Transform to 4326 before ::geography cast.
+// osm_ways.geom is SRID 4326 — cast directly to ::geography for meter distances.
 // P3-TODO: Add railway lines and industrial areas when Lua importer is extended.
 func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting noise_score")
@@ -128,22 +128,22 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment noise_score: create view: %w", err)
 	}
 
-	// Calculate noise score
-	// SRID 3857: must ST_Transform to 4326 before ::geography cast for correct distances
+	// Calculate noise score.
+	// osm_ways.geom is already SRID 4326 — cast directly to ::geography for meter distances.
 	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET noise_score = sub.score
 		FROM (
 			SELECT w2.way_id,
 				LEAST(100, GREATEST(0, ROUND(MAX(
 					n.weight * 100.0 * (1.0 - ST_Distance(
-						ST_Transform(w2.geom, 4326)::geography,
-						ST_Transform(n.geom, 4326)::geography
+						w2.geom::geography,
+						n.geom::geography
 					) / n.buffer_m)
 				))))::SMALLINT AS score
 			FROM osm_ways w2
 			JOIN noise_sources n ON ST_DWithin(
-				ST_Transform(w2.geom, 4326)::geography,
-				ST_Transform(n.geom, 4326)::geography,
+				w2.geom::geography,
+				n.geom::geography,
 				n.buffer_m
 			)
 			WHERE w2.highway IS NOT NULL
@@ -197,13 +197,13 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		name string
 		sql  string
 	}{
-		// SRID 3857: ST_Y returns meters, need ST_Transform for lat in degrees
+		// osm_pois.geom is SRID 4326 — ST_Y returns latitude in degrees directly
 		{"cities_pop", `
 			CREATE TEMP TABLE cities_pop AS
 			SELECT osm_id, name,
 				(tags->>'population')::numeric AS population,
 				geom,
-				COS(RADIANS(ST_Y(ST_Transform(geom, 4326)))) AS merca_coef
+				COS(RADIANS(ST_Y(geom))) AS merca_coef
 			FROM osm_pois
 			WHERE category = 'settlement'
 			  AND (tags->>'population') ~ '^\d+$'
@@ -212,24 +212,24 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		{"industrial_areas", `
 			CREATE TEMP TABLE industrial_areas AS
 			SELECT osm_id, geom,
-				ST_Area(ST_Transform(geom, 4326)::geography) AS area_m2,
+				ST_Area(geom::geography) AS area_m2,
 				ST_Centroid(geom) AS centroid
 			FROM osm_boundaries
 			WHERE boundary_type IN ('industrial', 'retail')
-			  AND ST_Area(ST_Transform(geom, 4326)::geography) > 20000
+			  AND ST_Area(geom::geography) > 20000
 		`},
-		// Data is already in 3857 (meters), 10km grid cells, 50km buffer
+		// SRID 4326: degrees. 0.09 ≈ 10km, 0.45 ≈ 50km at 47°N.
 		{"routing_grid", `
 			CREATE TEMP TABLE routing_grid AS
-			SELECT (ST_SquareGrid(10000,
-				(SELECT ST_Expand(ST_Extent(geom), 50000) FROM osm_ways WHERE highway IS NOT NULL)
+			SELECT (ST_SquareGrid(0.09,
+				(SELECT ST_Expand(ST_Extent(geom), 0.45) FROM osm_ways WHERE highway IS NOT NULL)
 			)).geom
 		`},
-		// ST_Length via geography for accurate meter-based density
+		// ST_Length via ::geography for accurate meter-based density
 		{"motorway_density", `
 			CREATE TEMP TABLE motorway_density AS
 			SELECT g.geom AS cell,
-				COALESCE(SUM(ST_Length(ST_Transform(w.geom, 4326)::geography) / 6430), 0) AS factor
+				COALESCE(SUM(ST_Length(w.geom::geography) / 6430), 0) AS factor
 			FROM routing_grid g
 			LEFT JOIN osm_ways w ON ST_Intersects(w.geom, g.geom)
 			  AND w.highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')
@@ -238,26 +238,26 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		{"highway_density", `
 			CREATE TEMP TABLE highway_density AS
 			SELECT g.geom AS cell,
-				COALESCE(SUM(ST_Length(ST_Transform(w.geom, 4326)::geography) / 6430), 0) AS factor
+				COALESCE(SUM(ST_Length(w.geom::geography) / 6430), 0) AS factor
 			FROM routing_grid g
 			LEFT JOIN osm_ways w ON ST_Intersects(w.geom, g.geom)
 			  AND w.highway IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary')
 			GROUP BY g.geom
 		`},
-		// Distance calculations need ST_Transform to 4326 for geography
+		// Distance calculations use ::geography directly (geom is already 4326)
 		{"populate_factor", `
 			CREATE TEMP TABLE populate_factor AS
 			SELECT g.geom AS cell,
 				COALESCE(SUM(
 					c.population * c.merca_coef / NULLIF(ST_Distance(
-						ST_Transform(ST_Centroid(g.geom), 4326)::geography,
-						ST_Transform(c.geom, 4326)::geography
+						ST_Centroid(g.geom)::geography,
+						c.geom::geography
 					) / 1000.0, 0)
 				), 0) AS factor
 			FROM routing_grid g
 			LEFT JOIN cities_pop c ON ST_DWithin(
-				ST_Transform(ST_Centroid(g.geom), 4326)::geography,
-				ST_Transform(c.geom, 4326)::geography, 50000)
+				ST_Centroid(g.geom)::geography,
+				c.geom::geography, 50000)
 			GROUP BY g.geom
 		`},
 		{"industrial_factor", `
@@ -265,17 +265,17 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 			SELECT g.geom AS cell,
 				COALESCE(SUM(
 					i.area_m2 / NULLIF(ST_Distance(
-						ST_Transform(ST_Centroid(g.geom), 4326)::geography,
-						ST_Transform(i.centroid, 4326)::geography
+						ST_Centroid(g.geom)::geography,
+						i.centroid::geography
 					) / 1000.0, 0)
 				), 0) AS factor
 			FROM routing_grid g
 			LEFT JOIN industrial_areas i ON ST_DWithin(
-				ST_Transform(ST_Centroid(g.geom), 4326)::geography,
-				ST_Transform(i.centroid, 4326)::geography, 20000)
+				ST_Centroid(g.geom)::geography,
+				i.centroid::geography, 20000)
 			GROUP BY g.geom
 		`},
-		// osm_ways.geom is already in 3857, grid is in 3857 — direct ST_Intersects
+		// osm_ways.geom and routing_grid are both 4326 — direct ST_Intersects
 		{"classify", `
 			UPDATE osm_ways w SET traffic_class = sub.tc
 			FROM (
@@ -386,15 +386,15 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting route_membership")
 
-	// Populate junction table via spatial proximity
-	// SRID 3857: must ST_Transform to 4326 before ::geography for correct meter distances
+	// Populate junction table via spatial proximity.
+	// osm_routes.geom and osm_ways.geom are both SRID 4326 — cast directly to ::geography.
 	_, err := pool.Exec(ctx, `
 		INSERT INTO osm_route_way_members (route_osm_id, way_osm_id)
 		SELECT DISTINCT r.osm_id, w.osm_id
 		FROM osm_routes r
 		JOIN osm_ways w ON ST_DWithin(
-			ST_Transform(r.geom, 4326)::geography,
-			ST_Transform(w.geom, 4326)::geography, 15
+			r.geom::geography,
+			w.geom::geography, 15
 		)
 		WHERE w.highway IS NOT NULL
 		ON CONFLICT DO NOTHING
@@ -571,9 +571,9 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			WHERE ST_GeometryType(geom) != 'ST_LineString'
 			   OR ST_NPoints(geom) < 2;
 		`},
-		// SRID 3857: tolerance in meters. 1.0 = 1 meter snapping distance.
+		// SRID 4326: tolerance in degrees. 0.000009 ≈ 1 meter at 47°N.
 		{"create_topology", 95, `
-			SELECT pgr_createTopology('osm_ways_noded', 1.0, 'geom', 'way_id', 'source', 'target');
+			SELECT pgr_createTopology('osm_ways_noded', 0.000009, 'geom', 'way_id', 'source', 'target');
 		`},
 		{"analyze", 100, `
 			ANALYZE osm_ways_noded;
