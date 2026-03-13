@@ -14,6 +14,7 @@ import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { type OSMStatus } from '@/api/osm'
+import { OSMRegionManager } from '@/components/OSMRegionManager'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -1351,6 +1352,9 @@ function LocalMapAndGeoSection() {
               )}
             </div>
           )}
+          {/* Importierte Regionen */}
+          <OSMRegionManager />
+
           {/* Buttons */}
           <div className="flex flex-col gap-2">
             <button

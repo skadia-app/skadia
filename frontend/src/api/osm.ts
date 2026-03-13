@@ -52,3 +52,36 @@ export async function startOSMImport(req: StartOSMImportRequest): Promise<StartO
     body: req,
   })
 }
+
+export interface OSMImportRegion {
+  region_id: string
+  label: string
+  continent: string
+  imported_at: string
+  pbf_date: string | null
+  pbf_size_bytes: number | null
+  import_duration_s: number | null
+  categories: string[]
+  status: 'importing' | 'imported' | 'failed'
+}
+
+export interface OSMDiskUsage {
+  tables: { tablename: string; total_bytes: number }[]
+  total_bytes: number
+}
+
+export async function fetchOSMRegionStatus(): Promise<{ regions: OSMImportRegion[] }> {
+  return apiClient<{ regions: OSMImportRegion[] }>('/admin/osm-regions/status')
+}
+
+export async function fetchOSMDiskUsage(): Promise<OSMDiskUsage> {
+  return apiClient<OSMDiskUsage>('/admin/osm-disk-usage')
+}
+
+export async function cancelOSMImport(jobID: string): Promise<void> {
+  await apiClient(`/admin/osm-import/cancel/${jobID}`, { method: 'POST' })
+}
+
+export async function deleteOSMRegion(regionID: string): Promise<void> {
+  await apiClient(`/admin/osm-regions/${regionID}`, { method: 'DELETE' })
+}
