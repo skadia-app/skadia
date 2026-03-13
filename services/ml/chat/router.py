@@ -87,6 +87,14 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
         "foto", "fotos", "bild", "bilder", "photo", "tier", "tiere",
         "landschaft", "gesehen", "steinbock", "murmeltier", "panorama",
     },
+    "routing": {
+        "route", "routenplanung", "navigation", "wegpunkt",
+        "wanderung planen", "radtour planen", "tour planen",
+        "strecke", "weg", "pfad", "isochrone", "erreichbar",
+        "wie komme ich", "kürzester weg", "schönste route", "rundtour",
+        "schwierigkeit", "sac", "mtb skala", "steigung",
+        "asphalt", "schotter", "profil", "gelände",
+    },
 }
 
 # Which domains include which tools (for tool filtering)
@@ -98,6 +106,11 @@ DOMAIN_TOOLS: dict[str, list[str]] = {
     "geo": ["query_geo_features", "search_routes"],
     "segments": ["query_segments"],
     "photos": ["search_photos_by_content"],
+    "routing": [
+        "search_pois_nearby", "search_trails_by_difficulty",
+        "plan_route", "search_pois_on_route", "get_isochrone",
+        "query_geo_features", "search_routes",
+    ],
 }
 
 # Always-available tools (not domain-filtered)

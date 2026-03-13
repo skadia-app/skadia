@@ -1,0 +1,41 @@
+name: routing
+description: "Routenplanung, Navigation, Trail-Suche, POI-Suche, Isochronen"
+
+schema_excerpt: |
+  osm_ways: id, osm_id, name, highway, surface, tracktype, sac_scale, mtb_scale,
+    length_m, avg_slope, oneway, bridge, tunnel, is_lift, source, target, cost, reverse_cost, geom
+  osm_pois: id, osm_id, name, category, subtype, ele, geom
+  osm_routes: id, osm_id, name, ref, route, network, colour, distance, geom
+
+domain_knowledge: |
+  - BRouter-Profile: hiking-mountain (Wandern alpin, SAC T1-T6 konfigurierbar),
+    hiking-sac2 (SAC T2 max), trekking (Rad-Trekking), cycling-road, cycling-mountain,
+    cycling-gravel, running, walking
+  - Profil-Auswahl statt Master-Profil: Chat-Agent wählt passendes Profil basierend
+    auf Nutzeranfrage (Sportart, Schwierigkeit, Terrain)
+  - Fein-Tuning via profile_params: SAC_scale_limit (0-6), consider_elevation (true/false),
+    iswet (0/1), Offroad_factor, hiking_routes_preference, path_preference
+  - hiking-mountain.brf ist das offizielle BRouter-Wanderprofil mit SAC T1-T6 Support
+  - SAC-Skala: T1=Wandern, T2=Bergwandern, T3=Anspruchsvoll, T4=Alpinwandern,
+    T5=Anspruchsvolles Alpinwandern, T6=Schwieriges Alpinwandern
+  - MTB-Skala: S0=Leicht, S1=Mittel, S2=Schwierig, S3=Sehr schwierig, S4=Extrem, S5=Unfahrbar
+  - Workflow: 1) User beschreibt Wunsch -> 2) Passendes Profil wählen ->
+    3) POIs/Trails suchen -> 4) Route planen -> 5) POIs auf Route zeigen
+
+tools:
+  - search_pois_nearby
+  - search_trails_by_difficulty
+  - plan_route
+  - search_pois_on_route
+  - get_isochrone
+
+few_shot_examples:
+  - q: "Plane mir eine gemütliche Wanderung ab Innsbruck mit Einkehrmöglichkeit"
+    tool: plan_route
+    args: '{"waypoints": [[11.394, 47.259], [11.450, 47.280]], "profile": "hiking-mountain", "profile_params": {"SAC_scale_limit": "1", "consider_elevation": "true"}}'
+  - q: "Welche Hütten gibt es im Umkreis von 10km um den Patscherkofel?"
+    tool: search_pois_nearby
+    args: '{"lat": 47.209, "lng": 11.461, "radius_m": 10000, "category": "accommodation"}'
+  - q: "Zeig mir T2-T3 Wanderwege rund um Garmisch"
+    tool: search_trails_by_difficulty
+    args: '{"lat": 47.491, "lng": 11.096, "radius_m": 15000, "max_sac_scale": "demanding_mountain_hiking"}'

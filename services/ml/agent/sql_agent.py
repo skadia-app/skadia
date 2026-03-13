@@ -25,6 +25,9 @@ TABLE_WHITELIST = {
     "gear", "gear_components", "segments", "segment_efforts",
     "pmc_daily", "user_daily_features", "tags", "activity_tags",
     "osm_pois", "osm_ways", "osm_pistes", "osm_glaciers", "osm_wetlands", "osm_routes",
+    # NEU hinzugefügt:
+    "osm_lifts", "osm_waterways", "osm_waters", "osm_forests", "osm_boundaries",
+    "osm_import_regions",
 }
 
 SCHEMA_CONTEXT = """Available tables (PostgreSQL, READ-ONLY):
@@ -48,6 +51,13 @@ activity_photos: id UUID, user_id UUID, activity_id UUID, taken_at TIMESTAMPTZ, 
 osm_pois: id BIGINT, osm_id BIGINT, name TEXT, category TEXT, type TEXT, subtype TEXT, ele REAL, geom GEOMETRY(Point,4326) — categories: peak, pass, settlement, gastronomy, accommodation, shelter, water_supply, transport, parking, viewpoint, shop, barrier
 osm_ways: osm_id BIGINT, name TEXT, highway TEXT, surface TEXT, geom GEOMETRY(LineString,4326) — all routable ways (roads, paths, trails)
 osm_routes: id BIGINT, osm_id BIGINT, name TEXT, ref TEXT, route TEXT, network TEXT, colour TEXT, distance REAL, geom GEOMETRY(MultiLineString,4326) — named route relations (hiking/bicycle/mtb/foot/ski/running/ferry/via_ferrata)
+
+osm_lifts: id BIGINT, osm_id BIGINT, name TEXT, type TEXT, geom GEOMETRY(LineString,4326)
+osm_waterways: id BIGINT, osm_id BIGINT, name TEXT, waterway TEXT, geom GEOMETRY(LineString,4326)
+osm_waters: id BIGINT, osm_id BIGINT, name TEXT, natural TEXT, geom GEOMETRY(Polygon,4326)
+osm_forests: id BIGINT, osm_id BIGINT, name TEXT, leaf_type TEXT, geom GEOMETRY(Polygon,4326)
+osm_boundaries: id BIGINT, osm_id BIGINT, name TEXT, admin_level INT, boundary_type TEXT, protect_class TEXT, geom GEOMETRY(Polygon,4326)
+osm_import_regions: region_id TEXT (PK), label TEXT, continent TEXT, imported_at TIMESTAMPTZ, pbf_size_bytes BIGINT, categories TEXT[], status TEXT
 
 IMPORTANT: Do NOT add user_id filters — Row-Level Security (RLS) handles this automatically. Do NOT use $1/$2 parameter placeholders — write values directly into the query.
 """

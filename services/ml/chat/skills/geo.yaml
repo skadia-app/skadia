@@ -16,6 +16,9 @@ domain_knowledge: |
     poi_type: restaurant, alpine_hut, cafe, pub, fast_food, biergarten
   - Höhenangaben immer in Metern
   - Mehrere Sportarten können zum selben Gipfel führen (Bike & Hike!)
+  - Für Routing-Anfragen ('plane mir eine Route') -> Domain 'routing' zuständig
+  - geo bleibt für 'besuchte Gipfel/Pässe/Stops' (retrospektiv, was war)
+  - routing für 'plane mir eine Route' (prospektiv, was soll kommen)
 tools:
   - query_geo_features
   - search_routes
