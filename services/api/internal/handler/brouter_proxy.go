@@ -28,11 +28,15 @@ var validBRouterProfiles = map[string]bool{
 // RouteRequest is the request body for POST /api/v1/routing/route.
 type RouteRequest struct {
 	// Waypoints is a list of [longitude, latitude] pairs (at least 2).
-	Waypoints    [][2]float64 `json:"waypoints"`
+	Waypoints    [][2]float64      `json:"waypoints"`
 	// Profile is the BRouter routing profile name (e.g. "hiking-sac2", "trekking").
-	Profile      string       `json:"profile"`
+	Profile      string            `json:"profile"`
 	// Alternatives is the BRouter alternative-route index (0 = primary).
-	Alternatives int          `json:"alternatives"`
+	Alternatives int               `json:"alternatives"`
+	// ProfileParams are optional key=value overrides for BRouter profile variables.
+	// Passed as profile:key=value query parameters to BRouter.
+	// Example: {"SAC_scale_limit": "2", "consider_elevation": "true"}
+	ProfileParams map[string]string `json:"profile_params,omitempty"`
 }
 
 // RouteViabrouter proxies a routing request to the BRouter service and returns
@@ -88,6 +92,13 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		req.Profile,
 		req.Alternatives,
 	)
+
+	// profile:key=value Parameter für Fein-Tuning anhängen
+	for k, v := range req.ProfileParams {
+		if isValidProfileParam(k) && isValidProfileParam(v) {
+			queryURL += fmt.Sprintf("&profile:%s=%s", k, v)
+		}
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL, nil)
@@ -152,6 +163,21 @@ func (h *Handler) straightLineFallback(w http.ResponseWriter, waypoints [][2]flo
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		slog.Warn("straightLineFallback: failed to encode response", "error", err)
 	}
+}
+
+// isValidProfileParam validates BRouter profile parameter keys and values.
+// Only allows alphanumeric, underscore, dot, and hyphen characters.
+func isValidProfileParam(s string) bool {
+	if len(s) == 0 || len(s) > 50 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // brouterBaseURL returns the configured BRouter base URL, defaulting to the
