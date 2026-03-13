@@ -574,6 +574,42 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		}
 	}
 
+	// === Phase 6: Spatial Enrichment (on osm_ways, BEFORE splitting) ===
+	// Runs independently of Phase 5 — enriches the original osm_ways table.
+	{
+		waysImported := false
+		for _, cat := range categories {
+			if cat == "ways" {
+				waysImported = true
+				break
+			}
+		}
+		if waysImported {
+			h.DB.UpdateBackgroundJobPhase(ctx, jobID, "enrichment")
+			h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
+			slog.Info("osm import: starting spatial enrichment")
+
+			if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, func(pct int) {
+				h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(pct))
+			}); err != nil {
+				slog.Error("osm import: spatial enrichment failed", "error", err)
+				// Non-fatal: enrichment failure should not block the import
+			}
+
+			// === Phase 7: Intersection Splitting (creates osm_ways_noded) ===
+			h.DB.UpdateBackgroundJobPhase(ctx, jobID, "splitting")
+			h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
+			slog.Info("osm import: starting intersection splitting")
+
+			if err := osmregions.SplitAtIntersections(ctx, h.DB.Pool, func(pct int) {
+				h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(pct))
+			}); err != nil {
+				slog.Error("osm import: intersection splitting failed", "error", err)
+				// Non-fatal: splitting failure should not block the import
+			}
+		}
+	}
+
 	h.DB.CompleteBackgroundJob(ctx, jobID, false)
 	slog.Info("osm import: completed", "job_id", jobID)
 }
