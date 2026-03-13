@@ -5,6 +5,7 @@ enum parameters, and compact result formatting.
 """
 import json
 import logging
+import os
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -580,6 +581,139 @@ ALL_TOOL_DEFINITIONS = [
             },
         },
     },
+    # ── 16. search_pois_nearby ──────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "search_pois_nearby",
+            "description": (
+                "Search POIs (huts, gastronomy, peaks, shelters, etc.) near a coordinate. "
+                "Use for 'Hütten in der Nähe', 'nächster Gipfel', 'Gasthäuser um Innsbruck'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "description": "Latitude"},
+                    "lng": {"type": "number", "description": "Longitude"},
+                    "radius_m": {"type": "integer", "default": 5000, "description": "Search radius in meters"},
+                    "category": {
+                        "type": "string",
+                        "description": "POI category filter",
+                        "enum": ["peak", "pass", "settlement", "gastronomy", "accommodation",
+                                 "shelter", "viewpoint", "camping", "transport", "shop",
+                                 "sport", "information", "landmark", "religious"],
+                    },
+                    "limit": {"type": "integer", "default": 20},
+                },
+                "required": ["lat", "lng"],
+            },
+        },
+    },
+    # ── 17. search_trails_by_difficulty ─────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "search_trails_by_difficulty",
+            "description": (
+                "Search hiking/MTB trails by difficulty in an area. "
+                "Use for 'T2-T3 Wanderwege rund um Garmisch', 'MTB S0-S2 Trails bei Innsbruck'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number"},
+                    "lng": {"type": "number"},
+                    "radius_m": {"type": "integer", "default": 10000},
+                    "max_sac_scale": {
+                        "type": "string",
+                        "description": "Max SAC scale (hiking_trail, mountain_hiking, demanding_mountain_hiking, alpine_hiking, demanding_alpine_hiking, difficult_alpine_hiking)",
+                    },
+                    "max_mtb_scale": {"type": "string", "description": "Max MTB scale: 0-5"},
+                    "surface": {"type": "string", "description": "Surface filter: asphalt, gravel, ground, etc."},
+                    "limit": {"type": "integer", "default": 20},
+                },
+                "required": ["lat", "lng"],
+            },
+        },
+    },
+    # ── 18. plan_route ──────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "plan_route",
+            "description": (
+                "Plan a route between waypoints via BRouter. Select the appropriate profile "
+                "for the sport. Use for 'plane eine Wanderung von A nach B', 'Radtour Innsbruck-Brenner'. "
+                "Needs at least 2 waypoints as [lng, lat] pairs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "waypoints": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                        "description": "Waypoints as [lng, lat] pairs (minimum 2)",
+                        "minItems": 2,
+                    },
+                    "profile": {
+                        "type": "string",
+                        "enum": ["hiking-mountain", "hiking-sac2", "trekking", "cycling-road",
+                                 "cycling-mountain", "cycling-gravel", "running", "walking"],
+                        "description": "BRouter profile",
+                    },
+                    "profile_params": {
+                        "type": "object",
+                        "description": "Optional profile variable overrides: SAC_scale_limit (0-6), consider_elevation (true/false), iswet (0/1)",
+                    },
+                },
+                "required": ["waypoints"],
+            },
+        },
+    },
+    # ── 19. search_pois_on_route ────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "search_pois_on_route",
+            "description": (
+                "Find POIs along a planned route (huts, peaks, gastronomy on the way). "
+                "Requires a route geometry (GeoJSON LineString). "
+                "Use AFTER plan_route to find interesting stops."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "route_geometry": {"type": "string", "description": "GeoJSON LineString of the route"},
+                    "buffer_m": {"type": "integer", "default": 500, "description": "Buffer distance around route in meters"},
+                    "category": {"type": "string", "description": "POI category filter"},
+                    "limit": {"type": "integer", "default": 50},
+                },
+                "required": ["route_geometry"],
+            },
+        },
+    },
+    # ── 20. get_isochrone ───────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_isochrone",
+            "description": (
+                "Calculate a reachability area (isochrone) from a point via pgRouting. "
+                "Use for 'was erreiche ich in 2 Stunden ab Innsbruck zu Fuß'. "
+                "Requires routing capability (osm_ways with topology)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number"},
+                    "lng": {"type": "number"},
+                    "time_minutes": {"type": "integer", "default": 60, "description": "Travel time in minutes"},
+                    "profile": {"type": "string", "default": "hiking-mountain"},
+                },
+                "required": ["lat", "lng"],
+            },
+        },
+    },
 ]
 
 # Backward-compatible alias used by existing call sites
@@ -666,6 +800,11 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
         "get_gear_documents": _get_gear_documents,
         "get_activity_detail": _get_activity_detail,
         "search_photos_by_content": _search_photos_by_content,
+        "search_pois_nearby": _search_pois_nearby,
+        "search_trails_by_difficulty": _search_trails_by_difficulty,
+        "plan_route": _plan_route,
+        "search_pois_on_route": _search_pois_on_route,
+        "get_isochrone": _get_isochrone,
         # Legacy aliases kept for backward compatibility
         "get_hrv_trend": _get_hrv_trend_legacy,
         "get_readiness": _get_readiness_legacy,
@@ -1247,3 +1386,164 @@ async def _get_readiness_legacy(pool, user_id):
     """Legacy: get_readiness → get_health_status(aspect='readiness')."""
     result = await _get_health_status(pool, user_id, aspect="readiness")
     return {"readiness": result.get("readiness")}
+
+
+# ── Routing & POI tools ────────────────────────────────────────────────────────
+
+async def _search_pois_nearby(
+    pool, user_id,
+    lat: float, lng: float, radius_m: int = 5000,
+    category: str | None = None, limit: int = 20,
+) -> dict:
+    """Search POIs near a coordinate point."""
+    query = """
+        SELECT name, category, subtype, ele,
+               ST_Y(geom) AS lat, ST_X(geom) AS lng,
+               ST_Distance(geom::geography, ST_Point($1,$2)::geography) AS dist_m
+        FROM osm_pois
+        WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)
+    """
+    params: list = [lng, lat, radius_m]
+    if category:
+        query += " AND category = $4"
+        params.append(category)
+    query += f" ORDER BY dist_m LIMIT ${len(params) + 1}"
+    params.append(limit)
+    rows = await pool.fetch(query, *params)
+    return {"pois": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _search_trails_by_difficulty(
+    pool, user_id,
+    lat: float, lng: float, radius_m: int = 10000,
+    max_sac_scale: str | None = None, max_mtb_scale: str | None = None,
+    surface: str | None = None, limit: int = 20,
+) -> dict:
+    """Search trails by difficulty near a coordinate."""
+    query = """
+        SELECT name, highway, sac_scale, mtb_scale, surface, tracktype,
+               length_m, avg_slope,
+               ST_Distance(geom::geography, ST_Point($1,$2)::geography) AS dist_m
+        FROM osm_ways
+        WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)
+          AND highway IN ('path', 'footway', 'track', 'bridleway', 'cycleway', 'steps')
+    """
+    params: list = [lng, lat, radius_m]
+    _SAC_ORDER = {
+        "hiking": 1, "mountain_hiking": 2, "demanding_mountain_hiking": 3,
+        "alpine_hiking": 4, "demanding_alpine_hiking": 5, "difficult_alpine_hiking": 6,
+    }
+    if max_sac_scale:
+        max_level = _SAC_ORDER.get(max_sac_scale, 6)
+        allowed = [k for k, v in _SAC_ORDER.items() if v <= max_level]
+        params.append(allowed)
+        query += f" AND (sac_scale IS NULL OR sac_scale = ANY(${len(params)}))"
+    if max_mtb_scale:
+        allowed_mtb = [str(i) for i in range(int(max_mtb_scale) + 1)]
+        params.append(allowed_mtb)
+        query += f" AND (mtb_scale IS NULL OR mtb_scale = ANY(${len(params)}))"
+    if surface:
+        params.append(surface)
+        query += f" AND surface = ${len(params)}"
+    params.append(limit)
+    query += f" ORDER BY dist_m LIMIT ${len(params)}"
+    rows = await pool.fetch(query, *params)
+    return {"trails": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _plan_route(
+    pool, user_id,
+    waypoints: list, profile: str = "hiking-mountain",
+    profile_params: dict | None = None,
+) -> dict:
+    """Plan a route via BRouter directly."""
+    import httpx
+    import re
+
+    brouter_url = os.environ.get("BROUTER_URL", "http://brouter:17777")
+    lonlats = "|".join(f"{wp[0]:.6f},{wp[1]:.6f}" for wp in waypoints)
+    params = f"lonlats={lonlats}&profile={profile}&format=geojson"
+
+    _SAFE = re.compile(r"^[a-zA-Z0-9_.\-]{1,50}$")
+    if profile_params:
+        for k, v in profile_params.items():
+            if _SAFE.match(str(k)) and _SAFE.match(str(v)):
+                params += f"&profile:{k}={v}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{brouter_url}/brouter?{params}", timeout=30.0,
+            )
+            if resp.status_code != 200:
+                return {"error": f"BRouter returned HTTP {resp.status_code}", "fallback": True}
+            return resp.json()
+    except Exception as e:
+        logger.warning("plan_route failed: %s", e)
+        return {"error": "Routing nicht verfügbar — BRouter-Segmente geladen?", "fallback": True}
+
+
+async def _search_pois_on_route(
+    pool, user_id,
+    route_geometry: str, buffer_m: int = 500,
+    category: str | None = None, limit: int = 50,
+) -> dict:
+    """Find POIs along a route geometry."""
+    if len(route_geometry) > 500_000:
+        return {"error": "Route geometry too large (max 500KB GeoJSON)", "pois": [], "count": 0}
+    query = """
+        SELECT name, category, subtype, ele,
+               ST_Y(geom) AS lat, ST_X(geom) AS lng,
+               ST_Distance(geom::geography, ST_GeomFromGeoJSON($1)::geography) AS dist_m
+        FROM osm_pois
+        WHERE ST_DWithin(geom::geography, ST_GeomFromGeoJSON($1)::geography, $2)
+    """
+    params: list = [route_geometry, buffer_m]
+    if category:
+        params.append(category)
+        query += f" AND category = ${len(params)}"
+    params.append(limit)
+    query += f" ORDER BY dist_m LIMIT ${len(params)}"
+    rows = await pool.fetch(query, *params)
+    return {"pois": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _get_isochrone(
+    pool, user_id,
+    lat: float, lng: float, time_minutes: int = 60,
+    profile: str = "hiking-mountain",
+) -> dict:
+    """Calculate reachability area via pgRouting driving_distance."""
+    try:
+        nearest = await pool.fetchrow("""
+            SELECT id FROM osm_ways_vertices_pgr
+            ORDER BY the_geom <-> ST_SetSRID(ST_Point($1, $2), 4326)
+            LIMIT 1
+        """, lng, lat)
+    except Exception:
+        return {"error": "Keine Topologie verfügbar — Trail-Topologie muss zuerst aufgebaut werden"}
+    if not nearest:
+        return {"error": "Keine Topologie verfügbar — OSM-Import mit Trail-Topologie nötig"}
+
+    rows = await pool.fetch("""
+        SELECT DISTINCT ON (node)
+               node, agg_cost,
+               ST_Y(v.the_geom) AS lat, ST_X(v.the_geom) AS lng
+        FROM pgr_drivingDistance(
+            'SELECT id, source, target, cost, reverse_cost FROM osm_ways WHERE cost >= 0',
+            $1, $2, false
+        ) dd
+        JOIN osm_ways_vertices_pgr v ON dd.node = v.id
+    """, nearest["id"], float(time_minutes))
+    points = [{"lat": r["lat"], "lng": r["lng"], "minutes": r["agg_cost"]} for r in rows]
+    hull = None
+    if len(points) >= 3:
+        hull_row = await pool.fetchrow("""
+            SELECT ST_AsGeoJSON(ST_ConvexHull(ST_Collect(
+                ST_SetSRID(ST_Point(lng, lat), 4326)
+            ))) AS geojson
+            FROM unnest($1::float8[], $2::float8[]) AS t(lng, lat)
+        """, [p["lng"] for p in points], [p["lat"] for p in points])
+        if hull_row:
+            hull = hull_row["geojson"]
+    return {"points": points, "hull_geojson": hull, "count": len(points), "center": {"lat": lat, "lng": lng}}
