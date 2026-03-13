@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown, RefreshCw } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
@@ -27,7 +27,7 @@ function formatDate(iso: string): string {
   })
 }
 
-export function OSMRegionManager() {
+export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const qc = useQueryClient()
   const { addToast } = useToast()
   const { openModal } = useModal()
@@ -99,6 +99,15 @@ export function OSMRegionManager() {
             <XCircle className="w-3.5 h-3.5" />
             Abbrechen
           </button>
+        </div>
+      )}
+
+      {hasOsmData && regions.length === 0 && !activeOsmJob && (
+        <div className="flex items-start gap-2 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-yellow-700 dark:text-yellow-300">
+            OSM-Daten vorhanden, aber kein vollständiger Import verzeichnet — die Daten könnten unvollständig sein. Import neu starten um sauberen Stand zu erhalten.
+          </p>
         </div>
       )}
 

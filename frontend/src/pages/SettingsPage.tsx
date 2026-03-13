@@ -1359,7 +1359,7 @@ function LocalMapAndGeoSection() {
             </div>
           )}
           {/* Importierte Regionen */}
-          <OSMRegionManager />
+          <OSMRegionManager hasOsmData={hasOsmData} />
 
           {/* Buttons */}
           <div className="flex flex-col gap-2">
