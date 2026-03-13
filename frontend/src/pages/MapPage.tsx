@@ -1909,9 +1909,9 @@ export default function MapPage() {
         {/* Base style switcher */}
         <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
           {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
-            const isLocal = key === 'local'
-            const localAvailable = planner.capabilities?.offline_map ?? false
-            const disabled = isLocal && !localAvailable
+            const isOfflineStyle = key === 'local' || key === 'offline'
+            const offlineAvailable = planner.capabilities?.offline_map ?? false
+            const disabled = isOfflineStyle && !offlineAvailable
             return (
               <button
                 key={key}

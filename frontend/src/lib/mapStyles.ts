@@ -1,6 +1,7 @@
 import type { StyleSpecification, RasterSourceSpecification } from 'maplibre-gl'
+import { layers, namedFlavor } from '@protomaps/basemaps'
 
-export type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
+export type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local' | 'offline'
 
 export type RasterStyleDef = {
   label: string
@@ -10,7 +11,8 @@ export type RasterStyleDef = {
   maxzoom?: number
 }
 export type VectorStyleDef = { label: string; type: 'vector'; styleUrl: string }
-export type StyleDef = RasterStyleDef | VectorStyleDef
+export type ProtomapsStyleDef = { label: string; type: 'protomaps'; requiresOfflineMap: true }
+export type StyleDef = RasterStyleDef | VectorStyleDef | ProtomapsStyleDef
 
 export const BASE_STYLES: Record<BaseStyle, StyleDef> = {
   osm: {
@@ -61,6 +63,28 @@ export const BASE_STYLES: Record<BaseStyle, StyleDef> = {
     type: 'vector',
     styleUrl: '/tiles/style.json',
   },
+  offline: {
+    label: 'Offline (Protomaps)',
+    type: 'protomaps',
+    requiresOfflineMap: true,
+  },
+}
+
+const MARTIN_BASE = (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_MARTIN_URL) || '/martin'
+
+export function buildOfflineProtomapsStyle(): StyleSpecification {
+  return {
+    version: 8,
+    glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
+    sprite: 'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
+    sources: {
+      protomaps: {
+        type: 'vector',
+        url: `${MARTIN_BASE}/basemap`,
+      },
+    },
+    layers: layers('protomaps', namedFlavor('light'), { lang: 'de' }),
+  }
 }
 
 export function buildRasterStyle(style: BaseStyle): StyleSpecification | string {
@@ -68,6 +92,9 @@ export function buildRasterStyle(style: BaseStyle): StyleSpecification | string 
   if (def.type === 'vector') {
     // Vector style: return URL so MapLibre fetches the complete style JSON
     return def.styleUrl
+  }
+  if (def.type === 'protomaps') {
+    return buildOfflineProtomapsStyle()
   }
   return {
     version: 8,

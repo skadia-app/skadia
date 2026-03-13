@@ -15,6 +15,7 @@ import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { type OSMStatus } from '@/api/osm'
 import { OSMRegionManager } from '@/components/OSMRegionManager'
+import { OfflineMapSettings } from '@/components/OfflineMapSettings'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -1243,6 +1244,14 @@ function LocalMapAndGeoSection() {
               )}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* ── Offline-Karte (Protomaps PMTiles) ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Offline-Karte (Protomaps)</h3>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
+          <OfflineMapSettings />
         </div>
       </div>
 
