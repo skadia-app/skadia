@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -307,7 +306,6 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			"--style", luaTmp.Name(),
 			"--flat-nodes", flatNodesPath,
 			"--slim", "--drop",
-			"-j", strconv.Itoa(runtime.NumCPU()),
 			pbfPath,
 		}
 		cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
