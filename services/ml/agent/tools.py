@@ -1532,6 +1532,8 @@ async def _get_isochrone(
     if not nearest:
         return {"error": "Keine Topologie verfügbar — OSM-Import mit Trail-Topologie nötig"}
 
+    # pgr_drivingDistance: max_cost in Minuten (entspricht der cost-Einheit aus der Topologie,
+    # die auf tobler_speed-basiertem Zeitaufwand beruht — siehe osm_import.go Phase 5b)
     rows = await pool.fetch("""
         SELECT DISTINCT ON (node)
                node, agg_cost,

@@ -9,6 +9,7 @@ import {
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
+import { useModal } from '@/lib/modal'
 
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '—'
@@ -27,6 +28,7 @@ function formatDate(iso: string): string {
 export function OSMRegionManager() {
   const qc = useQueryClient()
   const { addToast } = useToast()
+  const { openModal } = useModal()
   const [diskExpanded, setDiskExpanded] = useState(false)
 
   const { data: regionData } = useQuery({
@@ -180,9 +182,22 @@ export function OSMRegionManager() {
                     <div className="flex justify-end gap-1">
                       <button
                         onClick={() => {
-                          if (confirm(`Region "${reg.label}" aus Tracking entfernen?\n\nDie importierten Daten werden aus der Datenbank gelöscht.`)) {
-                            deleteMutation.mutate(reg.region_id)
-                          }
+                          openModal({
+                            title: 'Region entfernen?',
+                            message: `"${reg.label}" wird aus dem Tracking entfernt. OSM-Daten bleiben erhalten.`,
+                            buttons: [
+                              {
+                                label: 'Abbrechen',
+                                variant: 'default',
+                                onClick: () => {},
+                              },
+                              {
+                                label: 'Entfernen',
+                                variant: 'destructive',
+                                onClick: () => deleteMutation.mutate(reg.region_id),
+                              },
+                            ],
+                          })
                         }}
                         disabled={deleteMutation.isPending}
                         className="p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40"
