@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,8 +60,16 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 		caps.DEMCorrection = true
 	}
 
-	// OfflineMap is available whenever routing is available (osm_ways imported).
-	caps.OfflineMap = caps.Routing
+	// OfflineMap: PMTiles files present in /data/tiles/?
+	tilesDir := "/data/tiles"
+	if entries, err := os.ReadDir(tilesDir); err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".pmtiles") {
+				caps.OfflineMap = true
+				break
+			}
+		}
+	}
 
 	// Route suggestion requires full routing stack
 	caps.RouteSuggestion = caps.Routing && caps.DEMCorrection && caps.SurfaceEnrich
