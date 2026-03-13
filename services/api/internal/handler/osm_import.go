@@ -174,7 +174,10 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-var osmProgressRe = regexp.MustCompile(`Node\((\d+)k`)
+// osm2pgsql 2.x Fortschritts-Pattern: "Processing: Node(12345k 1500.0/s) Way(0k 0.00/s) Relation(0 0.00/s)"
+var osmProgressNodeRe = regexp.MustCompile(`Node\((\d+)k`)
+var osmProgressWayRe = regexp.MustCompile(`Way\((\d+)k`)
+var osmProgressRelRe = regexp.MustCompile(`Relation\((\d+)\s`)
 
 // clearOSMData löscht die Daten der gewählten Kategorien:
 // osm_pois wird per DELETE mit category-Filter geleert, andere Tabellen per TRUNCATE.
@@ -295,16 +298,20 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			}
 		}
 
-		cmd := exec.CommandContext(ctx, "osm2pgsql",
+		// --flat-nodes: Speichert Node-Koordinaten in Datei (~8 GB) statt in PostgreSQL (~100 GB)
+		flatNodesPath := filepath.Join(dataDir, "flat-nodes.bin")
+		args := []string{
 			"--database", dbURL,
 			"--output=flex",
 			"--style", luaTmp.Name(),
+			"--flat-nodes", flatNodesPath,
 			"--slim", "--drop",
 			pbfPath,
-		)
+		}
+		cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
 		cmd.Env = envVars
 
-		// stderr parsen für Node-Zähler (Fortschrittsanzeige)
+		// stdout + stderr zusammenführen für vollständiges Logging
 		stderr, _ := cmd.StderrPipe()
 		if err := cmd.Start(); err != nil {
 			slog.Error("osm import: osm2pgsql start failed", "error", err)
@@ -314,14 +321,25 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 
 		go func() {
 			scanner := bufio.NewScanner(stderr)
+			scanner.Buffer(make([]byte, 0, 256*1024), 256*1024) // 256 KB Buffer
 			for scanner.Scan() {
 				line := scanner.Text()
 				slog.Info("osm2pgsql", "line", line)
-				if m := osmProgressRe.FindStringSubmatch(line); len(m) > 1 {
+				// Node-Fortschritt (erste Phase)
+				if m := osmProgressNodeRe.FindStringSubmatch(line); len(m) > 1 {
 					if n, err := strconv.Atoi(m[1]); err == nil {
 						h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
 					}
 				}
+				// Way-Fortschritt (zweite Phase)
+				if m := osmProgressWayRe.FindStringSubmatch(line); len(m) > 1 {
+					if n, err := strconv.Atoi(m[1]); err == nil {
+						h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
+					}
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				slog.Warn("osm2pgsql: scanner error", "error", err)
 			}
 		}()
 
@@ -330,10 +348,14 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			h.DB.CompleteBackgroundJob(ctx, jobID, true)
 			return
 		}
+		slog.Info("osm import: osm2pgsql completed", "region", reg.ID)
+
+		// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
+		// Bei --drop werden die Tracking-Tabellen automatisch gelöscht
+		os.Remove(flatNodesPath)
 
 		// PBF für BRouter-Build aufbewahren wenn angefordert
 		if req.BuildBRouter {
-			// PBF bleibt für scripts/brouter-build-segments.sh erhalten
 			slog.Info("osm import: PBF preserved for BRouter build", "path", pbfPath)
 		} else {
 			os.Remove(pbfPath)
