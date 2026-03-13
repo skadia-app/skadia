@@ -155,6 +155,110 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// ensure strconv and strings are used (Task 6 placeholder)
-var _ = strconv.Itoa
-var _ = strings.TrimSpace
+// SearchAddress performs trigram-based search across streets and places.
+// GET /api/v1/geo/search?q=Bergstraße&type=street|place|all&limit=20&lat=47.1&lng=11.4
+func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(q) < 2 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "query must be at least 2 characters", r.URL.Path)
+		return
+	}
+	searchType := r.URL.Query().Get("type")
+	if searchType == "" {
+		searchType = "all"
+	}
+	limit := 20
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+
+	// Proximity-Sortierung wenn lat/lng gegeben
+	hasLocation := r.URL.Query().Has("lat") && r.URL.Query().Has("lng")
+	lat, _ := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
+	lng, _ := strconv.ParseFloat(r.URL.Query().Get("lng"), 64)
+
+	type searchResult struct {
+		Name       string   `json:"name"`
+		Type       string   `json:"type"`
+		Subtype    string   `json:"subtype,omitempty"`
+		Lat        float64  `json:"lat"`
+		Lng        float64  `json:"lng"`
+		Similarity float64  `json:"similarity"`
+		DistanceM  *float64 `json:"distance_m,omitempty"`
+	}
+
+	ctx := r.Context()
+	var results []searchResult
+
+	// Straßensuche
+	if searchType == "all" || searchType == "street" {
+		var streetQuery string
+		var streetParams []any
+		if hasLocation {
+			streetQuery = `
+				SELECT name, highway,
+				       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
+				       similarity(name, $1) AS sim,
+				       ST_Distance(geom::geography, ST_Point($2,$3)::geography) AS dist_m
+				FROM osm_ways
+				WHERE name % $1 AND name IS NOT NULL
+				ORDER BY geom::geography <-> ST_Point($2,$3)::geography
+				LIMIT $4`
+			streetParams = []any{q, lng, lat, limit}
+		} else {
+			streetQuery = `
+				SELECT name, highway,
+				       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
+				       similarity(name, $1) AS sim,
+				       NULL::float8 AS dist_m
+				FROM osm_ways
+				WHERE name % $1 AND name IS NOT NULL
+				ORDER BY similarity(name, $1) DESC
+				LIMIT $2`
+			streetParams = []any{q, limit}
+		}
+
+		streetRows, err := h.DB.Pool.Query(ctx, streetQuery, streetParams...)
+		if err == nil {
+			for streetRows.Next() {
+				var sr searchResult
+				sr.Type = "street"
+				if err := streetRows.Scan(&sr.Name, &sr.Subtype, &sr.Lat, &sr.Lng, &sr.Similarity, &sr.DistanceM); err == nil {
+					results = append(results, sr)
+				}
+			}
+			streetRows.Close()
+		}
+	}
+
+	// Ortssuche
+	if searchType == "all" || searchType == "place" {
+		placeQuery := `
+			SELECT name, category, subtype,
+			       ST_Y(geom) AS lat, ST_X(geom) AS lng,
+			       similarity(name, $1) AS sim
+			FROM osm_pois
+			WHERE name % $1 AND name IS NOT NULL
+			  AND category IN ('settlement', 'peak', 'pass')
+			ORDER BY similarity(name, $1) DESC
+			LIMIT $2`
+		placeRows, err := h.DB.Pool.Query(ctx, placeQuery, q, limit)
+		if err == nil {
+			for placeRows.Next() {
+				var sr searchResult
+				sr.Type = "place"
+				var category string
+				if err := placeRows.Scan(&sr.Name, &category, &sr.Subtype, &sr.Lat, &sr.Lng, &sr.Similarity); err == nil {
+					sr.Type = category // peak, pass, settlement
+					results = append(results, sr)
+				}
+			}
+			placeRows.Close()
+		}
+	}
+
+	if results == nil {
+		results = []searchResult{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results, "count": len(results)})
+}

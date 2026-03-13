@@ -391,6 +391,7 @@ func main() {
 
 			// Geo
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
+			r.Get("/geo/search", h.SearchAddress)
 
 			// DEM Elevation
 			r.Post("/elevation/query", h.QueryElevation)
