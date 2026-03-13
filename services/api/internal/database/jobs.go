@@ -72,10 +72,7 @@ func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]Ba
 		FROM background_jobs
 		WHERE user_id = $1
 		  AND (
-		        (status = 'running' AND (
-		          job_type = 'osm_import'
-		          OR started_at > NOW() - INTERVAL '2 hours'
-		        ))
+		        status = 'running'
 		        OR (status IN ('completed', 'failed')
 		            AND finished_at > NOW() - INTERVAL '5 minutes')
 		      )
