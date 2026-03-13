@@ -42,17 +42,24 @@ const GROUPS: CategoryGroup[] = ['POIs', 'Wege', 'Flächen']
 
 interface Props {
   onClose: () => void
+  initialRegionId?: string
+  initialContinent?: string
+  initialCategories?: string[]
 }
 
-export default function OSMImportModal({ onClose }: Props) {
+export default function OSMImportModal({ onClose, initialRegionId, initialContinent, initialCategories }: Props) {
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
-  const [selectedRegions, setSelectedRegions] = useState<string[]>([])
-  const [selectedCategories, setSelectedCategories] = useState<CategoryId[]>(
-    ALL_CATEGORIES.map(c => c.id)
+  const [selectedRegions, setSelectedRegions] = useState<string[]>(
+    initialRegionId ? [initialRegionId] : []
   )
-  const [activeContinent, setActiveContinent] = useState('Europa')
+  const [selectedCategories, setSelectedCategories] = useState<CategoryId[]>(
+    initialCategories
+      ? (initialCategories.filter(c => ALL_CATEGORIES.some(a => a.id === c)) as CategoryId[])
+      : ALL_CATEGORIES.map(c => c.id)
+  )
+  const [activeContinent, setActiveContinent] = useState(initialContinent ?? 'Europa')
   const [buildBRouter, setBuildBRouter] = useState(true)
   const [buildTopology, setBuildTopology] = useState(true)
 

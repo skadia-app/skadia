@@ -1,15 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
   fetchOSMDiskUsage,
   deleteOSMRegion,
   cancelOSMImport,
+  type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useModal } from '@/lib/modal'
+import OSMImportModal from '@/components/OSMImportModal'
 
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '—'
@@ -69,9 +71,20 @@ export function OSMRegionManager() {
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
 
+  const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
+
   const regions = regionData?.regions ?? []
 
   return (
+    <>
+    {updateTarget && (
+      <OSMImportModal
+        onClose={() => setUpdateTarget(null)}
+        initialRegionId={updateTarget.region_id}
+        initialContinent={updateTarget.continent}
+        initialCategories={updateTarget.categories}
+      />
+    )}
     <div className="space-y-4">
       {activeOsmJob && (
         <div className="flex items-center justify-between rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
@@ -181,6 +194,14 @@ export function OSMRegionManager() {
                   <td className="py-2 text-right">
                     <div className="flex justify-end gap-1">
                       <button
+                        onClick={() => setUpdateTarget(reg)}
+                        disabled={!!activeOsmJob}
+                        className="p-1 text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 transition-colors disabled:opacity-40"
+                        title="Region neu importieren"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => {
                           openModal({
                             title: 'Region entfernen?',
@@ -214,5 +235,6 @@ export function OSMRegionManager() {
         </div>
       )}
     </div>
+    </>
   )
 }
