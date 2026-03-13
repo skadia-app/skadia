@@ -14,7 +14,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 )
@@ -112,6 +116,30 @@ type osmImportRequest struct {
 	Categories    []string `json:"categories"`
 	BuildBRouter  bool     `json:"build_brouter"`
 	BuildTopology bool     `json:"build_topology"`
+}
+
+// osmJobCancels speichert CancelFuncs für laufende OSM-Import-Jobs.
+var osmJobCancels sync.Map
+
+// CancelOSMImport bricht einen laufenden OSM-Import ab.
+// POST /api/v1/admin/osm-import/cancel/{jobID}
+func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	if jobID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "missing job ID", r.URL.Path)
+		return
+	}
+	_, err := h.DB.Pool.Exec(r.Context(),
+		`UPDATE background_jobs SET status = 'failed', error = 'Vom Benutzer abgebrochen',
+		 finished_at = now() WHERE id = $1 AND status IN ('running', 'pending')`, jobID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+	if fn, ok := osmJobCancels.LoadAndDelete(jobID); ok {
+		fn.(context.CancelFunc)()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 // ListOSMRegions gibt den Regions-Katalog zurück.
@@ -230,7 +258,10 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 }
 
 func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	osmJobCancels.Store(jobID, cancel)
+	defer osmJobCancels.Delete(jobID)
 	categories := req.Categories
 	dataDir := os.Getenv("OSM_DATA_DIR")
 	if dataDir == "" {
@@ -266,15 +297,47 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		h.DB.UpdateBackgroundJobPhase(ctx, jobID, "download")
 		h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
 
-		slog.Info("osm import: downloading", "region", reg.ID, "url", reg.URL)
-		if err := downloadWithProgress(ctx, reg.URL, pbfPath, func(downloaded, total int64) {
-			if total > 0 {
-				h.DB.UpdateBackgroundJobProgress(ctx, jobID, downloaded)
+		// Download-Skip: PBF wiederverwenden wenn jünger als maxPBFAge
+		const maxPBFAge = 7 * 24 * time.Hour
+		skipDownload := false
+		if info, statErr := os.Stat(pbfPath); statErr == nil {
+			age := time.Since(info.ModTime())
+			if age < maxPBFAge {
+				slog.Info("osm import: reusing existing PBF",
+					"region", reg.ID, "age", age.Round(time.Hour), "size", info.Size())
+				skipDownload = true
 			}
-		}); err != nil {
-			slog.Error("osm import: download failed", "region", reg.ID, "error", err)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
-			return
+		}
+
+		if !skipDownload {
+			// Disk-Space-Check: mindestens 8x PBF-Größe frei
+			var stat syscall.Statfs_t
+			if sysErr := syscall.Statfs(dataDir, &stat); sysErr == nil {
+				freeBytes := stat.Bavail * uint64(stat.Bsize)
+				requiredBytes := uint64(reg.SizeMB) * 1024 * 1024 * 8
+				if freeBytes < requiredBytes {
+					slog.Error("osm import: insufficient disk space",
+						"free_mb", freeBytes/1024/1024,
+						"required_mb", requiredBytes/1024/1024,
+						"region", reg.ID)
+					h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET error = $1 WHERE id = $2`,
+						fmt.Sprintf("Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
+							freeBytes/1024/1024, requiredBytes/1024/1024), jobID)
+					h.DB.CompleteBackgroundJob(ctx, jobID, true)
+					return
+				}
+			}
+
+			slog.Info("osm import: downloading", "region", reg.ID, "url", reg.URL)
+			if err := downloadWithProgress(ctx, reg.URL, pbfPath, func(downloaded, total int64) {
+				if total > 0 {
+					h.DB.UpdateBackgroundJobProgress(ctx, jobID, downloaded)
+				}
+			}); err != nil {
+				slog.Error("osm import: download failed", "region", reg.ID, "error", err)
+				h.DB.CompleteBackgroundJob(ctx, jobID, true)
+				return
+			}
 		}
 
 		// === Phase 2: Daten löschen + osm2pgsql ===
@@ -313,6 +376,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 
 		// stdout + stderr zusammenführen für vollständiges Logging
 		stderr, _ := cmd.StderrPipe()
+		importStart := time.Now()
 		if err := cmd.Start(); err != nil {
 			slog.Error("osm import: osm2pgsql start failed", "error", err)
 			h.DB.CompleteBackgroundJob(ctx, jobID, true)
@@ -349,6 +413,23 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			return
 		}
 		slog.Info("osm import: osm2pgsql completed", "region", reg.ID)
+
+		durationS := int(time.Since(importStart).Seconds())
+		pbfInfo, _ := os.Stat(pbfPath)
+		var pbfSize int64
+		if pbfInfo != nil {
+			pbfSize = pbfInfo.Size()
+		}
+		_, regErr := h.DB.Pool.Exec(ctx, `
+			INSERT INTO osm_import_regions (region_id, label, continent, pbf_size_bytes, categories, import_duration_s, status)
+			VALUES ($1, $2, $3, $4, $5, $6, 'imported')
+			ON CONFLICT (region_id) DO UPDATE SET
+				imported_at = now(), pbf_size_bytes = $4, categories = $5,
+				import_duration_s = $6, status = 'imported'`,
+			reg.ID, reg.Label, reg.Continent, pbfSize, categories, durationS)
+		if regErr != nil {
+			slog.Warn("osm import: failed to track region", "error", regErr)
+		}
 
 		// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
 		// Bei --drop werden die Tracking-Tabellen automatisch gelöscht

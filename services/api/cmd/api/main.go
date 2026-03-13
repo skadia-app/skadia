@@ -297,6 +297,7 @@ func main() {
 			r.Get("/admin/osm-status", h.GetOSMStatus)
 			r.Get("/admin/osm-regions", h.ListOSMRegions)
 			r.Post("/admin/osm-import/start", h.StartOSMImport)
+			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
 
 			r.Get("/me", h.GetMe)
 
