@@ -8,6 +8,7 @@ import {
   cancelOSMImport,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
+import { useActiveJobs } from '@/lib/useActiveJobs'
 
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '—'
@@ -63,10 +64,29 @@ export function OSMRegionManager() {
     },
   })
 
+  const { jobs } = useActiveJobs()
+  const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
+
   const regions = regionData?.regions ?? []
 
   return (
     <div className="space-y-4">
+      {activeOsmJob && (
+        <div className="flex items-center justify-between rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
+          <span className="text-xs text-yellow-700 dark:text-yellow-400">
+            OSM-Import läuft…
+          </span>
+          <button
+            onClick={() => cancelMutation.mutate(activeOsmJob.id)}
+            disabled={cancelMutation.isPending}
+            className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-40 transition-colors"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            Abbrechen
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           Importierte Regionen
@@ -158,16 +178,6 @@ export function OSMRegionManager() {
                   </td>
                   <td className="py-2 text-right">
                     <div className="flex justify-end gap-1">
-                      {reg.status === 'importing' && (
-                        <button
-                          onClick={() => cancelMutation.mutate(reg.region_id)}
-                          disabled={cancelMutation.isPending}
-                          className="p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40"
-                          title="Import abbrechen"
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      )}
                       <button
                         onClick={() => {
                           if (confirm(`Region "${reg.label}" aus Tracking entfernen?\n\nDie importierten Daten werden aus der Datenbank gelöscht.`)) {
