@@ -6,6 +6,7 @@ import (
 	"hash/crc32"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -19,11 +20,17 @@ type sectionEntry struct {
 }
 
 // Serialize writes the graph to a binary file with section directory and CRC32-C.
+// Uses atomic write (tmp file + rename) to prevent corrupt files on crash.
 func Serialize(g *Graph, path string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", path, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
+	tmpPath := path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", tmpPath, err)
+	}
+	defer os.Remove(tmpPath) // clean up on error
 	defer f.Close()
 
 	type sectionData struct {
@@ -114,6 +121,12 @@ func Serialize(g *Graph, path string) error {
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", tmpPath, path, err)
+	}
 	return nil
 }
 

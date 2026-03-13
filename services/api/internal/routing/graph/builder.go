@@ -127,13 +127,16 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		SELECT
 			osm_id,
 			ST_AsText(geom) AS geom_wkt,
-			highway, surface, tracktype, smoothness,
-			sac_scale, mtb_scale,
-			access, foot, bicycle, horse,
-			cycleway, cycleway_left, cycleway_right, cycleway_both,
-			maxspeed, lanes,
-			oneway, oneway_bicycle, bridge, tunnel, ford, lit,
-			segregated, bicycle_road,
+			highway,
+			COALESCE(surface, ''), COALESCE(tracktype, ''), COALESCE(smoothness, ''),
+			COALESCE(sac_scale, ''), COALESCE(mtb_scale, ''),
+			COALESCE(access, ''), COALESCE(foot, ''), COALESCE(bicycle, ''), COALESCE(horse, ''),
+			COALESCE(cycleway, ''), COALESCE(cycleway_left, ''), COALESCE(cycleway_right, ''), COALESCE(cycleway_both, ''),
+			COALESCE(maxspeed, ''), COALESCE(lanes, 0),
+			COALESCE(oneway, false), COALESCE(oneway_bicycle, false),
+			COALESCE(bridge, false), COALESCE(tunnel, false),
+			COALESCE(ford, false), COALESCE(lit, false),
+			COALESCE(segregated, false), COALESCE(bicycle_road, false),
 			COALESCE(forest_pct, 0),
 			COALESCE(noise_score, 0),
 			COALESCE(traffic_class, 0),
@@ -217,7 +220,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 
 func parseLineStringWKT(wkt string) []Coord {
 	const prefix = "LINESTRING("
-	if len(wkt) < len(prefix)+1 {
+	if len(wkt) < len(prefix)+1 || wkt[:len(prefix)] != prefix {
 		return nil
 	}
 	inner := wkt[len(prefix) : len(wkt)-1]
