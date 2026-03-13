@@ -457,3 +457,146 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: route_membership complete")
 	return nil
 }
+
+// SplitAtIntersections creates osm_ways_noded by splitting ways at shared intermediate nodes.
+// Uses ST_SnapToGrid for robust coordinate matching. Uses pool.Acquire() for TEMP table persistence.
+// The noded table inherits all osm_ways columns plus parent_way_id, source, target.
+// Reports progress via progressFn (0-100).
+func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn func(int)) error {
+	slog.Info("enrichment: starting intersection splitting")
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("splitting: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	steps := []struct {
+		name string
+		pct  int
+		sql  string
+	}{
+		{"create_noded_table", 5, `
+			DROP TABLE IF EXISTS osm_ways_noded CASCADE;
+			DROP TABLE IF EXISTS osm_ways_noded_vertices_pgr CASCADE;
+			DROP SEQUENCE IF EXISTS osm_ways_noded_way_id_seq CASCADE;
+			CREATE SEQUENCE osm_ways_noded_way_id_seq START WITH 100000000000;
+			CREATE TABLE osm_ways_noded (LIKE osm_ways INCLUDING DEFAULTS INCLUDING CONSTRAINTS);
+			ALTER TABLE osm_ways_noded ADD COLUMN IF NOT EXISTS parent_way_id BIGINT;
+			ALTER TABLE osm_ways_noded ADD COLUMN IF NOT EXISTS source BIGINT;
+			ALTER TABLE osm_ways_noded ADD COLUMN IF NOT EXISTS target BIGINT;
+			-- way_id has no PK/UNIQUE on osm_ways; add one for pgr_createTopology
+			CREATE UNIQUE INDEX idx_osm_ways_noded_way_id ON osm_ways_noded(way_id);
+		`},
+		{"find_shared_nodes", 20, `
+			CREATE TEMP TABLE shared_nodes AS
+			WITH node_points AS (
+				SELECT way_id,
+					ST_SnapToGrid((dp).geom, 0.01) AS pt,
+					(dp).path[1] AS pt_idx,
+					ST_NPoints(geom) AS total_pts
+				FROM (
+					SELECT way_id, ST_DumpPoints(geom) AS dp, geom
+					FROM osm_ways
+					WHERE highway IS NOT NULL
+				) dumped
+			)
+			SELECT DISTINCT pt
+			FROM node_points
+			WHERE pt_idx > 1 AND pt_idx < total_pts
+			GROUP BY pt
+			HAVING COUNT(DISTINCT way_id) > 1
+		`},
+		{"copy_unsplit_ways", 50, `
+			INSERT INTO osm_ways_noded
+			SELECT w.*, w.way_id AS parent_way_id, NULL::BIGINT AS source, NULL::BIGINT AS target
+			FROM osm_ways w
+			WHERE w.highway IS NOT NULL
+			  AND NOT EXISTS (
+				SELECT 1 FROM shared_nodes sn
+				WHERE ST_DWithin(w.geom, sn.pt, 0.01)
+				  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
+				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
+			)
+		`},
+		{"split_ways", 80, `
+			INSERT INTO osm_ways_noded
+			WITH ways_to_split AS (
+				SELECT DISTINCT ON (w.way_id) w.*, ST_Collect(sn.pt) AS split_points
+				FROM osm_ways w
+				JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.01)
+				WHERE w.highway IS NOT NULL
+				  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
+				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
+				GROUP BY w.way_id, w.osm_id, w.name, w.ref, w.highway, w.surface,
+					w.tracktype, w.smoothness, w.sac_scale, w.mtb_scale,
+					w.mtb_scale_uphill, w.via_ferrata_scale, w.trail_visibility,
+					w.width, w.incline, w.lanes, w.cycleway, w.cycleway_left,
+					w.cycleway_right, w.cycleway_both, w.bicycle_road,
+					w.segregated, w.sidewalk, w.maxspeed, w.motor_vehicle,
+					w.access, w.foot, w.bicycle, w.horse, w.ski,
+					w.oneway, w.oneway_bicycle, w.bridge, w.tunnel, w.ford,
+					w.lit, w.winter_service, w.network, w.operator, w.tags, w.geom,
+					w.forest_pct, w.noise_score, w.traffic_class,
+					w.protected_area, w.landuse_class, w.is_cycleroute,
+					w.is_hikeroute, w.cycleroute_network, w.hikeroute_network
+			)
+			SELECT
+				nextval('osm_ways_noded_way_id_seq'),
+				w.osm_id, w.name, w.ref, w.highway, w.surface,
+				w.tracktype, w.smoothness, w.sac_scale, w.mtb_scale,
+				w.mtb_scale_uphill, w.via_ferrata_scale, w.trail_visibility,
+				w.width, w.incline, w.lanes, w.cycleway, w.cycleway_left,
+				w.cycleway_right, w.cycleway_both, w.bicycle_road,
+				w.segregated, w.sidewalk, w.maxspeed, w.motor_vehicle,
+				w.access, w.foot, w.bicycle, w.horse, w.ski,
+				w.oneway, w.oneway_bicycle, w.bridge, w.tunnel, w.ford,
+				w.lit, w.winter_service, w.network, w.operator, w.tags,
+				(ST_Dump(ST_Split(w.geom, w.split_points))).geom,
+				w.forest_pct, w.noise_score, w.traffic_class,
+				w.protected_area, w.landuse_class, w.is_cycleroute,
+				w.is_hikeroute, w.cycleroute_network, w.hikeroute_network,
+				w.way_id AS parent_way_id,
+				NULL::BIGINT, NULL::BIGINT
+			FROM ways_to_split w
+		`},
+		{"cleanup_shared_nodes", 85, `
+			DROP TABLE IF EXISTS shared_nodes;
+		`},
+		{"filter_valid_segments", 88, `
+			DELETE FROM osm_ways_noded
+			WHERE ST_GeometryType(geom) != 'ST_LineString'
+			   OR ST_NPoints(geom) < 2;
+		`},
+		// SRID 3857: tolerance in meters. 1.0 = 1 meter snapping distance.
+		{"create_topology", 95, `
+			SELECT pgr_createTopology('osm_ways_noded', 1.0, 'geom', 'way_id', 'source', 'target');
+		`},
+		{"analyze", 100, `
+			ANALYZE osm_ways_noded;
+		`},
+	}
+
+	for _, step := range steps {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("splitting cancelled: %w", err)
+		}
+		slog.Info("enrichment: splitting step", "step", step.name)
+		if _, err := conn.Exec(ctx, step.sql); err != nil {
+			return fmt.Errorf("splitting step %s: %w", step.name, err)
+		}
+		if progressFn != nil {
+			progressFn(step.pct)
+		}
+	}
+
+	// Log stats
+	var wayCount, nodedCount, nodeCount int64
+	pool.QueryRow(ctx, "SELECT count(*) FROM osm_ways WHERE highway IS NOT NULL").Scan(&wayCount)
+	pool.QueryRow(ctx, "SELECT count(*) FROM osm_ways_noded").Scan(&nodedCount)
+	pool.QueryRow(ctx, "SELECT count(*) FROM osm_ways_noded_vertices_pgr").Scan(&nodeCount)
+	slog.Info("enrichment: splitting complete",
+		"original_ways", wayCount, "noded_segments", nodedCount, "nodes", nodeCount)
+
+	return nil
+}
