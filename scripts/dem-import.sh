@@ -2,10 +2,10 @@
 # scripts/dem-import.sh
 # Importiert GeoTIFF DEM-Dateien in PostGIS Raster (dem.raster_tiles)
 #
-# Usage:   ./dem-import.sh <source_name> <geotiff_dir>
-# Example: ./dem-import.sh eea10      ./data/dem/eea10/
-#          ./dem-import.sh copernicus ./data/dem/copernicus30/
-#          ./dem-import.sh lidar_at   ./data/dem/lidar_at/
+# Usage:   ./dem-import.sh <source_name> <geotiff_dir> <resolution_m>
+# Example: ./dem-import.sh eea10       ./data/dem/eea10/        10
+#          ./dem-import.sh copernicus30 ./data/dem/copernicus30/ 30
+#          ./dem-import.sh lidar_at     ./data/dem/lidar_at/     1
 #
 # Voraussetzungen:
 #   - raster2pgsql (PostGIS-Tooling) muss im PATH sein
@@ -19,8 +19,9 @@
 
 set -euo pipefail
 
-SOURCE="${1:?Usage: $0 <source_name> <geotiff_dir>}"
-DIR="${2:?Usage: $0 <source_name> <geotiff_dir>}"
+SOURCE="${1:?Usage: $0 <source_name> <geotiff_dir> <resolution_m>}"
+DIR="${2:?Usage: $0 <source_name> <geotiff_dir> <resolution_m>}"
+RESOLUTION="${3:?Usage: $0 <source_name> <geotiff_dir> <resolution_m>  (e.g. 30, 10, 1)}"
 DB_URL="${DATABASE_URL:-postgresql://skadia:skadia@localhost:5432/skadia}"
 
 if [ ! -d "$DIR" ]; then
@@ -43,6 +44,10 @@ for f in "$DIR"/*.tif "$DIR"/*.tiff "$DIR"/*.TIF "$DIR"/*.TIFF; do
     "$f" \
     dem.raster_tiles \
     | PGAPPNAME=dem_import psql "$DB_URL" -q
+
+  # source und resolution_m setzen (raster2pgsql kann keine Custom-Spalten)
+  psql "$DB_URL" -q -c \
+    "UPDATE dem.raster_tiles SET source = '$SOURCE', resolution_m = $RESOLUTION WHERE source IS NULL;"
 
   COUNT=$((COUNT + 1))
   echo "  Done: $(basename "$f")"
