@@ -9,6 +9,38 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// RunSpatialEnrichment runs all 6 enrichment sub-phases on osm_ways.
+// Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
+// Reports progress via the progressFn callback (0-100).
+func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, progressFn func(int)) error {
+	type enrichStep struct {
+		name string
+		pct  int
+		fn   func(context.Context, *pgxpool.Pool) error
+	}
+	steps := []enrichStep{
+		{"forest_pct", 15, EnrichForestPct},
+		{"noise_score", 35, EnrichNoiseScore},
+		{"traffic_class", 60, EnrichTrafficClass},
+		{"protected_area", 70, EnrichProtectedArea},
+		{"landuse_class", 80, EnrichLanduseClass},
+		{"route_membership", 100, EnrichRouteMembership},
+	}
+	for _, s := range steps {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("enrichment cancelled: %w", err)
+		}
+		slog.Info("enrichment: running step", "step", s.name)
+		if err := s.fn(ctx, pool); err != nil {
+			return fmt.Errorf("enrichment step %s failed: %w", s.name, err)
+		}
+		if progressFn != nil {
+			progressFn(s.pct)
+		}
+	}
+	return nil
+}
+
 // EnrichForestPct calculates forest coverage percentage for each way in osm_ways.
 // Uses batched 50km tiles (SRID 3857 = meters) for memory control.
 // ST_Length ratio in 3857 is acceptable — Mercator distortion cancels out in numerator/denominator.
