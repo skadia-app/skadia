@@ -368,7 +368,10 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			}
 		}
 
-		// --flat-nodes: Speichert Node-Koordinaten in Datei (~8 GB) statt in PostgreSQL (~100 GB)
+		// --flat-nodes: Speichert Node-Koordinaten in Datei statt in PostgreSQL (~100 GB).
+		// Dateigröße richtet sich nach dem maximalen Node-ID-Wert (globaler OSM-Adressraum),
+		// nicht nach der Datenmenge — für Europa-Extrakte typisch 50–100 GB.
+		// Wird nach erfolgreichem Import automatisch gelöscht (s. os.Remove unten).
 		flatNodesPath := filepath.Join(dataDir, "flat-nodes.bin")
 		args := []string{
 			"--database", dbURL,
