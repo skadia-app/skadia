@@ -6,8 +6,12 @@ enum parameters, and compact result formatting.
 import json
 import logging
 import os
+import re
 from datetime import date, timedelta
 from uuid import UUID
+
+# Compiled once at module level — used for BRouter profile param validation
+_SAFE_PROFILE_PARAM = re.compile(r"^[a-zA-Z0-9_.\-]{1,50}$")
 
 logger = logging.getLogger(__name__)
 
@@ -1439,7 +1443,12 @@ async def _search_trails_by_difficulty(
         params.append(allowed)
         query += f" AND (sac_scale IS NULL OR sac_scale = ANY(${len(params)}))"
     if max_mtb_scale:
-        allowed_mtb = [str(i) for i in range(int(max_mtb_scale) + 1)]
+        try:
+            mtb_level = int(float(max_mtb_scale))  # handle "2", "2.0", "S2" → strip prefix
+        except (ValueError, TypeError):
+            mtb_level = 5  # fallback: allow all levels
+        mtb_level = max(0, min(5, mtb_level))  # clamp to valid range 0-5
+        allowed_mtb = [str(i) for i in range(mtb_level + 1)]
         params.append(allowed_mtb)
         query += f" AND (mtb_scale IS NULL OR mtb_scale = ANY(${len(params)}))"
     if surface:
@@ -1458,16 +1467,14 @@ async def _plan_route(
 ) -> dict:
     """Plan a route via BRouter directly."""
     import httpx
-    import re
 
     brouter_url = os.environ.get("BROUTER_URL", "http://brouter:17777")
     lonlats = "|".join(f"{wp[0]:.6f},{wp[1]:.6f}" for wp in waypoints)
     params = f"lonlats={lonlats}&profile={profile}&format=geojson"
 
-    _SAFE = re.compile(r"^[a-zA-Z0-9_.\-]{1,50}$")
     if profile_params:
         for k, v in profile_params.items():
-            if _SAFE.match(str(k)) and _SAFE.match(str(v)):
+            if _SAFE_PROFILE_PARAM.match(str(k)) and _SAFE_PROFILE_PARAM.match(str(v)):
                 params += f"&profile:{k}={v}"
 
     try:

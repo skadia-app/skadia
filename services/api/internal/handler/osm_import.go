@@ -260,6 +260,11 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 }
 
 func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
+	// Cancellable context: CancelOSMImport fires cancel() to abort osm2pgsql.
+	// NOTE: cancel also aborts in-flight DB calls (clearOSMData, region tracking).
+	// This may leave a partially-cleared OSM state — acceptable since the next full
+	// import re-clears affected categories. The osm_import_regions row is not written
+	// on cancel, so no stale 'imported' status is recorded.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	osmJobCancels.Store(jobID, cancel)
