@@ -2,18 +2,16 @@ import { useState, useCallback } from 'react'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 
-// BRouter routing profiles
+// BRouter routing profiles — must match validBRouterProfiles in brouter_proxy.go
 const ROUTING_PROFILES = [
-  { value: 'hiking-mountain', label: 'Wandern (Berg)' },
-  { value: 'hiking-sac1', label: 'Wandern SAC T1' },
-  { value: 'hiking-sac2', label: 'Wandern SAC T2' },
-  { value: 'hiking-sac3', label: 'Wandern SAC T3' },
-  { value: 'cycling-road', label: 'Rennrad' },
+  { value: 'hiking-mountain', label: 'Wandern (Alpin, SAC T1-T3)' },
+  { value: 'hiking-sac2',     label: 'Wandern (SAC T2 max)' },
+  { value: 'cycling-road',    label: 'Rennrad' },
   { value: 'cycling-mountain', label: 'MTB' },
-  { value: 'cycling-gravel', label: 'Gravel' },
-  { value: 'cycling-trekking', label: 'Trekking' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'offroad', label: 'Offroad / Freihand' },
+  { value: 'cycling-gravel',  label: 'Gravel' },
+  { value: 'trekking',        label: 'Trekking (Rad)' },
+  { value: 'running',         label: 'Laufen' },
+  { value: 'walking',         label: 'Spaziergang' },
 ]
 
 function formatDistance(m: number): string {

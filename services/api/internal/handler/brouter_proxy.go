@@ -13,16 +13,16 @@ import (
 )
 
 // validBRouterProfiles is the allowlist of BRouter routing profiles.
-// Any profile not in this map is replaced with the default "hiking-sac2".
+// Any profile not in this map is replaced with the default "hiking-mountain".
 var validBRouterProfiles = map[string]bool{
-	"hiking-sac2":      true,
-	"trekking":         true,
-	"safety":           true,
-	"cycling-road":     true,
-	"cycling-mountain": true,
-	"cycling-gravel":   true,
-	"running":          true,
-	"walking":          true,
+	"hiking-mountain":  true, // Offizielles BRouter-Wanderprofil (SAC T1-T6, konfigurierbar)
+	"hiking-sac2":      true, // Skadia SAC T2 Profil (einfach, hardcoded)
+	"trekking":         true, // Rad-Trekking (Standard BRouter)
+	"cycling-road":     true, // Rennrad
+	"cycling-mountain": true, // MTB
+	"cycling-gravel":   true, // Gravel
+	"running":          true, // Laufen (basierend auf hiking-mountain)
+	"walking":          true, // Spaziergang (basierend auf hiking-mountain)
 }
 
 // RouteRequest is the request body for POST /api/v1/routing/route.
@@ -59,7 +59,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validBRouterProfiles[req.Profile] {
-		req.Profile = "hiking-sac2"
+		req.Profile = "hiking-mountain"
 	}
 	if req.Alternatives < 0 {
 		req.Alternatives = 0
