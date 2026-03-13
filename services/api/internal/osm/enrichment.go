@@ -290,3 +290,138 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: traffic_class complete")
 	return nil
 }
+
+// EnrichProtectedArea sets protection level (0-3) based on osm_boundaries.
+func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
+	slog.Info("enrichment: starting protected_area")
+	_, err := pool.Exec(ctx, `
+		UPDATE osm_ways w SET protected_area = sub.level
+		FROM (
+			SELECT w2.way_id,
+				MAX(CASE
+					WHEN b.protect_class IN ('1a', '1b', '1') THEN 3
+					WHEN b.protect_class IN ('2', '3', '4') THEN 2
+					WHEN b.boundary_type = 'protected_area' THEN 1
+					ELSE 0
+				END)::SMALLINT AS level
+			FROM osm_ways w2
+			JOIN osm_boundaries b ON ST_Intersects(w2.geom, b.geom)
+			WHERE w2.highway IS NOT NULL
+			  AND (b.boundary_type = 'protected_area' OR b.protect_class IS NOT NULL)
+			GROUP BY w2.way_id
+		) sub
+		WHERE w.way_id = sub.way_id
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment protected_area: %w", err)
+	}
+	slog.Info("enrichment: protected_area complete")
+	return nil
+}
+
+// EnrichLanduseClass sets landuse class using forest_pct + highway type as proxy.
+// 0=other, 1=forest, 3=residential, 4=industrial.
+// P3-TODO: Import landuse polygons for class 2 (agricultural).
+func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
+	slog.Info("enrichment: starting landuse_class")
+	_, err := pool.Exec(ctx, `
+		UPDATE osm_ways SET landuse_class = (
+			CASE
+				WHEN forest_pct >= 60 THEN 1
+				WHEN highway IN ('residential', 'living_street') THEN 3
+				WHEN EXISTS (
+					SELECT 1 FROM osm_boundaries b
+					WHERE ST_Within(ST_LineInterpolatePoint(osm_ways.geom, 0.5), b.geom)
+					  AND b.boundary_type IN ('industrial')
+				) THEN 4
+				ELSE 0
+			END
+		)::SMALLINT
+		WHERE highway IS NOT NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment landuse_class: %w", err)
+	}
+	slog.Info("enrichment: landuse_class complete")
+	return nil
+}
+
+// EnrichRouteMembership populates osm_route_way_members junction table
+// and sets is_cycleroute/is_hikeroute flags with network level.
+func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
+	slog.Info("enrichment: starting route_membership")
+
+	// Populate junction table via spatial proximity
+	// SRID 3857: must ST_Transform to 4326 before ::geography for correct meter distances
+	_, err := pool.Exec(ctx, `
+		INSERT INTO osm_route_way_members (route_osm_id, way_osm_id)
+		SELECT DISTINCT r.osm_id, w.osm_id
+		FROM osm_routes r
+		JOIN osm_ways w ON ST_DWithin(
+			ST_Transform(r.geom, 4326)::geography,
+			ST_Transform(w.geom, 4326)::geography, 15
+		)
+		WHERE w.highway IS NOT NULL
+		ON CONFLICT DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment route_membership: junction: %w", err)
+	}
+
+	// Set cycleroute flags with best network level
+	_, err = pool.Exec(ctx, `
+		UPDATE osm_ways w SET
+			is_cycleroute = true,
+			cycleroute_network = sub.best_network
+		FROM (
+			SELECT m.way_osm_id,
+				(ARRAY['icn','ncn','rcn','lcn'])[MIN(
+					CASE r.network
+						WHEN 'icn' THEN 1 WHEN 'ncn' THEN 2
+						WHEN 'rcn' THEN 3 WHEN 'lcn' THEN 4
+						ELSE 5
+					END
+				)] AS best_network
+			FROM osm_route_way_members m
+			JOIN osm_routes r ON r.osm_id = m.route_osm_id
+			WHERE r.route = 'bicycle'
+			GROUP BY m.way_osm_id
+		) sub
+		WHERE w.osm_id = sub.way_osm_id
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment route_membership: cycleroute: %w", err)
+	}
+
+	// Set hikeroute flags with best network level
+	_, err = pool.Exec(ctx, `
+		UPDATE osm_ways w SET
+			is_hikeroute = true,
+			hikeroute_network = sub.best_network
+		FROM (
+			SELECT m.way_osm_id,
+				(ARRAY['iwn','nwn','rwn','lwn'])[MIN(
+					CASE r.network
+						WHEN 'iwn' THEN 1 WHEN 'nwn' THEN 2
+						WHEN 'rwn' THEN 3 WHEN 'lwn' THEN 4
+						ELSE 5
+					END
+				)] AS best_network
+			FROM osm_route_way_members m
+			JOIN osm_routes r ON r.osm_id = m.route_osm_id
+			WHERE r.route IN ('hiking', 'foot')
+			GROUP BY m.way_osm_id
+		) sub
+		WHERE w.osm_id = sub.way_osm_id
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment route_membership: hikeroute: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
+	if err != nil {
+		slog.Warn("enrichment: ANALYZE after route_membership failed", "error", err)
+	}
+	slog.Info("enrichment: route_membership complete")
+	return nil
+}
