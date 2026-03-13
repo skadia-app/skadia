@@ -378,6 +378,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			"--output=flex",
 			"--style", luaTmp.Name(),
 			"--flat-nodes", flatNodesPath,
+			"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
 			"--slim", "--drop",
 			pbfPath,
 		}
