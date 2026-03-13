@@ -262,3 +262,40 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results, "count": len(results)})
 }
+
+// GetDEMStatus returns available DEM data sources and tile counts.
+// GET /api/v1/admin/dem-status
+func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
+	type demSource struct {
+		Source      string  `json:"source"`
+		ResolutionM float64 `json:"resolution_m"`
+		TileCount   int     `json:"tile_count"`
+	}
+	rows, err := h.DB.Pool.Query(r.Context(), `
+		SELECT COALESCE(source, 'unknown') AS source,
+		       COALESCE(resolution_m, 0) AS resolution_m,
+		       COUNT(*) AS tile_count
+		FROM dem.raster_tiles
+		GROUP BY source, resolution_m
+		ORDER BY resolution_m ASC`)
+	if err != nil {
+		// dem schema might not exist — return empty
+		writeJSON(w, http.StatusOK, map[string]any{"sources": []demSource{}, "total_tiles": 0})
+		return
+	}
+	defer rows.Close()
+
+	var sources []demSource
+	var totalTiles int
+	for rows.Next() {
+		var s demSource
+		if err := rows.Scan(&s.Source, &s.ResolutionM, &s.TileCount); err == nil {
+			sources = append(sources, s)
+			totalTiles += s.TileCount
+		}
+	}
+	if sources == nil {
+		sources = []demSource{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sources": sources, "total_tiles": totalTiles})
+}

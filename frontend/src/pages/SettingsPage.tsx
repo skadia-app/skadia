@@ -15,6 +15,7 @@ import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
 import { type OSMStatus } from '@/api/osm'
 import { OSMRegionManager } from '@/components/OSMRegionManager'
+import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
@@ -1180,11 +1181,7 @@ function LocalMapAndGeoSection() {
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">DEM-Höhendaten</h3>
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-2">
           <CapBadge active={caps?.dem_correction ?? false} label="DEM aktiv" />
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-            Digitale Höhenmodelle (DEM) werden für die Höhenkorrektur von Aktivitätsaufzeichnungen und
-            die Höhenprofile geplanter Routen benötigt. Import via{' '}
-            <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">scripts/import-dem.sh</code>.
-          </p>
+          <DEMSettings />
         </div>
       </div>
 
