@@ -42,6 +42,7 @@ func TestEncodeBooleanFlags(t *testing.T) {
 	}
 	encoded := EncodeOSMTags(&tags)
 	if !DecodeBool(encoded, 36) { t.Error("oneway should be true") }
+	if DecodeBool(encoded, 37) { t.Error("oneway_bicycle should be false") }
 	if !DecodeBool(encoded, 38) { t.Error("bridge should be true") }
 	if DecodeBool(encoded, 39) { t.Error("tunnel should be false") }
 	if !DecodeBool(encoded, 40) { t.Error("ford should be true") }
@@ -68,8 +69,37 @@ func TestEncodeEnrichmentTags(t *testing.T) {
 	if got := DecodeField(encoded, 14, 2); got != 2 {
 		t.Errorf("traffic_class: got %d, want 2", got)
 	}
-	if got := DecodeField(encoded, 24, 3); got != 4 {
+	if got := DecodeField(encoded, 16, 2); got != 1 {
+		t.Errorf("protected_area: got %d, want 1", got)
+	}
+	if !DecodeBool(encoded, 18) {
+		t.Error("is_cycleroute should be true")
+	}
+	if DecodeBool(encoded, 19) {
+		t.Error("is_hikeroute should be false")
+	}
+	if got := DecodeField(encoded, 20, 3); got != uint64(routeNetworkEnum["rcn"]) {
+		t.Errorf("cycleroute_network: got %d, want %d", got, routeNetworkEnum["rcn"])
+	}
+	if got := DecodeField(encoded, 23, 3); got != uint64(routeNetworkEnum["rwn"]) {
+		t.Errorf("hikeroute_network: got %d, want %d", got, routeNetworkEnum["rwn"])
+	}
+	if got := DecodeField(encoded, 26, 3); got != 4 {
 		t.Errorf("landuse_class: got %d, want 4", got)
+	}
+}
+
+func TestEnrichmentLocalNetwork(t *testing.T) {
+	tags := RawEnrichment{
+		CyclerouteNetwork: "lcn",
+		HikerouteNetwork:  "lwn",
+	}
+	encoded := EncodeEnrichmentTags(&tags)
+	if got := DecodeField(encoded, 20, 3); got != uint64(routeNetworkEnum["lcn"]) {
+		t.Errorf("cycleroute_network lcn: got %d, want %d", got, routeNetworkEnum["lcn"])
+	}
+	if got := DecodeField(encoded, 23, 3); got != uint64(routeNetworkEnum["lwn"]) {
+		t.Errorf("hikeroute_network lwn: got %d, want %d", got, routeNetworkEnum["lwn"])
 	}
 }
 
@@ -127,6 +157,9 @@ func TestEncodeDecodeAllFields(t *testing.T) {
 	}
 	if got := DecodeField(encoded, 53, 3); got != 3 {
 		t.Errorf("lanes: got %d, want 3", got)
+	}
+	if !DecodeBool(encoded, 37) {
+		t.Error("oneway_bicycle should be true")
 	}
 	if !DecodeBool(encoded, 39) {
 		t.Error("tunnel should be true")

@@ -181,8 +181,8 @@ func encodeCyclewaySide(t *RawTags) uint8 {
 //
 //	Bits 0-6: forest_pct (7), 7-13: noise_score (7), 14-15: traffic_class (2),
 //	16-17: protected_area (2), 18: is_cycleroute, 19: is_hikeroute,
-//	20-21: cycleroute_network (2), 22-23: hikeroute_network (2),
-//	24-26: landuse_class (3), 27-63: reserve
+//	20-22: cycleroute_network (3), 23-25: hikeroute_network (3),
+//	26-28: landuse_class (3), 29-63: reserve
 func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 	var v uint64
 	v |= uint64(clamp(e.ForestPct, 0, 100))
@@ -196,8 +196,8 @@ func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 		v |= 1 << 19
 	}
 	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 20
-	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 22
-	v |= uint64(clamp(e.LanduseClass, 0, 5)) << 24
+	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 23
+	v |= uint64(clamp(e.LanduseClass, 0, 5)) << 26
 	return v
 }
 
