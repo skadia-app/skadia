@@ -8,6 +8,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
@@ -20,6 +21,7 @@ type Handler struct {
 	ShadowFS      *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	Config        *HandlerConfig           // LLM/LiteLLM configuration
 	ImportService *importer.Service        // shared post-processing pipeline
+	GraphManager  *routing.GraphManager    // nil when routing graph is not configured
 
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
@@ -32,6 +34,7 @@ type HandlerConfig struct {
 	MLCallbackSecret   string // ML_CALLBACK_SECRET env var
 	BRouterURL         string // e.g. http://brouter:17777
 	KomootEncryptionKey string // 32-byte hex for AES-256-GCM Komoot password encryption
+	RoutingGraphPath   string // path to binary graph file
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

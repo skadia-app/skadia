@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
@@ -156,7 +157,15 @@ func main() {
 			MLCallbackSecret:    mlCallbackSecret,
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
+			RoutingGraphPath:    cfg.RoutingGraphPath,
 		},
+	}
+
+	// Routing graph manager.
+	graphMgr := &routing.GraphManager{}
+	h.GraphManager = graphMgr
+	if err := graphMgr.LoadFromFile(cfg.RoutingGraphPath); err != nil {
+		slog.Warn("no routing graph loaded", "path", cfg.RoutingGraphPath, "error", err)
 	}
 
 	// Wire Shadow FS callback: delegates to the handler method which needs
@@ -302,6 +311,7 @@ func main() {
 			r.Post("/admin/osm-import/start", h.StartOSMImport)
 			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
+			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
 
 			r.Get("/me", h.GetMe)
 
@@ -550,6 +560,7 @@ func main() {
 			// Routing (BRouter proxy + auto-route suggestion)
 			r.Post("/routing/route", h.RouteViabrouter)
 			r.Post("/routes/suggest", h.SuggestRoutes)
+			r.Get("/routing/status", h.RoutingGraphStatus)
 
 			// Planned Routes (CRUD)
 			r.Get("/routes", h.ListRoutes)
