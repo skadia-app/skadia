@@ -201,7 +201,7 @@ func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 	}
 	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 20
 	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 23
-	v |= uint64(clamp(e.LanduseClass, 0, 5)) << 26
+	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 26
 	return v
 }
 
