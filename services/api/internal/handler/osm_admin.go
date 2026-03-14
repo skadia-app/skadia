@@ -27,17 +27,23 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Non-POI table counts
+	// Non-POI table counts (approximate via pg_class.reltuples — instant, no sequential scan)
 	var ways, lifts, pistes, waterways, forests, glaciers, wetlands, routes, boundaries int64
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_ways").Scan(&ways)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_lifts").Scan(&lifts)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_pistes").Scan(&pistes)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_waterways").Scan(&waterways)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_forests").Scan(&forests)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_glaciers").Scan(&glaciers)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_wetlands").Scan(&wetlands)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_routes").Scan(&routes)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_boundaries").Scan(&boundaries)
+	type tableCount struct {
+		table string
+		ptr   *int64
+	}
+	approxCounts := []tableCount{
+		{"osm_ways", &ways}, {"osm_lifts", &lifts}, {"osm_pistes", &pistes},
+		{"osm_waterways", &waterways}, {"osm_forests", &forests},
+		{"osm_glaciers", &glaciers}, {"osm_wetlands", &wetlands},
+		{"osm_routes", &routes}, {"osm_boundaries", &boundaries},
+	}
+	for _, tc := range approxCounts {
+		h.DB.Pool.QueryRow(ctx,
+			`SELECT COALESCE(reltuples, 0)::bigint FROM pg_class WHERE relname = $1`,
+			tc.table).Scan(tc.ptr)
+	}
 
 	hasData := len(categories) > 0 || ways > 0 || lifts > 0 || routes > 0
 
@@ -101,15 +107,15 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetOSMDiskUsage returns estimated disk usage of OSM tables.
+// Uses direct query instead of view for robustness (view may not exist or have permission issues).
 // GET /api/v1/admin/osm-disk-usage
 func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Pool.Query(r.Context(),
-		`SELECT tablename, total_bytes FROM osm_disk_usage`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
-		return
+	// Bekannte OSM-Tabellen direkt abfragen — vermeidet Abhängigkeit auf osm_disk_usage View
+	osmTables := []string{
+		"osm_pois", "osm_ways", "osm_lifts", "osm_waterways", "osm_waters",
+		"osm_forests", "osm_glaciers", "osm_wetlands", "osm_boundaries",
+		"osm_pistes", "osm_routes", "osm_import_regions",
 	}
-	defer rows.Close()
 
 	type tableSize struct {
 		Tablename  string `json:"tablename"`
@@ -117,14 +123,19 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	var tables []tableSize
 	var totalBytes int64
-	for rows.Next() {
-		var t tableSize
-		if err := rows.Scan(&t.Tablename, &t.TotalBytes); err != nil {
+
+	for _, tbl := range osmTables {
+		var size int64
+		err := h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(pg_total_relation_size($1::regclass), 0)`, tbl).Scan(&size)
+		if err != nil {
+			// Tabelle existiert nicht (noch kein osm2pgsql-Lauf) — überspringen
 			continue
 		}
-		tables = append(tables, t)
-		totalBytes += t.TotalBytes
+		tables = append(tables, tableSize{Tablename: tbl, TotalBytes: size})
+		totalBytes += size
 	}
+
 	if tables == nil {
 		tables = []tableSize{}
 	}
