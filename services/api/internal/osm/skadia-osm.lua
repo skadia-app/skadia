@@ -738,6 +738,19 @@ function osm2pgsql.process_way(object)
                 geom       = object:as_linestring(),
             })
         end
+        -- Piste als Fläche (geschlossene Wege)
+        if tags['piste:type'] and piste_types[tags['piste:type']] and object.is_closed then
+            tables.piste_areas:insert({
+                osm_id     = object.id,
+                name       = tags.name,
+                piste_type = tags['piste:type'],
+                difficulty = tags['piste:difficulty'],
+                grooming   = tags['piste:grooming'],
+                lit        = (tags.lit == 'yes') or false,
+                tags       = build_tags(tags, {'ref','operator'}),
+                geom       = object:as_polygon(),
+            })
+        end
     end
 
     -- Wälder & Natur (Flächen als geschlossene Ways)
