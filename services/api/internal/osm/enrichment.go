@@ -10,98 +10,71 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// RunSpatialEnrichment runs all 6 enrichment sub-phases on osm_ways.
+// RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using raster-based sampling.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
-// rebuildRaster: when true, raster tiles are rebuilt after enrichment (Task 5 implements this).
+// forceRebuild: when true, truncates enrichment.raster_tiles before rasterizing.
 // Reports progress via the progressFn callback (0-100).
-func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, rebuildRaster bool, progressFn func(int)) error {
+func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild bool, progressFn func(int)) error {
+	if forceRebuild {
+		slog.Info("enrichment: force rebuild — truncating enrichment.raster_tiles")
+		if _, err := pool.Exec(ctx, "TRUNCATE enrichment.raster_tiles"); err != nil {
+			slog.Warn("enrichment: truncate raster_tiles failed (may not exist yet)", "error", err)
+		}
+	}
+
+	// Reset alle Enrichment-Spalten vor Neuberechnung
+	slog.Info("enrichment: resetting enrichment columns")
+	if _, err := pool.Exec(ctx, `UPDATE osm_ways SET forest_pct = NULL, protected_area = NULL,
+		landuse_class = NULL, noise_score = NULL WHERE highway IS NOT NULL`); err != nil {
+		return fmt.Errorf("enrichment: reset columns: %w", err)
+	}
+
 	type enrichStep struct {
 		name string
 		pct  int
 		fn   func(context.Context, *pgxpool.Pool) error
 	}
 	steps := []enrichStep{
-		{"forest_pct", 15, EnrichForestPct},
-		{"noise_score", 35, EnrichNoiseScore},
-		{"traffic_class", 60, EnrichTrafficClass},
-		{"protected_area", 70, EnrichProtectedArea},
-		{"landuse_class", 80, EnrichLanduseClass},
-		{"route_membership", 100, EnrichRouteMembership},
+		// Phase 1: Rasterize
+		{"rasterize_forest", 5, RasterizeForest},
+		{"rasterize_protected", 12, RasterizeProtected},
+		{"rasterize_landuse", 18, RasterizeLanduse},
+		// Phase 1.5: ANALYZE
+		{"analyze_rasters", 22, AnalyzeEnrichmentRasters},
+		// Phase 2: Sample + NULL-Defaults
+		{"sample_forest_pct", 32, SampleForestPct},
+		{"sample_protected", 42, SampleProtectedArea},
+		{"sample_landuse", 52, SampleLanduse},
+		// Phase 3: Nicht-Raster-Enrichment
+		{"noise_score", 62, EnrichNoiseScore},
+		{"landuse_class", 70, EnrichLanduseClass},
+		{"traffic_class", 82, EnrichTrafficClass},
+		{"route_membership", 95, EnrichRouteMembership},
+		// Phase 4: Cleanup
+		{"analyze", 100, func(ctx context.Context, pool *pgxpool.Pool) error {
+			_, err := pool.Exec(ctx, "ANALYZE osm_ways")
+			return err
+		}},
 	}
-	for _, s := range steps {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("enrichment cancelled: %w", err)
-		}
-		slog.Info("enrichment: running step", "step", s.name)
-		if err := s.fn(ctx, pool); err != nil {
-			return fmt.Errorf("enrichment step %s failed: %w", s.name, err)
+
+	for _, step := range steps {
+		slog.Info("enrichment: step starting", "step", step.name)
+		if err := step.fn(ctx, pool); err != nil {
+			return fmt.Errorf("enrichment step %s: %w", step.name, err)
 		}
 		if progressFn != nil {
-			progressFn(s.pct)
+			progressFn(step.pct)
 		}
+		slog.Info("enrichment: step complete", "step", step.name, "progress_pct", step.pct)
 	}
-	return nil
-}
 
-// EnrichForestPct calculates forest coverage percentage for each way in osm_ways.
-// Uses batched ~50km tiles (SRID 4326 = degrees) for memory control.
-// ST_Length(geom::geography) returns meters — used for accurate ratio calculation.
-// Requires: osm_ways.forest_pct column (migration 000157), osm_forests table.
-func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
-	slog.Info("enrichment: starting forest_pct")
-	_, err := pool.Exec(ctx, `
-		DO $$
-		DECLARE
-			tile RECORD;
-			data_extent GEOMETRY;
-			processed INT := 0;
-		BEGIN
-			-- SRID 4326: units are degrees. 0.09 ≈ 10km buffer at 47°N.
-			SELECT ST_Expand(ST_Extent(geom), 0.09) INTO data_extent
-			FROM osm_ways WHERE highway IS NOT NULL;
-
-			IF data_extent IS NULL THEN
-				RAISE NOTICE 'No osm_ways with highway found';
-				RETURN;
-			END IF;
-
-			-- 0.45 ≈ 50km grid cells at 47°N (4326 degrees)
-			FOR tile IN SELECT * FROM ST_SquareGrid(0.45, data_extent) LOOP
-				UPDATE osm_ways w SET forest_pct = COALESCE(sub.pct, 0)
-				FROM (
-					SELECT w2.way_id,
-						LEAST(100, ROUND(
-							100.0 * SUM(ST_Length(ST_Intersection(w2.geom, f.geom)::geography))
-							/ NULLIF(ST_Length(w2.geom::geography), 0)
-						))::SMALLINT AS pct
-					FROM osm_ways w2
-					LEFT JOIN osm_forests f ON ST_Intersects(w2.geom, f.geom)
-					WHERE ST_Intersects(w2.geom, tile.geom)
-					  AND w2.highway IS NOT NULL
-					GROUP BY w2.way_id, w2.geom
-				) sub
-				WHERE w.way_id = sub.way_id;
-				processed := processed + 1;
-			END LOOP;
-			RAISE NOTICE 'forest_pct: processed % tiles', processed;
-		END $$;
-	`)
-	if err != nil {
-		return fmt.Errorf("enrichment forest_pct: %w", err)
-	}
-	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
-	if err != nil {
-		slog.Warn("enrichment: ANALYZE after forest_pct failed", "error", err)
-	}
-	slog.Info("enrichment: forest_pct complete")
 	return nil
 }
 
 // EnrichNoiseScore calculates noise exposure score (0-100) for each way.
-// Sources: road hierarchy proximity + aerodromes.
+// Sources: road hierarchy proximity + aerodromes + optional railway lines.
 // Uses pool.Acquire() for connection pinning (TEMP VIEW needs same connection).
 // osm_ways.geom is SRID 4326 — cast directly to ::geography for meter distances.
-// P3-TODO: Add railway lines and industrial areas when Lua importer is extended.
 func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting noise_score")
 
@@ -111,22 +84,41 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer conn.Release()
 
-	// Create temp view for noise sources (all geometry cast to untyped for UNION compat)
-	_, err = conn.Exec(ctx, `
-		CREATE TEMP VIEW noise_sources AS
-			SELECT geom::geometry, 'motorway' AS source_type, 500 AS buffer_m, 1.0::float AS weight
-			FROM osm_ways WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')
-			UNION ALL
-			SELECT geom::geometry, 'primary', 200, 0.6
-			FROM osm_ways WHERE highway IN ('primary', 'primary_link')
-			UNION ALL
-			SELECT geom::geometry, 'secondary', 100, 0.3
-			FROM osm_ways WHERE highway IN ('secondary', 'secondary_link')
-			UNION ALL
-			SELECT geom::geometry, 'aerodrome', 3000, 0.9
-			FROM osm_pois WHERE type = 'aerodrome'
-	`)
-	if err != nil {
+	// Prüfe ob osm_railways Daten hat
+	var railCount int64
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_railways").Scan(&railCount); err != nil {
+		slog.Warn("enrichment: osm_railways query failed (table may not exist)", "error", err)
+		railCount = 0
+	}
+
+	railwaySQL := ""
+	if railCount > 0 {
+		railwaySQL = `
+        UNION ALL
+        SELECT geom::geometry, 'railway_heavy', 300, 0.7
+        FROM osm_railways WHERE railway = 'rail'
+        UNION ALL
+        SELECT geom::geometry, 'railway_light', 150, 0.4
+        FROM osm_railways WHERE railway IN ('light_rail', 'narrow_gauge', 'subway')`
+	} else {
+		slog.Warn("enrichment: osm_railways empty — skipping railway noise sources")
+	}
+
+	// Vollständiger View inkl. optionaler Railway-Quellen
+	viewSQL := `CREATE TEMP VIEW noise_sources AS
+    SELECT geom::geometry, 'motorway' AS source_type, 500 AS buffer_m, 1.0::float AS weight
+    FROM osm_ways WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')
+    UNION ALL
+    SELECT geom::geometry, 'primary', 200, 0.6
+    FROM osm_ways WHERE highway IN ('primary', 'primary_link')
+    UNION ALL
+    SELECT geom::geometry, 'secondary', 100, 0.3
+    FROM osm_ways WHERE highway IN ('secondary', 'secondary_link')
+    UNION ALL
+    SELECT geom::geometry, 'aerodrome', 3000, 0.9
+    FROM osm_pois WHERE type = 'aerodrome'` + railwaySQL
+
+	if _, err = conn.Exec(ctx, viewSQL); err != nil {
 		return fmt.Errorf("enrichment noise_score: create view: %w", err)
 	}
 
@@ -216,8 +208,8 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 			SELECT osm_id, geom,
 				ST_Area(geom::geography) AS area_m2,
 				ST_Centroid(geom) AS centroid
-			FROM osm_boundaries
-			WHERE boundary_type IN ('industrial', 'retail')
+			FROM osm_landuse
+			WHERE landuse IN ('industrial', 'retail', 'commercial')
 			  AND ST_Area(geom::geography) > 20000
 		`},
 		// SRID 4326: degrees. 0.09 ≈ 10km, 0.45 ≈ 50km at 47°N.
@@ -325,57 +317,32 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// EnrichProtectedArea sets protection level (0-3) based on osm_boundaries.
-func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
-	slog.Info("enrichment: starting protected_area")
-	_, err := pool.Exec(ctx, `
-		UPDATE osm_ways w SET protected_area = sub.level
-		FROM (
-			SELECT w2.way_id,
-				MAX(CASE
-					WHEN b.protect_class IN ('1a', '1b', '1') THEN 3
-					WHEN b.protect_class IN ('2', '3', '4') THEN 2
-					WHEN b.boundary_type = 'protected_area' THEN 1
-					ELSE 0
-				END)::SMALLINT AS level
-			FROM osm_ways w2
-			JOIN osm_boundaries b ON ST_Intersects(w2.geom, b.geom)
-			WHERE w2.highway IS NOT NULL
-			  AND (b.boundary_type = 'protected_area' OR b.protect_class IS NOT NULL)
-			GROUP BY w2.way_id
-		) sub
-		WHERE w.way_id = sub.way_id
-	`)
-	if err != nil {
-		return fmt.Errorf("enrichment protected_area: %w", err)
-	}
-	slog.Info("enrichment: protected_area complete")
-	return nil
-}
-
-// EnrichLanduseClass sets landuse class using forest_pct + highway type as proxy.
-// 0=other, 1=forest, 3=residential, 4=industrial.
-// P3-TODO: Import landuse polygons for class 2 (agricultural).
+// EnrichLanduseClass refines landuse_class after raster sampling:
+// derives forest (1) from forest_pct and residential (3) from highway type.
+// Raster sampling (SampleLanduse) runs first and sets the primary landuse class;
+// this step fills in forest/residential for ways not covered by the landuse raster.
+// 0=other, 1=forest, 2=agricultural, 3=residential, 4=industrial, 5=commercial, 6=quarry.
 func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
-	slog.Info("enrichment: starting landuse_class")
+	slog.Info("enrichment: starting landuse_class (forest + residential derivation)")
+
+	// 1. Forest aus forest_pct ableiten (präziserer 10m-Raster)
 	_, err := pool.Exec(ctx, `
-		UPDATE osm_ways SET landuse_class = (
-			CASE
-				WHEN forest_pct >= 60 THEN 1
-				WHEN highway IN ('residential', 'living_street') THEN 3
-				WHEN EXISTS (
-					SELECT 1 FROM osm_boundaries b
-					WHERE ST_Within(ST_LineInterpolatePoint(osm_ways.geom, 0.5), b.geom)
-					  AND b.boundary_type IN ('industrial')
-				) THEN 4
-				ELSE 0
-			END
-		)::SMALLINT
-		WHERE highway IS NOT NULL
+		UPDATE osm_ways SET landuse_class = 1
+		WHERE highway IS NOT NULL AND forest_pct >= 60 AND landuse_class = 0
 	`)
 	if err != nil {
-		return fmt.Errorf("enrichment landuse_class: %w", err)
+		return fmt.Errorf("enrichment landuse_class: forest: %w", err)
 	}
+
+	// 2. Residential-Fallback aus highway-Typ
+	_, err = pool.Exec(ctx, `
+		UPDATE osm_ways SET landuse_class = 3
+		WHERE highway IN ('residential', 'living_street') AND landuse_class = 0
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment landuse_class: residential: %w", err)
+	}
+
 	slog.Info("enrichment: landuse_class complete")
 	return nil
 }
