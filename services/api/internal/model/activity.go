@@ -63,9 +63,10 @@ type ActivityData struct {
 
 	Visibility string // "private", "public", "followers" — empty means default ("private")
 
-	IsIndoor bool
-	IsEbike  bool
-	HasGPS   bool
+	IsIndoor            bool
+	IsEbike             bool
+	SportConflictPending bool
+	HasGPS              bool
 	StartLat float64
 	StartLng float64
 	EndLat   float64
@@ -228,6 +229,17 @@ type Activity struct {
 	GarminActivityID *int64 `json:"garmin_activity_id,omitempty"`
 	StravaActivityID *int64 `json:"strava_activity_id,omitempty"`
 	KomootTourID     *int64 `json:"komoot_tour_id,omitempty"`
+	// Sport conflict resolution
+	SportConflictPending bool               `json:"sport_conflict_pending"`
+	SportConflictMeta    *SportConflictMeta `json:"sport_conflict,omitempty"`
+}
+
+// SportConflictMeta holds conflict metadata embedded from import_queue.
+type SportConflictMeta struct {
+	FileSport      string `json:"file_sport"`
+	FileSource     string `json:"file_source"`
+	PlatformSport  string `json:"platform_sport"`
+	PlatformSource string `json:"platform_source"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.

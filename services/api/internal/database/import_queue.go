@@ -189,3 +189,32 @@ func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID string) err
 	`, id, userID)
 	return err
 }
+
+// ResolveImportQueueByActivity resolves all pending sport_conflict items for the given activity.
+// Gracefully does nothing if no matching item exists.
+func (db *DB) ResolveImportQueueByActivity(ctx context.Context, userID, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE import_queue
+		SET status = 'resolved', resolved_at = NOW()
+		WHERE user_id = $1
+		  AND queue_type = 'sport_conflict'
+		  AND status = 'pending'
+		  AND metadata->>'activity_id' = $2
+	`, userID, activityID)
+	return err
+}
+
+// SportConflictQueueExists checks if a pending sport_conflict queue item already exists for the activity.
+func (db *DB) SportConflictQueueExists(ctx context.Context, userID, activityID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM import_queue
+			WHERE user_id = $1
+			  AND queue_type = 'sport_conflict'
+			  AND status = 'pending'
+			  AND metadata->>'activity_id' = $2
+		)
+	`, userID, activityID).Scan(&exists)
+	return exists, err
+}

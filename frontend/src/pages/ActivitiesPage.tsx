@@ -18,6 +18,8 @@ import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams }
 import type { ActivityFilterState } from '@/components/ActivityFilters'
 import RecomputeModal from '@/components/RecomputeModal'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
+import SportConflictBadge from '@/components/SportConflictBadge'
+import SportConflictModal from '@/components/SportConflictModal'
 
 const PAGE_SIZES = [20, 50, 100] as const
 
@@ -533,6 +535,7 @@ export default function ActivitiesPage() {
   }
 
   // Modal-States
+  const [conflictActivity, setConflictActivity] = useState<Activity | null>(null)
   const [recomputeIds, setRecomputeIds] = useState<string[] | null>(null)
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null)
   const [deleteTitle, setDeleteTitle] = useState<string | null>(null)
@@ -954,6 +957,17 @@ export default function ActivitiesPage() {
           }}
         />
       )}
+      {conflictActivity && (
+        <SportConflictModal
+          activity={conflictActivity}
+          open={!!conflictActivity}
+          onClose={() => setConflictActivity(null)}
+          onResolved={() => {
+            setConflictActivity(null)
+            queryClient.invalidateQueries({ queryKey: ['activities'] })
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -1147,6 +1161,7 @@ export default function ActivitiesPage() {
                     const y = Math.min(rect.bottom + 4, window.innerHeight - 80)
                     setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
                   }}
+                  onConflictClick={setConflictActivity}
                 />
                 {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
                   (childrenMap[activity.id] ?? []).map(child => (
@@ -1347,6 +1362,7 @@ interface ActivityRowProps {
   onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined, sportType: string) => void
   onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
   onThreeDotClick: (e: React.MouseEvent<HTMLButtonElement>, id: string, title: string | null | undefined, sportType: string) => void
+  onConflictClick?: (activity: Activity) => void
 }
 
 function ActivityRow({
@@ -1362,6 +1378,7 @@ function ActivityRow({
   onContextMenu,
   onToggleSelect,
   onThreeDotClick,
+  onConflictClick,
 }: ActivityRowProps) {
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
@@ -1428,6 +1445,11 @@ function ActivityRow({
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
+          {activity.sport_conflict_pending && onConflictClick && (
+            <span onClick={e => e.stopPropagation()}>
+              <SportConflictBadge onClick={() => onConflictClick(activity)} />
+            </span>
+          )}
         </span>
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">

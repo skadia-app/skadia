@@ -59,7 +59,8 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			original_filename, original_file_format,
 			source, source_device,
 			parent_id,
-			visibility
+			visibility,
+			sport_conflict_pending
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -77,7 +78,8 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			$34, $35,
 			$36, $37,
 			$38,
-			$39
+			$39,
+			$40
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
@@ -96,27 +98,29 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
 		parentID,
 		visibilityOrDefault(data.Visibility),
+		data.SportConflictPending,
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
 	}
 
 	act := &model.Activity{
-		ID:                  id,
-		UserID:              userID,
-		SportType:           data.SportType,
-		SubType:             ptrString(data.SubType),
-		Source:              ptrString(data.Source),
-		SourceDevice:        ptrString(data.SourceDevice),
-		StartedAt:           data.StartedAt,
-		IsEbike:             isEbike,
-		IsIndoor:            data.IsIndoor,
-		HasGPS:              data.HasGPS,
-		NeedsClassification: data.SportType == "unknown",
-		OriginalFilename:    ptrString(data.OriginalName),
-		Visibility:          visibilityOrDefault(data.Visibility),
-		EnrichmentStatus:    "pending",
-		ParentID:            &parentID,
+		ID:                   id,
+		UserID:               userID,
+		SportType:            data.SportType,
+		SubType:              ptrString(data.SubType),
+		Source:               ptrString(data.Source),
+		SourceDevice:         ptrString(data.SourceDevice),
+		StartedAt:            data.StartedAt,
+		IsEbike:              isEbike,
+		IsIndoor:             data.IsIndoor,
+		HasGPS:               data.HasGPS,
+		NeedsClassification:  data.SportType == "unknown",
+		OriginalFilename:     ptrString(data.OriginalName),
+		Visibility:           visibilityOrDefault(data.Visibility),
+		EnrichmentStatus:     "pending",
+		ParentID:             &parentID,
+		SportConflictPending: data.SportConflictPending,
 	}
 	return act, nil
 }

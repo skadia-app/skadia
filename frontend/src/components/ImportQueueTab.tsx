@@ -8,6 +8,7 @@ import {
   deleteQueueItem,
   type ImportQueueItem,
 } from '@/api/importQueue'
+import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
 
 // ---------------------------------------------------------------------------
@@ -25,9 +26,11 @@ function itemTypeLabel(type: ImportQueueItem['item_type']): string {
   const labels: Record<ImportQueueItem['item_type'], string> = {
     image_no_exif: 'Bild ohne GPS-Datum',
     image_ambiguous: 'Bild – mehrere Aktivitäten',
+    image_no_match: 'Bild ohne Aktivität',
     pdf_untyped: 'PDF ohne Kategorie',
     duplicate: 'Mögliches Duplikat',
     import_error: 'Importfehler',
+    sport_conflict: 'Sport-Typ-Konflikt',
   }
   return labels[type] ?? type
 }
@@ -36,9 +39,11 @@ function itemTypeBadgeColor(type: ImportQueueItem['item_type']): string {
   const colors: Record<ImportQueueItem['item_type'], string> = {
     image_no_exif: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
     image_ambiguous: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    image_no_match: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
     pdf_untyped: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
     duplicate: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
     import_error: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    sport_conflict: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   }
   return colors[type] ?? 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
 }
@@ -401,15 +406,67 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Sport conflict item
+// ---------------------------------------------------------------------------
+
+function SportConflictItem({ item, onRefresh }: ItemProps) {
+  const activityId = item.metadata?.activity_id
+  const dismissMutation = useMutation({
+    mutationFn: () =>
+      activityId
+        ? resolveSportConflict(activityId) // no sport_type = keep current, dismiss only
+        : deleteQueueItem(item.id),
+    onSuccess: onRefresh,
+  })
+
+  const platformSport = item.metadata?.platform_sport
+  const fileSport = item.metadata?.file_sport
+
+  return (
+    <div className="space-y-3">
+      <div>
+        {platformSport && fileSport ? (
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            Sport-Typ-Konflikt:{' '}
+            <span className="font-medium">{platformSport}</span>
+            {' vs '}
+            <span className="font-medium">{fileSport}</span>
+          </p>
+        ) : (
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">Sport-Typ-Konflikt</p>
+        )}
+        {activityId && (
+          <Link
+            to={`/activities/${activityId}`}
+            className="text-xs text-accent-DEFAULT hover:underline mt-0.5 inline-block"
+          >
+            Zur Aktivität →
+          </Link>
+        )}
+      </div>
+      <button
+        onClick={() => dismissMutation.mutate()}
+        disabled={dismissMutation.isPending}
+        className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+      >
+        {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Fallback for unrecognised item types (e.g. blob-dragged images, future types)
 // ---------------------------------------------------------------------------
 
 const KNOWN_ITEM_TYPES: string[] = [
   'image_no_exif',
   'image_ambiguous',
+  'image_no_match',
   'pdf_untyped',
   'duplicate',
   'import_error',
+  'sport_conflict',
 ]
 
 function FallbackItem({ item, onRefresh }: ItemProps) {
@@ -471,6 +528,9 @@ function QueueItemCard({ item, onRefresh }: ItemProps) {
       )}
       {item.item_type === 'import_error' && (
         <ImportErrorItem item={item} onRefresh={onRefresh} />
+      )}
+      {item.item_type === 'sport_conflict' && (
+        <SportConflictItem item={item} onRefresh={onRefresh} />
       )}
       {!KNOWN_ITEM_TYPES.includes(item.item_type as string) && (
         <FallbackItem item={item} onRefresh={onRefresh} />

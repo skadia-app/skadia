@@ -101,6 +101,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"photo_preview_recompute": "Foto-Vorschauen",
 		"photo_clip_embed":        "Foto-Indexierung",
 		"phash_backfill":          "pHash-Berechnung",
+		"activity_recompute":      "Aktivität-Neuberechnung",
 	}
 	label := labels[jobType]
 	if label == "" {

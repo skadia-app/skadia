@@ -109,6 +109,14 @@ export interface Activity {
   garmin_activity_id?: number | null
   strava_activity_id?: number | null
   komoot_tour_id?: number | null
+  // Sport conflict resolution
+  sport_conflict_pending?: boolean
+  sport_conflict?: {
+    file_sport: string
+    file_source: string
+    platform_sport: string
+    platform_source: string
+  } | null
 }
 
 export interface ActivitiesResponse {

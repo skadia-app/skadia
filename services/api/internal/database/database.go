@@ -100,7 +100,8 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device,
-			visibility
+			visibility,
+			sport_conflict_pending
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -117,7 +118,8 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
 			$34, $35,
 			$36, $37,
-			$38
+			$38,
+			$39
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
@@ -135,28 +137,30 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
 		visibilityOrDefault(data.Visibility),
+		data.SportConflictPending,
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
 
 	return &model.Activity{
-		ID:                  id,
-		UserID:              userID,
-		SportType:           data.SportType,
-		SubType:             ptrString(data.SubType),
-		Source:              ptrString(data.Source),
-		SourceDevice:        ptrString(data.SourceDevice),
-		StartedAt:           data.StartedAt,
-		IsEbike:             isEbike,
-		IsIndoor:            data.IsIndoor,
-		HasGPS:              data.HasGPS,
-		NeedsClassification: data.SportType == "unknown",
-		OriginalFilename:    ptrString(data.OriginalName),
-		Visibility:          visibilityOrDefault(data.Visibility),
-		EnrichmentStatus:    "pending",
-		CreatedAt:           createdAt,
-		UpdatedAt:           updatedAt,
+		ID:                   id,
+		UserID:               userID,
+		SportType:            data.SportType,
+		SubType:              ptrString(data.SubType),
+		Source:               ptrString(data.Source),
+		SourceDevice:         ptrString(data.SourceDevice),
+		StartedAt:            data.StartedAt,
+		IsEbike:              isEbike,
+		IsIndoor:             data.IsIndoor,
+		HasGPS:               data.HasGPS,
+		NeedsClassification:  data.SportType == "unknown",
+		OriginalFilename:     ptrString(data.OriginalName),
+		Visibility:           visibilityOrDefault(data.Visibility),
+		EnrichmentStatus:     "pending",
+		CreatedAt:            createdAt,
+		UpdatedAt:            updatedAt,
+		SportConflictPending: data.SportConflictPending,
 	}, nil
 }
 
@@ -280,6 +284,7 @@ func (db *DB) UpdateActivityFileInfo(ctx context.Context, id, bucket, key, forma
 func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, error) {
 	var a model.Activity
 	var hasTrack bool
+	var sportConflictMeta []byte
 
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
@@ -308,9 +313,19 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			COALESCE(a.distance_source, 'device'),
 			a.parent_id,
 			a.fusion_sources,
-			a.garmin_activity_id, a.strava_activity_id, a.komoot_tour_id
+			a.garmin_activity_id, a.strava_activity_id, a.komoot_tour_id,
+		a.sport_conflict_pending,
+		iq.metadata AS sport_conflict_meta
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
+		LEFT JOIN LATERAL (
+			SELECT metadata FROM import_queue iq
+			WHERE iq.queue_type = 'sport_conflict'
+			  AND iq.status = 'pending'
+			  AND (iq.metadata->>'activity_id') = a.id::text
+			  AND iq.user_id = a.user_id
+			LIMIT 1
+		) iq ON true
 		WHERE a.id = $1`, id,
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.Title, &a.TitleAuto, &a.Description,
@@ -339,6 +354,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.ParentID,
 		&a.FusionSources,
 		&a.GarminActivityID, &a.StravaActivityID, &a.KomootTourID,
+		&a.SportConflictPending,
+		&sportConflictMeta,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -350,6 +367,12 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	a.NeedsClassification = a.SportType == "unknown"
 	if a.Tags == nil {
 		a.Tags = []string{}
+	}
+	if sportConflictMeta != nil && a.SportConflictPending {
+		var meta model.SportConflictMeta
+		if json.Unmarshal(sportConflictMeta, &meta) == nil && meta.FileSport != "" {
+			a.SportConflictMeta = &meta
+		}
 	}
 	return &a, nil
 }
@@ -496,7 +519,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
-		created_at, updated_at`
+		created_at, updated_at, sport_conflict_pending`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
 	orderClause := fmt.Sprintf("%s %s, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
@@ -612,7 +635,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
 			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.Visibility,
-			&a.CreatedAt, &a.UpdatedAt,
+			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
 		}
@@ -776,6 +799,8 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 }
 
 func (db *DB) DeleteActivity(ctx context.Context, userID, id string) error {
+	// Clean up any pending sport conflict queue entries for this activity
+	_ = db.ResolveImportQueueByActivity(ctx, userID, id)
 	result, err := db.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete activity: %w", err)
@@ -800,6 +825,23 @@ func (db *DB) DeleteActivities(ctx context.Context, userID string, ids []string)
 		args = append(args, id)
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 	}
+	// Clean up sport conflict queue entries for the deleted activities
+	cleanArgs := make([]any, 0, len(ids)+1)
+	cleanArgs = append(cleanArgs, userID)
+	cleanPlaceholders := make([]string, len(ids))
+	for i, id := range ids {
+		cleanArgs = append(cleanArgs, id)
+		cleanPlaceholders[i] = fmt.Sprintf("metadata->>'activity_id' = $%d", i+2)
+	}
+	cleanQuery := fmt.Sprintf(
+		`UPDATE import_queue SET status = 'resolved', resolved_at = NOW()
+		 WHERE user_id = $1 AND queue_type = 'sport_conflict' AND status = 'pending'
+		 AND (%s)`,
+		strings.Join(cleanPlaceholders, " OR "))
+	if _, cleanErr := db.Pool.Exec(ctx, cleanQuery, cleanArgs...); cleanErr != nil {
+		slog.Warn("delete activities: failed to clean sport conflict queue", "error", cleanErr)
+	}
+
 	query := fmt.Sprintf(`DELETE FROM activities WHERE user_id = $1 AND id IN (%s)`,
 		strings.Join(placeholders, ", "))
 	result, err := db.Pool.Exec(ctx, query, args...)
