@@ -386,21 +386,36 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: starting route_membership")
 
-	// Populate junction table via spatial proximity.
-	// osm_routes.geom and osm_ways.geom are both SRID 4326 — cast directly to ::geography.
-	_, err := pool.Exec(ctx, `
-		INSERT INTO osm_route_way_members (route_osm_id, way_osm_id)
-		SELECT DISTINCT r.osm_id, w.osm_id
-		FROM osm_routes r
-		JOIN osm_ways w ON ST_DWithin(
-			r.geom::geography,
-			w.geom::geography, 15
-		)
-		WHERE w.highway IS NOT NULL
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("enrichment route_membership: junction: %w", err)
+	// Check if Lua-extracted route members exist (source='relation')
+	var luaCount int64
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM osm_route_way_members WHERE source = 'relation'`).Scan(&luaCount)
+
+	if luaCount == 0 {
+		// Fallback: populate junction table via spatial proximity
+		slog.Info("enrichment: no Lua route members found, using spatial proximity fallback")
+		_, err := pool.Exec(ctx, `
+			INSERT INTO osm_route_way_members (route_osm_id, way_osm_id, source)
+			SELECT DISTINCT r.osm_id, w.osm_id, 'proximity'
+			FROM osm_routes r
+			JOIN osm_ways w ON ST_DWithin(r.geom::geography, w.geom::geography, 15)
+			WHERE w.highway IS NOT NULL
+			ON CONFLICT DO NOTHING`)
+		if err != nil {
+			return fmt.Errorf("enrichment route_membership: proximity fallback: %w", err)
+		}
+	} else {
+		slog.Info("enrichment: using Lua-extracted route members", "count", luaCount)
+		// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering)
+		tag, err := pool.Exec(ctx, `
+			DELETE FROM osm_route_way_members m
+			WHERE source = 'relation'
+			  AND NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)`)
+		if err != nil {
+			slog.Warn("enrichment: cleanup orphan route members failed", "error", err)
+		} else {
+			slog.Info("enrichment: cleaned orphan route members", "deleted", tag.RowsAffected())
+		}
 	}
 
 	// Set cycleroute flags with best network level
