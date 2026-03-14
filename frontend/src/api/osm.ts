@@ -85,3 +85,11 @@ export async function cancelOSMImport(jobID: string): Promise<void> {
 export async function deleteOSMRegion(regionID: string): Promise<void> {
   await apiClient(`/admin/osm-regions/${regionID}`, { method: 'DELETE' })
 }
+
+export async function retryOSMEnrichment(): Promise<StartOSMImportResponse> {
+  return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-enrichment', { method: 'POST' })
+}
+
+export async function retryOSMTopology(): Promise<StartOSMImportResponse> {
+  return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-topology', { method: 'POST' })
+}

@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 )
 
 // GetOSMStatus returns counts from OSM tables.
@@ -27,17 +32,23 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Non-POI table counts
+	// Non-POI table counts (approximate via pg_class.reltuples — instant, no sequential scan)
 	var ways, lifts, pistes, waterways, forests, glaciers, wetlands, routes, boundaries int64
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_ways").Scan(&ways)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_lifts").Scan(&lifts)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_pistes").Scan(&pistes)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_waterways").Scan(&waterways)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_forests").Scan(&forests)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_glaciers").Scan(&glaciers)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_wetlands").Scan(&wetlands)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_routes").Scan(&routes)
-	h.DB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_boundaries").Scan(&boundaries)
+	type tableCount struct {
+		table string
+		ptr   *int64
+	}
+	approxCounts := []tableCount{
+		{"osm_ways", &ways}, {"osm_lifts", &lifts}, {"osm_pistes", &pistes},
+		{"osm_waterways", &waterways}, {"osm_forests", &forests},
+		{"osm_glaciers", &glaciers}, {"osm_wetlands", &wetlands},
+		{"osm_routes", &routes}, {"osm_boundaries", &boundaries},
+	}
+	for _, tc := range approxCounts {
+		h.DB.Pool.QueryRow(ctx,
+			`SELECT COALESCE(reltuples, 0)::bigint FROM pg_class WHERE relname = $1`,
+			tc.table).Scan(tc.ptr)
+	}
 
 	hasData := len(categories) > 0 || ways > 0 || lifts > 0 || routes > 0
 
@@ -101,15 +112,15 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetOSMDiskUsage returns estimated disk usage of OSM tables.
+// Uses direct query instead of view for robustness (view may not exist or have permission issues).
 // GET /api/v1/admin/osm-disk-usage
 func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Pool.Query(r.Context(),
-		`SELECT tablename, total_bytes FROM osm_disk_usage`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
-		return
+	// Bekannte OSM-Tabellen direkt abfragen — vermeidet Abhängigkeit auf osm_disk_usage View
+	osmTables := []string{
+		"osm_pois", "osm_ways", "osm_lifts", "osm_waterways", "osm_waters",
+		"osm_forests", "osm_glaciers", "osm_wetlands", "osm_boundaries",
+		"osm_pistes", "osm_routes", "osm_import_regions",
 	}
-	defer rows.Close()
 
 	type tableSize struct {
 		Tablename  string `json:"tablename"`
@@ -117,14 +128,19 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	var tables []tableSize
 	var totalBytes int64
-	for rows.Next() {
-		var t tableSize
-		if err := rows.Scan(&t.Tablename, &t.TotalBytes); err != nil {
+
+	for _, tbl := range osmTables {
+		var size int64
+		err := h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(pg_total_relation_size($1::regclass), 0)`, tbl).Scan(&size)
+		if err != nil {
+			// Tabelle existiert nicht (noch kein osm2pgsql-Lauf) — überspringen
 			continue
 		}
-		tables = append(tables, t)
-		totalBytes += t.TotalBytes
+		tables = append(tables, tableSize{Tablename: tbl, TotalBytes: size})
+		totalBytes += size
 	}
+
 	if tables == nil {
 		tables = []tableSize{}
 	}
@@ -235,7 +251,7 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	if searchType == "all" || searchType == "place" {
 		placeQuery := `
 			SELECT name, category, subtype,
-			       ST_Y(geom) AS lat, ST_X(geom) AS lng,
+			       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 			       similarity(name, $1) AS sim
 			FROM osm_pois
 			WHERE name % $1 AND name IS NOT NULL
@@ -298,4 +314,74 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 		sources = []demSource{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": sources, "total_tiles": totalTiles})
+}
+
+// RetryOSMEnrichment re-runs only the enrichment + splitting phases (6+7) on existing osm_ways.
+// POST /api/v1/admin/osm-import/retry-enrichment
+func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	entityName := "Enrichment Retry"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+		reporter.SetPhase("enrichment")
+		reporter.SetProgress(0)
+		if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, func(pct int) {
+			reporter.SetProgress(int64(pct))
+		}); err != nil {
+			slog.Error("retry enrichment: spatial enrichment failed", "error", err)
+		}
+
+		reporter.SetPhase("splitting")
+		reporter.SetProgress(0)
+		if err := osmregions.SplitAtIntersections(ctx, h.DB.Pool, func(pct int) {
+			reporter.SetProgress(int64(pct))
+		}); err != nil {
+			slog.Error("retry enrichment: splitting failed", "error", err)
+		}
+
+		reporter.Complete()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// RetryOSMTopology re-runs only the topology build phase (5) on existing osm_ways.
+// POST /api/v1/admin/osm-import/retry-topology
+func (h *Handler) RetryOSMTopology(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	entityName := "Topology Retry"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 5)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+		pipeline := &osmregions.Pipeline{
+			Pool:    h.DB.Pool,
+			DataDir: os.Getenv("OSM_DATA_DIR"),
+			DBURL:   os.Getenv("DATABASE_URL"),
+		}
+		if pipeline.DataDir == "" {
+			pipeline.DataDir = "/data/osm"
+		}
+
+		reporter.SetPhase("topology")
+		reporter.SetProgress(0)
+		pipeline.RunTopologyOnly(ctx, reporter)
+		reporter.Complete()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }

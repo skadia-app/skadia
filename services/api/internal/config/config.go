@@ -46,7 +46,8 @@ type Config struct {
 	MLServiceURL string // e.g. http://ml:8000
 
 	// Routing
-	BRouterURL string // e.g. http://brouter:17777
+	BRouterURL       string // e.g. http://brouter:17777
+	RoutingGraphPath string // path to binary graph file
 }
 
 func Load() (*Config, error) {
@@ -83,7 +84,8 @@ func Load() (*Config, error) {
 
 		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
 
-		BRouterURL: os.Getenv("BROUTER_URL"),
+		BRouterURL:       os.Getenv("BROUTER_URL"),
+		RoutingGraphPath: getEnvDefault("ROUTING_GRAPH_PATH", "/data/routing/graph.bin"),
 	}
 
 	if cfg.DatabaseURL == "" {

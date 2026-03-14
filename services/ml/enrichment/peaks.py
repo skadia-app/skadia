@@ -33,7 +33,7 @@ async def enrich_peaks(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             )
             SELECT p.osm_id, p.name, p.ele, p.type,
                    ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
-                   ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon
+                   ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
             FROM osm_pois p, route
             WHERE ST_DWithin(route.geom::geography, p.geom::geography, $2)
               AND p.category IN ('peak', 'pass')

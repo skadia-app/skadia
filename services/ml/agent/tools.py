@@ -1402,7 +1402,7 @@ async def _search_pois_nearby(
     """Search POIs near a coordinate point."""
     query = """
         SELECT name, category, subtype, ele,
-               ST_Y(geom) AS lat, ST_X(geom) AS lng,
+               ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
                ST_Distance(geom::geography, ST_Point($1,$2)::geography) AS dist_m
         FROM osm_pois
         WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)
@@ -1500,7 +1500,7 @@ async def _search_pois_on_route(
         return {"error": "Route geometry too large (max 500KB GeoJSON)", "pois": [], "count": 0}
     query = """
         SELECT name, category, subtype, ele,
-               ST_Y(geom) AS lat, ST_X(geom) AS lng,
+               ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
                ST_Distance(geom::geography, ST_GeomFromGeoJSON($1)::geography) AS dist_m
         FROM osm_pois
         WHERE ST_DWithin(geom::geography, ST_GeomFromGeoJSON($1)::geography, $2)

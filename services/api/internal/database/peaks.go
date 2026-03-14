@@ -70,8 +70,8 @@ func (db *DB) GetPeakCollection(ctx context.Context, userID string, f PeakCollec
 			COUNT(DISTINCT g.activity_id) AS visit_count,
 			MIN(a.started_at) AS first_visit,
 			MAX(a.started_at) AS last_visit,
-			ST_Y(p.geom) AS lat,
-			ST_X(p.geom) AS lng,
+			ST_Y(ST_Centroid(p.geom)) AS lat,
+			ST_X(ST_Centroid(p.geom)) AS lng,
 			array_agg(DISTINCT a.start_country_code) FILTER (WHERE a.start_country_code IS NOT NULL AND a.start_country_code <> '') AS country_codes
 		FROM activity_geo_tags g
 		JOIN activities a ON g.activity_id = a.id
