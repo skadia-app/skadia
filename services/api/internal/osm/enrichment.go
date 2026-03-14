@@ -121,6 +121,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err = conn.Exec(ctx, viewSQL); err != nil {
 		return fmt.Errorf("enrichment noise_score: create view: %w", err)
 	}
+	defer conn.Exec(ctx, "DROP VIEW IF EXISTS noise_sources") //nolint:errcheck
 
 	// Calculate noise score.
 	// osm_ways.geom is already SRID 4326 — cast directly to ::geography for meter distances.
@@ -157,8 +158,6 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("enrichment noise_score: default: %w", err)
 	}
-
-	defer conn.Exec(ctx, "DROP VIEW IF EXISTS noise_sources")
 
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
 	if err != nil {
@@ -274,13 +273,12 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 			UPDATE osm_ways w SET traffic_class = sub.tc
 			FROM (
 				SELECT inner_q.way_id,
+					-- 3 classes to fit the 2-bit packing in EncodeEnrichmentTags (clamp 0-3).
+					-- 1=low, 2=medium, 3=high; 0=default for ways without a grid cell match.
 					(CASE
 						WHEN inner_q.traffic_raw < 6  THEN 1
-						WHEN inner_q.traffic_raw < 10 THEN 2
-						WHEN inner_q.traffic_raw < 19 THEN 3
-						WHEN inner_q.traffic_raw < 35 THEN 4
-						WHEN inner_q.traffic_raw < 70 THEN 5
-						ELSE 6
+						WHEN inner_q.traffic_raw < 19 THEN 2
+						ELSE 3
 					END)::SMALLINT AS tc
 				FROM (
 					SELECT w3.way_id,
