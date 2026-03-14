@@ -7,15 +7,19 @@
 
 tables = {}
 
-tables.pois = osm2pgsql.define_node_table('osm_pois', {
-    { column = 'osm_id',   type = 'int8',    not_null = true },
-    { column = 'name',     type = 'text' },
-    { column = 'category', type = 'text',    not_null = true },
-    { column = 'type',     type = 'text',    not_null = true },
-    { column = 'subtype',  type = 'text' },
-    { column = 'ele',      type = 'real' },
-    { column = 'tags',     type = 'jsonb' },
-    { column = 'geom',     type = 'point',   not_null = true },
+tables.pois = osm2pgsql.define_table({
+    name = 'osm_pois',
+    ids = { type = 'any', id_column = 'id' },
+    columns = {
+        { column = 'osm_id',   type = 'int8',     not_null = true },
+        { column = 'name',     type = 'text' },
+        { column = 'category', type = 'text',     not_null = true },
+        { column = 'type',     type = 'text',     not_null = true },
+        { column = 'subtype',  type = 'text' },
+        { column = 'ele',      type = 'real' },
+        { column = 'tags',     type = 'jsonb' },
+        { column = 'geom',     type = 'geometry', projection = 4326, not_null = true },
+    },
 })
 
 tables.ways = osm2pgsql.define_way_table('osm_ways', {
@@ -230,59 +234,56 @@ local routable_highways = {
 }
 
 -- ============================================================
--- process_node: POIs
+-- classify_poi: shared POI classification for nodes, ways, relations
+-- Returns a list of match tables: { {category, poi_type, subtype, ele_val, extra_tags}, ... }
+-- Returns empty table if no POI match.
+--
+-- Multi-Match-Strategie (spiegelt process_node-Verhalten):
+-- peaks/passes/settlements/gastronomy → early return (exklusiv, max 1 Match)
+-- Alle übrigen Kategorien → separate if-Blöcke, können mehrfach matchen
 -- ============================================================
 
-function osm2pgsql.process_node(object)
-    local tags = object.tags
+function classify_poi(tags)
+    local results = {}
 
     -- Peaks (natural=peak/volcano/saddle) — kein Name nötig
     if (import_all or import_peaks) and
        (tags.natural == 'peak' or tags.natural == 'volcano' or
         tags.natural == 'saddle') then
-        tables.pois:insert({
-            osm_id   = object.id,
-            name     = tags.name,
-            category = 'peak',
-            type     = 'natural',
-            subtype  = tags.natural,
-            ele      = parse_ele(tags.ele),
-            tags     = build_tags(tags, {'prominence','wikidata','wikipedia'}),
-            geom     = object:as_point(),
+        table.insert(results, {
+            category   = 'peak',
+            poi_type   = 'natural',
+            subtype    = tags.natural,
+            ele_val    = parse_ele(tags.ele),
+            extra_tags = build_tags(tags, {'prominence','wikidata','wikipedia'}),
         })
-        return
+        return results  -- peaks are exclusive
     end
 
-    -- Mountain Passes (mountain_pass=yes auf Straßen-Nodes)
+    -- Mountain Passes
     if (import_all or import_passes) and tags.mountain_pass == 'yes' then
-        tables.pois:insert({
-            osm_id   = object.id,
-            name     = tags.name,
-            category = 'pass',
-            type     = 'highway',
-            subtype  = tags.highway or 'road',
-            ele      = parse_ele(tags.ele),
-            tags     = build_tags(tags, {'ref','wikidata'}),
-            geom     = object:as_point(),
+        table.insert(results, {
+            category   = 'pass',
+            poi_type   = 'highway',
+            subtype    = tags.highway or 'road',
+            ele_val    = parse_ele(tags.ele),
+            extra_tags = build_tags(tags, {'ref','wikidata'}),
         })
-        return
+        return results  -- passes are exclusive
     end
 
-    -- Settlements (place=city/town/village/hamlet/suburb)
+    -- Settlements
     if (import_all or import_settlements) then
         local place_types = {city=true, town=true, village=true, hamlet=true, suburb=true, neighbourhood=true, isolated_dwelling=true}
         if tags.place and place_types[tags.place] and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'settlement',
-                type     = 'place',
-                subtype  = tags.place,
-                ele      = parse_ele(tags.ele),
-                tags     = build_tags(tags, {'population','wikidata'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category   = 'settlement',
+                poi_type   = 'place',
+                subtype    = tags.place,
+                ele_val    = parse_ele(tags.ele),
+                extra_tags = build_tags(tags, {'population','wikidata'}),
             })
-            return
+            return results  -- settlements are exclusive
         end
     end
 
@@ -293,130 +294,83 @@ function osm2pgsql.process_node(object)
             fast_food=true, ice_cream=true, bar=true, food_court=true
         }
         if tags.amenity and gastro_types[tags.amenity] and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'gastronomy',
-                type     = 'amenity',
-                subtype  = tags.amenity,
-                tags     = build_tags(tags, {'cuisine','outdoor_seating','opening_hours','wheelchair'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category   = 'gastronomy',
+                poi_type   = 'amenity',
+                subtype    = tags.amenity,
+                extra_tags = build_tags(tags, {'cuisine','outdoor_seating','opening_hours','wheelchair'}),
             })
-            return
+            return results  -- gastronomy returns early
         end
     end
 
-    -- Accommodation (benötigt Name für Hotels, Hütten immer)
+    -- Accommodation (Hotels benötigen Name, Hütten immer)
     if (import_all or import_accommodation) then
         local accomm_types = {hotel=true, hostel=true, motel=true, guest_house=true}
         if tags.tourism and accomm_types[tags.tourism] and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'accommodation',
-                type     = 'tourism',
-                subtype  = tags.tourism,
-                tags     = build_tags(tags, {'rooms','stars','opening_hours'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category   = 'accommodation',
+                poi_type   = 'tourism',
+                subtype    = tags.tourism,
+                extra_tags = build_tags(tags, {'rooms','stars','opening_hours'}),
             })
         elseif tags.tourism == 'alpine_hut' or tags.tourism == 'wilderness_hut' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'accommodation',
-                type     = 'tourism',
-                subtype  = tags.tourism,
-                ele      = parse_ele(tags.ele),
-                tags     = build_tags(tags, {'beds','opening_hours','phone','website'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category   = 'accommodation',
+                poi_type   = 'tourism',
+                subtype    = tags.tourism,
+                ele_val    = parse_ele(tags.ele),
+                extra_tags = build_tags(tags, {'beds','opening_hours','phone','website'}),
             })
         elseif tags.amenity == 'shelter' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
+            table.insert(results, {
                 category = 'shelter',
-                type     = 'amenity',
+                poi_type = 'amenity',
                 subtype  = tags.shelter_type or 'shelter',
-                geom     = object:as_point(),
             })
         end
     end
 
-    -- Infrastructure: Trinkwasser, WC, Fahrradreparatur, Fahrradparken (kein Name nötig)
+    -- Infrastructure: Trinkwasser, WC, Fahrradreparatur, Fahrradparken
     if (import_all or import_infrastructure) then
         if tags.amenity == 'drinking_water' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'water_supply',
-                type     = 'amenity',
-                subtype  = 'drinking_water',
-                tags     = build_tags(tags, {'seasonal','bottle','access','fee'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'water_supply', poi_type = 'amenity', subtype = 'drinking_water',
+                extra_tags = build_tags(tags, {'seasonal','bottle','access','fee'}),
             })
         elseif tags.natural == 'spring' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'water_supply',
-                type     = 'natural',
-                subtype  = 'spring',
-                tags     = build_tags(tags, {'drinking_water','seasonal'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'water_supply', poi_type = 'natural', subtype = 'spring',
+                extra_tags = build_tags(tags, {'drinking_water','seasonal'}),
             })
         elseif tags.amenity == 'toilets' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'infrastructure',
-                type     = 'amenity',
-                subtype  = 'toilets',
-                tags     = build_tags(tags, {'access','fee','wheelchair'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'infrastructure', poi_type = 'amenity', subtype = 'toilets',
+                extra_tags = build_tags(tags, {'access','fee','wheelchair'}),
             })
         elseif tags.amenity == 'bicycle_repair_station' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'infrastructure',
-                type     = 'amenity',
-                subtype  = 'bicycle_repair_station',
-                tags     = build_tags(tags, {'tools','pump'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'infrastructure', poi_type = 'amenity', subtype = 'bicycle_repair_station',
+                extra_tags = build_tags(tags, {'tools','pump'}),
             })
         elseif tags.amenity == 'bicycle_parking' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'infrastructure',
-                type     = 'amenity',
-                subtype  = 'bicycle_parking',
-                tags     = build_tags(tags, {'capacity','covered','access','bicycle_parking'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'infrastructure', poi_type = 'amenity', subtype = 'bicycle_parking',
+                extra_tags = build_tags(tags, {'capacity','covered','access','bicycle_parking'}),
             })
         elseif tags.amenity == 'compressed_air' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'infrastructure',
-                type     = 'amenity',
-                subtype  = 'compressed_air',
-                tags     = build_tags(tags, {'fee','access'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'infrastructure', poi_type = 'amenity', subtype = 'compressed_air',
+                extra_tags = build_tags(tags, {'fee','access'}),
             })
         elseif tags.amenity == 'charging_station' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'infrastructure',
-                type     = 'amenity',
-                subtype  = 'charging_station',
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'infrastructure', poi_type = 'amenity', subtype = 'charging_station',
             })
         end
     end
 
-    -- Transport: Bus, Bahn, Tram, Fähre, Seilbahn-Station
+    -- Transport
     if (import_all or import_transport) then
         if (tags.highway == 'bus_stop' or tags.railway == 'station' or
             tags.railway == 'halt' or tags.railway == 'tram_stop' or
@@ -426,14 +380,9 @@ function osm2pgsql.process_node(object)
             local ptype = tags.highway and 'highway' or
                           (tags.railway and 'railway' or
                            (tags.aerialway and 'aerialway' or 'amenity'))
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'transport',
-                type     = ptype,
-                subtype  = subtype,
-                tags     = build_tags(tags, {'network','operator','ref'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'transport', poi_type = ptype, subtype = subtype,
+                extra_tags = build_tags(tags, {'network','operator','ref'}),
             })
         end
     end
@@ -441,14 +390,9 @@ function osm2pgsql.process_node(object)
     -- Parking
     if (import_all or import_infrastructure) then
         if tags.amenity == 'parking' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'parking',
-                type     = 'amenity',
-                subtype  = tags.parking or 'surface',
-                tags     = build_tags(tags, {'capacity','fee','access'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'parking', poi_type = 'amenity', subtype = tags.parking or 'surface',
+                extra_tags = build_tags(tags, {'capacity','fee','access'}),
             })
         end
     end
@@ -456,45 +400,30 @@ function osm2pgsql.process_node(object)
     -- Viewpoints + Towers
     if (import_all or import_viewpoints) then
         if tags.tourism == 'viewpoint' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'viewpoint',
-                type     = 'tourism',
-                subtype  = 'viewpoint',
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'viewpoint', poi_type = 'tourism', subtype = 'viewpoint',
             })
         elseif (tags.man_made == 'tower' and tags['tower:type'] == 'observation') or
                tags.man_made == 'observation_tower' then
             if tags.name then
-                tables.pois:insert({
-                    osm_id   = object.id,
-                    name     = tags.name,
-                    category = 'viewpoint',
-                    type     = 'man_made',
-                    subtype  = 'tower',
-                    tags     = build_tags(tags, {'tower:type','access'}),
-                    geom     = object:as_point(),
+                table.insert(results, {
+                    category = 'viewpoint', poi_type = 'man_made', subtype = 'tower',
+                    extra_tags = build_tags(tags, {'tower:type','access'}),
                 })
             end
         end
     end
 
-    -- Shops & Versorgung (benötigt Name)
+    -- Shops
     if (import_all or import_shops) then
         local shop_types = {
             supermarket=true, convenience=true, bakery=true, butcher=true,
             outdoor=true, sports=true, bicycle=true
         }
         if tags.shop and shop_types[tags.shop] and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'shop',
-                type     = 'shop',
-                subtype  = tags.shop,
-                tags     = build_tags(tags, {'opening_hours','wheelchair'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'shop', poi_type = 'shop', subtype = tags.shop,
+                extra_tags = build_tags(tags, {'opening_hours','wheelchair'}),
             })
         end
     end
@@ -506,160 +435,130 @@ function osm2pgsql.process_node(object)
             pitch=true, golf_course=true
         }
         if tags.sport == 'climbing' and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'sport',
-                type     = 'sport',
-                subtype  = 'climbing',
-                tags     = build_tags(tags, {'climbing:grade:uiaa','rock','fee'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'sport', poi_type = 'sport', subtype = 'climbing',
+                extra_tags = build_tags(tags, {'climbing:grade:uiaa','rock','fee'}),
             })
         elseif tags.leisure and leisure_sport_types[tags.leisure] and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'sport',
-                type     = 'leisure',
-                subtype  = tags.leisure,
-                tags     = build_tags(tags, {'sport','access'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'sport', poi_type = 'leisure', subtype = tags.leisure,
+                extra_tags = build_tags(tags, {'sport','access'}),
             })
         end
     end
 
     -- Camping, Feuerstellen, Picknick
     if (import_all or import_camping) then
-        if tags.tourism == 'camp_site' or tags.tourism == 'caravan_site' then
-            if tags.name then
-                tables.pois:insert({
-                    osm_id   = object.id,
-                    name     = tags.name,
-                    category = 'camping',
-                    type     = 'tourism',
-                    subtype  = tags.tourism,
-                    tags     = build_tags(tags, {'tents','fee','shower'}),
-                    geom     = object:as_point(),
-                })
-            end
+        if (tags.tourism == 'camp_site' or tags.tourism == 'caravan_site') and tags.name then
+            table.insert(results, {
+                category = 'camping', poi_type = 'tourism', subtype = tags.tourism,
+                extra_tags = build_tags(tags, {'tents','fee','shower'}),
+            })
         elseif tags.amenity == 'bbq' or tags.leisure == 'firepit' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
+            table.insert(results, {
                 category = 'camping',
-                type     = tags.amenity and 'amenity' or 'leisure',
+                poi_type = tags.amenity and 'amenity' or 'leisure',
                 subtype  = tags.amenity or tags.leisure,
-                geom     = object:as_point(),
             })
         elseif tags.leisure == 'picnic_table' or tags.tourism == 'picnic_site' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
+            table.insert(results, {
                 category = 'camping',
-                type     = tags.leisure and 'leisure' or 'tourism',
+                poi_type = tags.leisure and 'leisure' or 'tourism',
                 subtype  = 'picnic',
-                geom     = object:as_point(),
             })
         end
     end
 
-    -- Information: Wegweiser, Infotafeln, Kartenständer
+    -- Information
     if (import_all or import_information) then
         local info_types = {guidepost=true, board=true, map=true, office=true}
         if tags.information and info_types[tags.information] then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'information',
-                type     = 'tourism',
-                subtype  = tags.information,
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'information', poi_type = 'tourism', subtype = tags.information,
             })
         end
     end
 
-    -- Landmarks: Gipfelkreuze, Wasserfälle, heiße Quellen, Vermessungspunkte
+    -- Landmarks
     if (import_all or import_landmarks) then
         if tags.waterway == 'waterfall' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'landmark',
-                type     = 'waterway',
-                subtype  = 'waterfall',
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'landmark', poi_type = 'waterway', subtype = 'waterfall',
             })
         elseif tags.natural == 'hot_spring' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'landmark',
-                type     = 'natural',
-                subtype  = 'hot_spring',
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'landmark', poi_type = 'natural', subtype = 'hot_spring',
             })
-        elseif tags.man_made == 'cross' or (tags.historic == 'wayside_cross') then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
+        elseif tags.man_made == 'cross' or tags.historic == 'wayside_cross' then
+            table.insert(results, {
                 category = 'landmark',
-                type     = tags.man_made and 'man_made' or 'historic',
+                poi_type = tags.man_made and 'man_made' or 'historic',
                 subtype  = 'cross',
-                geom     = object:as_point(),
             })
         elseif tags.man_made == 'survey_point' then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'landmark',
-                type     = 'man_made',
-                subtype  = 'survey_point',
-                ele      = parse_ele(tags.ele),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'landmark', poi_type = 'man_made', subtype = 'survey_point',
+                ele_val  = parse_ele(tags.ele),
             })
         elseif tags.historic and tags.historic ~= 'yes' and tags.name then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'landmark',
-                type     = 'historic',
-                subtype  = tags.historic,
-                geom     = object:as_point(),
+            table.insert(results, {
+                category = 'landmark', poi_type = 'historic', subtype = tags.historic,
             })
         end
     end
 
-    -- Religion: Kapellen, Wegkreuze, Kirchen
+    -- Religion
     if (import_all or import_religion) then
         if tags.amenity == 'place_of_worship' or tags.building == 'chapel' or
            tags.historic == 'wayside_shrine' then
             if tags.name then
-                tables.pois:insert({
-                    osm_id   = object.id,
-                    name     = tags.name,
+                table.insert(results, {
                     category = 'religious',
-                    type     = tags.amenity and 'amenity' or (tags.building and 'building' or 'historic'),
+                    poi_type = tags.amenity and 'amenity' or (tags.building and 'building' or 'historic'),
                     subtype  = tags.religion or tags.amenity or 'shrine',
-                    geom     = object:as_point(),
                 })
             end
         end
     end
 
-    -- Barrier: Schranken, Tore (relevant für Routing)
+    -- Barrier
     if (import_all or import_infrastructure) then
         local barrier_types = {gate=true, lift_gate=true, cattle_grid=true, bollard=true, cycle_barrier=true}
         if tags.barrier and barrier_types[tags.barrier] then
-            tables.pois:insert({
-                osm_id   = object.id,
-                name     = tags.name,
-                category = 'barrier',
-                type     = 'barrier',
-                subtype  = tags.barrier,
-                tags     = build_tags(tags, {'access','bicycle','foot','locked'}),
-                geom     = object:as_point(),
+            table.insert(results, {
+                category   = 'barrier', poi_type = 'barrier', subtype = tags.barrier,
+                extra_tags = build_tags(tags, {'access','bicycle','foot','locked'}),
             })
         end
+    end
+
+    return results
+end
+
+-- Insert all POI matches for a given OSM object
+function insert_poi_matches(matches, osm_id, name, geom)
+    for _, m in ipairs(matches) do
+        tables.pois:insert({
+            osm_id   = osm_id,
+            name     = name,
+            category = m.category,
+            type     = m.poi_type,
+            subtype  = m.subtype,
+            ele      = m.ele_val,
+            tags     = m.extra_tags,
+            geom     = geom,
+        })
+    end
+end
+
+-- ============================================================
+-- process_node: POIs
+-- ============================================================
+
+function osm2pgsql.process_node(object)
+    local matches = classify_poi(object.tags)
+    if #matches > 0 then
+        insert_poi_matches(matches, object.id, object.tags.name, object:as_point())
     end
 end
 
@@ -863,6 +762,14 @@ function osm2pgsql.process_way(object)
             })
         end
     end
+
+    -- POIs als geschlossene Ways (Gebäude, Flächen)
+    if object.is_closed and object.tags.area ~= 'no' then
+        local matches = classify_poi(object.tags)
+        if #matches > 0 then
+            insert_poi_matches(matches, object.id, object.tags.name, object:as_polygon())
+        end
+    end
 end
 
 -- ============================================================
@@ -1040,6 +947,17 @@ function osm2pgsql.process_relation(object)
                         end
                     end
                 end
+            end
+        end
+    end
+
+    -- POIs als Multipolygon-Relationen (Campingplätze, Sportanlagen, Kirchen-Komplexe)
+    if object.tags.type == 'multipolygon' then
+        local matches = classify_poi(object.tags)
+        if #matches > 0 then
+            local mp = object:as_multipolygon()
+            if mp then  -- nil bei broken Relations (fehlende Members)
+                insert_poi_matches(matches, -object.id, object.tags.name, mp)
             end
         end
     end
