@@ -420,7 +420,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Set cycleroute flags with best network level
-	_, err = pool.Exec(ctx, `
+	_, err := pool.Exec(ctx, `
 		UPDATE osm_ways w SET
 			is_cycleroute = true,
 			cycleroute_network = sub.best_network
