@@ -466,7 +466,7 @@ export default function MapPage() {
   // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
   const lastPeaksUserId = useRef<string>('')
   const lastForestsUserId = useRef<string>('')
-  const lastAmenitiesUserId = useRef<string>('')
+  const lastPoisUserId = useRef<string>('')
 
   // Custom Maps
   const [showCustomMaps, setShowCustomMaps] = useState(false)
@@ -1848,37 +1848,35 @@ export default function MapPage() {
     }
   }, [overlayState.showVisitedPois, visitedPoisGeoJSON, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Amenities-Layer (Martin MVT) ──────────────────────────────────────────
+  // ── POIs-Layer (Martin MVT) ───────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
 
     if (overlayState.showAmenities) {
-      const amenityTileUrl = currentUserId
-        ? `${martinBase}/amenities/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
-        : `${martinBase}/amenities/{z}/{x}/{y}`
+      const poisTileUrl = `${martinBase}/pois_mvt/{z}/{x}/{y}`
 
       // Reload source when user_id changes
-      if (map.getSource('amenities-source') && lastAmenitiesUserId.current !== currentUserId) {
-        if (map.getLayer('amenities-layer')) map.removeLayer('amenities-layer')
-        map.removeSource('amenities-source')
+      if (map.getSource('pois-source') && lastPoisUserId.current !== currentUserId) {
+        if (map.getLayer('pois-layer')) map.removeLayer('pois-layer')
+        map.removeSource('pois-source')
       }
-      if (!map.getSource('amenities-source')) {
-        map.addSource('amenities-source', {
+      if (!map.getSource('pois-source')) {
+        map.addSource('pois-source', {
           type: 'vector',
-          tiles: [amenityTileUrl],
+          tiles: [poisTileUrl],
           minzoom: 0,
           maxzoom: 14,
         })
-        lastAmenitiesUserId.current = currentUserId
+        lastPoisUserId.current = currentUserId
       }
-      if (!map.getLayer('amenities-layer')) {
+      if (!map.getLayer('pois-layer')) {
         map.addLayer({
-          id: 'amenities-layer',
+          id: 'pois-layer',
           type: 'circle',
-          source: 'amenities-source',
-          'source-layer': 'amenities',
+          source: 'pois-source',
+          'source-layer': 'pois_mvt',
           minzoom: 10,
           paint: {
             'circle-color': '#f97316',
@@ -1889,8 +1887,8 @@ export default function MapPage() {
         })
       }
     } else {
-      if (map.getLayer('amenities-layer')) map.removeLayer('amenities-layer')
-      if (map.getSource('amenities-source')) map.removeSource('amenities-source')
+      if (map.getLayer('pois-layer')) map.removeLayer('pois-layer')
+      if (map.getSource('pois-source')) map.removeSource('pois-source')
     }
   }, [overlayState.showAmenities, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
