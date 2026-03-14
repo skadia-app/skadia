@@ -27,6 +27,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
+// maxStravaFileSize is the maximum decompressed size accepted from a Strava gzip file (500 MB).
+const maxStravaFileSize = 500 << 20
+
 // ActivitiesImporter reads activity CSV and imports FIT/GPX files from a Strava export.
 //
 // activities.csv structure (German headers, German number format):
@@ -608,7 +611,7 @@ func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("gzip open %s: %w", relPath, err)
 		}
 		defer gr.Close()
-		raw, err = io.ReadAll(gr)
+		raw, err = io.ReadAll(io.LimitReader(gr, maxStravaFileSize))
 		if err != nil {
 			return nil, "", fmt.Errorf("gzip read %s: %w", relPath, err)
 		}

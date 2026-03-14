@@ -18,6 +18,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// maxBRouterResponseSize is the maximum accepted BRouter HTTP response size (10 MB).
+const maxBRouterResponseSize = 10 << 20
+
 // RouteSuggestionRequest is the request body for POST /api/v1/routes/suggest.
 type RouteSuggestionRequest struct {
 	// Start is [longitude, latitude] of the starting point.
@@ -407,13 +410,13 @@ func (h *Handler) routeViaBRouterRaw(ctx context.Context, waypoints [][2]float64
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBRouterResponseSize))
 		slog.Warn("SuggestRoutes: BRouter non-200, using straight-line fallback",
 			"status", resp.StatusCode, "body", string(body))
 		return h.straightLineGeoJSON(waypoints), true, nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBRouterResponseSize))
 	if err != nil {
 		slog.Warn("SuggestRoutes: failed to read BRouter response, using fallback", "error", err)
 		return h.straightLineGeoJSON(waypoints), true, nil
