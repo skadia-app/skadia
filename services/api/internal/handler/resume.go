@@ -59,6 +59,12 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
 		}
 	}
+
+	// Stale 'importing' regions zurücksetzen (Import war nicht abgeschlossen)
+	if _, err := h.DB.Pool.Exec(ctx,
+		`UPDATE osm_import_regions SET status = 'failed' WHERE status = 'importing'`); err != nil {
+		slog.Warn("resume: failed to reset stale importing regions", "error", err)
+	}
 }
 
 // resumeSegmentRecompute restarts a segment recompute job from scratch.
