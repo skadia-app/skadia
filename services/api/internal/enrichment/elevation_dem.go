@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,8 +46,8 @@ func fetchDEMBatch(ctx context.Context, lats, lngs []float64) ([]float64, error)
 	latStrs := make([]string, len(lats))
 	lngStrs := make([]string, len(lngs))
 	for i := range lats {
-		latStrs[i] = fmt.Sprintf("%.6f", lats[i])
-		lngStrs[i] = fmt.Sprintf("%.6f", lngs[i])
+		latStrs[i] = strconv.FormatFloat(lats[i], 'f', 6, 64)
+		lngStrs[i] = strconv.FormatFloat(lngs[i], 'f', 6, 64)
 	}
 
 	url := fmt.Sprintf("%s?latitude=%s&longitude=%s",

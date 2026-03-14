@@ -164,8 +164,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// DEM-Höhenkorrektur via Open-Meteo (best-effort, vor Reverse-Geocoding)
 	if data.HasGPS && len(data.Streams) > 0 {
 		// Koordinaten aus Streams extrahieren
-		var demLats, demLngs []float64
-		var demIndices []int
+		demLats := make([]float64, 0, len(data.Streams))
+		demLngs := make([]float64, 0, len(data.Streams))
+		demIndices := make([]int, 0, len(data.Streams))
 		for i, s := range data.Streams {
 			if s.Lat != nil && s.Lng != nil {
 				demLats = append(demLats, *s.Lat)
