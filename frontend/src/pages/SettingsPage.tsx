@@ -1312,7 +1312,7 @@ function LocalMapAndGeoSection() {
                       </div>
                     )}
                     {osmStatus.railways > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-3 text-center">
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
                         <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.railways.toLocaleString('de')}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">Eisenbahn</div>
                       </div>
@@ -1356,7 +1356,7 @@ function LocalMapAndGeoSection() {
                       </div>
                     )}
                     {osmStatus.landuse > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-3 text-center">
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
                         <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.landuse.toLocaleString('de')}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">Landnutzung</div>
                       </div>
