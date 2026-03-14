@@ -4,6 +4,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
+const costBlocked float32 = 10_000 // effectively impassable
+
 // CostConfig holds the routing cost configuration.
 // EdgeCost is a closure — Phase 4 creates it from SportProfile.
 type CostConfig struct {
@@ -14,7 +16,7 @@ type CostConfig struct {
 	DownhillCutoff     float32
 	ElevPenaltyBuffer  float32 // meters
 	ElevMaxBuffer      float32 // meters
-	ElevBufferReduce   float32
+	ElevBufferReduce   float32 // reserved for Phase 4: buffer decay rate per meter of flat terrain
 
 	// A* control
 	Pass0Coefficient float32
@@ -61,12 +63,12 @@ func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) float32 {
 	sf := graph.DecodeSurface(tags)
 	access := graph.DecodeAccess(tags)
 
-	// Block motorways/trunks and no-access
-	if hw <= 4 { // motorway, motorway_link, trunk, trunk_link
-		return distM * 10000 // effectively blocked
+	// Block unknown (0), motorways/trunks (1-4) and no-access
+	if hw <= 4 {
+		return distM * costBlocked
 	}
 	if access == 2 { // no
-		return distM * 10000
+		return distM * costBlocked
 	}
 
 	hwFactor := highwayCostFactor(hw)
