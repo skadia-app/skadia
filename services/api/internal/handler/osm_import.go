@@ -237,22 +237,38 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 			return err
 		}
 	}
-	// osm_ways wird nie per TRUNCATE geleert — gezieltes DELETE schützt ferry/via_ferrata-Rows
-	// die ggf. als separate Kategorie importiert wurden.
+	// osm_ways: Wenn alle Sub-Kategorien gewählt → TRUNCATE (schneller als 3 DELETEs)
+	hasWays, hasFerries, hasClimbing := false, false, false
 	for _, cat := range categories {
-		var sql string
 		switch cat {
 		case "ways":
-			// Löscht alles außer Ferry/Climbing (die über eigene Kategorien verwaltet werden)
-			sql = "DELETE FROM osm_ways WHERE highway NOT IN ('ferry', 'via_ferrata')"
+			hasWays = true
 		case "ferries":
-			sql = "DELETE FROM osm_ways WHERE highway = 'ferry'"
+			hasFerries = true
 		case "climbing":
-			sql = "DELETE FROM osm_ways WHERE highway = 'via_ferrata'"
+			hasClimbing = true
 		}
-		if sql != "" {
-			if _, err := h.DB.Pool.Exec(ctx, sql); err != nil {
-				return err
+	}
+	if hasWays && hasFerries && hasClimbing {
+		if _, err := h.DB.Pool.Exec(ctx, "TRUNCATE osm_ways CASCADE"); err != nil {
+			return err
+		}
+	} else {
+		// Gezieltes DELETE schützt ferry/via_ferrata-Rows die als separate Kategorie verwaltet werden
+		for _, cat := range categories {
+			var sql string
+			switch cat {
+			case "ways":
+				sql = "DELETE FROM osm_ways WHERE highway NOT IN ('ferry', 'via_ferrata')"
+			case "ferries":
+				sql = "DELETE FROM osm_ways WHERE highway = 'ferry'"
+			case "climbing":
+				sql = "DELETE FROM osm_ways WHERE highway = 'via_ferrata'"
+			}
+			if sql != "" {
+				if _, err := h.DB.Pool.Exec(ctx, sql); err != nil {
+					return err
+				}
 			}
 		}
 	}
