@@ -6,7 +6,7 @@ import { apiClient } from './client'
 
 export interface ImportQueueItem {
   id: string
-  item_type: 'image_no_exif' | 'image_ambiguous' | 'image_no_match' | 'pdf_untyped' | 'duplicate' | 'import_error'
+  item_type: 'image_no_exif' | 'image_ambiguous' | 'image_no_match' | 'pdf_untyped' | 'duplicate' | 'import_error' | 'sport_conflict'
   status: 'pending' | 'resolved' | 'dismissed'
   filename: string
   file_size?: number
@@ -16,6 +16,9 @@ export interface ImportQueueItem {
     duplicate_of?: string
     duplicate_of_title?: string
     ambiguous_candidates?: Array<{ activity_id: string; activity_title: string; started_at: string }>
+    activity_id?: string
+    platform_sport?: string
+    file_sport?: string
   }
 }
 
