@@ -20,7 +20,7 @@ func equirectDist(lat1, lon1, lat2, lon2 int32) float32 {
 }
 
 // cosApprox computes cos(x) using Bhaskara I's approximation.
-// Accuracy: <0.2% error for |x| < pi/2 (covers all Earth latitudes).
+// Accuracy: <0.2% error for |x| < 1.0 rad (latitudes up to ~57°).
 func cosApprox(x float32) float32 {
 	// Bhaskara: cos(x) ≈ (pi²-4x²) / (pi²+x²)
 	const pi2 = math.Pi * math.Pi

@@ -44,6 +44,9 @@ func (f *Frontier) Push(e FrontierEntry) {
 
 // Pop removes and returns the entry with the lowest key (Cost + AirDist).
 func (f *Frontier) Pop() FrontierEntry {
+	if f.size == 0 {
+		panic("routing: Pop on empty Frontier")
+	}
 	f.size--
 	min := f.entries[0]
 	f.entries[0] = f.entries[f.size]
@@ -70,20 +73,25 @@ func (f *Frontier) siftUp(i int) {
 }
 
 func (f *Frontier) siftDown(i int) {
+	ki := f.key(i)
 	for {
 		left := 2*i + 1
 		if left >= f.size {
 			break
 		}
 		smallest := left
-		right := left + 1
-		if right < f.size && f.key(right) < f.key(left) {
-			smallest = right
+		kSmallest := f.key(left)
+		if right := left + 1; right < f.size {
+			if kr := f.key(right); kr < kSmallest {
+				smallest = right
+				kSmallest = kr
+			}
 		}
-		if f.key(i) <= f.key(smallest) {
+		if ki <= kSmallest {
 			break
 		}
 		f.entries[i], f.entries[smallest] = f.entries[smallest], f.entries[i]
 		i = smallest
+		// ki stays the same: we continue sifting the same element downward
 	}
 }
