@@ -740,7 +740,7 @@ func mapStravaSportType(stravaSport string) string {
 		return "open_water_swimming"
 	// Water sports
 	case "Stand-up-Paddeln", "SUP":
-		return "stand_up_paddling"
+		return "stand_up_paddleboarding"
 	case "Kajak fahren", "Kajak":
 		return "kayaking"
 	case "Rudern":
