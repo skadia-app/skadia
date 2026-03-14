@@ -333,7 +333,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 
 		reporter.SetPhase("enrichment")
 		reporter.SetProgress(0)
-		if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, func(pct int) {
+		if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, false, func(pct int) {
 			reporter.SetProgress(int64(pct))
 		}); err != nil {
 			slog.Error("retry enrichment: spatial enrichment failed", "error", err)

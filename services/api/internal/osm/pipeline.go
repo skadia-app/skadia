@@ -74,9 +74,11 @@ var categoryToTable = map[string][]string{
 	"glaciers":   {"osm_glaciers"},
 	"wetlands":   {"osm_wetlands"},
 	"boundaries": {"osm_boundaries"},
-	"pistes":     {"osm_pistes"},
+	"pistes":     {"osm_pistes", "osm_piste_areas"},
 	"lifts":      {"osm_lifts"},
 	"routes":     {"osm_routes"},
+	"landuse":    {"osm_landuse"},
+	"railways":   {"osm_railways"},
 	// "ferries" intentionally omitted — uses targeted DELETE, not TRUNCATE
 }
 
@@ -107,6 +109,8 @@ var categoryEnvVars = map[string][]string{
 	"ferries":        {"SKADIA_IMPORT_FERRIES"},
 	"climbing":       {"SKADIA_IMPORT_CLIMBING"},
 	"routes":         {"SKADIA_IMPORT_ROUTES"},
+	"landuse":        {"SKADIA_IMPORT_LANDUSE"},
+	"railways":       {"SKADIA_IMPORT_RAILWAYS"},
 }
 
 // Run executes the full OSM import pipeline. It reports progress via reporter and never returns an error —
@@ -361,6 +365,10 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		{"osm_routes", "tags"},
 		{"osm_boundaries", "geom"},
 		{"osm_boundaries", "tags"},
+		{"osm_landuse", "geom"},
+		{"osm_railways", "geom"},
+		{"osm_piste_areas", "geom"},
+		{"osm_piste_areas", "tags"},
 	}
 	for _, t := range lz4Tables {
 		if _, err := p.Pool.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET COMPRESSION lz4", t.table, t.col)); err != nil {
@@ -425,6 +433,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		{[]string{"waterways"}, "UPDATE osm_waterways SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"waterways"}, "UPDATE osm_waters SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"pistes"}, "UPDATE osm_pistes SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"pistes"}, "UPDATE osm_piste_areas SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"landuse"}, "UPDATE osm_landuse SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"railways"}, "UPDATE osm_railways SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"forests"}, "UPDATE osm_forests SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"glaciers"}, "UPDATE osm_glaciers SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"wetlands"}, "UPDATE osm_wetlands SET geom = ST_QuantizeCoordinates(geom, 6)"},
@@ -574,7 +585,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			reporter.SetProgress(0)
 			slog.Info("osm import: starting spatial enrichment")
 
-			if err := RunSpatialEnrichment(ctx, p.Pool, func(pct int) {
+			if err := RunSpatialEnrichment(ctx, p.Pool, true, func(pct int) {
 				reporter.SetProgress(int64(pct))
 			}); err != nil {
 				slog.Error("osm import: spatial enrichment failed", "error", err)
@@ -691,6 +702,16 @@ func (p *Pipeline) clearOSMData(ctx context.Context, categories []string) error 
 			return err
 		}
 	}
+	// Enrichment-Raster-Tiles invalidieren wenn relevante Kategorien importiert werden
+	enrichmentCats := map[string]bool{"forests": true, "boundaries": true, "landuse": true, "ways": true}
+	for _, cat := range categories {
+		if enrichmentCats[cat] {
+			if _, err := p.Pool.Exec(ctx, "TRUNCATE enrichment.raster_tiles"); err != nil {
+				slog.Warn("clearOSMData: truncate enrichment.raster_tiles failed (may not exist yet)", "error", err)
+			}
+			break
+		}
+	}
 	// osm_ways: Wenn alle Sub-Kategorien gewählt → TRUNCATE (schneller als 3 DELETEs)
 	hasWays, hasFerries, hasClimbing := false, false, false
 	for _, cat := range categories {
@@ -805,6 +826,10 @@ func buildParallelIndexGroups(categories []string) [][]string {
 		{"boundaries", "osm_boundaries_geog_idx", "osm_boundaries", "USING gist ((geom::geography))"},
 		{"pistes", "osm_pistes_geog_idx", "osm_pistes", "USING gist ((geom::geography))"},
 		{"routes", "osm_routes_geog_idx", "osm_routes", "USING gist ((geom::geography))"},
+		{"landuse", "idx_osm_landuse_geom", "osm_landuse", "USING GIST (geom)"},
+		{"landuse", "idx_osm_landuse_type", "osm_landuse", "(landuse)"},
+		{"railways", "idx_osm_railways_geom", "osm_railways", "USING GIST (geom)"},
+		{"pistes", "idx_osm_piste_areas_geom", "osm_piste_areas", "USING GIST (geom)"},
 	}
 
 	var indexStmts []string
@@ -891,8 +916,10 @@ func buildVacuumTables(categories []string) []string {
 		"glaciers":   {"osm_glaciers"},
 		"wetlands":   {"osm_wetlands"},
 		"boundaries": {"osm_boundaries"},
-		"pistes":     {"osm_pistes"},
+		"pistes":     {"osm_pistes", "osm_piste_areas"},
 		"routes":     {"osm_routes"},
+		"landuse":    {"osm_landuse"},
+		"railways":   {"osm_railways"},
 	}
 
 	seen := make(map[string]bool)

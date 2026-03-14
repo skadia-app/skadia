@@ -12,8 +12,9 @@ import (
 
 // RunSpatialEnrichment runs all 6 enrichment sub-phases on osm_ways.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
+// rebuildRaster: when true, raster tiles are rebuilt after enrichment (Task 5 implements this).
 // Reports progress via the progressFn callback (0-100).
-func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, progressFn func(int)) error {
+func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, rebuildRaster bool, progressFn func(int)) error {
 	type enrichStep struct {
 		name string
 		pct  int
