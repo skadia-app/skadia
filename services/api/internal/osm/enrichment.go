@@ -58,6 +58,9 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 	}
 
 	for _, step := range steps {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("enrichment cancelled before %s: %w", step.name, err)
+		}
 		slog.Info("enrichment: step starting", "step", step.name)
 		if err := step.fn(ctx, pool); err != nil {
 			return fmt.Errorf("enrichment step %s: %w", step.name, err)
@@ -305,6 +308,12 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		if _, err := conn.Exec(ctx, step.sql); err != nil {
 			return fmt.Errorf("enrichment traffic_class step %s: %w", step.name, err)
 		}
+	}
+
+	// Default 0 for ways not covered by the traffic grid (path, track, footway, etc.)
+	if _, err = pool.Exec(ctx, `UPDATE osm_ways SET traffic_class = 0
+		WHERE highway IS NOT NULL AND traffic_class IS NULL`); err != nil {
+		slog.Warn("enrichment: traffic_class null default failed", "error", err)
 	}
 
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
