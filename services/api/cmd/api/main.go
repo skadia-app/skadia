@@ -311,6 +311,8 @@ func main() {
 			r.Get("/admin/osm-regions", h.ListOSMRegions)
 			r.Post("/admin/osm-import/start", h.StartOSMImport)
 			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
+			r.Post("/admin/osm-import/retry-enrichment", h.RetryOSMEnrichment)
+			r.Post("/admin/osm-import/retry-topology", h.RetryOSMTopology)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
 			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
 

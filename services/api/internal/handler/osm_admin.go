@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 )
 
 // GetOSMStatus returns counts from OSM tables.
@@ -309,4 +314,74 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 		sources = []demSource{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": sources, "total_tiles": totalTiles})
+}
+
+// RetryOSMEnrichment re-runs only the enrichment + splitting phases (6+7) on existing osm_ways.
+// POST /api/v1/admin/osm-import/retry-enrichment
+func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	entityName := "Enrichment Retry"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+		reporter.SetPhase("enrichment")
+		reporter.SetProgress(0)
+		if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, func(pct int) {
+			reporter.SetProgress(int64(pct))
+		}); err != nil {
+			slog.Error("retry enrichment: spatial enrichment failed", "error", err)
+		}
+
+		reporter.SetPhase("splitting")
+		reporter.SetProgress(0)
+		if err := osmregions.SplitAtIntersections(ctx, h.DB.Pool, func(pct int) {
+			reporter.SetProgress(int64(pct))
+		}); err != nil {
+			slog.Error("retry enrichment: splitting failed", "error", err)
+		}
+
+		reporter.Complete()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// RetryOSMTopology re-runs only the topology build phase (5) on existing osm_ways.
+// POST /api/v1/admin/osm-import/retry-topology
+func (h *Handler) RetryOSMTopology(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	entityName := "Topology Retry"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 5)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+		pipeline := &osmregions.Pipeline{
+			Pool:    h.DB.Pool,
+			DataDir: os.Getenv("OSM_DATA_DIR"),
+			DBURL:   os.Getenv("DATABASE_URL"),
+		}
+		if pipeline.DataDir == "" {
+			pipeline.DataDir = "/data/osm"
+		}
+
+		reporter.SetPhase("topology")
+		reporter.SetProgress(0)
+		pipeline.RunTopologyOnly(ctx, reporter)
+		reporter.Complete()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
