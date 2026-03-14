@@ -211,7 +211,7 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 	startClusters := clusterConsecutive(nearStart, 5)
 	endClusters := clusterConsecutive(nearEnd, 5)
 
-	var result []traversal
+	result := make([]traversal, 0, 4)
 
 	// Forward traversals: enter near start, exit near end.
 	// Use the cluster point nearest to the actual segment endpoint so the sub-track
@@ -267,7 +267,7 @@ func nearestInCluster(stream []database.GPSStreamPoint, cluster []int, lat, lng 
 // findProximityIndices returns all stream indices where the point is within
 // thresholdM meters of the target coordinate.
 func findProximityIndices(stream []database.GPSStreamPoint, lat, lng, thresholdM float64) []int {
-	var result []int
+	result := make([]int, 0, len(stream)/10+1)
 	for i, p := range stream {
 		if haversineM(p.Lat, p.Lng, lat, lng) <= thresholdM {
 			result = append(result, i)
@@ -282,7 +282,7 @@ func clusterConsecutive(indices []int, maxGap int) [][]int {
 		return nil
 	}
 
-	var clusters [][]int
+	clusters := make([][]int, 0, 8)
 	current := []int{indices[0]}
 	for i := 1; i < len(indices); i++ {
 		if indices[i]-indices[i-1] <= maxGap {
