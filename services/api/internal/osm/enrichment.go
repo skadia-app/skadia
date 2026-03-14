@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -476,6 +477,38 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// getOSMWaysColumns queries information_schema.columns for the ordered column list of osm_ways.
+// Returns column names in ordinal order. Never returns noded-only columns (parent_way_id, source, target).
+func getOSMWaysColumns(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'osm_ways'
+		ORDER BY ordinal_position
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("getOSMWaysColumns: query: %w", err)
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			return nil, fmt.Errorf("getOSMWaysColumns: scan: %w", err)
+		}
+		cols = append(cols, col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("getOSMWaysColumns: rows: %w", err)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("getOSMWaysColumns: no columns found for osm_ways (table missing?)")
+	}
+	return cols, nil
+}
+
 // SplitAtIntersections creates osm_ways_noded by splitting ways at shared intermediate nodes.
 // Uses ST_SnapToGrid for robust coordinate matching. Uses pool.Acquire() for TEMP table persistence.
 // The noded table inherits all osm_ways columns plus parent_way_id, source, target.
@@ -488,6 +521,52 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 		return fmt.Errorf("splitting: acquire conn: %w", err)
 	}
 	defer conn.Release()
+
+	// Build dynamic column lists from information_schema to survive future migrations.
+	allCols, err := getOSMWaysColumns(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("splitting: %w", err)
+	}
+
+	// GROUP BY needs all columns (w.<col>). way_id is the primary key and must be included.
+	groupByCols := make([]string, len(allCols))
+	for i, col := range allCols {
+		groupByCols[i] = "w." + col
+	}
+	groupByClause := strings.Join(groupByCols, ", ")
+
+	// SELECT list for split_ways: way_id → nextval, geom → ST_Dump(ST_Split(...)),
+	// all other columns forwarded as w.<col>.
+	var selectParts []string
+	for _, col := range allCols {
+		switch col {
+		case "way_id":
+			selectParts = append(selectParts, "nextval('osm_ways_noded_way_id_seq')")
+		case "geom":
+			selectParts = append(selectParts, "(ST_Dump(ST_Split(w.geom, w.split_points))).geom")
+		default:
+			selectParts = append(selectParts, "w."+col)
+		}
+	}
+	// Append noded-only columns
+	selectParts = append(selectParts, "w.way_id AS parent_way_id", "NULL::BIGINT", "NULL::BIGINT")
+	selectClause := strings.Join(selectParts, ",\n\t\t\t\t")
+
+	splitWaysSQL := fmt.Sprintf(`
+		INSERT INTO osm_ways_noded
+		WITH ways_to_split AS (
+			SELECT w.*, ST_Collect(sn.pt) AS split_points
+			FROM osm_ways w
+			JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.00002)
+			WHERE w.highway IS NOT NULL
+			  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
+			  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
+			GROUP BY %s
+		)
+		SELECT
+			%s
+		FROM ways_to_split w
+	`, groupByClause, selectClause)
 
 	steps := []struct {
 		name string
@@ -537,47 +616,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
 			)
 		`},
-		{"split_ways", 80, `
-			INSERT INTO osm_ways_noded
-			WITH ways_to_split AS (
-				SELECT w.*, ST_Collect(sn.pt) AS split_points
-				FROM osm_ways w
-				JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.00002)
-				WHERE w.highway IS NOT NULL
-				  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
-				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
-				GROUP BY w.way_id, w.osm_id, w.name, w.ref, w.highway, w.surface,
-					w.tracktype, w.smoothness, w.sac_scale, w.mtb_scale,
-					w.mtb_scale_uphill, w.via_ferrata_scale, w.trail_visibility,
-					w.width, w.incline, w.lanes, w.cycleway, w.cycleway_left,
-					w.cycleway_right, w.cycleway_both, w.bicycle_road,
-					w.segregated, w.sidewalk, w.maxspeed, w.motor_vehicle,
-					w.access, w.foot, w.bicycle, w.horse, w.ski,
-					w.oneway, w.oneway_bicycle, w.bridge, w.tunnel, w.ford,
-					w.lit, w.winter_service, w.network, w.operator, w.tags, w.geom,
-					w.forest_pct, w.noise_score, w.traffic_class,
-					w.protected_area, w.landuse_class, w.is_cycleroute,
-					w.is_hikeroute, w.cycleroute_network, w.hikeroute_network
-			)
-			SELECT
-				nextval('osm_ways_noded_way_id_seq'),
-				w.osm_id, w.name, w.ref, w.highway, w.surface,
-				w.tracktype, w.smoothness, w.sac_scale, w.mtb_scale,
-				w.mtb_scale_uphill, w.via_ferrata_scale, w.trail_visibility,
-				w.width, w.incline, w.lanes, w.cycleway, w.cycleway_left,
-				w.cycleway_right, w.cycleway_both, w.bicycle_road,
-				w.segregated, w.sidewalk, w.maxspeed, w.motor_vehicle,
-				w.access, w.foot, w.bicycle, w.horse, w.ski,
-				w.oneway, w.oneway_bicycle, w.bridge, w.tunnel, w.ford,
-				w.lit, w.winter_service, w.network, w.operator, w.tags,
-				(ST_Dump(ST_Split(w.geom, w.split_points))).geom,
-				w.forest_pct, w.noise_score, w.traffic_class,
-				w.protected_area, w.landuse_class, w.is_cycleroute,
-				w.is_hikeroute, w.cycleroute_network, w.hikeroute_network,
-				w.way_id AS parent_way_id,
-				NULL::BIGINT, NULL::BIGINT
-			FROM ways_to_split w
-		`},
+		{"split_ways", 80, splitWaysSQL},
 		{"cleanup_shared_nodes", 85, `
 			DROP TABLE IF EXISTS shared_nodes;
 		`},
