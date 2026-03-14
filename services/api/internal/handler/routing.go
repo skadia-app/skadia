@@ -22,7 +22,13 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.Context().Value("user_id").(string)
+	userID, _ := r.Context().Value("user_id").(string)
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": "unauthorized",
+		})
+		return
+	}
 
 	graphPath := h.Config.RoutingGraphPath
 	if graphPath == "" {
@@ -202,6 +208,12 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			cfg.ElevMaxBuffer = *req.Config.ElevMaxBuffer
+		}
+		if cfg.ElevPenaltyBuffer > cfg.ElevMaxBuffer {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "elev_penalty_buffer must be <= elev_max_buffer",
+			})
+			return
 		}
 		cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
 	}
