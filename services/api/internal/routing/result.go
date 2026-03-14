@@ -137,10 +137,10 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 	node := dst
 	maxIter := int(g.NodeCount)
 	for node != src && maxIter > 0 {
-		path = append(path, node)
 		if nodeGen[node] != gen {
 			break // should not happen if route was found
 		}
+		path = append(path, node)
 		edges = append(edges, parentEdge[node])
 		node = parentNode[node]
 		maxIter--
