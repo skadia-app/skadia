@@ -1,12 +1,5 @@
 package routing
 
-// PathState — stub, replaced by hysteresis.go in Task 3.
-// Remove this after Task 3.
-type PathState struct {
-	Ehbu int32
-	Ehbd int32
-}
-
 // FrontierEntry is a priority queue entry for A*/Dijkstra search.
 // 28 bytes. Priority key = Cost + AirDist.
 type FrontierEntry struct {

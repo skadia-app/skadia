@@ -1,0 +1,85 @@
+package routing
+
+// CostConfig — stub, replaced by cost.go in Task 4.
+// Remove this after Task 4.
+type CostConfig struct {
+	UphillCostFactor   float32
+	DownhillCostFactor float32
+	UphillCutoff       float32
+	DownhillCutoff     float32
+	ElevPenaltyBuffer  float32
+	ElevMaxBuffer      float32
+}
+
+// PathState holds the elevation hysteresis buffers.
+// 8 bytes, inline copied (too small for sync.Pool).
+type PathState struct {
+	Ehbu int32 // uphill buffer in millimeters
+	Ehbd int32 // downhill buffer in millimeters
+}
+
+// propagateHysteresis updates hysteresis buffers and returns elevation cost.
+// deltaEleMilli: elevation change in millimeters (positive = uphill).
+// distMilli: edge distance in millimeters.
+func propagateHysteresis(parent PathState, deltaEleMilli int32,
+	distMilli int32, cfg *CostConfig) (PathState, float32) {
+
+	state := parent
+
+	// Accumulate buffers
+	state.Ehbd += -deltaEleMilli - int32(float32(distMilli)*cfg.DownhillCutoff)
+	state.Ehbu += deltaEleMilli - int32(float32(distMilli)*cfg.UphillCutoff)
+
+	// Clamp to [0, ElevMaxBuffer]
+	if state.Ehbd < 0 {
+		state.Ehbd = 0
+	}
+	if state.Ehbu < 0 {
+		state.Ehbu = 0
+	}
+	maxBuf := int32(cfg.ElevMaxBuffer * 1e3)
+	if state.Ehbd > maxBuf {
+		state.Ehbd = maxBuf
+	}
+	if state.Ehbu > maxBuf {
+		state.Ehbu = maxBuf
+	}
+
+	// Cost activation
+	var elevCost float32
+	penBuf := int32(cfg.ElevPenaltyBuffer * 1e3)
+	if state.Ehbd > penBuf {
+		excess := float32(state.Ehbd-penBuf) / 1e3
+		elevCost += excess * cfg.DownhillCostFactor
+	}
+	if state.Ehbu > penBuf {
+		excess := float32(state.Ehbu-penBuf) / 1e3
+		elevCost += excess * cfg.UphillCostFactor
+	}
+
+	return state, elevCost
+}
+
+// elevationCorrection estimates the latent cost stored in the hysteresis buffers.
+// Used for closed-set comparison: bestCost stores cost + elevationCorrection.
+func (s PathState) elevationCorrection(cfg *CostConfig) float32 {
+	var correction float32
+	if s.Ehbu > 0 {
+		correction += float32(s.Ehbu) / 1e3 * cfg.UphillCostFactor
+	}
+	if s.Ehbd > 0 {
+		correction += float32(s.Ehbd) / 1e3 * cfg.DownhillCostFactor
+	}
+	return correction
+}
+
+// isWorse checks if a new path to nodeID is worse than the best known path.
+// Returns false if node was never visited in the current generation.
+func isWorse(nodeID uint32, cost float32, state PathState,
+	bestCost []float32, nodeGen []uint32, gen uint32, cfg *CostConfig) bool {
+	if nodeGen[nodeID] != gen {
+		return false
+	}
+	effectiveNew := cost + state.elevationCorrection(cfg)
+	return effectiveNew >= bestCost[nodeID]
+}
