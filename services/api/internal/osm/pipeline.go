@@ -387,7 +387,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		{[]string{"peaks", "passes", "settlements", "gastronomy", "accommodation",
 			"infrastructure", "transport", "viewpoints", "shops", "sport",
 			"camping", "information", "landmarks", "religion"},
-			"UPDATE osm_pois SET geom = ST_QuantizeCoordinates(geom, 6)"},
+			"UPDATE osm_pois SET geom = ST_MakeValid(ST_QuantizeCoordinates(ST_MakeValid(geom), 6))"},
 		{[]string{"ways", "ferries", "climbing"}, "UPDATE osm_ways SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"lifts"}, "UPDATE osm_lifts SET geom = ST_QuantizeCoordinates(geom, 6)"},
 		{[]string{"waterways"}, "UPDATE osm_waterways SET geom = ST_QuantizeCoordinates(geom, 6)"},
@@ -787,6 +787,25 @@ func buildParallelIndexGroups(categories []string) [][]string {
 	for _, pc := range poiCats {
 		if catSet[pc] {
 			analyzeTables["osm_pois"] = true
+			// osm_pois: Partial GIST indexes + category B-Tree + trigram (lost in --create mode)
+			poisIndexes := []string{
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_geom ON osm_pois USING GIST(geom)",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_peak ON osm_pois USING GIST(geom) WHERE category = 'peak'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_pass ON osm_pois USING GIST(geom) WHERE category = 'pass'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_settlement ON osm_pois USING GIST(geom) WHERE category = 'settlement'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_gastronomy ON osm_pois USING GIST(geom) WHERE category = 'gastronomy'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_accommodation ON osm_pois USING GIST(geom) WHERE category = 'accommodation'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_shelter ON osm_pois USING GIST(geom) WHERE category = 'shelter'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_water_supply ON osm_pois USING GIST(geom) WHERE category = 'water_supply'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_transport ON osm_pois USING GIST(geom) WHERE category = 'transport'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_parking ON osm_pois USING GIST(geom) WHERE category = 'parking'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_viewpoint ON osm_pois USING GIST(geom) WHERE category = 'viewpoint'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_shop ON osm_pois USING GIST(geom) WHERE category = 'shop'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_barrier ON osm_pois USING GIST(geom) WHERE category = 'barrier'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_category ON osm_pois(category)",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_name_trgm ON osm_pois USING GIN(name gin_trgm_ops) WHERE name IS NOT NULL",
+			}
+			indexStmts = append(indexStmts, poisIndexes...)
 			break
 		}
 	}
