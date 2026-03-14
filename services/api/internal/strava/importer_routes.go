@@ -64,10 +64,10 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 			continue
 		}
 
-		name := stravaCSVField(row, colIdx, "route name", "name")
-		routeID := stravaCSVField(row, colIdx, "route id", "id")
-		gpxFile := stravaCSVField(row, colIdx, "filename", "gpx filename")
-		csvSport := stravaCSVField(row, colIdx, "sport type", "type", "activity type")
+		name := stravaCSVField(row, colIdx, "route name", "routenname", "name")
+		routeID := stravaCSVField(row, colIdx, "route id", "routenid", "id")
+		gpxFile := stravaCSVField(row, colIdx, "filename", "routendateiname", "gpx filename")
+		csvSport := stravaCSVField(row, colIdx, "sport type", "sportart", "type", "activity type")
 		sportType := stravaRouteTypeToSport(csvSport)
 
 		if name == "" || gpxFile == "" {
