@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -43,7 +44,9 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 
 	var req resolveSportConflictRequest
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			slog.Warn("sport conflict resolve: invalid request body", "error", err)
+		}
 	}
 
 	// Resolve via DB method (TOCTOU-safe: WHERE sport_conflict_pending = true)
@@ -69,7 +72,13 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	if req.SportType != "" && req.SportType != activity.SportType {
 		// Create background_jobs entry so ActiveJobsIndicator shows progress
 		entityID := activityID
-		entityName := fmt.Sprintf("Sport-Konflikt: %s", activityID)
+		activityTitle := activityID
+		if activity.Title != nil && *activity.Title != "" {
+			activityTitle = *activity.Title
+		} else if activity.TitleAuto != nil && *activity.TitleAuto != "" {
+			activityTitle = *activity.TitleAuto
+		}
+		entityName := fmt.Sprintf("Sport-Konflikt: %s", activityTitle)
 		jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute", &entityID, &entityName, 1)
 		if jobErr != nil {
 			slog.Warn("sport conflict: failed to create background job", "error", jobErr)

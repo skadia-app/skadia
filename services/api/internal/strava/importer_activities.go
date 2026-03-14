@@ -15,12 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
@@ -259,6 +261,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		var fileBytes []byte
 		var format string
+		var fileSportType string // set during parse if file has a sport type
 
 		// --- Try to load the track file ---
 		if filename != "" {
@@ -322,8 +325,42 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					"file", filename, "format", format, "error", parseErr)
 				// Continue with CSV-only data
 			} else if parsedData != nil {
+				// Save file sport type BEFORE merge (merge may change it)
+				fileSportType = parsedData.SportType
+
 				// Merge parsed data: prefer parsed GPS/stream data, keep CSV metrics where missing
 				mergeActivityData(data, parsedData)
+
+				// --- Sport conflict check ---
+				// Compare CSV sport (post E-Bike normalization) vs file sport using SegmentGroup.
+				// Only check if we have a real file sport (not empty/unknown).
+				// Note: "generic" is allowed through — generic vs generic triggers a queue entry.
+				if fileSportType != "" && fileSportType != "unknown" {
+					csvGroup := sport.SegmentGroup(sportType) // sportType from CSV (post E-Bike normalization)
+					fileGroup := sport.SegmentGroup(fileSportType)
+
+					conflict := false
+					if csvGroup == "generic" && fileGroup == "generic" {
+						// Both unknown → queue
+						conflict = true
+					} else if csvGroup != "generic" && fileGroup != "generic" && csvGroup != fileGroup {
+						// Different specific groups → queue, file wins
+						conflict = true
+						data.SportType = fileSportType
+						// Restore SubType from parsed file too — SportType + SubType are a pair,
+						// mixing sources creates inconsistent combinations (e.g. cycling type + hiking subtype)
+						if parsedData != nil {
+							data.SubType = parsedData.SubType
+						}
+					}
+					// csvGroup == "generic" && fileGroup != "generic" → file already wins (from merge)
+					// csvGroup != "generic" && fileGroup == "generic" → CSV already wins (from merge)
+					// Same group → merge result stands
+
+					if conflict {
+						data.SportConflictPending = true
+					}
+				}
 			}
 
 			// Compute hash for storage key
@@ -388,6 +425,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				}
 			}
 
+			// Create sport conflict queue entry if detected
+			if data.SportConflictPending {
+				if qErr := createSportConflictQueueEntry(ctx, params.DB, params.UserID,
+					actResult.ActivityID, sportType, fileSportType, format); qErr != nil {
+					slog.Warn("sport conflict: failed to create queue entry",
+						"activity", actResult.ActivityID, "error", qErr)
+				}
+			}
+
 			result.Imported++
 			continue
 		}
@@ -432,6 +478,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if stravaID > 0 {
 			if err := params.DB.SetActivityStravaID(ctx, activity.ID, stravaID); err != nil {
 				slog.Warn("strava activities: set strava_activity_id failed", "error", err)
+			}
+		}
+
+		// Create sport conflict queue entry if detected
+		if data.SportConflictPending {
+			if qErr := createSportConflictQueueEntry(ctx, params.DB, params.UserID,
+				activity.ID, sportType, fileSportType, format); qErr != nil {
+				slog.Warn("sport conflict: failed to create queue entry",
+					"activity", activity.ID, "error", qErr)
 			}
 		}
 
@@ -903,4 +958,26 @@ func isSportRefinement(broad, specific string) bool {
 		return false
 	}
 	return refinements[specific]
+}
+
+// createSportConflictQueueEntry creates a sport_conflict import queue entry.
+// Deduplicates: skips if a pending entry already exists for this activity.
+func createSportConflictQueueEntry(ctx context.Context, db *database.DB, userID, activityID, csvSport, fileSport, fileFormat string) error {
+	exists, err := db.SportConflictQueueExists(ctx, userID, activityID)
+	if err != nil || exists {
+		return err
+	}
+
+	_, err = db.CreateImportQueueItem(ctx, database.ImportQueueItem{
+		UserID:    userID,
+		QueueType: "sport_conflict",
+		Metadata: map[string]any{
+			"activity_id":     activityID,
+			"file_sport":      fileSport,
+			"file_source":     fileFormat,
+			"platform_sport":  csvSport,
+			"platform_source": "strava",
+		},
+	})
+	return err
 }

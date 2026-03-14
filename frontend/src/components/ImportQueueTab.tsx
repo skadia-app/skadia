@@ -8,6 +8,7 @@ import {
   deleteQueueItem,
   type ImportQueueItem,
 } from '@/api/importQueue'
+import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
 
 // ---------------------------------------------------------------------------
@@ -409,14 +410,17 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 // ---------------------------------------------------------------------------
 
 function SportConflictItem({ item, onRefresh }: ItemProps) {
+  const activityId = item.metadata?.activity_id
   const dismissMutation = useMutation({
-    mutationFn: () => deleteQueueItem(item.id),
+    mutationFn: () =>
+      activityId
+        ? resolveSportConflict(activityId) // no sport_type = keep current, dismiss only
+        : deleteQueueItem(item.id),
     onSuccess: onRefresh,
   })
 
   const platformSport = item.metadata?.platform_sport
   const fileSport = item.metadata?.file_sport
-  const activityId = item.metadata?.activity_id
 
   return (
     <div className="space-y-3">

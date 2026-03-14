@@ -319,10 +319,11 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
-			SELECT metadata FROM import_queue
-			WHERE queue_type = 'sport_conflict'
-			  AND status = 'pending'
-			  AND (metadata->>'activity_id') = a.id::text
+			SELECT metadata FROM import_queue iq
+			WHERE iq.queue_type = 'sport_conflict'
+			  AND iq.status = 'pending'
+			  AND (iq.metadata->>'activity_id') = a.id::text
+			  AND iq.user_id = a.user_id
 			LIMIT 1
 		) iq ON true
 		WHERE a.id = $1`, id,
@@ -824,6 +825,23 @@ func (db *DB) DeleteActivities(ctx context.Context, userID string, ids []string)
 		args = append(args, id)
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 	}
+	// Clean up sport conflict queue entries for the deleted activities
+	cleanArgs := make([]any, 0, len(ids)+1)
+	cleanArgs = append(cleanArgs, userID)
+	cleanPlaceholders := make([]string, len(ids))
+	for i, id := range ids {
+		cleanArgs = append(cleanArgs, id)
+		cleanPlaceholders[i] = fmt.Sprintf("(metadata->>'activity_id')::uuid = $%d", i+2)
+	}
+	cleanQuery := fmt.Sprintf(
+		`UPDATE import_queue SET status = 'resolved', resolved_at = NOW()
+		 WHERE user_id = $1 AND queue_type = 'sport_conflict' AND status = 'pending'
+		 AND (%s)`,
+		strings.Join(cleanPlaceholders, " OR "))
+	if _, cleanErr := db.Pool.Exec(ctx, cleanQuery, cleanArgs...); cleanErr != nil {
+		slog.Warn("delete activities: failed to clean sport conflict queue", "error", cleanErr)
+	}
+
 	query := fmt.Sprintf(`DELETE FROM activities WHERE user_id = $1 AND id IN (%s)`,
 		strings.Join(placeholders, ", "))
 	result, err := db.Pool.Exec(ctx, query, args...)
