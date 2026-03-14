@@ -1283,7 +1283,7 @@ function LocalMapAndGeoSection() {
                 </div>
               )}
               {/* Wege */}
-              {(osmStatus.lifts > 0 || osmStatus.pistes > 0 || osmStatus.ways > 0 || osmStatus.routes > 0) && (
+              {(osmStatus.lifts > 0 || osmStatus.pistes > 0 || osmStatus.ways > 0 || osmStatus.routes > 0 || osmStatus.railways > 0) && (
                 <div>
                   <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Wege</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -1311,11 +1311,17 @@ function LocalMapAndGeoSection() {
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">Pisten</div>
                       </div>
                     )}
+                    {osmStatus.railways > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-3 text-center">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.railways.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Eisenbahn</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
               {/* Flächen */}
-              {(osmStatus.waterways > 0 || osmStatus.forests > 0 || osmStatus.glaciers > 0 || osmStatus.wetlands > 0 || osmStatus.boundaries > 0) && (
+              {(osmStatus.waterways > 0 || osmStatus.forests > 0 || osmStatus.glaciers > 0 || osmStatus.wetlands > 0 || osmStatus.boundaries > 0 || osmStatus.landuse > 0) && (
                 <div>
                   <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Flächen</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -1347,6 +1353,12 @@ function LocalMapAndGeoSection() {
                       <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
                         <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.boundaries.toLocaleString('de')}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">Grenzen</div>
+                      </div>
+                    )}
+                    {osmStatus.landuse > 0 && (
+                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-3 text-center">
+                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.landuse.toLocaleString('de')}</div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Landnutzung</div>
                       </div>
                     )}
                   </div>

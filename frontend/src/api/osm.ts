@@ -11,6 +11,8 @@ export interface OSMStatus {
   wetlands: number
   routes: number
   boundaries: number
+  landuse: number
+  railways: number
   has_data: boolean
   // Legacy fields for backwards-compat (may come from older API versions)
   peaks?: number
