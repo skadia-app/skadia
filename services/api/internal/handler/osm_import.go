@@ -259,12 +259,17 @@ func (h *Handler) clearOSMData(ctx context.Context, categories []string) error {
 	return nil
 }
 
+// failJob setzt error-Text und markiert den Job als fehlgeschlagen.
+// Nutzt eigenen Context (nicht den Job-Context), damit das Update auch nach Cancel ankommt.
+func (h *Handler) failJob(_ context.Context, jobID, errMsg string) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h.DB.Pool.Exec(dbCtx, `UPDATE background_jobs SET error = $1 WHERE id = $2`, errMsg, jobID)
+	h.DB.CompleteBackgroundJob(dbCtx, jobID, true)
+}
+
 func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
 	// Cancellable context: CancelOSMImport fires cancel() to abort osm2pgsql.
-	// NOTE: cancel also aborts in-flight DB calls (clearOSMData, region tracking).
-	// This may leave a partially-cleared OSM state — acceptable since the next full
-	// import re-clears affected categories. The osm_import_regions row is not written
-	// on cancel, so no stale 'imported' status is recorded.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	osmJobCancels.Store(jobID, cancel)
@@ -276,7 +281,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 	}
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.failJob(ctx, jobID, "Datenverzeichnis konnte nicht erstellt werden: "+err.Error())
 		return
 	}
 
@@ -284,28 +289,31 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 	luaTmp, err := os.CreateTemp("", "skadia-osm-*.lua")
 	if err != nil {
 		slog.Error("osm import: failed to write lua tmp", "error", err)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.failJob(ctx, jobID, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return
 	}
 	defer os.Remove(luaTmp.Name())
 	if _, err := luaTmp.Write(osmregions.LuaScript); err != nil {
 		slog.Error("osm import: failed to write lua content", "error", err)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.failJob(ctx, jobID, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return
 	}
 	luaTmp.Close()
 
 	dbURL := os.Getenv("DATABASE_URL")
 
+	// === Phase 1: Alle PBFs herunterladen ===
+	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "download")
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
+
+	var pbfPaths []string
+	var downloadedOffset int64
+	const maxPBFAge = 7 * 24 * time.Hour
+
 	for _, reg := range regions {
 		pbfPath := filepath.Join(dataDir, reg.ID+"-latest.osm.pbf")
 
-		// === Phase 1: Download ===
-		h.DB.UpdateBackgroundJobPhase(ctx, jobID, "download")
-		h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
-
 		// Download-Skip: PBF wiederverwenden wenn jünger als maxPBFAge
-		const maxPBFAge = 7 * 24 * time.Hour
 		skipDownload := false
 		if info, statErr := os.Stat(pbfPath); statErr == nil {
 			age := time.Since(info.ModTime())
@@ -313,6 +321,7 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 				slog.Info("osm import: reusing existing PBF",
 					"region", reg.ID, "age", age.Round(time.Hour), "size", info.Size())
 				skipDownload = true
+				downloadedOffset += info.Size()
 			}
 		}
 
@@ -327,105 +336,138 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 						"free_mb", freeBytes/1024/1024,
 						"required_mb", requiredBytes/1024/1024,
 						"region", reg.ID)
-					h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET error = $1 WHERE id = $2`,
-						fmt.Sprintf("Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
-							freeBytes/1024/1024, requiredBytes/1024/1024), jobID)
-					h.DB.CompleteBackgroundJob(ctx, jobID, true)
+					h.failJob(ctx, jobID, fmt.Sprintf(
+						"Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
+						freeBytes/1024/1024, requiredBytes/1024/1024))
 					return
 				}
 			}
 
 			slog.Info("osm import: downloading", "region", reg.ID, "url", reg.URL)
+			regionOffset := downloadedOffset
 			if err := downloadWithProgress(ctx, reg.URL, pbfPath, func(downloaded, total int64) {
 				if total > 0 {
-					h.DB.UpdateBackgroundJobProgress(ctx, jobID, downloaded)
+					h.DB.UpdateBackgroundJobProgress(ctx, jobID, regionOffset+downloaded)
 				}
 			}); err != nil {
 				slog.Error("osm import: download failed", "region", reg.ID, "error", err)
-				h.DB.CompleteBackgroundJob(ctx, jobID, true)
+				h.failJob(ctx, jobID, fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
 				return
 			}
-		}
-
-		// === Phase 2: Daten löschen + osm2pgsql ===
-		h.DB.UpdateBackgroundJobPhase(ctx, jobID, "import")
-		h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
-
-		// Gewählte Kategorien leeren
-		if err := h.clearOSMData(ctx, categories); err != nil {
-			slog.Error("osm import: clearOSMData failed", "error", err)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
-			return
-		}
-
-		// Env-Vars für Lua-Script zusammenstellen
-		envVars := os.Environ()
-		for _, cat := range categories {
-			if envVarList, ok := categoryEnvVars[cat]; ok {
-				for _, envVar := range envVarList {
-					envVars = append(envVars, envVar+"=1")
-				}
+			if info, err := os.Stat(pbfPath); err == nil {
+				downloadedOffset += info.Size()
 			}
 		}
 
-		// --flat-nodes: Speichert Node-Koordinaten in Datei statt in PostgreSQL (~100 GB).
-		// Dateigröße richtet sich nach dem maximalen Node-ID-Wert (globaler OSM-Adressraum),
-		// nicht nach der Datenmenge — für Europa-Extrakte typisch 50–100 GB.
-		// Wird nach erfolgreichem Import automatisch gelöscht (s. os.Remove unten).
-		flatNodesPath := filepath.Join(dataDir, "flat-nodes.bin")
-		args := []string{
-			"--database", dbURL,
-			"--output=flex",
-			"--style", luaTmp.Name(),
-			"--flat-nodes", flatNodesPath,
-			"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
-			"--slim", "--drop",
-			pbfPath,
-		}
-		cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
-		cmd.Env = envVars
+		pbfPaths = append(pbfPaths, pbfPath)
+	}
 
-		// stdout + stderr zusammenführen für vollständiges Logging
-		stderr, _ := cmd.StderrPipe()
-		importStart := time.Now()
-		if err := cmd.Start(); err != nil {
-			slog.Error("osm import: osm2pgsql start failed", "error", err)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
-			return
-		}
+	// === Phase 2: Daten löschen + EIN osm2pgsql-Aufruf mit allen PBFs ===
+	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "import")
+	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
 
-		go func() {
-			scanner := bufio.NewScanner(stderr)
-			scanner.Buffer(make([]byte, 0, 256*1024), 256*1024) // 256 KB Buffer
-			for scanner.Scan() {
-				line := scanner.Text()
-				slog.Info("osm2pgsql", "line", line)
-				// Node-Fortschritt (erste Phase)
-				if m := osmProgressNodeRe.FindStringSubmatch(line); len(m) > 1 {
-					if n, err := strconv.Atoi(m[1]); err == nil {
-						h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
-					}
-				}
-				// Way-Fortschritt (zweite Phase)
-				if m := osmProgressWayRe.FindStringSubmatch(line); len(m) > 1 {
-					if n, err := strconv.Atoi(m[1]); err == nil {
-						h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
-					}
+	// Gewählte Kategorien EINMAL leeren (vor dem einzigen osm2pgsql-Lauf)
+	if err := h.clearOSMData(ctx, categories); err != nil {
+		slog.Error("osm import: clearOSMData failed", "error", err)
+		h.failJob(ctx, jobID, "Datenlöschung fehlgeschlagen: "+err.Error())
+		return
+	}
+
+	// Env-Vars für Lua-Script zusammenstellen
+	envVars := os.Environ()
+	for _, cat := range categories {
+		if envVarList, ok := categoryEnvVars[cat]; ok {
+			for _, envVar := range envVarList {
+				envVars = append(envVars, envVar+"=1")
+			}
+		}
+	}
+
+	// --flat-nodes: Speichert Node-Koordinaten in Datei statt in PostgreSQL (~100 GB).
+	// Dateigröße richtet sich nach dem maximalen Node-ID-Wert (globaler OSM-Adressraum),
+	// nicht nach der Datenmenge — für Europa-Extrakte typisch 50–100 GB.
+	// Wird nach erfolgreichem Import automatisch gelöscht (s. os.Remove unten).
+	flatNodesPath := filepath.Join(dataDir, "flat-nodes.bin")
+
+	// osm2pgsql 2.x kann mehrere PBFs als Input — ein Lauf, ein flat-nodes.bin,
+	// automatische Deduplizierung an Regionsgrenzen über OSM-Node-IDs.
+	args := []string{
+		"--database", dbURL,
+		"--output=flex",
+		"--style", luaTmp.Name(),
+		"--flat-nodes", flatNodesPath,
+		"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
+		"--slim", "--drop",
+	}
+	args = append(args, pbfPaths...)
+
+	// Stale flat-nodes.bin entfernen — bei Retry nach Crash enthält die Datei
+	// veraltete Node-Koordinaten, die zu Geometry-Korruption führen würden.
+	os.Remove(flatNodesPath)
+
+	cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
+	cmd.Env = envVars
+
+	// stderr für Logging + Fortschritt
+	stderr, _ := cmd.StderrPipe()
+	importStart := time.Now()
+	if err := cmd.Start(); err != nil {
+		slog.Error("osm import: osm2pgsql start failed", "error", err)
+		h.failJob(ctx, jobID, "osm2pgsql konnte nicht gestartet werden: "+err.Error())
+		return
+	}
+
+	// Letzte stderr-Zeilen für Fehlerbericht sammeln
+	var lastLines []string
+	var lastLinesMu sync.Mutex
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 256*1024), 256*1024) // 256 KB Buffer
+		for scanner.Scan() {
+			line := scanner.Text()
+			slog.Info("osm2pgsql", "line", line)
+
+			lastLinesMu.Lock()
+			lastLines = append(lastLines, line)
+			if len(lastLines) > 5 {
+				lastLines = lastLines[len(lastLines)-5:]
+			}
+			lastLinesMu.Unlock()
+
+			// Node-Fortschritt (erste Phase)
+			if m := osmProgressNodeRe.FindStringSubmatch(line); len(m) > 1 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
 				}
 			}
-			if err := scanner.Err(); err != nil {
-				slog.Warn("osm2pgsql: scanner error", "error", err)
+			// Way-Fortschritt (zweite Phase)
+			if m := osmProgressWayRe.FindStringSubmatch(line); len(m) > 1 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(n)*1000)
+				}
 			}
-		}()
-
-		if err := cmd.Wait(); err != nil {
-			slog.Error("osm import: osm2pgsql failed", "region", reg.ID, "error", err)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
-			return
 		}
-		slog.Info("osm import: osm2pgsql completed", "region", reg.ID)
+		if err := scanner.Err(); err != nil {
+			slog.Warn("osm2pgsql: scanner error", "error", err)
+		}
+	}()
 
-		durationS := int(time.Since(importStart).Seconds())
+	if err := cmd.Wait(); err != nil {
+		lastLinesMu.Lock()
+		errDetail := strings.Join(lastLines, "\n")
+		lastLinesMu.Unlock()
+		slog.Error("osm import: osm2pgsql failed", "error", err, "last_output", errDetail)
+		h.failJob(ctx, jobID, fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
+		return
+	}
+	slog.Info("osm import: osm2pgsql completed", "regions", len(regions))
+
+	durationS := int(time.Since(importStart).Seconds())
+
+	// Alle Regionen in osm_import_regions eintragen
+	for _, reg := range regions {
+		pbfPath := filepath.Join(dataDir, reg.ID+"-latest.osm.pbf")
 		pbfInfo, _ := os.Stat(pbfPath)
 		var pbfSize int64
 		if pbfInfo != nil {
@@ -435,64 +477,134 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 			INSERT INTO osm_import_regions (region_id, label, continent, pbf_size_bytes, categories, import_duration_s, status)
 			VALUES ($1, $2, $3, $4, $5, $6, 'imported')
 			ON CONFLICT (region_id) DO UPDATE SET
-				imported_at = now(), pbf_size_bytes = $4, categories = $5,
+				imported_at = now(), pbf_size_bytes = $4,
+				categories = (SELECT ARRAY(SELECT DISTINCT unnest(osm_import_regions.categories || $5::text[]))),
 				import_duration_s = $6, status = 'imported'`,
 			reg.ID, reg.Label, reg.Continent, pbfSize, categories, durationS)
 		if regErr != nil {
-			slog.Warn("osm import: failed to track region", "error", regErr)
+			slog.Warn("osm import: failed to track region", "region", reg.ID, "error", regErr)
 		}
 
-		// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
-		// Bei --drop werden die Tracking-Tabellen automatisch gelöscht
-		os.Remove(flatNodesPath)
-
 		// PBF für BRouter-Build aufbewahren wenn angefordert
-		if req.BuildBRouter {
-			slog.Info("osm import: PBF preserved for BRouter build", "path", pbfPath)
-		} else {
+		if !req.BuildBRouter {
 			os.Remove(pbfPath)
 		}
 	}
 
-	// === Phase 3: Indizieren ===
+	// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
+	os.Remove(flatNodesPath)
+
+	// === Phase 3: Indizieren (parallel mit Semaphore) ===
+	// Max 4 gleichzeitige GIST-Builds — begrenzt Peak-RAM,
+	// trotzdem ~2x schneller als sequentiell.
 	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "index")
 
-	indexSteps := buildIndexStatements(categories)
-	for i, stmt := range indexSteps {
-		h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
-		if _, err := h.DB.Pool.Exec(ctx, stmt); err != nil {
-			slog.Warn("osm import: index step failed", "stmt", stmt, "error", err)
+	const maxParallelDBOps = 4
+	indexGroups := buildParallelIndexGroups(categories)
+	var completed int64
+	for _, group := range indexGroups {
+		sem := make(chan struct{}, maxParallelDBOps)
+		var wg sync.WaitGroup
+		for _, stmt := range group {
+			// Context-Check vor Semaphore-Send verhindert Blockade nach Cancel
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				break
+			}
+			if ctx.Err() != nil {
+				break
+			}
+			wg.Add(1)
+			go func(s string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if _, err := h.DB.Pool.Exec(ctx, s); err != nil {
+					slog.Warn("osm import: index step failed", "stmt", s, "error", err)
+				}
+			}(stmt)
 		}
+		wg.Wait()
+		completed += int64(len(group))
+		h.DB.UpdateBackgroundJobProgress(ctx, jobID, completed)
 	}
-	h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(len(indexSteps)))
 
-	// === Phase 4: Optimieren ===
+	// === Phase 4: Optimieren (nur betroffene Tabellen, parallel) ===
 	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "optimize")
 
-	optimizeQueries := []string{
-		"UPDATE osm_pois SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_ways SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_lifts SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_waterways SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_pistes SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_forests SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_waters SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_glaciers SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_wetlands SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_routes SET geom = ST_QuantizeCoordinates(geom, 6)",
-		"UPDATE osm_ways SET length_m = ST_Length(geom::geography) WHERE length_m IS NULL OR length_m = 0",
-		"UPDATE osm_routes SET distance = ST_Length(geom::geography) / 1000.0 WHERE distance IS NULL",
-		"VACUUM ANALYZE osm_pois",
-		"VACUUM ANALYZE osm_ways",
-		"VACUUM ANALYZE osm_routes",
+	catSet := make(map[string]bool, len(categories))
+	for _, c := range categories {
+		catSet[c] = true
 	}
-	for _, q := range optimizeQueries {
-		preview := q
-		if len(preview) > 50 {
-			preview = preview[:50]
+
+	// Quantize + Berechnungen — nur für tatsächlich importierte Kategorien
+	type optQuery struct {
+		cats  []string // mindestens eine muss aktiv sein
+		query string
+	}
+	allOpts := []optQuery{
+		{[]string{"peaks", "passes", "settlements", "gastronomy", "accommodation",
+			"infrastructure", "transport", "viewpoints", "shops", "sport",
+			"camping", "information", "landmarks", "religion"},
+			"UPDATE osm_pois SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"ways", "ferries", "climbing"}, "UPDATE osm_ways SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"lifts"}, "UPDATE osm_lifts SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"waterways"}, "UPDATE osm_waterways SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"waterways"}, "UPDATE osm_waters SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"pistes"}, "UPDATE osm_pistes SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"forests"}, "UPDATE osm_forests SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"glaciers"}, "UPDATE osm_glaciers SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"wetlands"}, "UPDATE osm_wetlands SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"routes"}, "UPDATE osm_routes SET geom = ST_QuantizeCoordinates(geom, 6)"},
+		{[]string{"ways", "ferries", "climbing"}, "UPDATE osm_ways SET length_m = ST_Length(geom::geography) WHERE length_m IS NULL OR length_m = 0"},
+		{[]string{"routes"}, "UPDATE osm_routes SET distance = ST_Length(geom::geography) / 1000.0 WHERE distance IS NULL"},
+	}
+
+	// Parallele UPDATEs (verschiedene Tabellen = kein Lock-Konflikt)
+	var optimizeStmts []string
+	for _, opt := range allOpts {
+		for _, c := range opt.cats {
+			if catSet[c] {
+				optimizeStmts = append(optimizeStmts, opt.query)
+				break
+			}
 		}
-		if _, err := h.DB.Pool.Exec(ctx, q); err != nil {
-			slog.Warn("osm import: optimize step failed", "query", preview, "error", err)
+	}
+
+	{
+		sem := make(chan struct{}, maxParallelDBOps)
+		var wg sync.WaitGroup
+		for _, q := range optimizeStmts {
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				break
+			}
+			if ctx.Err() != nil {
+				break
+			}
+			wg.Add(1)
+			go func(query string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if _, err := h.DB.Pool.Exec(ctx, query); err != nil {
+					preview := query
+					if len(preview) > 60 {
+						preview = preview[:60]
+					}
+					slog.Warn("osm import: optimize step failed", "query", preview, "error", err)
+				}
+			}(q)
+		}
+		wg.Wait()
+	}
+
+	// VACUUM ANALYZE sequentiell (kann nicht parallel auf gleicher Tabelle laufen),
+	// nur für betroffene Tabellen
+	vacuumTables := buildVacuumTables(categories)
+	for _, tbl := range vacuumTables {
+		if _, err := h.DB.Pool.Exec(ctx, "VACUUM ANALYZE "+tbl); err != nil {
+			slog.Warn("osm import: vacuum failed", "table", tbl, "error", err)
 		}
 	}
 
@@ -638,7 +750,8 @@ func downloadWithProgress(ctx context.Context, url, destPath string, progress fu
 	defer f.Close()
 
 	var downloaded int64
-	buf := make([]byte, 32*1024)
+	var lastProgressAt time.Time
+	buf := make([]byte, 256*1024)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
@@ -646,7 +759,10 @@ func downloadWithProgress(ctx context.Context, url, destPath string, progress fu
 				return werr
 			}
 			downloaded += int64(n)
-			progress(downloaded, total)
+			if time.Since(lastProgressAt) >= 2*time.Second {
+				progress(downloaded, total)
+				lastProgressAt = time.Now()
+			}
 		}
 		if err == io.EOF {
 			break
@@ -655,11 +771,14 @@ func downloadWithProgress(ctx context.Context, url, destPath string, progress fu
 			return err
 		}
 	}
+	progress(downloaded, total) // Final update
 	return nil
 }
 
-// buildIndexStatements gibt CREATE INDEX IF NOT EXISTS + ANALYZE Statements zurück.
-func buildIndexStatements(categories []string) []string {
+// buildParallelIndexGroups gibt Gruppen von Statements zurück, die parallel ausgeführt werden können.
+// Gruppe 1: CREATE INDEX (auf verschiedenen Tabellen → parallelisierbar)
+// Gruppe 2: ANALYZE (nach allen Indexes)
+func buildParallelIndexGroups(categories []string) [][]string {
 	catSet := make(map[string]bool)
 	for _, c := range categories {
 		catSet[c] = true
@@ -685,8 +804,8 @@ func buildIndexStatements(categories []string) []string {
 		{"routes", "osm_routes_geog_idx", "osm_routes", "USING gist ((geom::geography))"},
 	}
 
-	var stmts []string
-	analyzedTables := make(map[string]bool)
+	var indexStmts []string
+	analyzeTables := make(map[string]bool)
 
 	// osm_pois: ANALYZE wenn mindestens eine POI-Kategorie importiert wurde
 	poiCats := []string{
@@ -695,9 +814,8 @@ func buildIndexStatements(categories []string) []string {
 		"camping", "information", "landmarks", "religion",
 	}
 	for _, pc := range poiCats {
-		if catSet[pc] && !analyzedTables["osm_pois"] {
-			stmts = append(stmts, "ANALYZE osm_pois")
-			analyzedTables["osm_pois"] = true
+		if catSet[pc] {
+			analyzeTables["osm_pois"] = true
 			break
 		}
 	}
@@ -706,14 +824,67 @@ func buildIndexStatements(categories []string) []string {
 		if !catSet[idx.cat] {
 			continue
 		}
-		stmts = append(stmts, fmt.Sprintf(
+		indexStmts = append(indexStmts, fmt.Sprintf(
 			"CREATE INDEX IF NOT EXISTS %s ON %s %s",
 			idx.name, idx.table, idx.extra,
 		))
-		if !analyzedTables[idx.table] {
-			stmts = append(stmts, "ANALYZE "+idx.table)
-			analyzedTables[idx.table] = true
+		analyzeTables[idx.table] = true
+	}
+
+	var analyzeStmts []string
+	for table := range analyzeTables {
+		analyzeStmts = append(analyzeStmts, "ANALYZE "+table)
+	}
+
+	var groups [][]string
+	if len(indexStmts) > 0 {
+		groups = append(groups, indexStmts)
+	}
+	if len(analyzeStmts) > 0 {
+		groups = append(groups, analyzeStmts)
+	}
+	return groups
+}
+
+// buildVacuumTables gibt die Tabellennamen zurück, die nach dem Import ein VACUUM ANALYZE brauchen.
+func buildVacuumTables(categories []string) []string {
+	catSet := make(map[string]bool, len(categories))
+	for _, c := range categories {
+		catSet[c] = true
+	}
+
+	// Kategorie → betroffene Tabelle(n)
+	catToTables := map[string][]string{
+		"peaks": {"osm_pois"}, "passes": {"osm_pois"}, "settlements": {"osm_pois"},
+		"gastronomy": {"osm_pois"}, "accommodation": {"osm_pois"}, "infrastructure": {"osm_pois"},
+		"transport": {"osm_pois"}, "viewpoints": {"osm_pois"}, "shops": {"osm_pois"},
+		"sport": {"osm_pois"}, "camping": {"osm_pois"}, "information": {"osm_pois"},
+		"landmarks": {"osm_pois"}, "religion": {"osm_pois"},
+		"ways":       {"osm_ways"},
+		"ferries":    {"osm_ways"},
+		"climbing":   {"osm_ways"},
+		"lifts":      {"osm_lifts"},
+		"waterways":  {"osm_waterways", "osm_waters"},
+		"forests":    {"osm_forests"},
+		"glaciers":   {"osm_glaciers"},
+		"wetlands":   {"osm_wetlands"},
+		"boundaries": {"osm_boundaries"},
+		"pistes":     {"osm_pistes"},
+		"routes":     {"osm_routes"},
+	}
+
+	seen := make(map[string]bool)
+	var tables []string
+	for _, cat := range categories {
+		if !catSet[cat] {
+			continue
+		}
+		for _, tbl := range catToTables[cat] {
+			if !seen[tbl] {
+				seen[tbl] = true
+				tables = append(tables, tbl)
+			}
 		}
 	}
-	return stmts
+	return tables
 }
