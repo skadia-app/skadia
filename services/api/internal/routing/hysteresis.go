@@ -70,14 +70,3 @@ func (s PathState) elevationCorrection(cfg *CostConfig) float32 {
 	return correction
 }
 
-// isWorse checks if a new path to nodeID is worse than the best known path.
-// Returns false if node was never visited in the current generation.
-// Precondition: gen >= 1; 0 is the zero-value sentinel for "never visited".
-func isWorse(nodeID uint32, cost float32, state PathState,
-	bestCost []float32, nodeGen []uint32, gen uint32, cfg *CostConfig) bool {
-	if nodeGen[nodeID] != gen {
-		return false
-	}
-	effectiveNew := cost + state.elevationCorrection(cfg)
-	return effectiveNew >= bestCost[nodeID]
-}

@@ -95,35 +95,3 @@ func TestElevationCorrection(t *testing.T) {
 	}
 }
 
-func TestIsWorse_UnvisitedNode(t *testing.T) {
-	cfg := defaultHystCfg()
-	bestCost := make([]float32, 10)
-	nodeGen := make([]uint32, 10)
-	// Node 5 never visited (nodeGen[5]=0, gen=1)
-	result := isWorse(5, 100.0, PathState{}, bestCost, nodeGen, 1, cfg)
-	if result {
-		t.Error("unvisited node should not be worse")
-	}
-}
-
-func TestIsWorse_BetterCost(t *testing.T) {
-	cfg := defaultHystCfg()
-	bestCost := []float32{0, 0, 0, 0, 0, 50.0}
-	nodeGen := []uint32{0, 0, 0, 0, 0, 1}
-	// New cost 30 + correction 0 = 30 < 50 → not worse
-	result := isWorse(5, 30.0, PathState{}, bestCost, nodeGen, 1, cfg)
-	if result {
-		t.Error("lower cost should not be worse")
-	}
-}
-
-func TestIsWorse_WorseCost(t *testing.T) {
-	cfg := defaultHystCfg()
-	bestCost := []float32{0, 0, 0, 0, 0, 50.0}
-	nodeGen := []uint32{0, 0, 0, 0, 0, 1}
-	// New cost 60 + correction 0 = 60 >= 50 → worse
-	result := isWorse(5, 60.0, PathState{}, bestCost, nodeGen, 1, cfg)
-	if !result {
-		t.Error("higher cost should be worse")
-	}
-}

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -34,7 +35,8 @@ type HandlerConfig struct {
 	MLCallbackSecret   string // ML_CALLBACK_SECRET env var
 	BRouterURL         string // e.g. http://brouter:17777
 	KomootEncryptionKey string // 32-byte hex for AES-256-GCM Komoot password encryption
-	RoutingGraphPath   string // path to binary graph file
+	RoutingGraphPath   string        // path to binary graph file
+	RoutingTimeout     time.Duration // request timeout for route calculations (default 30s)
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

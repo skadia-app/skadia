@@ -31,9 +31,9 @@ type RouteSegment struct {
 	ToIdx     int    `json:"to_idx"`
 	Highway   string `json:"highway"`
 	Surface   string `json:"surface"`
-	SacScale  int    `json:"sac_scale,omitempty"`
-	MtbScale  int    `json:"mtb_scale,omitempty"`
-	Tracktype int    `json:"tracktype,omitempty"`
+	SacScale  string `json:"sac_scale,omitempty"`
+	MtbScale  string `json:"mtb_scale,omitempty"`
+	Tracktype string `json:"tracktype,omitempty"`
 	OsmWayID  int64  `json:"osm_way_id"`
 }
 
@@ -211,9 +211,9 @@ func makeSegment(g *graph.Graph, fromIdx, toIdx int, tags uint64, osmIdx uint32)
 		ToIdx:     toIdx,
 		Highway:   graph.HighwayName(graph.DecodeHighway(tags)),
 		Surface:   graph.SurfaceName(graph.DecodeSurface(tags)),
-		SacScale:  int(graph.DecodeField(tags, 14, 3)),
-		MtbScale:  int(graph.DecodeField(tags, 17, 3)),
-		Tracktype: int(graph.DecodeField(tags, 11, 3)),
+		SacScale:  graph.SacScaleName(uint8(graph.DecodeField(tags, 14, 3))),
+		MtbScale:  graph.MtbScaleName(uint8(graph.DecodeField(tags, 17, 3))),
+		Tracktype: graph.TrackTypeName(uint8(graph.DecodeField(tags, 11, 3))),
 		OsmWayID:  g.OSMIDPool[osmIdx],
 	}
 }

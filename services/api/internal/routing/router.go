@@ -119,7 +119,8 @@ func (r *Router) findRoute(ctx context.Context, state *RouterState,
 	src, srcDist := graph.NearestNode(g, req.FromLat, req.FromLon)
 	dst, dstDist := graph.NearestNode(g, req.ToLat, req.ToLon)
 
-	const maxSnapDist uint16 = 50000 // 5km in decimeters
+	// uint16: max ~6.5km; 50000 dm = 5km. NearestNode returns uint16 distance.
+	const maxSnapDist uint16 = 50000
 	if srcDist >= maxSnapDist {
 		return nil, fmt.Errorf("no graph node within 5km of start coordinate")
 	}
@@ -143,7 +144,8 @@ func (r *Router) findRoute(ctx context.Context, state *RouterState,
 		return nil, fmt.Errorf("pass0: %w", err)
 	}
 
-	// Extract track costs BEFORE generation reset (pass0 data is in current generation)
+	// buildTrackIndex MUST run before advanceGeneration: it reads pass0's bestCost
+	// via the current generation's nodeGen entries.
 	trackIndex := buildTrackIndex(state, track0)
 
 	// Generation reset between passes
@@ -178,6 +180,7 @@ func (r *Router) findRouteSparse(ctx context.Context,
 	src, srcDist := graph.NearestNode(g, req.FromLat, req.FromLon)
 	dst, dstDist := graph.NearestNode(g, req.ToLat, req.ToLon)
 
+	// uint16: max ~6.5km; 50000 dm = 5km. NearestNode returns uint16 distance.
 	const maxSnapDist uint16 = 50000
 	if srcDist >= maxSnapDist {
 		return nil, fmt.Errorf("no graph node within 5km of start coordinate")
@@ -202,7 +205,7 @@ func (r *Router) findRouteSparse(ctx context.Context,
 		return nil, fmt.Errorf("pass0: %w", err)
 	}
 
-	// Extract track costs BEFORE clearing maps (pass0 data is in the maps)
+	// buildTrackIndexSparse MUST run before clearMaps: it reads pass0's bestCost.
 	trackIndex := buildTrackIndexSparse(state, track0)
 
 	// Clear maps for pass 1 reuse

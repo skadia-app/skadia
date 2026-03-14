@@ -263,5 +263,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/geo+json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(result.ToGeoJSON())
+	if _, err := w.Write(result.ToGeoJSON()); err != nil {
+		slog.Warn("route response write failed", "error", err)
+	}
 }

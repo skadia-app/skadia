@@ -44,7 +44,10 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 		cur := state.frontier.Pop()
 
-		// Skip stale entries (must come before destination check)
+		// Skip stale entries (must come before destination check in pass0,
+		// because inadmissible A* can revisit nodes with lower cost).
+		// Note: cur.Cost is RAW (no elevation correction), bestCost stores EFFECTIVE
+		// (raw + elevationCorrection). We recompute effective here for comparison.
 		if state.nodeGen[cur.NodeID] == state.generation &&
 			cur.Cost+cur.State.elevationCorrection(cfg) > state.bestCost[cur.NodeID] {
 			continue
@@ -76,19 +79,18 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
 			newCost := cur.Cost + edgeCost + elevCost
-
-			// Bounded pruning (absolute, no state comparison needed)
-			if state.nodeGen[target] == state.generation &&
-				newCost > state.bestCost[target]+cfg.MaxLatentCost {
-				continue
-			}
-
-			if isWorse(target, newCost, newState, state.bestCost, state.nodeGen, state.generation, cfg) {
-				continue
-			}
-
-			// Update best
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
+
+			// Pruning: bounded early-exit + dominance check
+			if state.nodeGen[target] == state.generation {
+				if newCost > state.bestCost[target]+cfg.MaxLatentCost {
+					continue
+				}
+				if effectiveCost >= state.bestCost[target] {
+					continue
+				}
+			}
+
 			state.bestCost[target] = effectiveCost
 			state.nodeGen[target] = state.generation
 			state.parentNode[target] = cur.NodeID
@@ -146,22 +148,24 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			}, nil
 		}
 
-		// Compute effective cost (raw + latent hysteresis buffer)
+		// Compute effective cost (raw + latent hysteresis buffer).
+		// Note: cur.Cost is RAW, bestCost stores EFFECTIVE.
 		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
 
-		// Cost-cutting: adaptively reduce maxTotalCost
-		// Uses effective costs throughout (trackIndex stores effective, maxTotalCost is effective)
-		if remaining, ok := trackIndex[cur.NodeID]; ok {
-			cutoff := effectiveCur + (maxTotalCost - remaining)
-			if cutoff < maxTotalCost {
-				maxTotalCost = cutoff
-			}
-		}
-
-		// Skip stale entries
+		// Skip stale entries BEFORE cost-cutting — ensures only settled
+		// (non-superseded) entries tighten maxTotalCost for optimal bounds.
 		if state.nodeGen[cur.NodeID] == state.generation &&
 			effectiveCur > state.bestCost[cur.NodeID] {
 			continue
+		}
+
+		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
+		// the predicted total (effectiveCur + remaining along pass0 track) tightens the bound.
+		if remaining, ok := trackIndex[cur.NodeID]; ok {
+			cutoff := effectiveCur + remaining
+			if cutoff < maxTotalCost {
+				maxTotalCost = cutoff
+			}
 		}
 
 		// Prune by maxTotalCost
@@ -181,23 +185,23 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 
 			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
 			newCost := cur.Cost + edgeCost + elevCost
-
-			// Absolute pruning
-			if newCost > maxTotalCost {
-				continue
-			}
-
-			// Bounded pruning
-			if state.nodeGen[target] == state.generation &&
-				newCost > state.bestCost[target]+cfg.MaxLatentCost {
-				continue
-			}
-
-			if isWorse(target, newCost, newState, state.bestCost, state.nodeGen, state.generation, cfg) {
-				continue
-			}
-
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
+
+			// Absolute pruning (effective, not raw — maxTotalCost is effective)
+			if effectiveCost > maxTotalCost {
+				continue
+			}
+
+			// Pruning: bounded early-exit + dominance check
+			if state.nodeGen[target] == state.generation {
+				if newCost > state.bestCost[target]+cfg.MaxLatentCost {
+					continue
+				}
+				if effectiveCost >= state.bestCost[target] {
+					continue
+				}
+			}
+
 			state.bestCost[target] = effectiveCost
 			state.nodeGen[target] = state.generation
 			state.parentNode[target] = cur.NodeID
@@ -218,6 +222,8 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 }
 
 // extractTrack walks parent pointers backwards from dst to src.
+// maxNodes guards against infinite loops from corrupt parent pointers;
+// if exhausted, the track is truncated (should not happen with a valid route).
 func extractTrack(state *RouterState, src, dst uint32, maxNodes uint32) []uint32 {
 	var track []uint32
 	node := dst
@@ -329,18 +335,18 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
 			newCost := cur.Cost + edgeCost + elevCost
+			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
+			// Pruning: bounded early-exit + dominance check
 			if best, ok := state.bestCost[target]; ok {
 				if newCost > best+cfg.MaxLatentCost {
 					continue
 				}
-				effectiveNew := newCost + newState.elevationCorrection(cfg)
-				if effectiveNew >= best {
+				if effectiveCost >= best {
 					continue
 				}
 			}
 
-			effectiveCost := newCost + newState.elevationCorrection(cfg)
 			state.bestCost[target] = effectiveCost
 			state.parentNode[target] = cur.NodeID
 			state.parentEdge[target] = ei
@@ -397,16 +403,20 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
 
-		if remaining, ok := trackIndex[cur.NodeID]; ok {
-			cutoff := effectiveCur + (maxTotalCost - remaining)
-			if cutoff < maxTotalCost {
-				maxTotalCost = cutoff
-			}
-		}
-
+		// Skip stale entries BEFORE cost-cutting — ensures only settled
+		// (non-superseded) entries tighten maxTotalCost for optimal bounds.
 		if best, ok := state.bestCost[cur.NodeID]; ok {
 			if effectiveCur > best {
 				continue
+			}
+		}
+
+		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
+		// the predicted total (effectiveCur + remaining along pass0 track) tightens the bound.
+		if remaining, ok := trackIndex[cur.NodeID]; ok {
+			cutoff := effectiveCur + remaining
+			if cutoff < maxTotalCost {
+				maxTotalCost = cutoff
 			}
 		}
 
@@ -425,22 +435,23 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
 			newCost := cur.Cost + edgeCost + elevCost
+			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
-			if newCost > maxTotalCost {
+			// Absolute pruning (effective, not raw — maxTotalCost is effective)
+			if effectiveCost > maxTotalCost {
 				continue
 			}
 
+			// Pruning: bounded early-exit + dominance check
 			if best, ok := state.bestCost[target]; ok {
 				if newCost > best+cfg.MaxLatentCost {
 					continue
 				}
-				effectiveNew := newCost + newState.elevationCorrection(cfg)
-				if effectiveNew >= best {
+				if effectiveCost >= best {
 					continue
 				}
 			}
 
-			effectiveCost := newCost + newState.elevationCorrection(cfg)
 			state.bestCost[target] = effectiveCost
 			state.parentNode[target] = cur.NodeID
 			state.parentEdge[target] = ei
@@ -458,6 +469,10 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 	return nil, fmt.Errorf("no route found (pass1Sparse: expanded %d nodes)", expansions)
 }
 
+// extractTrackSparse walks parent pointers backwards from dst to src (sparse variant).
+// NOTE: Go maps return 0 for missing keys. Since node 0 is a valid graph node,
+// a corrupt parent chain could silently route through node 0. The limit guard
+// prevents infinite loops; correct routing guarantees a valid parent chain.
 func extractTrackSparse(state *SparseState, src, dst uint32, maxNodes uint32) []uint32 {
 	var track []uint32
 	node := dst
