@@ -21,6 +21,8 @@ type PathState struct {
 // propagateHysteresis updates hysteresis buffers and returns elevation cost.
 // deltaEleMilli: elevation change in millimeters (positive = uphill).
 // distMilli: edge distance in millimeters.
+// Unit choice: millimeters (not micrometers) to avoid int32 overflow.
+// Max EdgeDist 65535 dm * 100 = 6,553,500 mm — fits int32.
 func propagateHysteresis(parent PathState, deltaEleMilli int32,
 	distMilli int32, cfg *CostConfig) (PathState, float32) {
 
@@ -62,6 +64,12 @@ func propagateHysteresis(parent PathState, deltaEleMilli int32,
 
 // elevationCorrection estimates the latent cost stored in the hysteresis buffers.
 // Used for closed-set comparison: bestCost stores cost + elevationCorrection.
+//
+// NOTE: This intentionally computes cost from the FULL buffer (starting at 0),
+// while propagateHysteresis only triggers elevCost for the portion ABOVE PenaltyBuffer.
+// This is a conservative over-approximation (same approach as BRouter): it assumes
+// all buffered elevation will eventually trigger cost. This guarantees the closed-set
+// comparison never underestimates, at the price of slightly aggressive pruning.
 func (s PathState) elevationCorrection(cfg *CostConfig) float32 {
 	var correction float32
 	if s.Ehbu > 0 {
@@ -75,6 +83,7 @@ func (s PathState) elevationCorrection(cfg *CostConfig) float32 {
 
 // isWorse checks if a new path to nodeID is worse than the best known path.
 // Returns false if node was never visited in the current generation.
+// Precondition: gen >= 1; 0 is the zero-value sentinel for "never visited".
 func isWorse(nodeID uint32, cost float32, state PathState,
 	bestCost []float32, nodeGen []uint32, gen uint32, cfg *CostConfig) bool {
 	if nodeGen[nodeID] != gen {
