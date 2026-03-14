@@ -397,14 +397,12 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			if ctx.Err() != nil {
 				break
 			}
-			wg.Add(1)
-			go func(s string) {
-				defer wg.Done()
+			wg.Go(func() {
 				defer func() { <-sem }()
-				if _, err := p.Pool.Exec(ctx, s); err != nil {
-					slog.Warn("osm import: index step failed", "stmt", s, "error", err)
+				if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+					slog.Warn("osm import: index step failed", "stmt", stmt, "error", err)
 				}
-			}(stmt)
+			})
 		}
 		wg.Wait()
 		completed += int64(len(group))
@@ -468,18 +466,16 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			if ctx.Err() != nil {
 				break
 			}
-			wg.Add(1)
-			go func(query string) {
-				defer wg.Done()
+			wg.Go(func() {
 				defer func() { <-sem }()
-				if _, err := p.Pool.Exec(ctx, query); err != nil {
-					preview := query
+				if _, err := p.Pool.Exec(ctx, q); err != nil {
+					preview := q
 					if len(preview) > 60 {
 						preview = preview[:60]
 					}
 					slog.Warn("osm import: optimize step failed", "query", preview, "error", err)
 				}
-			}(q)
+			})
 		}
 		wg.Wait()
 	}
