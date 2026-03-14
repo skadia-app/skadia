@@ -39,11 +39,13 @@ var osmCategories = map[string][]string{
 	"glaciers":       {"osm_glaciers"},
 	"wetlands":       {"osm_wetlands"},
 	"boundaries":     {"osm_boundaries"},
-	"pistes":         {"osm_pistes"},
+	"pistes":         {"osm_pistes", "osm_piste_areas"},
 	"lifts":          {"osm_lifts"},
 	"ferries":        {}, // shares osm_ways — cleared via DELETE WHERE highway='ferry'
 	"climbing":       {}, // shares osm_ways — cleared via DELETE WHERE highway='via_ferrata'
 	"routes":         {"osm_routes"},
+	"landuse":        {"osm_landuse"},
+	"railways":       {"osm_railways"},
 }
 
 type osmImportRequest struct {
