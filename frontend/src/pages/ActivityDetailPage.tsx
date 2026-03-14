@@ -42,6 +42,8 @@ import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
 import type { GeoTag, ActivityStop } from '@/api/types'
 import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
+import SportConflictBadge from '@/components/SportConflictBadge'
+import SportConflictModal from '@/components/SportConflictModal'
 import TrimDialog from '@/components/TrimDialog'
 import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
@@ -856,6 +858,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   })
 
   const [showRevertFusionModal, setShowRevertFusionModal] = useState(false)
+  const [conflictOpen, setConflictOpen] = useState(false)
 
   const revertFusionMutation = useMutation({
     mutationFn: () => revertFusion(activity.id),
@@ -938,6 +941,9 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         )}
         <div className="flex items-center gap-3 mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           <span>{label}</span>
+          {activity.sport_conflict_pending && (
+            <SportConflictBadge onClick={() => setConflictOpen(true)} />
+          )}
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && (
             <span className="text-xs text-neutral-400 dark:text-neutral-600">indoor</span>
           )}
@@ -1319,6 +1325,19 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           onConfirm={(scope) => reprocessScopedMutation.mutate(scope)}
           onClose={() => setReprocessScopeOpen(false)}
           isPending={reprocessScopedMutation.isPending}
+        />
+      )}
+
+      {/* Sport conflict modal */}
+      {conflictOpen && (
+        <SportConflictModal
+          activity={activity}
+          open={conflictOpen}
+          onClose={() => setConflictOpen(false)}
+          onResolved={() => {
+            setConflictOpen(false)
+            queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+          }}
         />
       )}
     </div>
