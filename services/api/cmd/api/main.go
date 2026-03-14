@@ -158,6 +158,7 @@ func main() {
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
 			RoutingGraphPath:    cfg.RoutingGraphPath,
+			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 		},
 	}
 
@@ -561,6 +562,7 @@ func main() {
 			r.Post("/routing/route", h.RouteViabrouter)
 			r.Post("/routes/suggest", h.SuggestRoutes)
 			r.Get("/routing/status", h.RoutingGraphStatus)
+			r.Post("/routing/route-internal", h.RouteCalculate)
 
 			// Planned Routes (CRUD)
 			r.Get("/routes", h.ListRoutes)
@@ -685,4 +687,16 @@ func main() {
 	}
 
 	slog.Info("server stopped")
+}
+
+func parseDuration(s string, defaultVal time.Duration) time.Duration {
+	if s == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		slog.Warn("invalid duration, using default", "value", s, "default", defaultVal, "error", err)
+		return defaultVal
+	}
+	return d
 }

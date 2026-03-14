@@ -2,8 +2,14 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 // RebuildRoutingGraph triggers a background graph rebuild.
@@ -92,4 +98,170 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		"version":      g.Version,
 		"file_size_mb": int(fileSizeMB),
 	})
+}
+
+// RouteCalculate computes a route using the internal routing engine.
+func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
+	if h.GraphManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "routing not configured",
+		})
+		return
+	}
+
+	router := h.GraphManager.Router()
+	if router == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "no routing graph loaded",
+		})
+		return
+	}
+
+	var req struct {
+		From   [2]float64   `json:"from"`   // [lat, lon]
+		To     [2]float64   `json:"to"`     // [lat, lon]
+		Via    [][2]float64 `json:"via"`    // optional [[lat, lon], ...]
+		Config *struct {
+			UphillCostFactor   *float32 `json:"uphill_cost_factor"`
+			DownhillCostFactor *float32 `json:"downhill_cost_factor"`
+			Pass0Coefficient   *float32 `json:"pass0_coefficient"`
+			ElevPenaltyBuffer  *float32 `json:"elev_penalty_buffer"`
+			ElevMaxBuffer      *float32 `json:"elev_max_buffer"`
+		} `json:"config"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "invalid request body",
+		})
+		return
+	}
+
+	// Input validation — system boundary, validate lat/lon ranges
+	validCoord := func(lat, lon float64) bool {
+		return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+	}
+	if !validCoord(req.From[0], req.From[1]) || !validCoord(req.To[0], req.To[1]) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "lat must be [-90,90], lon must be [-180,180]",
+		})
+		return
+	}
+	for _, v := range req.Via {
+		if !validCoord(v[0], v[1]) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "via point: lat must be [-90,90], lon must be [-180,180]",
+			})
+			return
+		}
+	}
+
+	cfg := routing.DefaultTrekkingConfig()
+	if req.Config != nil {
+		if req.Config.UphillCostFactor != nil {
+			if *req.Config.UphillCostFactor < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "uphill_cost_factor must be >= 0",
+				})
+				return
+			}
+			cfg.UphillCostFactor = *req.Config.UphillCostFactor
+		}
+		if req.Config.DownhillCostFactor != nil {
+			if *req.Config.DownhillCostFactor < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "downhill_cost_factor must be >= 0",
+				})
+				return
+			}
+			cfg.DownhillCostFactor = *req.Config.DownhillCostFactor
+		}
+		if req.Config.Pass0Coefficient != nil {
+			if *req.Config.Pass0Coefficient <= 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "pass0_coefficient must be > 0",
+				})
+				return
+			}
+			cfg.Pass0Coefficient = *req.Config.Pass0Coefficient
+		}
+		if req.Config.ElevPenaltyBuffer != nil {
+			if *req.Config.ElevPenaltyBuffer < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "elev_penalty_buffer must be >= 0",
+				})
+				return
+			}
+			cfg.ElevPenaltyBuffer = *req.Config.ElevPenaltyBuffer
+		}
+		if req.Config.ElevMaxBuffer != nil {
+			if *req.Config.ElevMaxBuffer < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "elev_max_buffer must be >= 0",
+				})
+				return
+			}
+			cfg.ElevMaxBuffer = *req.Config.ElevMaxBuffer
+		}
+		cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
+	}
+
+	timeout := 30 * time.Second
+	if h.Config.RoutingTimeout > 0 {
+		timeout = h.Config.RoutingTimeout
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	start := time.Now()
+	var result *routing.RouteResult
+	var err error
+
+	if len(req.Via) > 0 {
+		waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
+		waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
+		for _, v := range req.Via {
+			waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
+		}
+		waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
+		result, err = router.RouteVia(ctx, waypoints, cfg)
+	} else {
+		result, err = router.Route(ctx, routing.RouteRequest{
+			FromLat: req.From[0], FromLon: req.From[1],
+			ToLat: req.To[0], ToLon: req.To[1],
+		}, cfg)
+	}
+
+	duration := time.Since(start)
+
+	if err != nil {
+		status := "no_route"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			status = "timeout"
+		}
+		slog.Warn("route failed",
+			"from", req.From, "to", req.To,
+			"via_count", len(req.Via),
+			"duration_ms", duration.Milliseconds(),
+			"status", status,
+			"error", err)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": status,
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	slog.Info("route computed",
+		"from", req.From, "to", req.To,
+		"via_count", len(req.Via),
+		"distance_m", result.DistanceM,
+		"ascent_m", result.AscentM,
+		"duration_ms", duration.Milliseconds(),
+		"pass0_expansions", result.PassStats.Pass0Expansions,
+		"pass1_expansions", result.PassStats.Pass1Expansions)
+
+	w.Header().Set("Content-Type", "application/geo+json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(result.ToGeoJSON())
 }

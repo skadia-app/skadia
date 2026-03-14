@@ -14,8 +14,30 @@ import (
 
 // GraphManager manages the in-memory routing graph with atomic pointer swap.
 type GraphManager struct {
-	graph atomic.Pointer[graph.Graph]
-	mu    sync.Mutex // serializes rebuilds
+	graph    atomic.Pointer[graph.Graph]
+	mu       sync.Mutex // serializes rebuilds
+	routerMu sync.Mutex
+	router   *Router
+}
+
+// Router returns a Router instance for the current graph.
+// Returns nil if no graph is loaded.
+// The Router is created lazily and replaced when the graph is rebuilt.
+// The caller holds a reference to the returned Router for the duration of
+// the request. A concurrent Rebuild() may replace m.router, but this does
+// not affect in-flight computations; the old graph remains live until all
+// references are dropped.
+func (m *GraphManager) Router() *Router {
+	m.routerMu.Lock()
+	defer m.routerMu.Unlock()
+	g := m.graph.Load()
+	if g == nil {
+		return nil
+	}
+	if m.router == nil || m.router.Graph != g {
+		m.router = NewRouter(g, 3, 10)
+	}
+	return m.router
 }
 
 // Load returns the current graph, or nil if none is loaded.
