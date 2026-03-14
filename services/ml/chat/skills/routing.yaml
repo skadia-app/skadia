@@ -4,7 +4,7 @@ description: "Routenplanung, Navigation, Trail-Suche, POI-Suche, Isochronen"
 schema_excerpt: |
   osm_ways: id, osm_id, name, highway, surface, tracktype, sac_scale, mtb_scale,
     length_m, avg_slope, oneway, bridge, tunnel, is_lift, source, target, cost, reverse_cost, geom
-  osm_pois: id, osm_id, name, category, subtype, ele, geom
+  osm_pois: id, osm_id, name, category, subtype, ele, geom GEOMETRY(Geometry,4326) -- Points (Nodes), Polygons (closed Ways), MultiPolygons (Relations)
   osm_routes: id, osm_id, name, ref, route, network, colour, distance, geom
 
 domain_knowledge: |
