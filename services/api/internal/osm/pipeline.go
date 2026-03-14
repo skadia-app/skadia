@@ -529,6 +529,12 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			slog.Info("osm import: starting trail topology build")
 
 			// Phase 5a: pgr_createTopology — WICHTIG: 'id' ist die PK-Spalte, NICHT 'way_id'
+			// TODO(pgRouting): pgr_createTopology wurde in pgRouting 4.0.1 entfernt und
+			// schlägt hier fehl. Skadia's A*-Router (routing/graph/) nutzt KEINE
+			// pgRouting-Topologie — er baut seinen CSR-Graphen direkt aus osm_ways.
+			// source/target in osm_ways bleiben NULL, was für den eigenen Router irrelevant ist.
+			// Fix: Manuellen Topology-Builder implementieren (ST_StartPoint/ST_EndPoint +
+			// KNN-Vertex-Matching) oder pgRouting <4.0 verwenden.
 			reporter.SetProgress(1)
 			_, topoErr := p.Pool.Exec(ctx, `
 				SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
@@ -577,6 +583,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 				}
 
 				// Phase 5d: Re-Topologie für Lifte (source/target für neue Rows)
+				// TODO(pgRouting): Wie Phase 5a — pgr_createTopology in pgRouting 4.0.1 entfernt.
 				reporter.SetProgress(4)
 				_, retopoErr := p.Pool.Exec(ctx, `
 					SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
@@ -631,6 +638,12 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 func (p *Pipeline) RunTopologyOnly(ctx context.Context, reporter ProgressReporter) {
 	slog.Info("osm topology retry: starting")
 
+	// TODO(pgRouting): pgr_createTopology wurde in pgRouting 4.0.1 entfernt. Diese Funktion
+	// (RunTopologyOnly) wird durch den Retry-Topology-Endpoint aufgerufen und schlägt aktuell
+	// grundsätzlich fehl. Skadia's A*-Router (routing/graph/) nutzt pgRouting-Topologie nicht —
+	// er baut seinen CSR-Graphen direkt aus osm_ways. Die Retry-Topology-Funktion ist daher
+	// derzeit ohne Effekt und sollte langfristig entweder entfernt oder auf einen manuellen
+	// Topology-Builder umgestellt werden (ST_StartPoint/ST_EndPoint + KNN-Vertex-Matching).
 	reporter.SetProgress(1)
 	_, topoErr := p.Pool.Exec(ctx, `
 		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
@@ -678,6 +691,7 @@ func (p *Pipeline) RunTopologyOnly(ctx context.Context, reporter ProgressReporte
 		slog.Warn("osm topology retry: lift merge failed", "error", liftErr)
 	}
 
+	// TODO(pgRouting): Wie oben — pgr_createTopology in pgRouting 4.0.1 entfernt.
 	reporter.SetProgress(4)
 	_, retopoErr := p.Pool.Exec(ctx, `
 		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')

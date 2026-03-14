@@ -603,6 +603,13 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			   OR ST_NPoints(geom) < 2;
 		`},
 		// SRID 4326: tolerance in degrees. 0.000009 ≈ 1 meter at 47°N.
+		// TODO(pgRouting): pgr_createTopology wurde in pgRouting 4.0.1 entfernt.
+		// Skadia's eigener A*-Router (routing/graph/) baut seinen CSR-Graphen direkt aus
+		// osm_ways und benötigt die pgRouting-Topologie-Tabellen NICHT. Daher ist dieser
+		// Schritt aktuell non-fatal (siehe Schleife unten).
+		// Um pgr_createTopology wieder zu aktivieren: Entweder auf eine pgRouting-Version
+		// <4.0 downgraden (nicht empfohlen) oder einen manuellen Topology-Builder
+		// implementieren: ST_StartPoint/ST_EndPoint der Segmente + KNN-Vertex-Matching.
 		{"create_topology", 95, `
 			SELECT pgr_createTopology('osm_ways_noded', 0.000009, 'geom', 'way_id', 'source', 'target');
 		`},
@@ -617,6 +624,13 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 		}
 		slog.Info("enrichment: splitting step", "step", step.name)
 		if _, err := conn.Exec(ctx, step.sql); err != nil {
+			// pgr_createTopology ist in pgRouting 4.0.1 nicht mehr vorhanden.
+			// Da Skadia's A*-Router die pgRouting-Topologie nicht nutzt,
+			// behandeln wir diesen Schritt als non-fatal.
+			if step.name == "create_topology" {
+				slog.Warn("enrichment: create_topology übersprungen (pgRouting 4.0+ hat pgr_createTopology entfernt)", "error", err)
+				continue
+			}
 			return fmt.Errorf("splitting step %s: %w", step.name, err)
 		}
 		if progressFn != nil {
