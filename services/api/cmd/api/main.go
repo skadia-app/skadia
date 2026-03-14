@@ -245,6 +245,7 @@ func main() {
 			r.Delete("/activities/{id}", h.DeleteActivity)
 			r.Delete("/activities", h.DeleteActivities)
 			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
+			r.Patch("/activities/{id}/resolve-sport-conflict", h.ResolveSportConflict)
 			r.Post("/activities/{id}/correct-elevation", h.CorrectActivityElevation)
 			r.Post("/activities/{id}/reset-elevation", h.ResetActivityElevation)
 			r.Post("/activities/{id}/correct-distance", h.CorrectActivityDistance)
