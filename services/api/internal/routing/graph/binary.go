@@ -188,7 +188,7 @@ func Deserialize(path string) (*Graph, error) {
 			if e.Type == typ {
 				start := int(e.Offset)
 				end := start + int(e.Length)
-				if end > len(payload) {
+				if start < 0 || start > len(payload) || end < start || end > len(payload) {
 					return nil, false
 				}
 				return data[start:end], true
@@ -292,7 +292,12 @@ func deltaDecodeElevation(data []byte, nodeCount int) []int32 {
 		return make([]int32, nodeCount)
 	}
 
-	_ = le.Uint32(data[0:4])
+	fileChunkSize := le.Uint32(data[0:4])
+	if fileChunkSize != EleChunkSize {
+		// Format mismatch: file was written with a different chunk size.
+		// Return zeros rather than silently producing wrong elevations.
+		return make([]int32, nodeCount)
+	}
 	chunkCount := int(le.Uint32(data[4:8]))
 	if chunkCount == 0 {
 		return make([]int32, nodeCount)

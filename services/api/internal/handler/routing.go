@@ -153,6 +153,12 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if len(req.Via) > 25 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "maximum 25 via points allowed",
+		})
+		return
+	}
 	for _, v := range req.Via {
 		if !validCoord(v[0], v[1]) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -183,9 +189,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			cfg.DownhillCostFactor = *req.Config.DownhillCostFactor
 		}
 		if req.Config.Pass0Coefficient != nil {
-			if *req.Config.Pass0Coefficient <= 0 {
+			if *req.Config.Pass0Coefficient <= 0 || *req.Config.Pass0Coefficient > 10 {
 				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "pass0_coefficient must be > 0",
+					"error": "pass0_coefficient must be in (0, 10]",
 				})
 				return
 			}

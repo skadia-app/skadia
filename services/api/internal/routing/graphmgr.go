@@ -76,6 +76,14 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 		return err
 	}
 
+	// Nil the old router before storing the new graph. This lets the GC
+	// collect the old RouterStates (~480 MB each) as soon as in-flight
+	// requests drop their references, rather than waiting for the next
+	// Router() call to replace it.
+	m.routerMu.Lock()
+	m.router = nil
+	m.routerMu.Unlock()
+
 	m.graph.Store(g)
 	slog.Info("routing graph rebuilt",
 		"nodes", g.NodeCount,

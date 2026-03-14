@@ -78,7 +78,11 @@ func (r *RouteResult) ToGeoJSON() json.RawMessage {
 		}},
 	}
 
-	b, _ := json.Marshal(feature)
+	b, err := json.Marshal(feature)
+	if err != nil {
+		// Fallback: return minimal valid GeoJSON
+		return json.RawMessage(`{"type":"FeatureCollection","features":[]}`)
+	}
 	return b
 }
 
@@ -206,6 +210,10 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 }
 
 func makeSegment(g *graph.Graph, fromIdx, toIdx int, tags uint64, osmIdx uint32) RouteSegment {
+	var osmWayID int64
+	if int(osmIdx) < len(g.OSMIDPool) {
+		osmWayID = g.OSMIDPool[osmIdx]
+	}
 	return RouteSegment{
 		FromIdx:   fromIdx,
 		ToIdx:     toIdx,
@@ -214,7 +222,7 @@ func makeSegment(g *graph.Graph, fromIdx, toIdx int, tags uint64, osmIdx uint32)
 		SacScale:  graph.SacScaleName(uint8(graph.DecodeField(tags, 14, 3))),
 		MtbScale:  graph.MtbScaleName(uint8(graph.DecodeField(tags, 17, 3))),
 		Tracktype: graph.TrackTypeName(uint8(graph.DecodeField(tags, 11, 3))),
-		OsmWayID:  g.OSMIDPool[osmIdx],
+		OsmWayID:  osmWayID,
 	}
 }
 

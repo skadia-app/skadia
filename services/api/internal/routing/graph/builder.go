@@ -209,6 +209,10 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			LanduseClass: landuseClass,
 		}
 		w.Coords = parseLineStringWKT(geomWKT)
+		if w.Coords == nil && geomWKT != "" {
+			slog.Warn("skipped non-LINESTRING way geometry", "osm_id", w.OSMID,
+				"geom_prefix", geomWKT[:min(30, len(geomWKT))])
+		}
 		ways = append(ways, w)
 	}
 	if err := rows.Err(); err != nil {

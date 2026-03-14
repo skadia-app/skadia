@@ -18,7 +18,7 @@ type Graph struct {
 	EdgeOSMIdx []uint32
 	OSMIDPool  []int64
 
-	// Node data (Morton-sorted).
+	// Node data.
 	NodeLat  []int32 // latitude × 1e7 (fixed-point, ~1cm precision)
 	NodeLon  []int32 // longitude × 1e7
 	NodeEle  []int32 // elevation in decimeters (0.1m, worldwide range)
@@ -35,7 +35,8 @@ type Graph struct {
 	BBox      [4]float64 // minLat, minLon, maxLat, maxLon
 }
 
-// SpatialGrid is a Morton-sorted flat grid index for O(1) cell lookup.
+// SpatialGrid is a flat grid index for O(1) cell lookup.
+// Nodes are grouped by row-major cell index (r*Cols+c).
 type SpatialGrid struct {
 	CellSize  float64  // in degrees (~0.01 = ~1.1km)
 	MinLat    float64
@@ -43,7 +44,7 @@ type SpatialGrid struct {
 	Cols      int
 	Rows      int
 	CellStart []uint32 // len = Rows*Cols+1, CSR-style offsets
-	NodeOrder []uint32 // Morton-sorted node indices
+	NodeOrder []uint32 // cell-grouped node indices
 }
 
 // Node barrier type constants.

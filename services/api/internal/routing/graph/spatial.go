@@ -1,11 +1,9 @@
 package graph
 
-import (
-	"math"
-	"sort"
-)
+import "math"
 
-// BuildSpatialIndex creates a Morton-sorted flat grid index.
+// BuildSpatialIndex creates a flat grid index for O(1) nearest-node lookups.
+// Nodes are grouped by row-major cell index with CSR-style CellStart offsets.
 func BuildSpatialIndex(g *Graph, cellSize float64) *SpatialGrid {
 	if g.NodeCount == 0 {
 		return &SpatialGrid{CellSize: cellSize, CellStart: []uint32{0}, NodeOrder: nil}
@@ -45,30 +43,7 @@ func BuildSpatialIndex(g *Graph, cellSize float64) *SpatialGrid {
 		Cols:     cols,
 	}
 
-	type nodeSort struct {
-		idx    uint32
-		morton uint64
-	}
-	sorted := make([]nodeSort, g.NodeCount)
-	for i := uint32(0); i < g.NodeCount; i++ {
-		lat := float64(g.NodeLat[i]) / 1e7
-		lon := float64(g.NodeLon[i]) / 1e7
-		row := uint32((lat - minLat) / cellSize)
-		col := uint32((lon - minLon) / cellSize)
-		sorted[i] = nodeSort{idx: i, morton: mortonCode(row, col)}
-	}
-
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].morton < sorted[j].morton
-	})
-
-	grid.NodeOrder = make([]uint32, g.NodeCount)
-	for i, s := range sorted {
-		grid.NodeOrder[i] = s.idx
-	}
-
 	totalCells := rows * cols
-	grid.CellStart = make([]uint32, totalCells+1)
 
 	cellIdx := func(nodeI uint32) int {
 		lat := float64(g.NodeLat[nodeI]) / 1e7
@@ -78,26 +53,38 @@ func BuildSpatialIndex(g *Graph, cellSize float64) *SpatialGrid {
 		return r*cols + c
 	}
 
+	// Count nodes per cell, then prefix-sum for CellStart.
 	cellCount := make([]int, totalCells)
-	for _, nodeI := range grid.NodeOrder {
-		ci := cellIdx(nodeI)
+	for i := uint32(0); i < g.NodeCount; i++ {
+		ci := cellIdx(i)
 		if ci >= 0 && ci < totalCells {
 			cellCount[ci]++
 		}
 	}
 
+	grid.CellStart = make([]uint32, totalCells+1)
 	for i := 0; i < totalCells; i++ {
 		grid.CellStart[i+1] = grid.CellStart[i] + uint32(cellCount[i])
 	}
 
-	sort.Slice(grid.NodeOrder, func(i, j int) bool {
-		return cellIdx(grid.NodeOrder[i]) < cellIdx(grid.NodeOrder[j])
-	})
+	// Place nodes into NodeOrder at correct cell positions.
+	grid.NodeOrder = make([]uint32, g.NodeCount)
+	cursor := make([]uint32, totalCells)
+	copy(cursor, grid.CellStart[:totalCells])
+	for i := uint32(0); i < g.NodeCount; i++ {
+		ci := cellIdx(i)
+		if ci >= 0 && ci < totalCells {
+			grid.NodeOrder[cursor[ci]] = i
+			cursor[ci]++
+		}
+	}
 
 	return grid
 }
 
-// NearestNode finds the closest node to the given lat/lon.
+// NearestNode finds the closest node to the given lat/lon within a 3×3 cell
+// neighbourhood (~3.3km). Returns (0, 65535) when no node is found — callers
+// must check bestDist against a threshold (e.g. maxSnapDist) to detect this.
 func NearestNode(g *Graph, lat, lon float64) (uint32, uint16) {
 	grid := g.Grid
 	if grid == nil || g.NodeCount == 0 {

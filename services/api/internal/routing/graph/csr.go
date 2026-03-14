@@ -1,11 +1,23 @@
 package graph
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // BuildCSR converts a TopologyResult into a CSR graph.
+// Panics if any edge references an out-of-range node index.
 func BuildCSR(topo TopologyResult) *Graph {
 	nodeCount := uint32(topo.NodeCount)
 	edgeCount := uint32(len(topo.Edges))
+
+	// Validate edge indices before allocating.
+	for i, e := range topo.Edges {
+		if e.From >= nodeCount || e.To >= nodeCount {
+			panic(fmt.Sprintf("BuildCSR: edge %d has out-of-range node index (from=%d, to=%d, nodeCount=%d)",
+				i, e.From, e.To, nodeCount))
+		}
+	}
 
 	g := &Graph{
 		NodeCount: nodeCount,

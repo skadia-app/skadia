@@ -140,23 +140,24 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 
 		cur := state.frontier.Pop()
 
-		// Reached destination
+		// Compute effective cost (raw + latent hysteresis buffer).
+		// Note: cur.Cost is RAW, bestCost stores EFFECTIVE.
+		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
+
+		// Skip stale entries BEFORE destination check and cost-cutting — ensures
+		// only settled (non-superseded) entries tighten maxTotalCost, and prevents
+		// returning a suboptimal destination entry superseded by a better path.
+		if state.nodeGen[cur.NodeID] == state.generation &&
+			effectiveCur > state.bestCost[cur.NodeID] {
+			continue
+		}
+
+		// Reached destination (after stale check — guarantees optimal)
 		if cur.NodeID == dst {
 			return &PassStats{
 				Pass1Expansions: expansions,
 				Pass1DurationMs: time.Since(start).Milliseconds(),
 			}, nil
-		}
-
-		// Compute effective cost (raw + latent hysteresis buffer).
-		// Note: cur.Cost is RAW, bestCost stores EFFECTIVE.
-		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
-
-		// Skip stale entries BEFORE cost-cutting — ensures only settled
-		// (non-superseded) entries tighten maxTotalCost for optimal bounds.
-		if state.nodeGen[cur.NodeID] == state.generation &&
-			effectiveCur > state.bestCost[cur.NodeID] {
-			continue
 		}
 
 		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
@@ -252,8 +253,14 @@ func buildTrackIndex(state *RouterState, track []uint32) map[uint32]float32 {
 	totalCost := state.bestCost[track[len(track)-1]] // effective cost at dst
 	for _, n := range track {
 		// remainingCost = totalCost - costAtNode
+		// Clamp to 0: inadmissible A* (pass0) can overestimate node costs,
+		// producing negative remaining values that would break cost-cutting.
 		if state.nodeGen[n] == state.generation {
-			index[n] = totalCost - state.bestCost[n]
+			remaining := totalCost - state.bestCost[n]
+			if remaining < 0 {
+				remaining = 0
+			}
+			index[n] = remaining
 		}
 	}
 	return index
@@ -394,21 +401,23 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 		cur := state.frontier.Pop()
 
+		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
+
+		// Skip stale entries BEFORE destination check and cost-cutting — ensures
+		// only settled (non-superseded) entries tighten maxTotalCost, and prevents
+		// returning a suboptimal destination entry superseded by a better path.
+		if best, ok := state.bestCost[cur.NodeID]; ok {
+			if effectiveCur > best {
+				continue
+			}
+		}
+
+		// Reached destination (after stale check — guarantees optimal)
 		if cur.NodeID == dst {
 			return &PassStats{
 				Pass1Expansions: expansions,
 				Pass1DurationMs: time.Since(start).Milliseconds(),
 			}, nil
-		}
-
-		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
-
-		// Skip stale entries BEFORE cost-cutting — ensures only settled
-		// (non-superseded) entries tighten maxTotalCost for optimal bounds.
-		if best, ok := state.bestCost[cur.NodeID]; ok {
-			if effectiveCur > best {
-				continue
-			}
 		}
 
 		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
@@ -497,7 +506,11 @@ func buildTrackIndexSparse(state *SparseState, track []uint32) map[uint32]float3
 	totalCost := state.bestCost[track[len(track)-1]]
 	for _, n := range track {
 		if cost, ok := state.bestCost[n]; ok {
-			index[n] = totalCost - cost
+			remaining := totalCost - cost
+			if remaining < 0 {
+				remaining = 0
+			}
+			index[n] = remaining
 		}
 	}
 	return index

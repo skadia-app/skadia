@@ -92,6 +92,10 @@ var cyclewayEnum = map[string]uint8{
 	"opposite": 5, "opposite_lane": 6, "opposite_track": 7,
 }
 
+// routeNetworkEnum encodes route network hierarchy levels.
+// Cycling and hiking networks are stored in separate 3-bit fields (bits 20-22
+// and 23-25), so they use the same value range independently.
+// Values: 1=international, 2=national, 3=regional, 4=local.
 var routeNetworkEnum = map[string]uint8{
 	"icn": 1, "ncn": 2, "rcn": 3, "lcn": 4,
 	"iwn": 1, "nwn": 2, "rwn": 3, "lwn": 4,
