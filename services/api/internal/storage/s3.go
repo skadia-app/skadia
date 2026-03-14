@@ -20,7 +20,7 @@ type S3Client struct {
 func NewS3Client(ctx context.Context, endpoint, accessKey, secretKey, bucket string) (*S3Client, error) {
 	client := s3.New(s3.Options{
 		BaseEndpoint: aws.String(endpoint),
-		Region:       "garage",
+		Region:       "us-east-1",
 		Credentials:  credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		UsePathStyle: true,
 	})

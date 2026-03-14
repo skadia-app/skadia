@@ -33,7 +33,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const { openModal } = useModal()
   const [diskExpanded, setDiskExpanded] = useState(false)
 
-  const { data: regionData } = useQuery({
+  const { data: regionData, isFetched: regionsFetched } = useQuery({
     queryKey: ['osm-regions-status'],
     queryFn: fetchOSMRegionStatus,
     refetchInterval: (query) =>
@@ -102,7 +102,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         </div>
       )}
 
-      {hasOsmData && regions.length === 0 && !activeOsmJob && (
+      {hasOsmData && regionsFetched && regions.length === 0 && !activeOsmJob && (
         <div className="flex items-start gap-2 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
           <p className="text-xs text-yellow-700 dark:text-yellow-300">

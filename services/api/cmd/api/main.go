@@ -560,6 +560,8 @@ func main() {
 			r.Get("/notifications/unread-count", h.GetUnreadCount)
 			r.Post("/notifications/read-all", h.MarkAllNotificationsRead)
 			r.Post("/notifications/{id}/read", h.MarkNotificationRead)
+			r.Delete("/notifications", h.DeleteAllNotifications)
+			r.Delete("/notifications/{id}", h.DeleteNotification)
 
 			// Routing (BRouter proxy + auto-route suggestion)
 			r.Post("/routing/route", h.RouteViabrouter)

@@ -82,6 +82,41 @@ func (h *Handler) MarkAllNotificationsRead(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// DeleteNotification löscht eine einzelne Benachrichtigung des authentifizierten Users.
+//
+// DELETE /api/v1/notifications/{id}
+func (h *Handler) DeleteNotification(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	notifID := chi.URLParam(r, "id")
+
+	if err := h.DB.DeleteNotification(r.Context(), notifID, userID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "Not Found", "notification not found", r.URL.Path)
+			return
+		}
+		slog.Error("delete notification failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete notification", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// DeleteAllNotifications löscht alle Benachrichtigungen des authentifizierten Users.
+//
+// DELETE /api/v1/notifications
+func (h *Handler) DeleteAllNotifications(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	if err := h.DB.DeleteAllNotifications(r.Context(), userID); err != nil {
+		slog.Error("delete all notifications failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete all notifications", r.URL.Path)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // GetUnreadCount returns just the unread notification count.
 //
 // GET /api/v1/notifications/unread-count

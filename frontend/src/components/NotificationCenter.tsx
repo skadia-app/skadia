@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell } from 'lucide-react'
+import { Bell, CheckCircle2, XCircle, Settings, AlertTriangle, Wrench, MessageCircle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/auth'
 import { apiClient } from '@/api/client'
@@ -14,11 +14,23 @@ interface Notification {
   created_at: string
 }
 
-const CATEGORY_ICONS: Record<string, string> = {
-  enrichment: '⚙️',
-  anomaly: '⚠️',
-  gear: '🔧',
-  chat: '💬',
+function NotificationIcon({ category }: { category: string }) {
+  switch (category) {
+    case 'job':
+      return <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+    case 'job_error':
+      return <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+    case 'enrichment':
+      return <Settings className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+    case 'anomaly':
+      return <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+    case 'gear':
+      return <Wrench className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+    case 'chat':
+      return <MessageCircle className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+    default:
+      return <Bell className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+  }
 }
 
 export default function NotificationCenter() {
@@ -38,7 +50,7 @@ export default function NotificationCenter() {
 
   const unreadCount = unreadData?.unread_count ?? 0
 
-  // Close on click outside
+  // Schließen beim Klick außerhalb des Panels
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
@@ -56,7 +68,7 @@ export default function NotificationCenter() {
       setNotifications(data.items ?? [])
       queryClient.setQueryData(UNREAD_KEY, { unread_count: data.unread_count })
     } catch {
-      // silently ignore
+      // Fehler stillschweigend ignorieren
     }
   }
 
@@ -66,7 +78,39 @@ export default function NotificationCenter() {
       queryClient.setQueryData(UNREAD_KEY, { unread_count: 0 })
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
     } catch {
-      // silently ignore
+      // Fehler stillschweigend ignorieren
+    }
+  }
+
+  // Einzelne Benachrichtigung löschen — optimistisches Update
+  async function deleteNotification(id: string) {
+    // Sofort aus lokalem State entfernen
+    setNotifications(prev => prev.filter(n => n.id !== id))
+    // Unread-Count anpassen: war die gelöschte Notiz ungelesen?
+    const wasUnread = notifications.find(n => n.id === id)?.read === false
+    if (wasUnread) {
+      queryClient.setQueryData(UNREAD_KEY, (old: { unread_count: number } | undefined) => ({
+        unread_count: Math.max(0, (old?.unread_count ?? 1) - 1),
+      }))
+    }
+    try {
+      await apiFetch(`/api/v1/notifications/${id}`, { method: 'DELETE' })
+    } catch {
+      // Bei Fehler Liste neu laden
+      fetchNotifications()
+    }
+  }
+
+  // Alle Benachrichtigungen löschen
+  async function deleteAll() {
+    // Optimistisches Update: sofort leeren
+    setNotifications([])
+    queryClient.setQueryData(UNREAD_KEY, { unread_count: 0 })
+    try {
+      await apiFetch('/api/v1/notifications', { method: 'DELETE' })
+    } catch {
+      // Bei Fehler Liste neu laden
+      fetchNotifications()
     }
   }
 
@@ -94,14 +138,27 @@ export default function NotificationCenter() {
         <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-lg z-50 overflow-hidden">
           <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-200 dark:border-neutral-800">
             <span className="text-sm font-medium">Benachrichtigungen</span>
-            {unreadCount > 0 && (
-              <button
-                onClick={markAllRead}
-                className="text-xs text-accent-DEFAULT hover:underline"
-              >
-                Alle gelesen
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* "Alle gelesen" nur anzeigen wenn es ungelesene gibt */}
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllRead}
+                  className="text-xs text-accent-DEFAULT hover:underline"
+                >
+                  Alle gelesen
+                </button>
+              )}
+              {/* "Alle löschen" nur anzeigen wenn es Benachrichtigungen gibt */}
+              {notifications.length > 0 && (
+                <button
+                  onClick={deleteAll}
+                  className="text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  title="Alle löschen"
+                >
+                  Alle löschen
+                </button>
+              )}
+            </div>
           </div>
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 ? (
@@ -111,12 +168,12 @@ export default function NotificationCenter() {
                 <div
                   key={n.id}
                   className={cn(
-                    'px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0',
+                    'group px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0',
                     !n.read && 'bg-accent-50 dark:bg-accent-950/20',
                   )}
                 >
                   <div className="flex items-start gap-2">
-                    <span className="text-sm mt-0.5">{CATEGORY_ICONS[n.category] ?? '🔔'}</span>
+                    <NotificationIcon category={n.category} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{n.title}</p>
                       {n.body && (
@@ -126,6 +183,15 @@ export default function NotificationCenter() {
                         {new Date(n.created_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
                       </p>
                     </div>
+                    {/* X-Button: nur bei Hover sichtbar */}
+                    <button
+                      onClick={() => deleteNotification(n.id)}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
+                      aria-label="Benachrichtigung löschen"
+                      title="Löschen"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
               ))

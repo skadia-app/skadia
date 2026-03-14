@@ -88,3 +88,30 @@ func (db *DB) MarkAllRead(ctx context.Context, userID string) error {
 	}
 	return nil
 }
+
+// DeleteNotification löscht eine einzelne Benachrichtigung (Ownership-Check via user_id).
+func (db *DB) DeleteNotification(ctx context.Context, notifID, userID string) error {
+	tag, err := db.Pool.Exec(ctx,
+		"DELETE FROM notifications WHERE id = $1 AND user_id = $2",
+		notifID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete notification: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteAllNotifications löscht alle Benachrichtigungen eines Users.
+func (db *DB) DeleteAllNotifications(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		"DELETE FROM notifications WHERE user_id = $1",
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete all notifications: %w", err)
+	}
+	return nil
+}
