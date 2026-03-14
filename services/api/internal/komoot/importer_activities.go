@@ -13,6 +13,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -121,12 +122,30 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
-		// Komoot API sport always wins — user may have classified the tour differently
-		// than the recording device (e.g. Wahoo ELEMNT records hiking as cycling).
-		// FIT files from Komoot also often have no valid sport field at all.
+		// Sport type resolution: compare file sport vs Komoot API sport using SegmentGroup.
+		// Silent resolution — no queue, no UI. File parser wins except when generic.
 		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
-			data.SportType = mapping.SportType
-			data.SubType = mapping.SubType
+			fileSportType := data.SportType
+			fileGroup := sport.SegmentGroup(fileSportType)
+			komootGroup := sport.SegmentGroup(mapping.SportType)
+
+			switch {
+			case fileGroup == "generic":
+				// File parser returned generic → Komoot wins
+				data.SportType = mapping.SportType
+				data.SubType = mapping.SubType
+			case komootGroup == "generic":
+				// Komoot returned generic → file wins (already set)
+			case fileGroup == komootGroup:
+				// Same group → file wins (more specific from device)
+				// NOTE: SubType from Komoot is NOT adopted here — SubType and SportType
+				// are a pair and mixing sources can create inconsistent combinations.
+				// The existing mergeActivityData/isSportRefinement handles this correctly.
+			default:
+				// Different specific groups → file wins (device is authoritative)
+			}
+
+			// E-Bike flag is always additive (Komoot knows if tour was e-bike)
 			if mapping.IsEbike {
 				data.IsEbike = true
 			}
