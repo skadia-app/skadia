@@ -1,7 +1,7 @@
 -- 000161_raster_enrichment_tables.up.sql
 
 CREATE TABLE osm_landuse (
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
+    id BIGSERIAL PRIMARY KEY,
     osm_id BIGINT NOT NULL,
     name TEXT,
     landuse TEXT NOT NULL,
@@ -11,7 +11,7 @@ CREATE INDEX idx_osm_landuse_geom ON osm_landuse USING GIST (geom);
 CREATE INDEX idx_osm_landuse_type ON osm_landuse(landuse);
 
 CREATE TABLE osm_railways (
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
+    id BIGSERIAL PRIMARY KEY,
     osm_id BIGINT NOT NULL,
     name TEXT,
     railway TEXT NOT NULL,
@@ -33,7 +33,7 @@ CREATE INDEX idx_enrichment_raster_source
     ON enrichment.raster_tiles(source);
 
 CREATE TABLE osm_piste_areas (
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
+    id BIGSERIAL PRIMARY KEY,
     osm_id BIGINT NOT NULL,
     name TEXT,
     piste_type TEXT NOT NULL,
