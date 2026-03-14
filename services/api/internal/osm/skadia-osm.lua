@@ -726,7 +726,7 @@ function osm2pgsql.process_way(object)
     -- Skipisten
     if (import_all or import_pistes) then
         local piste_types = {downhill=true, nordic=true, skitour=true, sled=true, hike=true, sleigh=true, ice_skate=true, snow_park=true, playground=true}
-        if tags['piste:type'] and piste_types[tags['piste:type']] then
+        if tags['piste:type'] and piste_types[tags['piste:type']] and not object.is_closed then
             tables.pistes:insert({
                 osm_id     = object.id,
                 name       = tags.name,
