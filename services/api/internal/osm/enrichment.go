@@ -495,7 +495,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			CREATE TEMP TABLE shared_nodes AS
 			WITH node_points AS (
 				SELECT way_id,
-					ST_SnapToGrid((dp).geom, 0.01) AS pt,
+					ST_SnapToGrid((dp).geom, 0.000009) AS pt,
 					(dp).path[1] AS pt_idx,
 					ST_NPoints(geom) AS total_pts
 				FROM (
@@ -517,7 +517,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			WHERE w.highway IS NOT NULL
 			  AND NOT EXISTS (
 				SELECT 1 FROM shared_nodes sn
-				WHERE ST_DWithin(w.geom, sn.pt, 0.01)
+				WHERE ST_DWithin(w.geom, sn.pt, 0.00002)
 				  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
 				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
 			)
@@ -527,7 +527,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			WITH ways_to_split AS (
 				SELECT w.*, ST_Collect(sn.pt) AS split_points
 				FROM osm_ways w
-				JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.01)
+				JOIN shared_nodes sn ON ST_DWithin(w.geom, sn.pt, 0.00002)
 				WHERE w.highway IS NOT NULL
 				  AND NOT ST_Equals(ST_StartPoint(w.geom), sn.pt)
 				  AND NOT ST_Equals(ST_EndPoint(w.geom), sn.pt)
