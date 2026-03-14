@@ -1,8 +1,8 @@
 package fitimport
 
 import (
-	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/muktihari/fit/profile/mesgdef"
@@ -46,9 +46,17 @@ func TrackToWKT(points []model.TrackPoint) string {
 		return ""
 	}
 
-	parts := make([]string, len(points))
+	var sb strings.Builder
+	sb.Grow(len(points) * 25)
+	sb.WriteString("LINESTRING(")
 	for i, p := range points {
-		parts[i] = fmt.Sprintf("%f %f", p.Lng, p.Lat)
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(strconv.FormatFloat(p.Lng, 'f', 6, 64))
+		sb.WriteByte(' ')
+		sb.WriteString(strconv.FormatFloat(p.Lat, 'f', 6, 64))
 	}
-	return "LINESTRING(" + strings.Join(parts, ",") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }

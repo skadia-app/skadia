@@ -220,11 +220,19 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 }
 
 func trackToWKT(points []model.TrackPoint) string {
-	parts := make([]string, len(points))
+	var sb strings.Builder
+	sb.Grow(len(points) * 25)
+	sb.WriteString("LINESTRING(")
 	for i, p := range points {
-		parts[i] = fmt.Sprintf("%f %f", p.Lng, p.Lat) // WKT: longitude first
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(strconv.FormatFloat(p.Lng, 'f', 6, 64)) // WKT: longitude first
+		sb.WriteByte(' ')
+		sb.WriteString(strconv.FormatFloat(p.Lat, 'f', 6, 64))
 	}
-	return "LINESTRING(" + strings.Join(parts, ",") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 
 func (db *DB) InsertSensors(ctx context.Context, activityID string, sensors []model.SensorRecord) error {
