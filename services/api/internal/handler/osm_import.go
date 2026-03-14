@@ -382,6 +382,15 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 	h.DB.UpdateBackgroundJobPhase(ctx, jobID, "import")
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
 
+	// Alle Regionen als 'importing' markieren (Crash-Recovery: nächster Start erkennt unvollständige Imports)
+	for _, reg := range regions {
+		h.DB.Pool.Exec(ctx, `
+			INSERT INTO osm_import_regions (region_id, label, continent, categories, status)
+			VALUES ($1, $2, $3, $4, 'importing')
+			ON CONFLICT (region_id) DO UPDATE SET status = 'importing', imported_at = now()`,
+			reg.ID, reg.Label, reg.Continent, categories)
+	}
+
 	// Gewählte Kategorien EINMAL leeren (vor dem einzigen osm2pgsql-Lauf)
 	if err := h.clearOSMData(ctx, categories); err != nil {
 		slog.Error("osm import: clearOSMData failed", "error", err)
