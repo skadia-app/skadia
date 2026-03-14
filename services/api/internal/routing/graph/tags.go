@@ -230,3 +230,33 @@ func clamp(v, lo, hi int) int {
 	}
 	return v
 }
+
+// Reverse lookup maps (enum value → string).
+var highwayNames = reverseMap(highwayEnum)
+var surfaceNames = reverseMap(surfaceEnum)
+var tracktypeNames = reverseMap(tracktypeEnum)
+var sacScaleNames = reverseMap(sacScaleEnum)
+var mtbScaleNames = reverseMap(mtbScaleEnum)
+
+func reverseMap(m map[string]uint8) map[uint8]string {
+	r := make(map[uint8]string, len(m))
+	for k, v := range m {
+		r[v] = k
+	}
+	return r
+}
+
+// HighwayName returns the string name for a highway enum value.
+func HighwayName(v uint8) string { return highwayNames[v] }
+
+// SurfaceName returns the string name for a surface enum value.
+func SurfaceName(v uint8) string { return surfaceNames[v] }
+
+// TrackTypeName returns the string name for a tracktype enum value.
+func TrackTypeName(v uint8) string { return tracktypeNames[v] }
+
+// SacScaleName returns the string name for a sac_scale enum value.
+func SacScaleName(v uint8) string { return sacScaleNames[v] }
+
+// MtbScaleName returns the string name for an mtb_scale enum value.
+func MtbScaleName(v uint8) string { return mtbScaleNames[v] }

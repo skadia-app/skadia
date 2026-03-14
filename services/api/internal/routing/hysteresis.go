@@ -1,16 +1,5 @@
 package routing
 
-// CostConfig — stub, replaced by cost.go in Task 4.
-// Remove this after Task 4.
-type CostConfig struct {
-	UphillCostFactor   float32
-	DownhillCostFactor float32
-	UphillCutoff       float32
-	DownhillCutoff     float32
-	ElevPenaltyBuffer  float32
-	ElevMaxBuffer      float32
-}
-
 // PathState holds the elevation hysteresis buffers.
 // 8 bytes, inline copied (too small for sync.Pool).
 type PathState struct {
