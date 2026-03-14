@@ -245,6 +245,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		"--flat-nodes", flatNodesPath,
 		"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
 		"--slim", "--drop",
+		"--latlong", // WGS84 (SRID 4326) — erforderlich für ::geography Casts und Indexes
 	}
 	args = append(args, pbfPaths...)
 
@@ -346,6 +347,36 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
 	os.Remove(flatNodesPath)
 
+	// === Schema-Restore: osm2pgsql --create löscht alle Migrations-Spalten ===
+	// osm_ways entstand als Umbenennung von osm_trails (000151). Nach jedem --create
+	// rekonstruiert osm2pgsql nur das Lua-Schema — Routing- und Enrichment-Spalten fehlen.
+	if slices.Contains(categories, "ways") || slices.Contains(categories, "ferries") || slices.Contains(categories, "climbing") {
+		for _, stmt := range []string{
+			// Routing-Spalten (ursprünglich aus 000129 osm_trails)
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS length_m DOUBLE PRECISION",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS avg_slope DOUBLE PRECISION",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS source BIGINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS target BIGINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cost DOUBLE PRECISION DEFAULT -1",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS reverse_cost DOUBLE PRECISION DEFAULT -1",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_lift BOOLEAN DEFAULT FALSE",
+			// Enrichment-Spalten (000157)
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS forest_pct SMALLINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS noise_score SMALLINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS traffic_class SMALLINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS protected_area SMALLINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS landuse_class SMALLINT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_cycleroute BOOLEAN DEFAULT false",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_hikeroute BOOLEAN DEFAULT false",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cycleroute_network TEXT",
+			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS hikeroute_network TEXT",
+		} {
+			if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+				slog.Warn("osm import: schema restore failed", "error", err)
+			}
+		}
+	}
+
 	// === LZ4-Kompression auf geom + tags Spalten (nach --create gehen Migration-Settings verloren) ===
 	lz4Tables := []struct{ table, col string }{
 		{"osm_pois", "geom"},
@@ -353,9 +384,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		{"osm_ways", "geom"},
 		{"osm_ways", "tags"},
 		{"osm_lifts", "geom"},
-		{"osm_lifts", "tags"},
+		// osm_lifts hat keine tags-Spalte
 		{"osm_waterways", "geom"},
-		{"osm_waterways", "tags"},
+		// osm_waterways hat keine tags-Spalte
 		{"osm_waters", "geom"},
 		{"osm_pistes", "geom"},
 		{"osm_pistes", "tags"},
@@ -365,7 +396,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		{"osm_routes", "geom"},
 		{"osm_routes", "tags"},
 		{"osm_boundaries", "geom"},
-		{"osm_boundaries", "tags"},
+		// osm_boundaries hat keine tags-Spalte
 		{"osm_landuse", "geom"},
 		{"osm_railways", "geom"},
 		{"osm_piste_areas", "geom"},
