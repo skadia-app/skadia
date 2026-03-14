@@ -25,7 +25,7 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 	// Reset alle Enrichment-Spalten vor Neuberechnung
 	slog.Info("enrichment: resetting enrichment columns")
 	if _, err := pool.Exec(ctx, `UPDATE osm_ways SET forest_pct = NULL, protected_area = NULL,
-		landuse_class = NULL, noise_score = NULL WHERE highway IS NOT NULL`); err != nil {
+		landuse_class = NULL, noise_score = NULL, traffic_class = NULL WHERE highway IS NOT NULL`); err != nil {
 		return fmt.Errorf("enrichment: reset columns: %w", err)
 	}
 
@@ -334,7 +334,9 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment landuse_class: forest: %w", err)
 	}
 
-	// 2. Residential-Fallback aus highway-Typ
+	// 2. Residential-Fallback aus highway-Typ (nur für noch unklassifizierte Ways).
+	// Wege mit forest_pct >= 60 wurden bereits als Wald (1) klassifiziert —
+	// ein Waldweg (highway=residential durch Wald) bleibt Wald, nicht Wohngebiet.
 	_, err = pool.Exec(ctx, `
 		UPDATE osm_ways SET landuse_class = 3
 		WHERE highway IN ('residential', 'living_street') AND landuse_class = 0
