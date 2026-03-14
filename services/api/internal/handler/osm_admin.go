@@ -251,7 +251,7 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	if searchType == "all" || searchType == "place" {
 		placeQuery := `
 			SELECT name, category, subtype,
-			       ST_Y(geom) AS lat, ST_X(geom) AS lng,
+			       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 			       similarity(name, $1) AS sim
 			FROM osm_pois
 			WHERE name % $1 AND name IS NOT NULL

@@ -70,7 +70,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		)
 		SELECT p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
-		       ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon
+		       ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
 		FROM osm_pois p, route
 		WHERE ST_DWithin(route.geom::geography, p.geom::geography, 100)
 		  AND p.category IN ('peak', 'pass')
@@ -129,8 +129,8 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT s.osm_id, s.name, s.type,
-		       ST_Y(s.geom) AS center_lat,
-		       ST_X(s.geom) AS center_lon
+		       ST_Y(ST_Centroid(s.geom)) AS center_lat,
+		       ST_X(ST_Centroid(s.geom)) AS center_lon
 		FROM osm_pois s, route
 		WHERE ST_DWithin(route.geom::geography, s.geom::geography, 200)
 		  AND s.category = 'settlement'

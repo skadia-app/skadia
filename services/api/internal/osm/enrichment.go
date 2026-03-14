@@ -204,7 +204,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 			SELECT osm_id, name,
 				(tags->>'population')::numeric AS population,
 				geom,
-				COS(RADIANS(ST_Y(geom))) AS merca_coef
+				COS(RADIANS(ST_Y(ST_Centroid(geom)))) AS merca_coef
 			FROM osm_pois
 			WHERE category = 'settlement'
 			  AND (tags->>'population') ~ '^\d+$'

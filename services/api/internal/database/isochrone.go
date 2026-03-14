@@ -237,9 +237,9 @@ func (db *DB) FindPOIsInIsochrone(ctx context.Context, reachable []ReachableNode
 			FROM osm_ways_vertices_pgr
 			WHERE id = ANY($1)
 		)
-		SELECT p.name, p.subtype, ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng, p.osm_id
+		SELECT p.name, p.subtype, ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lng, p.osm_id
 		FROM osm_pois p, hull h
-		WHERE ST_Within(p.geom, h.geom)
+		WHERE ST_Intersects(p.geom, h.geom)
 		  AND p.subtype = ANY($2)
 		ORDER BY p.name
 		LIMIT 500

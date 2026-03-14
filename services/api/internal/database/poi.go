@@ -24,7 +24,7 @@ func (db *DB) SearchPeaks(ctx context.Context, query string, limit int) ([]POIRo
 		SELECT name,
 			COALESCE(type, 'peak') AS type,
 			ele,
-			ST_Y(geom) AS lat, ST_X(geom) AS lng,
+			ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 			osm_id
 		FROM osm_pois
 		WHERE category IN ('peak', 'pass') AND name IS NOT NULL AND name % $1
@@ -62,7 +62,7 @@ func (db *DB) SearchAmenities(ctx context.Context, query, types string, limit in
 			SELECT name,
 				COALESCE(type, 'amenity') AS type,
 				NULL::double precision AS ele,
-				ST_Y(geom) AS lat, ST_X(geom) AS lng,
+				ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 				osm_id
 			FROM osm_pois
 			WHERE category NOT IN ('peak', 'pass', 'settlement')
@@ -75,7 +75,7 @@ func (db *DB) SearchAmenities(ctx context.Context, query, types string, limit in
 			SELECT name,
 				COALESCE(type, 'amenity') AS type,
 				NULL::double precision AS ele,
-				ST_Y(geom) AS lat, ST_X(geom) AS lng,
+				ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 				osm_id
 			FROM osm_pois
 			WHERE category NOT IN ('peak', 'pass', 'settlement')
