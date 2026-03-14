@@ -140,6 +140,19 @@ tables.routes = osm2pgsql.define_relation_table('osm_routes', {
     { column = 'geom',        type = 'multilinestring', not_null = true },
 })
 
+-- Route-Membership Junction-Table (non-geometry, populated via process_relation)
+-- In --create mode osm2pgsql drops/recreates this table; migration 000157/000158
+-- ensures it exists between imports for queries.
+tables.route_members = osm2pgsql.define_table({
+    name = 'osm_route_way_members',
+    columns = {
+        { column = 'route_osm_id', type = 'int8',  not_null = true },
+        { column = 'way_osm_id',   type = 'int8',  not_null = true },
+        { column = 'role',         type = 'text' },
+        { column = 'source',       type = 'text',  not_null = true },
+    },
+})
+
 -- ============================================================
 -- Import flags (env vars)
 -- ============================================================
@@ -1014,6 +1027,17 @@ function osm2pgsql.process_relation(object)
                             }),
                             geom        = ml,
                         })
+                        -- Extract member way IDs into junction table
+                        for _, member in ipairs(object.members) do
+                            if member.type == 'w' then
+                                tables.route_members:insert({
+                                    route_osm_id = object.id,
+                                    way_osm_id   = member.ref,
+                                    role         = member.role,
+                                    source       = 'relation',
+                                })
+                            end
+                        end
                     end
                 end
             end
