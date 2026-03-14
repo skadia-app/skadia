@@ -33,16 +33,18 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Non-POI table counts (approximate via pg_class.reltuples — instant, no sequential scan)
-	var ways, lifts, pistes, waterways, forests, glaciers, wetlands, routes, boundaries int64
+	var ways, lifts, pistes, pisteAreas, waterways, forests, glaciers, wetlands, routes, boundaries, landuse, railways int64
 	type tableCount struct {
 		table string
 		ptr   *int64
 	}
 	approxCounts := []tableCount{
 		{"osm_ways", &ways}, {"osm_lifts", &lifts}, {"osm_pistes", &pistes},
+		{"osm_piste_areas", &pisteAreas},
 		{"osm_waterways", &waterways}, {"osm_forests", &forests},
 		{"osm_glaciers", &glaciers}, {"osm_wetlands", &wetlands},
 		{"osm_routes", &routes}, {"osm_boundaries", &boundaries},
+		{"osm_landuse", &landuse}, {"osm_railways", &railways},
 	}
 	for _, tc := range approxCounts {
 		h.DB.Pool.QueryRow(ctx,
@@ -56,13 +58,15 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 		"categories": categories,
 		"ways":       ways,
 		"lifts":      lifts,
-		"pistes":     pistes,
+		"pistes":     pistes + pisteAreas,
 		"waterways":  waterways,
 		"forests":    forests,
 		"glaciers":   glaciers,
 		"wetlands":   wetlands,
 		"routes":     routes,
 		"boundaries": boundaries,
+		"landuse":    landuse,
+		"railways":   railways,
 		"has_data":   hasData,
 		// Legacy fields
 		"peaks":       categories["peak"],
@@ -119,7 +123,9 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 	osmTables := []string{
 		"osm_pois", "osm_ways", "osm_lifts", "osm_waterways", "osm_waters",
 		"osm_forests", "osm_glaciers", "osm_wetlands", "osm_boundaries",
-		"osm_pistes", "osm_routes", "osm_import_regions",
+		"osm_pistes", "osm_piste_areas", "osm_routes", "osm_import_regions",
+		"osm_landuse", "osm_railways",
+		"enrichment.raster_tiles",
 	}
 
 	type tableSize struct {
