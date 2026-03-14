@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
+	"github.com/go-chi/chi/v5"
 )
 
 // GetOSMStatus returns counts from OSM tables.
