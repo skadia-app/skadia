@@ -26,6 +26,16 @@ body {
   to { transform: translateX(0); }
 }
 
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes barber-pole {
+  0% { background-position: 0 0; }
+  100% { background-position: 16px 0; }
+}
+
 .animate-slide-in-right {
   animation: slide-in-right 0.2s ease-out;
 }

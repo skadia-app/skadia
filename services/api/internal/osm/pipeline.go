@@ -265,7 +265,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	go func() {
 		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 256*1024), 256*1024) // 256 KB Buffer
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1 MB Buffer
 		for scanner.Scan() {
 			line := scanner.Text()
 			slog.Info("osm2pgsql", "line", line)
@@ -291,8 +291,13 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			slog.Warn("osm2pgsql: scanner error", "error", err)
+			slog.Warn("osm2pgsql: scanner error, draining stderr to prevent deadlock", "error", err)
 		}
+		// Drain remaining stderr to prevent pipe deadlock — if the scanner
+		// fails (token too long), osm2pgsql blocks on write(stderr) unless
+		// someone keeps reading. This was the root cause of imports silently
+		// hanging for hours without error or completion.
+		io.Copy(io.Discard, stderr)
 	}()
 
 	if err := cmd.Wait(); err != nil {
@@ -335,6 +340,33 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
 	os.Remove(flatNodesPath)
+
+	// === LZ4-Kompression auf geom + tags Spalten (nach --create gehen Migration-Settings verloren) ===
+	lz4Tables := []struct{ table, col string }{
+		{"osm_pois", "geom"},
+		{"osm_pois", "tags"},
+		{"osm_ways", "geom"},
+		{"osm_ways", "tags"},
+		{"osm_lifts", "geom"},
+		{"osm_lifts", "tags"},
+		{"osm_waterways", "geom"},
+		{"osm_waterways", "tags"},
+		{"osm_waters", "geom"},
+		{"osm_pistes", "geom"},
+		{"osm_pistes", "tags"},
+		{"osm_forests", "geom"},
+		{"osm_glaciers", "geom"},
+		{"osm_wetlands", "geom"},
+		{"osm_routes", "geom"},
+		{"osm_routes", "tags"},
+		{"osm_boundaries", "geom"},
+		{"osm_boundaries", "tags"},
+	}
+	for _, t := range lz4Tables {
+		if _, err := p.Pool.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET COMPRESSION lz4", t.table, t.col)); err != nil {
+			slog.Warn("osm import: lz4 compression failed", "table", t.table, "column", t.col, "error", err)
+		}
+	}
 
 	// === Phase 3: Indizieren (parallel mit Semaphore) ===
 	// Max 4 gleichzeitige GIST-Builds — begrenzt Peak-RAM,

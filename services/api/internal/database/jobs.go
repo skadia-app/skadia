@@ -15,7 +15,7 @@ type BackgroundJob struct {
 	EntityID        *string    `json:"entity_id,omitempty"`
 	EntityName      *string    `json:"entity_name,omitempty"`
 	Status          string     `json:"status"`
-	Phase           *string    `json:"phase,omitempty"` // "download" | "import" | "index"
+	Phase           *string    `json:"phase,omitempty"` // "download" | "import" | "index" | "optimize" | "topology" | "enrichment" | "splitting"
 	ProgressCurrent int64      `json:"progress_current"`
 	ProgressTotal   int64      `json:"progress_total"`
 	StartedAt       time.Time  `json:"started_at"`
@@ -51,6 +51,7 @@ func (db *DB) UpdateBackgroundJobProgress(ctx context.Context, jobID string, cur
 }
 
 // CompleteBackgroundJob setzt status auf 'completed' oder 'failed' und trägt finished_at ein.
+// Erzeugt zusätzlich eine Notification für den User (best-effort).
 func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool) error {
 	status := "completed"
 	if failed {
@@ -60,7 +61,58 @@ func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bo
 		`UPDATE background_jobs SET status = $1, finished_at = NOW() WHERE id = $2`,
 		status, jobID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Create completion notification
+	var userID, jobType string
+	var entityName *string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT user_id, job_type, entity_name FROM background_jobs WHERE id = $1`, jobID,
+	).Scan(&userID, &jobType, &entityName); err != nil {
+		return nil // Job completion itself succeeded, notification is best-effort
+	}
+
+	title := jobCompletionTitle(jobType, entityName, failed)
+	category := "job"
+	if failed {
+		category = "job_error"
+	}
+	if _, err := db.Pool.Exec(ctx,
+		"INSERT INTO notifications (user_id, category, title, body) VALUES ($1, $2, $3, '')",
+		userID, category, title,
+	); err != nil {
+		// Best-effort: log but don't fail
+		return nil
+	}
+	return nil
+}
+
+func jobCompletionTitle(jobType string, entityName *string, failed bool) string {
+	labels := map[string]string{
+		"osm_import":              "OSM-Import",
+		"garmin_import":           "Garmin-Import",
+		"strava_import":           "Strava-Import",
+		"komoot_import":           "Komoot-Import",
+		"segment_recompute":       "Segment-Neuberechnung",
+		"activity_recompute_all":  "Alle Aktivitäten neu berechnen",
+		"recompute_multisport":    "Multisport-Neuberechnung",
+		"photo_preview_recompute": "Foto-Vorschauen",
+		"photo_clip_embed":        "Foto-Indexierung",
+		"phash_backfill":          "pHash-Berechnung",
+	}
+	label := labels[jobType]
+	if label == "" {
+		label = jobType
+	}
+	if entityName != nil && *entityName != "" {
+		label += " — " + *entityName
+	}
+	if failed {
+		return label + " fehlgeschlagen"
+	}
+	return label + " abgeschlossen"
 }
 
 // ListActiveBackgroundJobs gibt alle running Jobs (max. 2h alt) + kürzlich abgeschlossene Jobs

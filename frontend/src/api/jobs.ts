@@ -6,7 +6,7 @@ export interface ActiveJob {
   entity_id?: string
   entity_name?: string
   status: 'running' | 'completed' | 'failed'
-  phase?: 'download' | 'import' | 'index'
+  phase?: 'download' | 'import' | 'index' | 'optimize' | 'topology' | 'enrichment' | 'splitting'
   progress_current: number
   progress_total: number
   started_at: string

@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates tzdata osm2pgsql poppler-utils ffmpeg \
+    ca-certificates tzdata osm2pgsql postgis poppler-utils ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /api /api

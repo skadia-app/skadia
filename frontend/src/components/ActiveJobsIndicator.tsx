@@ -9,6 +9,16 @@ import {
   type EnrichmentActivityProgress,
 } from '@/lib/useEnrichmentProgress'
 
+function formatElapsed(startedAt: string): string {
+  const diff = Date.now() - new Date(startedAt).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'gerade gestartet'
+  const hours = Math.floor(mins / 60)
+  const remainMins = mins % 60
+  if (hours === 0) return `seit ${mins}min`
+  return `seit ${hours}h ${remainMins.toString().padStart(2, '0')}min`
+}
+
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMImport = job.job_type === 'osm_import'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
@@ -63,9 +73,13 @@ function JobRow({ job }: { job: ActiveJob }) {
       : null
 
   const phaseLabel =
-    job.phase === 'download' ? 'Phase 1/3 — Herunterladen' :
-    job.phase === 'import'   ? 'Phase 2/3 — Importieren' :
-    job.phase === 'index'    ? 'Phase 3/3 — Indizieren' : null
+    job.phase === 'download'    ? 'Phase 1/7 — Herunterladen' :
+    job.phase === 'import'      ? 'Phase 2/7 — Importieren' :
+    job.phase === 'index'       ? 'Phase 3/7 — Indizieren' :
+    job.phase === 'optimize'    ? 'Phase 4/7 — Optimieren' :
+    job.phase === 'topology'    ? 'Phase 5/7 — Topologie' :
+    job.phase === 'enrichment'  ? 'Phase 6/7 — Anreichern' :
+    job.phase === 'splitting'   ? 'Phase 7/7 — Aufteilen' : null
 
   return (
     <div className="flex items-center gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
@@ -94,30 +108,19 @@ function JobRow({ job }: { job: ActiveJob }) {
             {phaseLabel && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{phaseLabel}</p>
             )}
-            {downloadPct !== null && (
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+              {formatElapsed(job.started_at)}
+            </p>
+            {downloadPct !== null ? (
               <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
                   style={{ width: `${downloadPct}%` }}
                 />
               </div>
-            )}
-            {job.phase === 'import' && (
-              <>
-                <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
-                  <div className="h-full w-full bg-accent-DEFAULT rounded-full animate-pulse" />
-                </div>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                  Kann mehrere Stunden dauern
-                </p>
-              </>
-            )}
-            {job.phase === 'index' && job.progress_total > 0 && (
-              <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
-                  style={{ width: `${Math.round((job.progress_current / job.progress_total) * 100)}%` }}
-                />
+            ) : (
+              <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden relative">
+                <div className="h-full w-full rounded-full bg-accent-DEFAULT/40 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ backgroundImage: 'linear-gradient(90deg, transparent 0%, var(--color-accent-DEFAULT) 50%, transparent 100%)', backgroundSize: '200% 100%' }} />
               </div>
             )}
           </>
@@ -126,17 +129,21 @@ function JobRow({ job }: { job: ActiveJob }) {
         {/* Normale Jobs: Fortschrittsbalken + SubLabel */}
         {!isOSMImport && (
           <>
-            {pct !== null && job.status === 'running' && (
-              <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
+            {job.status === 'running' && (
+              <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden relative">
+                {pct !== null ? (
+                  <div
+                    className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                ) : (
+                  <div className="h-full w-full rounded-full bg-accent-DEFAULT/40 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ backgroundImage: 'linear-gradient(90deg, transparent 0%, var(--color-accent-DEFAULT) 50%, transparent 100%)', backgroundSize: '200% 100%' }} />
+                )}
               </div>
             )}
             <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-              {job.status === 'running' && subLabel
-                ? subLabel
+              {job.status === 'running'
+                ? (subLabel ? `${subLabel} · ${formatElapsed(job.started_at)}` : formatElapsed(job.started_at))
                 : job.status === 'completed'
                 ? 'Abgeschlossen'
                 : job.status === 'failed'
@@ -153,6 +160,21 @@ function JobRow({ job }: { job: ActiveJob }) {
           </p>
         )}
       </div>
+      {isOSMImport && job.status === 'running' && (
+        <button
+          onClick={async (e) => {
+            e.stopPropagation()
+            try {
+              const { apiClient } = await import('@/api/client')
+              await apiClient(`/admin/osm-import/cancel/${job.id}`, { method: 'POST' })
+            } catch {}
+          }}
+          className="flex-shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-400 hover:text-red-500 transition-colors"
+          title="Import abbrechen"
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -257,7 +279,7 @@ export default function ActiveJobsIndicator() {
       <button
         onClick={() => setOpen(prev => !prev)}
         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-xs"
-        title="Laufende Berechnungen"
+        title="Laufende Jobs"
       >
         <RefreshCw
           size={14}
@@ -277,7 +299,7 @@ export default function ActiveJobsIndicator() {
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-50 p-3">
           <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-            Berechnungen
+            Jobs
           </p>
 
           {enrichmentEntries.map((entry) => (
@@ -290,7 +312,7 @@ export default function ActiveJobsIndicator() {
 
           {jobs.length === 0 && !hasEnrichment && (
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Keine laufenden Berechnungen
+              Keine laufenden Jobs
             </p>
           )}
         </div>
