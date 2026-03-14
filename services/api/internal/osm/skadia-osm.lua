@@ -157,6 +157,31 @@ tables.route_members = osm2pgsql.define_table({
     },
 })
 
+tables.landuse = osm2pgsql.define_area_table('osm_landuse', {
+    { column = 'osm_id',   type = 'int8',     not_null = true },
+    { column = 'name',     type = 'text' },
+    { column = 'landuse',  type = 'text',     not_null = true },
+    { column = 'geom',     type = 'geometry', not_null = true },
+})
+
+tables.railways = osm2pgsql.define_way_table('osm_railways', {
+    { column = 'osm_id',   type = 'int8',       not_null = true },
+    { column = 'name',     type = 'text' },
+    { column = 'railway',  type = 'text',       not_null = true },
+    { column = 'geom',     type = 'linestring', not_null = true },
+})
+
+tables.piste_areas = osm2pgsql.define_area_table('osm_piste_areas', {
+    { column = 'osm_id',     type = 'int8',     not_null = true },
+    { column = 'name',       type = 'text' },
+    { column = 'piste_type', type = 'text',     not_null = true },
+    { column = 'difficulty', type = 'text' },
+    { column = 'grooming',   type = 'text' },
+    { column = 'lit',        type = 'boolean' },
+    { column = 'tags',       type = 'jsonb' },
+    { column = 'geom',       type = 'geometry', not_null = true },
+})
+
 -- ============================================================
 -- Import flags (env vars)
 -- ============================================================
@@ -186,6 +211,8 @@ local import_pistes        = os.getenv("SKADIA_IMPORT_PISTES")        ~= nil
 local import_ferries       = os.getenv("SKADIA_IMPORT_FERRIES")       ~= nil
 local import_climbing      = os.getenv("SKADIA_IMPORT_CLIMBING")      ~= nil
 local import_routes        = os.getenv("SKADIA_IMPORT_ROUTES")        ~= nil
+local import_landuse      = os.getenv("SKADIA_IMPORT_LANDUSE")      ~= nil
+local import_railways     = os.getenv("SKADIA_IMPORT_RAILWAYS")     ~= nil
 
 -- If NO flag is set → import everything (backward compat for shell scripts)
 local import_all = not (import_peaks or import_passes or import_lifts or
@@ -195,7 +222,7 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_landmarks or import_religion or import_ways or import_waterways or
     import_forests or import_glaciers or import_wetlands or
     import_boundaries or import_pistes or import_ferries or import_climbing or
-    import_routes)
+    import_routes or import_landuse or import_railways)
 
 -- ============================================================
 -- Helper functions
@@ -770,6 +797,36 @@ function osm2pgsql.process_way(object)
             insert_poi_matches(matches, object.id, object.tags.name, object:as_polygon())
         end
     end
+
+    -- Landuse (geschlossene Wege → Polygone)
+    if (import_all or import_landuse) then
+        local landuse_types = {
+            farmland=true, meadow=true, orchard=true, vineyard=true,
+            industrial=true, retail=true, commercial=true, quarry=true,
+            residential=true
+        }
+        if tags.landuse and landuse_types[tags.landuse] and object.is_closed then
+            tables.landuse:insert({
+                osm_id  = object.id,
+                name    = tags.name,
+                landuse = tags.landuse,
+                geom    = object:as_polygon(),
+            })
+        end
+    end
+
+    -- Railways
+    if (import_all or import_railways) then
+        local railway_types = {rail=true, light_rail=true, narrow_gauge=true, subway=true}
+        if tags.railway and railway_types[tags.railway] then
+            tables.railways:insert({
+                osm_id  = object.id,
+                name    = tags.name,
+                railway = tags.railway,
+                geom    = object:as_linestring(),
+            })
+        end
+    end
 end
 
 -- ============================================================
@@ -895,11 +952,43 @@ function osm2pgsql.process_relation(object)
         end
     end
 
+    -- Landuse als Multipolygon
+    if (import_all or import_landuse) then
+        local landuse_types = {
+            farmland=true, meadow=true, orchard=true, vineyard=true,
+            industrial=true, retail=true, commercial=true, quarry=true,
+            residential=true
+        }
+        if tags.type == 'multipolygon' and tags.landuse and landuse_types[tags.landuse] then
+            local mp = object:as_multipolygon()
+            if mp then
+                tables.landuse:insert({
+                    osm_id  = object.id,
+                    name    = tags.name,
+                    landuse = tags.landuse,
+                    geom    = mp,
+                })
+            end
+        end
+    end
+
     -- Pisten als Relationen
     if (import_all or import_pistes) then
         local piste_types = {downhill=true, nordic=true, skitour=true, sled=true, hike=true, sleigh=true, ice_skate=true, snow_park=true, playground=true}
         if tags.type == 'multipolygon' and tags['piste:type'] and piste_types[tags['piste:type']] then
-            -- TODO Phase 8c-II: import piste relation outlines as area
+            local mp = object:as_multipolygon()
+            if mp then
+                tables.piste_areas:insert({
+                    osm_id     = object.id,
+                    name       = tags.name,
+                    piste_type = tags['piste:type'],
+                    difficulty = tags['piste:difficulty'],
+                    grooming   = tags['piste:grooming'],
+                    lit        = (tags.lit == 'yes') or false,
+                    tags       = build_tags(tags, {'ref','operator'}),
+                    geom       = mp,
+                })
+            end
         end
     end
 
