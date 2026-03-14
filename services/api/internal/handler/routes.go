@@ -50,7 +50,7 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"routes": routes,
 		"total":  total,
 		"limit":  limit,

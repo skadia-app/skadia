@@ -446,7 +446,7 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"performances": performances,
 		"count":        len(performances),
 	})

@@ -649,7 +649,7 @@ type CandidateSegment struct {
 	SportGroup  string
 	DistanceM   float64
 	SegmentType string
-	TypeMeta    map[string]interface{}
+	TypeMeta    map[string]any
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,

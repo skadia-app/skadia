@@ -206,7 +206,7 @@ func rdpSimplifyGPSPoints(points []database.GPSStreamPoint, targetCount int) []g
 	// Binary search for epsilon that yields ~targetCount points.
 	lo, hi := 0.0, 0.01 // degrees
 	var result []gpsPoint
-	for iter := 0; iter < 20; iter++ {
+	for range 20 {
 		mid := (lo + hi) / 2
 		result = rdpGeo(all, mid)
 		if len(result) > targetCount {

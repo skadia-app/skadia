@@ -43,8 +43,8 @@ func TestIsDuplicate(t *testing.T) {
 func TestComputeFromBytes_JPEG(t *testing.T) {
 	// Create a checkerboard pattern (avoids solid-color edge case)
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
-	for y := 0; y < 64; y++ {
-		for x := 0; x < 64; x++ {
+	for y := range 64 {
+		for x := range 64 {
 			if (x/8+y/8)%2 == 0 {
 				img.Set(x, y, color.White)
 			} else {

@@ -228,10 +228,7 @@ func patchDeprecatedBaseTypes(raw []byte) []byte {
 	// Data size is at bytes 4-7 (little-endian)
 	dataSize := int(data[4]) | int(data[5])<<8 | int(data[6])<<16 | int(data[7])<<24
 	pos := headerSize
-	end := headerSize + dataSize
-	if end > len(data) {
-		end = len(data)
-	}
+	end := min(headerSize+dataSize, len(data))
 
 	// Local message definitions track field count + sizes for data messages
 	type localDef struct {
@@ -257,7 +254,7 @@ func patchDeprecatedBaseTypes(raw []byte) []byte {
 			pos += 5
 
 			var sizes []byte
-			for i := 0; i < numFields; i++ {
+			for range numFields {
 				if pos+3 > end {
 					return data
 				}

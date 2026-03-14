@@ -63,14 +63,14 @@ type ActivityData struct {
 
 	Visibility string // "private", "public", "followers" — empty means default ("private")
 
-	IsIndoor            bool
-	IsEbike             bool
+	IsIndoor             bool
+	IsEbike              bool
 	SportConflictPending bool
-	HasGPS              bool
-	StartLat float64
-	StartLng float64
-	EndLat   float64
-	EndLng   float64
+	HasGPS               bool
+	StartLat             float64
+	StartLng             float64
+	EndLat               float64
+	EndLng               float64
 
 	Streams     []StreamPoint
 	RRIntervals []uint16 // R-R intervals in ms (from FIT HRV messages)
@@ -244,15 +244,15 @@ type SportConflictMeta struct {
 
 // ActivityUpdate is the PATCH request body for updating an activity.
 type ActivityUpdate struct {
-	Title          *string                `json:"title,omitempty"`
-	Description    *string                `json:"description,omitempty"`
-	SportType      *string                `json:"sport_type,omitempty"`
-	SubType        *string                `json:"sub_type,omitempty"`
-	Tags           []string               `json:"tags,omitempty"`
-	Visibility     *string                `json:"visibility,omitempty"`
-	HideMap        *bool                  `json:"hide_map,omitempty"`
-	DataVisibility map[string]interface{} `json:"data_visibility,omitempty"`
-	GearID         json.RawMessage        `json:"gear_id,omitempty"`
+	Title          *string         `json:"title,omitempty"`
+	Description    *string         `json:"description,omitempty"`
+	SportType      *string         `json:"sport_type,omitempty"`
+	SubType        *string         `json:"sub_type,omitempty"`
+	Tags           []string        `json:"tags,omitempty"`
+	Visibility     *string         `json:"visibility,omitempty"`
+	HideMap        *bool           `json:"hide_map,omitempty"`
+	DataVisibility map[string]any  `json:"data_visibility,omitempty"`
+	GearID         json.RawMessage `json:"gear_id,omitempty"`
 	// Manually assigned location (independent of GPS start_lat/start_lng).
 	LocationLat            *float64 `json:"location_lat,omitempty"`
 	LocationLng            *float64 `json:"location_lng,omitempty"`
@@ -624,7 +624,7 @@ type PrivacyZone struct {
 	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
 	// Polygon fields (zone_type = 'polygon')
-	ZoneType string  `json:"zone_type"` // 'circle' or 'polygon'
+	ZoneType string  `json:"zone_type"`         // 'circle' or 'polygon'
 	Polygon  *string `json:"polygon,omitempty"` // GeoJSON Polygon string, set when zone_type='polygon'
 }
 
@@ -685,10 +685,10 @@ type Tag struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	// Optional geo-coordinates — when set, the tag acts as a "location tag"
 	// that appears as a pin on the map.
-	Lat           *float64  `json:"lat,omitempty"`
-	Lng           *float64  `json:"lng,omitempty"`
-	CoverImageURL *string   `json:"cover_image_url,omitempty"`
-	Zone          *TagZone  `json:"zone,omitempty"`
+	Lat           *float64 `json:"lat,omitempty"`
+	Lng           *float64 `json:"lng,omitempty"`
+	CoverImageURL *string  `json:"cover_image_url,omitempty"`
+	Zone          *TagZone `json:"zone,omitempty"`
 }
 
 // TagZone represents an optional geographic zone attached to a location tag.
@@ -696,7 +696,7 @@ type Tag struct {
 type TagZone struct {
 	ID        string      `json:"id"`
 	TagID     string      `json:"tag_id"`
-	ZoneType  string      `json:"zone_type"` // "circle" | "polygon"
+	ZoneType  string      `json:"zone_type"`        // "circle" | "polygon"
 	Center    *[2]float64 `json:"center,omitempty"` // [lng, lat]
 	RadiusM   *float64    `json:"radius_m,omitempty"`
 	Polygon   *string     `json:"polygon,omitempty"` // GeoJSON Polygon string

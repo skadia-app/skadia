@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -21,7 +22,7 @@ const maxMediaUploadSize = 50 << 20 // 50 MB total
 // mediaUploadResult is the per-file result returned to the caller.
 type mediaUploadResult struct {
 	Filename      string  `json:"filename"`
-	Status        string  `json:"status"`         // "assigned" | "queued" | "error"
+	Status        string  `json:"status"` // "assigned" | "queued" | "error"
 	ActivityID    *string `json:"activity_id,omitempty"`
 	ActivityTitle *string `json:"activity_title,omitempty"`
 	QueueID       *string `json:"queue_id,omitempty"`
@@ -254,9 +255,7 @@ func (h *Handler) queueMediaFile(
 	}
 
 	meta := map[string]any{}
-	for k, v := range extraMeta {
-		meta[k] = v
-	}
+	maps.Copy(meta, extraMeta)
 
 	fileSize := int64(len(data))
 	qItem := database.ImportQueueItem{

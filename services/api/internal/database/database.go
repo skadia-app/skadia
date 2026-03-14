@@ -388,9 +388,9 @@ var allowedSortColumns = map[string]string{
 // buildFilterSQL constructs dynamic WHERE conditions from ActivityFilters.
 // startIdx is the first $N placeholder index to use for filter args.
 // Returns the SQL fragment (e.g. "AND sport_type = ANY($2) AND ...") and args slice.
-func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []interface{}) {
+func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any) {
 	var conds []string
-	var args []interface{}
+	var args []any
 	idx := startIdx
 
 	if len(filters.SportTypes) > 0 {
@@ -507,7 +507,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	// Count with filters: $1 = userID, filter args start at $1
 	countFilterSQL, countFilterArgs := buildFilterSQL(filters, 1)
-	countArgs := []interface{}{userID}
+	countArgs := []any{userID}
 	countArgs = append(countArgs, countFilterArgs...)
 
 	var total int
@@ -541,7 +541,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			} else {
 				// Base args: $1=userID, $2=cursorTime, $3=cursorID, then filters, then limit
 				filterSQL, filterArgs := buildFilterSQL(filters, 3)
-				allArgs := []interface{}{userID, cursorTime, cursorID}
+				allArgs := []any{userID, cursorTime, cursorID}
 				allArgs = append(allArgs, filterArgs...)
 				limitIdx := len(allArgs) + 1
 				allArgs = append(allArgs, limit+1)
@@ -561,7 +561,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			// NULL cursor: the sort column was NULL for the last item.
 			// Base args: $1=userID, $2=cursorID, then filters, then limit
 			filterSQL, filterArgs := buildFilterSQL(filters, 2)
-			allArgs := []interface{}{userID, cursorID}
+			allArgs := []any{userID, cursorID}
 			allArgs = append(allArgs, filterArgs...)
 			limitIdx := len(allArgs) + 1
 			allArgs = append(allArgs, limit+1)
@@ -585,7 +585,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			} else {
 				// Base args: $1=userID, $2=cursorNum, $3=cursorID, then filters, then limit
 				filterSQL, filterArgs := buildFilterSQL(filters, 3)
-				allArgs := []interface{}{userID, cursorNum, cursorID}
+				allArgs := []any{userID, cursorNum, cursorID}
 				allArgs = append(allArgs, filterArgs...)
 				limitIdx := len(allArgs) + 1
 				allArgs = append(allArgs, limit+1)
@@ -608,7 +608,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	if !hasCursor {
 		// Base args: $1=userID, then filters, then limit
 		filterSQL, filterArgs := buildFilterSQL(filters, 1)
-		allArgs := []interface{}{userID}
+		allArgs := []any{userID}
 		allArgs = append(allArgs, filterArgs...)
 		limitIdx := len(allArgs) + 1
 		allArgs = append(allArgs, limit+1)
@@ -2670,14 +2670,14 @@ func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) err
 
 	// Color palette for auto-assigned colors to existing tags
 	colorPalette := []struct{ color, text string }{
-		{"#f97316", "#ffffff"},  // orange
-		{"#3b82f6", "#ffffff"},  // blue
-		{"#10b981", "#ffffff"},  // green
-		{"#8b5cf6", "#ffffff"},  // purple
-		{"#f43f5e", "#ffffff"},  // rose
-		{"#06b6d4", "#ffffff"},  // cyan
-		{"#eab308", "#1a1a1a"},  // yellow
-		{"#6b7280", "#ffffff"},  // gray
+		{"#f97316", "#ffffff"}, // orange
+		{"#3b82f6", "#ffffff"}, // blue
+		{"#10b981", "#ffffff"}, // green
+		{"#8b5cf6", "#ffffff"}, // purple
+		{"#f43f5e", "#ffffff"}, // rose
+		{"#06b6d4", "#ffffff"}, // cyan
+		{"#eab308", "#1a1a1a"}, // yellow
+		{"#6b7280", "#ffffff"}, // gray
 	}
 
 	// Insert each tag if it doesn't exist
@@ -3374,9 +3374,9 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 	}
 
 	modules := []struct {
-		name     string
-		hasData  bool
-		count    int
+		name    string
+		hasData bool
+		count   int
 	}{
 		{"peaks", peakCount > 0, peakCount},
 		{"lifts", liftCount > 0, liftCount},
@@ -3555,16 +3555,16 @@ func (db *DB) GetVisitedPOIs(ctx context.Context, userID string) ([]VisitedPOI, 
 
 // LiftCandidate represents an unconfirmed lift ride detected by ML.
 type LiftCandidate struct {
-	ID         string   `json:"id"`
-	ActivityID string   `json:"activity_id"`
+	ID         string    `json:"id"`
+	ActivityID string    `json:"activity_id"`
 	StartedAt  time.Time `json:"started_at"`
 	EndedAt    time.Time `json:"ended_at"`
-	DurationS  int      `json:"duration_s"`
-	AscentM    float64  `json:"ascent_m"`
-	DescentM   *float64 `json:"descent_m,omitempty"`
-	DistanceM  *float64 `json:"distance_m,omitempty"`
-	Confidence string   `json:"confidence"`
-	Confirmed  bool     `json:"confirmed"`
+	DurationS  int       `json:"duration_s"`
+	AscentM    float64   `json:"ascent_m"`
+	DescentM   *float64  `json:"descent_m,omitempty"`
+	DistanceM  *float64  `json:"distance_m,omitempty"`
+	Confidence string    `json:"confidence"`
+	Confirmed  bool      `json:"confirmed"`
 }
 
 func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftCandidate, error) {

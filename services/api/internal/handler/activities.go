@@ -43,7 +43,7 @@ func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
 	if stats == nil {
 		stats = []database.SportTypeStatRow{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"sport_types": stats})
+	writeJSON(w, http.StatusOK, map[string]any{"sport_types": stats})
 }
 
 func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
@@ -426,7 +426,7 @@ type gpxRoot struct {
 	Version     string   `xml:"version,attr"`
 	Creator     string   `xml:"creator,attr"`
 	Xmlns       string   `xml:"xmlns,attr"`
-	XmlnsGpxTpx string  `xml:"xmlns:gpxtpx,attr"`
+	XmlnsGpxTpx string   `xml:"xmlns:gpxtpx,attr"`
 	Metadata    gpxMeta  `xml:"metadata"`
 	Trk         gpxTrack `xml:"trk"`
 }
@@ -528,9 +528,9 @@ type tcxActivities struct {
 	Activity tcxActivity `xml:"Activity"`
 }
 type tcxActivity struct {
-	Sport string      `xml:"Sport,attr"`
-	Id    string      `xml:"Id"`
-	Lap   tcxLap      `xml:"Lap"`
+	Sport string `xml:"Sport,attr"`
+	Id    string `xml:"Id"`
+	Lap   tcxLap `xml:"Lap"`
 }
 type tcxLap struct {
 	StartTime        string     `xml:"StartTime,attr"`

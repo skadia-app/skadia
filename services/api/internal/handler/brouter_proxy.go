@@ -28,11 +28,11 @@ var validBRouterProfiles = map[string]bool{
 // RouteRequest is the request body for POST /api/v1/routing/route.
 type RouteRequest struct {
 	// Waypoints is a list of [longitude, latitude] pairs (at least 2).
-	Waypoints    [][2]float64      `json:"waypoints"`
+	Waypoints [][2]float64 `json:"waypoints"`
 	// Profile is the BRouter routing profile name (e.g. "hiking-sac2", "trekking").
-	Profile      string            `json:"profile"`
+	Profile string `json:"profile"`
 	// Alternatives is the BRouter alternative-route index (0 = primary).
-	Alternatives int               `json:"alternatives"`
+	Alternatives int `json:"alternatives"`
 	// ProfileParams are optional key=value overrides for BRouter profile variables.
 	// Passed as profile:key=value query parameters to BRouter.
 	// Example: {"SAC_scale_limit": "2", "consider_elevation": "true"}
@@ -85,23 +85,24 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	for _, wp := range req.Waypoints {
 		lonlats = append(lonlats, fmt.Sprintf("%.6f,%.6f", wp[0], wp[1]))
 	}
-	queryURL := fmt.Sprintf(
+	var queryURL strings.Builder
+	queryURL.WriteString(fmt.Sprintf(
 		"%s/brouter?lonlats=%s&profile=%s&alternativeidx=%d&format=geojson",
 		brouterURL,
 		strings.Join(lonlats, "|"),
 		req.Profile,
 		req.Alternatives,
-	)
+	))
 
 	// profile:key=value Parameter für Fein-Tuning anhängen
 	for k, v := range req.ProfileParams {
 		if isValidProfileParam(k) && isValidProfileParam(v) {
-			queryURL += fmt.Sprintf("&profile:%s=%s", k, v)
+			queryURL.WriteString(fmt.Sprintf("&profile:%s=%s", k, v))
 		}
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL, nil)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		slog.Warn("BRouter: failed to create request", "error", err)
 		h.straightLineFallback(w, req.Waypoints)
@@ -111,7 +112,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("BRouter request failed, using straight-line fallback",
 			"error", err,
-			"url", queryURL,
+			"url", queryURL.String(),
 		)
 		h.straightLineFallback(w, req.Waypoints)
 		return
@@ -139,20 +140,20 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 // single LineString connecting the given waypoints. It is used whenever
 // BRouter is unavailable so the frontend can still display a route.
 func (h *Handler) straightLineFallback(w http.ResponseWriter, waypoints [][2]float64) {
-	coords := make([]interface{}, len(waypoints))
+	coords := make([]any, len(waypoints))
 	for i, wp := range waypoints {
 		coords[i] = wp
 	}
-	result := map[string]interface{}{
+	result := map[string]any{
 		"type": "FeatureCollection",
-		"features": []map[string]interface{}{
+		"features": []map[string]any{
 			{
 				"type": "Feature",
-				"properties": map[string]interface{}{
+				"properties": map[string]any{
 					"creator":  "Skadia-fallback",
 					"fallback": true,
 				},
-				"geometry": map[string]interface{}{
+				"geometry": map[string]any{
 					"type":        "LineString",
 					"coordinates": coords,
 				},

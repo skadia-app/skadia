@@ -251,7 +251,7 @@ func buildGearName(name, brand, model string) string {
 // mapStravaDefaultSports converts Strava sport strings to Skadia sport types.
 func mapStravaDefaultSports(sports string) []string {
 	var result []string
-	for _, s := range strings.Split(sports, ",") {
+	for s := range strings.SplitSeq(sports, ",") {
 		s = strings.TrimSpace(s)
 		mapped := mapStravaSportType(s)
 		if mapped != "" {

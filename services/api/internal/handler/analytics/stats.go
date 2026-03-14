@@ -298,10 +298,7 @@ func (h *Handler) GetEddington(w http.ResponseWriter, r *http.Request) {
 				break // sorted descending
 			}
 		}
-		remaining := target - have
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(target-have, 0)
 		nextLevels = append(nextLevels, eddingtonNextLevel{
 			Level:     target,
 			Remaining: remaining,

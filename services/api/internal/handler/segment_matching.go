@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	segmentMatchThresholdM     = 30.0  // Hausdorff threshold for sub-track match
-	endpointProximityM         = 40.0  // proximity to segment start/end
-	subTrackLengthTolerancePct = 0.40  // ±40% length tolerance
-	minSegmentEffortTimeS      = 5     // minimum effort duration
+	segmentMatchThresholdM     = 30.0 // Hausdorff threshold for sub-track match
+	endpointProximityM         = 40.0 // proximity to segment start/end
+	subTrackLengthTolerancePct = 0.40 // ±40% length tolerance
+	minSegmentEffortTimeS      = 5    // minimum effort duration
 )
 
 // MatchActivitySegments matches an activity against all segments visible to the user.
@@ -431,7 +431,7 @@ func matchLapSegment(
 }
 
 // extractFinishPoint reads finish_lat and finish_lng from segment_type_meta.
-func extractFinishPoint(meta map[string]interface{}) (lat, lng float64, ok bool) {
+func extractFinishPoint(meta map[string]any) (lat, lng float64, ok bool) {
 	if meta == nil {
 		return 0, 0, false
 	}

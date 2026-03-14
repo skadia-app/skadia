@@ -27,7 +27,7 @@ func (db *DB) CreateStravaImportJob(ctx context.Context, userID, sourcePath stri
 }
 
 // GetStravaImportJob returns a job row as a generic map (for JSON serialisation).
-func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map[string]interface{}, error) {
+func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map[string]any, error) {
 	row := db.Pool.QueryRow(ctx,
 		`SELECT id, user_id, status, source_path, total_modules, completed_modules,
 		        current_module, module_results, errors, started_at, completed_at, created_at
@@ -71,7 +71,7 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 		_ = json.Unmarshal(errors, &parsedErrors)
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"id":                id,
 		"user_id":           uid,
 		"status":            status,

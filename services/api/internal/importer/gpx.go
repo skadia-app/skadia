@@ -63,7 +63,7 @@ func GPXToGeoJSON(data []byte) (geojsonStr string, distM float64, gainM float64,
 		coords = append(coords, []float64{p.Lon, p.Lat, p.Ele})
 	}
 
-	gj := map[string]interface{}{
+	gj := map[string]any{
 		"type":        "LineString",
 		"coordinates": coords,
 	}

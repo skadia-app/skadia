@@ -9,7 +9,7 @@ import (
 // ExportSource is the interface for reading Garmin export data.
 type ExportSource interface {
 	BaseDir() string
-	ReadJSON(relativePath string, target interface{}) error
+	ReadJSON(relativePath string, target any) error
 	FindFiles(pattern string) ([]string, error)
 	Exists(relativePath string) bool
 }
@@ -26,7 +26,7 @@ func NewDirSource(path string) *DirSource {
 
 func (s *DirSource) BaseDir() string { return s.baseDir }
 
-func (s *DirSource) ReadJSON(relativePath string, target interface{}) error {
+func (s *DirSource) ReadJSON(relativePath string, target any) error {
 	data, err := os.ReadFile(filepath.Join(s.baseDir, relativePath))
 	if err != nil {
 		return err

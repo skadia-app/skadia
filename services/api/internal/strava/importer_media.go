@@ -359,7 +359,7 @@ func buildMediaActivityMap(ctx context.Context, params ImportParams) map[string]
 			continue
 		}
 
-		for _, path := range strings.Split(mediaCell, "|") {
+		for path := range strings.SplitSeq(mediaCell, "|") {
 			path = strings.TrimSpace(path)
 			if path == "" {
 				continue

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -13,9 +14,9 @@ import (
 
 // Condition represents a single autotag rule condition.
 type Condition struct {
-	Field string      `json:"field"`
-	Op    string      `json:"op"`    // eq, neq, gt, lt, gte, lte, between, contains, in
-	Value interface{} `json:"value"`
+	Field string `json:"field"`
+	Op    string `json:"op"` // eq, neq, gt, lt, gte, lte, between, contains, in
+	Value any    `json:"value"`
 }
 
 // AutoTagConditions represents the conditions for an autotag.
@@ -158,7 +159,7 @@ func minStreamTemperature(streams []model.StreamPoint, avgTempC float64) float64
 }
 
 // compareFloat compares a float64 value against a condition.
-func compareFloat(actual float64, op string, value interface{}) bool {
+func compareFloat(actual float64, op string, value any) bool {
 	switch op {
 	case "eq":
 		v, ok := toFloat64(value)
@@ -186,19 +187,14 @@ func compareFloat(actual float64, op string, value interface{}) bool {
 		return actual >= bounds[0] && actual <= bounds[1]
 	case "in":
 		vals := toFloat64Slice(value)
-		for _, v := range vals {
-			if actual == v {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(vals, actual)
 	default:
 		return false
 	}
 }
 
 // compareString compares a string value against a condition.
-func compareString(actual string, op string, value interface{}) bool {
+func compareString(actual string, op string, value any) bool {
 	switch op {
 	case "eq":
 		v := fmt.Sprintf("%v", value)
@@ -223,7 +219,7 @@ func compareString(actual string, op string, value interface{}) bool {
 }
 
 // compareStringSlice compares a string slice (e.g. time_of_day) against a condition.
-func compareStringSlice(actual []string, op string, value interface{}) bool {
+func compareStringSlice(actual []string, op string, value any) bool {
 	switch op {
 	case "contains":
 		v := fmt.Sprintf("%v", value)
@@ -247,7 +243,7 @@ func compareStringSlice(actual []string, op string, value interface{}) bool {
 }
 
 // compareBool compares a bool value against a condition.
-func compareBool(actual bool, op string, value interface{}) bool {
+func compareBool(actual bool, op string, value any) bool {
 	v, ok := toBool(value)
 	if !ok {
 		return false
@@ -263,7 +259,7 @@ func compareBool(actual bool, op string, value interface{}) bool {
 }
 
 // toFloat64 converts an interface{} to float64.
-func toFloat64(v interface{}) (float64, bool) {
+func toFloat64(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
@@ -282,9 +278,9 @@ func toFloat64(v interface{}) (float64, bool) {
 }
 
 // toFloat64Slice converts an interface{} to []float64 (for "between" and "in" ops).
-func toFloat64Slice(v interface{}) []float64 {
+func toFloat64Slice(v any) []float64 {
 	switch arr := v.(type) {
-	case []interface{}:
+	case []any:
 		result := make([]float64, 0, len(arr))
 		for _, item := range arr {
 			f, ok := toFloat64(item)
@@ -299,9 +295,9 @@ func toFloat64Slice(v interface{}) []float64 {
 }
 
 // toStringSlice converts an interface{} to []string (for "in" op).
-func toStringSlice(v interface{}) []string {
+func toStringSlice(v any) []string {
 	switch arr := v.(type) {
-	case []interface{}:
+	case []any:
 		result := make([]string, 0, len(arr))
 		for _, item := range arr {
 			result = append(result, fmt.Sprintf("%v", item))
@@ -313,7 +309,7 @@ func toStringSlice(v interface{}) []string {
 }
 
 // toBool converts an interface{} to bool.
-func toBool(v interface{}) (bool, bool) {
+func toBool(v any) (bool, bool) {
 	switch b := v.(type) {
 	case bool:
 		return b, true

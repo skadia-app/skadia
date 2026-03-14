@@ -21,7 +21,7 @@ func TestFrontier_PopReturnsMinCost(t *testing.T) {
 
 func TestFrontier_PopOrder_1000(t *testing.T) {
 	var f Frontier
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		f.Push(FrontierEntry{
 			NodeID: uint32(i),
 			Cost:   rand.Float32() * 10000,
@@ -67,7 +67,7 @@ func TestFrontier_Empty_Len(t *testing.T) {
 
 func TestFrontier_Reset(t *testing.T) {
 	var f Frontier
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		f.Push(FrontierEntry{Cost: float32(i)})
 	}
 	f.Reset()

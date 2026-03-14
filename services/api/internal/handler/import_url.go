@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -270,19 +271,14 @@ func isInternalHost(host string) bool {
 		ips = []string{host}
 	}
 
-	for _, ipStr := range ips {
-		if isBlockedIP(ipStr) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ips, isBlockedIP)
 }
 
 // isBlockedIP checks whether a single IP string belongs to a private/loopback/link-local range.
 func isBlockedIP(ipStr string) bool {
 	// Block IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) — extract the IPv4 part
-	if strings.HasPrefix(ipStr, "::ffff:") {
-		ipStr = strings.TrimPrefix(ipStr, "::ffff:")
+	if after, ok := strings.CutPrefix(ipStr, "::ffff:"); ok {
+		ipStr = after
 	}
 
 	ip := net.ParseIP(ipStr)

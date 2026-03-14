@@ -23,14 +23,14 @@ func (h *Handler) GetMLSystemSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	result := map[string]interface{}{}
+	result := map[string]any{}
 	for rows.Next() {
 		var key string
 		var valueJSON []byte
 		if err := rows.Scan(&key, &valueJSON); err != nil {
 			continue
 		}
-		var val interface{}
+		var val any
 		_ = json.Unmarshal(valueJSON, &val)
 		result[key] = val
 	}
@@ -40,8 +40,8 @@ func (h *Handler) GetMLSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 // validMLSystemSettingKeys is the allowlist of accepted system-level ML setting keys.
 var validMLSystemSettingKeys = map[string]bool{
-	"nightly_feature_engineering": true,
-	"nightly_tsfm_analysis":       true,
+	"nightly_feature_engineering":   true,
+	"nightly_tsfm_analysis":         true,
 	"nightly_changepoint_detection": true,
 }
 
@@ -59,7 +59,7 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body interface{}
+	var body any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
@@ -101,14 +101,14 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	result := map[string]interface{}{}
+	result := map[string]any{}
 	for rows.Next() {
 		var key string
 		var valueJSON []byte
 		if err := rows.Scan(&key, &valueJSON); err != nil {
 			continue
 		}
-		var val interface{}
+		var val any
 		_ = json.Unmarshal(valueJSON, &val)
 		result[key] = val
 	}
@@ -118,11 +118,11 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 
 // validMLUserSettingKeys is the allowlist of accepted user-level ML setting keys.
 var validMLUserSettingKeys = map[string]bool{
-	"chat_profile":     true,
+	"chat_profile":      true,
 	"notify_enrichment": true,
-	"notify_anomaly":   true,
-	"notify_gear":      true,
-	"notify_chat":      true,
+	"notify_anomaly":    true,
+	"notify_gear":       true,
+	"notify_chat":       true,
 }
 
 // PutMLUserSetting upserts a single ML user setting.
@@ -140,7 +140,7 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body interface{}
+	var body any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return

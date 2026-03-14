@@ -71,7 +71,7 @@ func TestHysteresis_GPSNoise_Absorbed(t *testing.T) {
 	state := PathState{}
 
 	// Simulate ±1m GPS noise over 10 edges
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		delta := int32(1_000) // +1m in mm
 		if i%2 == 1 {
 			delta = -1_000 // -1m
@@ -94,4 +94,3 @@ func TestElevationCorrection(t *testing.T) {
 		t.Errorf("correction should be ~7.0, got %f", correction)
 	}
 }
-

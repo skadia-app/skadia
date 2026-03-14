@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-func float64Ptr(v float64) *float64 { return &v }
+//go:fix inline
+func float64Ptr(v float64) *float64 { return new(v) }
 
 func TestSortTimes(t *testing.T) {
 	now := time.Now()
@@ -27,14 +28,14 @@ func TestBuildUnifiedTimeline(t *testing.T) {
 
 	// Simuliere zwei Quellen mit Überlappung
 	streamA := []StreamPoint{
-		{Time: now, Lat: float64Ptr(47.0), Lng: float64Ptr(11.0)},
-		{Time: now.Add(1 * time.Second), Lat: float64Ptr(47.001), Lng: float64Ptr(11.001)},
-		{Time: now.Add(2 * time.Second), Lat: float64Ptr(47.002), Lng: float64Ptr(11.002)},
+		{Time: now, Lat: new(47.0), Lng: new(11.0)},
+		{Time: now.Add(1 * time.Second), Lat: new(47.001), Lng: new(11.001)},
+		{Time: now.Add(2 * time.Second), Lat: new(47.002), Lng: new(11.002)},
 	}
 	streamB := []StreamPoint{
-		{Time: now.Add(1 * time.Second), Lat: float64Ptr(47.0015), Lng: float64Ptr(11.0015)},
-		{Time: now.Add(2 * time.Second), Lat: float64Ptr(47.0025), Lng: float64Ptr(11.0025)},
-		{Time: now.Add(3 * time.Second), Lat: float64Ptr(47.003), Lng: float64Ptr(11.003)},
+		{Time: now.Add(1 * time.Second), Lat: new(47.0015), Lng: new(11.0015)},
+		{Time: now.Add(2 * time.Second), Lat: new(47.0025), Lng: new(11.0025)},
+		{Time: now.Add(3 * time.Second), Lat: new(47.003), Lng: new(11.003)},
 	}
 
 	// Primary = streamA

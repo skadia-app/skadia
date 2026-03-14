@@ -191,11 +191,11 @@ func geoPointsToGeoJSON(pts []GarminGeoPoint) string {
 	if len(pts) < 2 {
 		return ""
 	}
-	coords := make([]interface{}, 0, len(pts))
+	coords := make([]any, 0, len(pts))
 	for _, p := range pts {
 		coords = append(coords, []float64{p.Longitude, p.Latitude, p.Elevation})
 	}
-	b, err := json.Marshal(map[string]interface{}{
+	b, err := json.Marshal(map[string]any{
 		"type":        "LineString",
 		"coordinates": coords,
 	})
@@ -213,4 +213,3 @@ func courseCalculateDistance(pts []GarminGeoPoint) float64 {
 	}
 	return total
 }
-

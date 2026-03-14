@@ -2,6 +2,7 @@ package enrichment
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -220,7 +221,7 @@ func TestSavitzkyGolayFilterEdgeCases(t *testing.T) {
 func TestSavitzkyGolayFilterMonotonicClimb(t *testing.T) {
 	// Perfect linear climb: 100m + 1m per point = 100, 101, 102, ..., 149
 	elevations := make([]float64, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		elevations[i] = 100.0 + float64(i)
 	}
 
@@ -254,13 +255,7 @@ func TestSavitzkyGolayFilterNaNHandling(t *testing.T) {
 	elevations := []float64{100.0, 101.0, 102.0, 103.0, 104.0}
 	filtered := SavitzkyGolayFilter(elevations, 5)
 
-	hasNaN := false
-	for _, val := range filtered {
-		if math.IsNaN(val) {
-			hasNaN = true
-			break
-		}
-	}
+	hasNaN := slices.ContainsFunc(filtered, math.IsNaN)
 
 	if hasNaN {
 		t.Error("Filter produced NaN for valid input")
@@ -271,7 +266,7 @@ func TestSavitzkyGolayFilterNaNHandling(t *testing.T) {
 func BenchmarkSavitzkyGolayFilter(b *testing.B) {
 	// Realistic data: 1-hour activity at 1Hz = ~3600 points
 	elevations := make([]float64, 3600)
-	for i := 0; i < 3600; i++ {
+	for i := range 3600 {
 		elevations[i] = 500.0 + float64(i%100)/10.0 + float64(i%13)/13.0
 	}
 
@@ -284,7 +279,7 @@ func BenchmarkSavitzkyGolayFilter(b *testing.B) {
 // BenchmarkFilterElevationGainLoss benchmarks full pipeline
 func BenchmarkFilterElevationGainLoss(b *testing.B) {
 	elevations := make([]float64, 3600)
-	for i := 0; i < 3600; i++ {
+	for i := range 3600 {
 		elevations[i] = 500.0 + float64(i%100)/10.0
 	}
 

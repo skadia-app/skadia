@@ -378,7 +378,7 @@ func decodeSpatialGrid(data []byte) *SpatialGrid {
 	}
 	remaining := (len(data) - pos) / 4
 	grid.NodeOrder = make([]uint32, remaining)
-	for i := 0; i < remaining; i++ {
+	for i := range remaining {
 		grid.NodeOrder[i] = le.Uint32(data[pos : pos+4])
 		pos += 4
 	}
@@ -446,7 +446,7 @@ func int32SliceToBytes(s []int32) []byte {
 func bytesToUint32Slice(data []byte) []uint32 {
 	n := len(data) / 4
 	s := make([]uint32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s[i] = le.Uint32(data[i*4:])
 	}
 	return s
@@ -455,7 +455,7 @@ func bytesToUint32Slice(data []byte) []uint32 {
 func bytesToUint16Slice(data []byte) []uint16 {
 	n := len(data) / 2
 	s := make([]uint16, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s[i] = le.Uint16(data[i*2:])
 	}
 	return s
@@ -464,7 +464,7 @@ func bytesToUint16Slice(data []byte) []uint16 {
 func bytesToUint64Slice(data []byte) []uint64 {
 	n := len(data) / 8
 	s := make([]uint64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s[i] = le.Uint64(data[i*8:])
 	}
 	return s
@@ -473,7 +473,7 @@ func bytesToUint64Slice(data []byte) []uint64 {
 func bytesToInt32Slice(data []byte) []int32 {
 	n := len(data) / 4
 	s := make([]int32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s[i] = int32(le.Uint32(data[i*4:]))
 	}
 	return s

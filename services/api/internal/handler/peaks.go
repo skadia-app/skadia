@@ -38,7 +38,7 @@ func (h *Handler) GetPeakCollection(w http.ResponseWriter, r *http.Request) {
 	var f database.PeakCollectionFilter
 
 	if country := q.Get("country"); country != "" {
-		for _, c := range strings.Split(country, ",") {
+		for c := range strings.SplitSeq(country, ",") {
 			if c = strings.TrimSpace(c); c != "" {
 				f.Countries = append(f.Countries, c)
 			}

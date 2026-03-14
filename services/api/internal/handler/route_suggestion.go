@@ -424,20 +424,20 @@ func (h *Handler) routeViaBRouterRaw(ctx context.Context, waypoints [][2]float64
 // straightLineGeoJSON builds a minimal GeoJSON FeatureCollection with a single
 // LineString through all waypoints. Used as fallback when BRouter is unreachable.
 func (h *Handler) straightLineGeoJSON(waypoints [][2]float64) json.RawMessage {
-	coords := make([]interface{}, len(waypoints))
+	coords := make([]any, len(waypoints))
 	for i, wp := range waypoints {
 		coords[i] = wp
 	}
-	result := map[string]interface{}{
+	result := map[string]any{
 		"type": "FeatureCollection",
-		"features": []map[string]interface{}{
+		"features": []map[string]any{
 			{
 				"type": "Feature",
-				"properties": map[string]interface{}{
+				"properties": map[string]any{
 					"creator":  "Skadia-fallback",
 					"fallback": true,
 				},
-				"geometry": map[string]interface{}{
+				"geometry": map[string]any{
 					"type":        "LineString",
 					"coordinates": coords,
 				},

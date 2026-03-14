@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -586,9 +587,7 @@ func buildStravaEnrichFields(activityName string, row []string, hdr map[string]i
 	if activityName != "" {
 		fields["title"] = activityName
 	}
-	for k, v := range extractWeatherFields(row, hdr) {
-		fields[k] = v
-	}
+	maps.Copy(fields, extractWeatherFields(row, hdr))
 	return fields
 }
 

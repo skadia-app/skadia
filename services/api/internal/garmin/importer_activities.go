@@ -32,9 +32,11 @@ import (
 // CSV files (weight logs etc.) are skipped.
 type ActivitiesImporter struct{}
 
-func (a *ActivitiesImporter) Name() string        { return "activities" }
-func (a *ActivitiesImporter) Description() string { return "Aktivitäten (FIT/GPX/TCX aus UploadedFiles)" }
-func (a *ActivitiesImporter) Priority() int       { return 30 }
+func (a *ActivitiesImporter) Name() string { return "activities" }
+func (a *ActivitiesImporter) Description() string {
+	return "Aktivitäten (FIT/GPX/TCX aus UploadedFiles)"
+}
+func (a *ActivitiesImporter) Priority() int { return 30 }
 
 func (a *ActivitiesImporter) Detect(src ExportSource) (bool, int, error) {
 	zips, _ := src.FindFiles("DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_*.zip")
@@ -329,11 +331,11 @@ func extractActivityID(filename string) int64 {
 	}
 	// Find the first "_" after the "@"
 	afterAt := noExt[atIdx:]
-	underIdx := strings.Index(afterAt, "_")
-	if underIdx < 0 {
+	_, after, ok := strings.Cut(afterAt, "_")
+	if !ok {
 		return 0
 	}
-	rest := afterAt[underIdx+1:]
+	rest := after
 	// rest is now "<activityId>_<originalFilename>"
 	parts := strings.SplitN(rest, "_", 2)
 	id, _ := strconv.ParseInt(parts[0], 10, 64)
@@ -392,4 +394,3 @@ func detectActivityFormat(data []byte, filename string) string {
 	}
 	return ""
 }
-

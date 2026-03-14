@@ -18,10 +18,7 @@ func SampleElevation(ctx context.Context, pool *pgxpool.Pool,
 	elevations := make([]int32, n)
 
 	for i := 0; i < n; i += batchSize {
-		end := i + batchSize
-		if end > n {
-			end = n
-		}
+		end := min(i+batchSize, n)
 
 		batchLats := make([]float64, end-i)
 		batchLons := make([]float64, end-i)

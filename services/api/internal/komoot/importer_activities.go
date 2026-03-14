@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
@@ -270,10 +271,5 @@ func buildKnownKomootIDs(ctx context.Context, db *database.DB, userID string) (m
 
 // containsID checks if id is in ids.
 func containsID(ids []int64, id int64) bool {
-	for _, v := range ids {
-		if v == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, id)
 }

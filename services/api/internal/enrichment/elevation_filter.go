@@ -65,7 +65,7 @@ func SavitzkyGolayFilter(elevations []float64, window int) []float64 {
 
 	halfWindow := window / 2
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Determine the bounds for this point
 		start := i - halfWindow
 

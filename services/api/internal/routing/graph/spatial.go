@@ -63,7 +63,7 @@ func BuildSpatialIndex(g *Graph, cellSize float64) *SpatialGrid {
 	}
 
 	grid.CellStart = make([]uint32, totalCells+1)
-	for i := 0; i < totalCells; i++ {
+	for i := range totalCells {
 		grid.CellStart[i+1] = grid.CellStart[i] + uint32(cellCount[i])
 	}
 

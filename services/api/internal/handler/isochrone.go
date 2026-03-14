@@ -27,9 +27,9 @@ type IsochroneRequest struct {
 // IsochroneResponse is the JSON body returned by POST /api/v1/isochrone.
 type IsochroneResponse struct {
 	// Polygons contains one GeoJSON polygon per requested time band.
-	Polygons interface{} `json:"polygons"`
+	Polygons any `json:"polygons"`
 	// POIs lists points of interest found within the outermost isochrone.
-	POIs interface{} `json:"pois"`
+	POIs any `json:"pois"`
 }
 
 // Isochrone computes reachable areas from a start point using pgRouting's
@@ -98,7 +98,7 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Optionally find POIs inside the outermost isochrone.
-	var pois interface{}
+	var pois any
 	if len(req.POITypes) > 0 {
 		found, err := h.DB.FindPOIsInIsochrone(r.Context(), reachable, req.POITypes)
 		if err != nil {

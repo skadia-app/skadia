@@ -93,7 +93,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 		f.Seasons = strings.Split(v, ",")
 	}
 	if v := q.Get("weekday"); v != "" {
-		for _, d := range strings.Split(v, ",") {
+		for d := range strings.SplitSeq(v, ",") {
 			if n, err := strconv.Atoi(d); err == nil {
 				f.Weekdays = append(f.Weekdays, n)
 			}
@@ -105,7 +105,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	f.PowerMax = parseOptInt(q.Get("power_max"))
 
 	if v := q.Get("include_tags"); v != "" {
-		for _, s := range strings.Split(v, ",") {
+		for s := range strings.SplitSeq(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				if uid, err := uuid.Parse(s); err == nil {
 					f.IncludeTags = append(f.IncludeTags, uid)
@@ -114,7 +114,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 		}
 	}
 	if v := q.Get("exclude_tags"); v != "" {
-		for _, s := range strings.Split(v, ",") {
+		for s := range strings.SplitSeq(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				if uid, err := uuid.Parse(s); err == nil {
 					f.ExcludeTags = append(f.ExcludeTags, uid)
@@ -123,7 +123,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 		}
 	}
 	if v := q.Get("include_gear"); v != "" {
-		for _, s := range strings.Split(v, ",") {
+		for s := range strings.SplitSeq(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				if uid, err := uuid.Parse(s); err == nil {
 					f.IncludeGear = append(f.IncludeGear, uid)
@@ -132,7 +132,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 		}
 	}
 	if v := q.Get("exclude_gear"); v != "" {
-		for _, s := range strings.Split(v, ",") {
+		for s := range strings.SplitSeq(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				if uid, err := uuid.Parse(s); err == nil {
 					f.ExcludeGear = append(f.ExcludeGear, uid)

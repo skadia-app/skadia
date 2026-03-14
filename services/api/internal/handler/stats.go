@@ -114,7 +114,7 @@ func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 			}
 			// Sliding window mean
 			var windowSum float64
-			for i := 0; i < duration; i++ {
+			for i := range duration {
 				windowSum += float64(stream[i])
 			}
 			best := windowSum / float64(duration)

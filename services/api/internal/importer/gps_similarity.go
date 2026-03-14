@@ -146,7 +146,7 @@ func subsample(pts []LatLng, maxN int) []LatLng {
 	}
 	step := float64(len(pts)) / float64(maxN)
 	out := make([]LatLng, 0, maxN)
-	for i := 0; i < maxN; i++ {
+	for i := range maxN {
 		out = append(out, pts[int(float64(i)*step)])
 	}
 	return out

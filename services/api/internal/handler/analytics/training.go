@@ -73,10 +73,7 @@ func linearProjection(days []model.PMCDay, window, horizon int) []model.PMCDay {
 		return []model.PMCDay{}
 	}
 	// Take up to the last `window` days.
-	start := len(days) - window
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(days)-window, 0)
 	slice := days[start:]
 	n := float64(len(slice))
 
@@ -105,7 +102,7 @@ func linearProjection(days []model.PMCDay, window, horizon int) []model.PMCDay {
 
 	projection := make([]model.PMCDay, horizon)
 	baseIdx := float64(len(slice) - 1)
-	for i := 0; i < horizon; i++ {
+	for i := range horizon {
 		x := baseIdx + float64(i+1)
 		ctl := intercept + slope*x
 		projection[i] = model.PMCDay{
@@ -192,9 +189,9 @@ type YearProgressionYear struct {
 }
 
 type YearProgressionResponse struct {
-	Metric  string                `json:"metric"`
-	Years   []YearProgressionYear `json:"years"`
-	BestYear int                  `json:"best_year"`
+	Metric   string                `json:"metric"`
+	Years    []YearProgressionYear `json:"years"`
+	BestYear int                   `json:"best_year"`
 }
 
 func (h *Handler) GetYearProgression(w http.ResponseWriter, r *http.Request) {
@@ -279,9 +276,9 @@ func (h *Handler) GetYearProgression(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type TrainingVolumePeriod struct {
-	Period     string             `json:"period"`
-	BySport    map[string]float64 `json:"by_sport"`
-	Total      float64            `json:"total"`
+	Period  string             `json:"period"`
+	BySport map[string]float64 `json:"by_sport"`
+	Total   float64            `json:"total"`
 }
 
 type TrainingVolumeResponse struct {

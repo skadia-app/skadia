@@ -31,7 +31,7 @@ func TestCalculateEddington(t *testing.T) {
 			want:   1,
 		},
 		{
-			name:   "classic example E=3",
+			name: "classic example E=3",
 			// i=0: 5>=1 ✓, i=1: 4>=2 ✓, i=2: 3>=3 ✓, i=3: 2>=4 ✗ → break
 			values: []float64{5, 4, 3, 2, 1},
 			want:   3,
@@ -82,7 +82,7 @@ func TestCalculateEddington(t *testing.T) {
 // (0-indexed) equals n-i, producing an Eddington number of exactly n.
 func buildEddingtonSlice(n int) []float64 {
 	vals := make([]float64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		vals[i] = float64(n - i)
 	}
 	return vals
@@ -103,10 +103,10 @@ func daySeq(dates ...string) []time.Time {
 
 func TestCalculateDayStreaks(t *testing.T) {
 	tests := []struct {
-		name            string
-		days            []time.Time
-		wantMax         int
-		wantHistoryLen  int // just check number of segments
+		name           string
+		days           []time.Time
+		wantMax        int
+		wantHistoryLen int // just check number of segments
 	}{
 		{
 			name:           "empty",
@@ -121,9 +121,9 @@ func TestCalculateDayStreaks(t *testing.T) {
 			wantHistoryLen: 1,
 		},
 		{
-			name: "three consecutive days",
-			days: daySeq("2025-01-01", "2025-01-02", "2025-01-03"),
-			wantMax: 3,
+			name:           "three consecutive days",
+			days:           daySeq("2025-01-01", "2025-01-02", "2025-01-03"),
+			wantMax:        3,
 			wantHistoryLen: 1,
 		},
 		{
@@ -137,8 +137,8 @@ func TestCalculateDayStreaks(t *testing.T) {
 			wantHistoryLen: 2,
 		},
 		{
-			name: "alternating days (no streak)",
-			days: daySeq("2025-01-01", "2025-01-03", "2025-01-05"),
+			name:           "alternating days (no streak)",
+			days:           daySeq("2025-01-01", "2025-01-03", "2025-01-05"),
 			wantMax:        1,
 			wantHistoryLen: 3,
 		},
@@ -185,23 +185,23 @@ func TestCalculateWeekStreaks(t *testing.T) {
 			wantMax: 1,
 		},
 		{
-			name: "two days same week",
-			days: daySeq("2025-01-06", "2025-01-08"),
+			name:    "two days same week",
+			days:    daySeq("2025-01-06", "2025-01-08"),
 			wantMax: 1,
 		},
 		{
-			name: "two consecutive weeks",
-			days: daySeq("2025-01-06", "2025-01-13"),
+			name:    "two consecutive weeks",
+			days:    daySeq("2025-01-06", "2025-01-13"),
 			wantMax: 2,
 		},
 		{
-			name: "three consecutive weeks",
-			days: daySeq("2025-01-06", "2025-01-13", "2025-01-20"),
+			name:    "three consecutive weeks",
+			days:    daySeq("2025-01-06", "2025-01-13", "2025-01-20"),
 			wantMax: 3,
 		},
 		{
-			name: "week gap breaks streak",
-			days: daySeq("2025-01-06", "2025-01-13", "2025-01-27"),
+			name:    "week gap breaks streak",
+			days:    daySeq("2025-01-06", "2025-01-13", "2025-01-27"),
 			wantMax: 2,
 		},
 	}

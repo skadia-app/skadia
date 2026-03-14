@@ -6,7 +6,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // TestBuildEnrichFields_ElevationLoss stellt sicher, dass elevation_loss_m
 // propagiert wird, wenn die bestehende Aktivität keinen Wert hat.
@@ -29,7 +30,7 @@ func TestBuildEnrichFields_ElevationLoss(t *testing.T) {
 // Der Schutz vor Überschreiben erfolgt via SQL COALESCE in UpdateEnrichmentFieldsSafe —
 // nicht mehr auf Go-Ebene.
 func TestBuildEnrichFields_ElevationLoss_ExistingPresent(t *testing.T) {
-	existing := &model.Activity{ElevationLossM: ptr(200.0)}
+	existing := &model.Activity{ElevationLossM: new(200.0)}
 	newData := &model.ActivityData{ElevationLossM: 312.5}
 
 	fields := buildEnrichFields(existing, newData)

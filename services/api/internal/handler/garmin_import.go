@@ -54,7 +54,7 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildGarminRegistry()
 	modules := registry.Detect(src)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"modules": modules})
+	writeJSON(w, http.StatusOK, map[string]any{"modules": modules})
 }
 
 // StartGarminImport starts an async Garmin export import job.
@@ -282,10 +282,7 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 				stats.Existing = existing
 			}
 		}
-		stats.New = stats.Found - stats.Existing
-		if stats.New < 0 {
-			stats.New = 0
-		}
+		stats.New = max(stats.Found-stats.Existing, 0)
 		result[m.Name] = stats
 	}
 
@@ -383,10 +380,7 @@ func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
 				stats.Existing = existing
 			}
 		}
-		stats.New = stats.Found - stats.Existing
-		if stats.New < 0 {
-			stats.New = 0
-		}
+		stats.New = max(stats.Found-stats.Existing, 0)
 		scanResult[m.Name] = stats
 	}
 

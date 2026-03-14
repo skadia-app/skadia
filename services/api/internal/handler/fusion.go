@@ -121,7 +121,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 		LIMIT 10`,
 		activityID,
 		target.StartedAt,
-		func() interface{} {
+		func() any {
 			if target.EndedAt != nil {
 				return *target.EndedAt
 			}

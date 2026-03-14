@@ -18,8 +18,8 @@ func makeGridGraph(rows, cols int, elevNoise bool) *graph.Graph {
 
 	nodeID := func(r, c int) int { return r*cols + c }
 
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			n := nodeID(r, c)
 			// Right neighbor
 			if c < cols-1 {
@@ -35,8 +35,8 @@ func makeGridGraph(rows, cols int, elevNoise bool) *graph.Graph {
 	}
 
 	nodes := make([][3]float64, nodeCount)
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			ele := 5000.0 // 500m in dm
 			if elevNoise {
 				ele += float64(rand.Intn(200) - 100) // ±10m noise

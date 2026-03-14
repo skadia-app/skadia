@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -588,13 +589,7 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, 
 
 	// Add newly matched autotags
 	for _, name := range matchedNames {
-		found := false
-		for _, t := range newTags {
-			if t == name {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(newTags, name)
 		if !found {
 			newTags = append(newTags, name)
 		}

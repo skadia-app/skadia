@@ -1,6 +1,7 @@
 package enrichment
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -50,13 +51,7 @@ func TestMapWeatherCodeUmlauts(t *testing.T) {
 			continue
 		}
 
-		found := false
-		for _, tag := range tags {
-			if tag == tt.expectedTag {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(tags, tt.expectedTag)
 		if !found {
 			t.Errorf("%s (code %d): expected tag '%s' not found in %v", tt.description, tt.code, tt.expectedTag, tags)
 		}
@@ -85,12 +80,12 @@ func TestMapWeatherCodeNoAsciiBrokenUmlauts(t *testing.T) {
 // TestWeatherTagConsistency tests that weather tags are consistent across all conditions
 func TestWeatherTagConsistency(t *testing.T) {
 	validTags := map[string]bool{
-		"sonnig":    true,
-		"bewölkt":   true,
-		"regen":     true,
-		"schnee":    true,
-		"nebel":     true,
-		"gewitter":  true,
+		"sonnig":   true,
+		"bewölkt":  true,
+		"regen":    true,
+		"schnee":   true,
+		"nebel":    true,
+		"gewitter": true,
 	}
 
 	for code := 0; code <= 99; code++ {
@@ -131,13 +126,7 @@ func TestMapWeatherCodeReturnsCorrectConditions(t *testing.T) {
 			continue
 		}
 
-		found := false
-		for _, tag := range tags {
-			if tag == tt.expectedAnyTag {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(tags, tt.expectedAnyTag)
 		if !found {
 			t.Errorf("code %d: expected tag '%s' not found in %v", tt.code, tt.expectedAnyTag, tags)
 		}

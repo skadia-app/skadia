@@ -2,30 +2,30 @@ package graph
 
 // RawTags holds OSM tag strings as loaded from PostGIS before bit-packing.
 type RawTags struct {
-	Highway      string
-	Surface      string
-	Tracktype    string
-	SacScale     string
-	MtbScale     string
-	Smoothness   string
-	Access       string
-	Bicycle      string
-	Foot         string
-	Horse        string
-	Cycleway     string
-	CyclewayLeft string
+	Highway       string
+	Surface       string
+	Tracktype     string
+	SacScale      string
+	MtbScale      string
+	Smoothness    string
+	Access        string
+	Bicycle       string
+	Foot          string
+	Horse         string
+	Cycleway      string
+	CyclewayLeft  string
 	CyclewayRight string
-	CyclewayBoth string
-	Maxspeed     string
-	Lanes        int
-	Oneway       bool
+	CyclewayBoth  string
+	Maxspeed      string
+	Lanes         int
+	Oneway        bool
 	OnewayBicycle bool
-	Bridge       bool
-	Tunnel       bool
-	Ford         bool
-	Lit          bool
-	Segregated   bool
-	BicycleRoad  bool
+	Bridge        bool
+	Tunnel        bool
+	Ford          bool
+	Lit           bool
+	Segregated    bool
+	BicycleRoad   bool
 }
 
 // RawEnrichment holds enrichment values from PostGIS nullable columns.
@@ -143,10 +143,7 @@ func EncodeOSMTags(t *RawTags) uint64 {
 	}
 	v |= uint64(cyclewayEnum[t.Cycleway]) << 42
 	v |= uint64(ParseMaxspeed(t.Maxspeed)) << 45
-	lanes := t.Lanes
-	if lanes > 7 {
-		lanes = 7
-	}
+	lanes := min(t.Lanes, 7)
 	if lanes < 0 {
 		lanes = 0
 	}

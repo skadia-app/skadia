@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -328,9 +329,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			}
 			if actResult != nil {
 				importErrors = append(importErrors, actResult.Errors...)
-				for k, v := range actResult.TourActivityMap {
-					tourActivityMap[k] = v
-				}
+				maps.Copy(tourActivityMap, actResult.TourActivityMap)
 			}
 		}
 
@@ -428,7 +427,12 @@ func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_credentials": creds != nil,
-		"email":           func() string { if creds != nil { return creds.Email }; return "" }(),
+		"email": func() string {
+			if creds != nil {
+				return creds.Email
+			}
+			return ""
+		}(),
 	})
 }
 

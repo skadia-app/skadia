@@ -40,7 +40,7 @@ func makeTestGraph(nodes [][3]float64, edges [][4]int) *graph.Graph {
 	}
 
 	g.Offsets = make([]uint32, nodeCount+1)
-	for i := uint32(0); i < nodeCount; i++ {
+	for i := range nodeCount {
 		g.Offsets[i+1] = g.Offsets[i] + degree[i]
 	}
 
@@ -314,8 +314,8 @@ func TestRoute_CostCutting_GridRoute(t *testing.T) {
 	g := makeTestGraph(
 		func() [][3]float64 {
 			var nodes [][3]float64
-			for r := 0; r < 20; r++ {
-				for c := 0; c < 20; c++ {
+			for r := range 20 {
+				for c := range 20 {
 					nodes = append(nodes, [3]float64{
 						47.0 + float64(r)*0.001,
 						11.0 + float64(c)*0.001,
@@ -327,8 +327,8 @@ func TestRoute_CostCutting_GridRoute(t *testing.T) {
 		}(),
 		func() [][4]int {
 			var edges [][4]int
-			for r := 0; r < 20; r++ {
-				for c := 0; c < 20; c++ {
+			for r := range 20 {
+				for c := range 20 {
 					n := r*20 + c
 					if c < 19 {
 						edges = append(edges, [4]int{n, n + 1, 1000, 16})

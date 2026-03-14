@@ -29,10 +29,7 @@ func FetchDEMElevations(ctx context.Context, lats, lngs []float64) ([]float64, e
 	result := make([]float64, len(lats))
 
 	for i := 0; i < len(lats); i += demBatchSize {
-		end := i + demBatchSize
-		if end > len(lats) {
-			end = len(lats)
-		}
+		end := min(i+demBatchSize, len(lats))
 
 		batch, err := fetchDEMBatch(ctx, lats[i:end], lngs[i:end])
 		if err != nil {

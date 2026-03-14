@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -494,13 +495,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	// === Phase 5: Trail-Topologie (optional) ===
 	if config.BuildTopology {
-		waysImported := false
-		for _, cat := range categories {
-			if cat == "ways" {
-				waysImported = true
-				break
-			}
-		}
+		waysImported := slices.Contains(categories, "ways")
 		if waysImported {
 			reporter.SetPhase("topology")
 			reporter.SetProgress(0)
@@ -573,13 +568,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	// === Phase 6: Spatial Enrichment (on osm_ways, BEFORE splitting) ===
 	// Runs independently of Phase 5 — enriches the original osm_ways table.
 	{
-		waysImported := false
-		for _, cat := range categories {
-			if cat == "ways" {
-				waysImported = true
-				break
-			}
-		}
+		waysImported := slices.Contains(categories, "ways")
 		if waysImported {
 			reporter.SetPhase("enrichment")
 			reporter.SetProgress(0)

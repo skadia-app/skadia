@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -192,9 +193,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// 7. fusion_sources auf neue Aktivität setzen (für Info-Anzeige im Frontend).
 	sourceMap := make(database.FusionSources, len(req.FieldMap))
-	for field, srcID := range req.FieldMap {
-		sourceMap[field] = srcID
-	}
+	maps.Copy(sourceMap, req.FieldMap)
 	if err := h.DB.SetFusionSources(ctx, merged.ID, userID, sourceMap); err != nil {
 		slog.Warn("fusion-merge: set fusion sources failed", "error", err)
 	}

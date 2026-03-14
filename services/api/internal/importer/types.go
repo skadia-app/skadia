@@ -1,5 +1,7 @@
 package importer
 
+import "slices"
+
 import "time"
 
 // ConflictStrategy steuert was bei Duplikat-Erkennung passiert.
@@ -30,7 +32,7 @@ type FusionCandidate struct {
 
 // ImportOptions steuert den selektiven Import (Kategorien, Datumsbereich, Strategie).
 type ImportOptions struct {
-	Categories       []string          // nil = alle Kategorien
+	Categories       []string // nil = alle Kategorien
 	DateFrom         *time.Time
 	DateTo           *time.Time
 	ConflictStrategy ConflictStrategy
@@ -42,10 +44,5 @@ func (o *ImportOptions) HasCategory(name string) bool {
 	if o == nil || len(o.Categories) == 0 {
 		return true
 	}
-	for _, c := range o.Categories {
-		if c == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(o.Categories, name)
 }

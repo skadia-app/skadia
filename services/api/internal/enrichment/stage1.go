@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	suncalc "github.com/sixdouglas/suncalc"
@@ -68,7 +69,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			trimp := pmc.CalculateTRIMP(hrStream, restingHR, maxHR)
 			if trimp > 0 {
 				fields["trimp"] = trimp // activities.trimp (migration 000003)
-				data.TRIMP = trimp   // make available for intensity tag fallback
+				data.TRIMP = trimp      // make available for intensity tag fallback
 			}
 		}
 	}
@@ -414,16 +415,16 @@ func TimeOfDayPeriods(lat, lng float64, start, end time.Time) []string {
 
 	// Build ordered periods for the day. Some times can be zero (polar regions);
 	// we skip those and let the surrounding periods absorb the gap.
-	nightEnd := times[suncalc.NightEnd].Value       // astro dawn
+	nightEnd := times[suncalc.NightEnd].Value // astro dawn
 	nauticalDawn := times[suncalc.NauticalDawn].Value
-	dawn := times[suncalc.Dawn].Value                // civil dawn
+	dawn := times[suncalc.Dawn].Value // civil dawn
 	sunrise := times[suncalc.Sunrise].Value
 	goldenHourEnd := times[suncalc.GoldenHourEnd].Value
 	goldenHourStart := times[suncalc.GoldenHour].Value
 	sunset := times[suncalc.Sunset].Value
-	dusk := times[suncalc.Dusk].Value                // civil dusk
+	dusk := times[suncalc.Dusk].Value // civil dusk
 	nauticalDusk := times[suncalc.NauticalDusk].Value
-	night := times[suncalc.Night].Value              // astro night
+	night := times[suncalc.Night].Value // astro night
 
 	// sentinel far-future time for the last period's end
 	farFuture := start.Add(48 * time.Hour)
@@ -621,7 +622,7 @@ func findCoordsAtTime(t time.Time, defaultLat, defaultLng float64, streams []mod
 	}
 
 	// Walk outward from bestIdx to find a point with GPS data
-	for d := 0; d < len(streams); d++ {
+	for d := range streams {
 		for _, idx := range []int{bestIdx + d, bestIdx - d} {
 			if idx < 0 || idx >= len(streams) {
 				continue
@@ -637,10 +638,8 @@ func findCoordsAtTime(t time.Time, defaultLat, defaultLng float64, streams []mod
 
 // appendTagIfMissing appends a tag to the slice if it's not already present.
 func appendTagIfMissing(tags []string, tag string) []string {
-	for _, t := range tags {
-		if t == tag {
-			return tags
-		}
+	if slices.Contains(tags, tag) {
+		return tags
 	}
 	return append(tags, tag)
 }

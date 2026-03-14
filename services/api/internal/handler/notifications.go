@@ -41,7 +41,7 @@ func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("get unread count failed", "error", err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"items":        items,
 		"unread_count": unread,
 	})
@@ -95,6 +95,5 @@ func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"unread_count": count})
+	writeJSON(w, http.StatusOK, map[string]any{"unread_count": count})
 }
-

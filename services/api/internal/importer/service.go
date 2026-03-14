@@ -352,7 +352,7 @@ func (s *Service) ProcessMultisport(
 			ID:        newUUID(),
 			UserID:    userID,
 			SportType: "multisport",
-			Title:     strPtr("Multisport"),
+			Title:     new("Multisport"),
 			StartedAt: sessions[0].StartedAt,
 			FileHash:  &fileHash,
 		}
@@ -1094,4 +1094,6 @@ func fileExtFromContentType(ct, originalFilename string) string {
 }
 
 func newUUID() string { return uuid.New().String() }
-func strPtr(s string) *string { return &s }
+
+//go:fix inline
+func strPtr(s string) *string { return new(s) }

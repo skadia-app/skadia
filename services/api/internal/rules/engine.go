@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -260,7 +261,7 @@ func pointInGeoJSONPolygon(lat, lon float64, geoJSONStr string) bool {
 	inside := false
 	n := len(ring)
 	j := n - 1
-	for i := 0; i < n; i++ {
+	for i := range n {
 		xi, yi := ring[i][0], ring[i][1]
 		xj, yj := ring[j][0], ring[j][1]
 		if (yi > y) != (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi {
@@ -343,10 +344,8 @@ func evalHasTag(c Condition, activity map[string]any) bool {
 	wantTag := fmt.Sprintf("%v", c.Value)
 	switch ts := tags.(type) {
 	case []string:
-		for _, t := range ts {
-			if t == wantTag {
-				return true
-			}
+		if slices.Contains(ts, wantTag) {
+			return true
 		}
 	case []any:
 		for _, t := range ts {
@@ -366,10 +365,8 @@ func evalArrayContains(c Condition, activity map[string]any) bool {
 	want := fmt.Sprintf("%v", c.Value)
 	switch arr := val.(type) {
 	case []string:
-		for _, s := range arr {
-			if s == want {
-				return c.Op != "not_contains"
-			}
+		if slices.Contains(arr, want) {
+			return c.Op != "not_contains"
 		}
 	case []any:
 		for _, item := range arr {
@@ -459,22 +456,30 @@ func Apply(actions []Action) []ActivityChange {
 	for _, a := range actions {
 		switch a.Action {
 		case "set_gear":
-			var p struct{ GearID string `json:"gear_id"` }
+			var p struct {
+				GearID string `json:"gear_id"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.GearID != "" {
 				changes = append(changes, ActivityChange{Field: "gear_id", Value: p.GearID})
 			}
 		case "add_tag":
-			var p struct{ TagID string `json:"tag_id"` }
+			var p struct {
+				TagID string `json:"tag_id"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.TagID != "" {
 				changes = append(changes, ActivityChange{Field: "add_tag", Value: p.TagID})
 			}
 		case "remove_tag":
-			var p struct{ TagID string `json:"tag_id"` }
+			var p struct {
+				TagID string `json:"tag_id"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.TagID != "" {
 				changes = append(changes, ActivityChange{Field: "remove_tag", Value: p.TagID})
 			}
 		case "set_visibility":
-			var p struct{ Visibility string `json:"visibility"` }
+			var p struct {
+				Visibility string `json:"visibility"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.Visibility != "" {
 				changes = append(changes, ActivityChange{Field: "visibility", Value: p.Visibility})
 			}
@@ -490,17 +495,23 @@ func Apply(actions []Action) []ActivityChange {
 				}
 			}
 		case "set_name":
-			var p struct{ Template string `json:"template"` }
+			var p struct {
+				Template string `json:"template"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.Template != "" {
 				changes = append(changes, ActivityChange{Field: "set_name_template", Value: p.Template})
 			}
 		case "set_intensity":
-			var p struct{ Intensity string `json:"intensity"` }
+			var p struct {
+				Intensity string `json:"intensity"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil && p.Intensity != "" {
 				changes = append(changes, ActivityChange{Field: "intensity", Value: p.Intensity})
 			}
 		case "set_indoor":
-			var p struct{ Indoor bool `json:"indoor"` }
+			var p struct {
+				Indoor bool `json:"indoor"`
+			}
 			if json.Unmarshal(a.Params, &p) == nil {
 				changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
 			}
@@ -537,10 +548,8 @@ func evalIn(val, list any) bool {
 			}
 		}
 	case []string:
-		for _, item := range items {
-			if item == s {
-				return true
-			}
+		if slices.Contains(items, s) {
+			return true
 		}
 	}
 	return false

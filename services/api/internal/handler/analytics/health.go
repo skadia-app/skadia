@@ -78,9 +78,9 @@ func (h *Handler) GetHRVCorrelation(w http.ResponseWriter, r *http.Request) {
 	interpretation := interpretCorrelation(corr)
 
 	type response struct {
-		Points          []database.HRVCorrelationPoint `json:"points"`
-		Correlation     float64                        `json:"correlation"`
-		Interpretation  string                         `json:"interpretation"`
+		Points         []database.HRVCorrelationPoint `json:"points"`
+		Correlation    float64                        `json:"correlation"`
+		Interpretation string                         `json:"interpretation"`
 	}
 
 	writeJSON(w, http.StatusOK, response{
@@ -211,12 +211,12 @@ func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
 	level, recommendation := recoveryLevel(score)
 
 	type response struct {
-		Score              int     `json:"score"`
-		Level              string  `json:"level"`
-		HRVFactor          float64 `json:"hrv_factor"`
-		SleepFactor        float64 `json:"sleep_factor"`
-		FatigueFactor      float64 `json:"fatigue_factor"`
-		Recommendation     string  `json:"recommendation"`
+		Score          int     `json:"score"`
+		Level          string  `json:"level"`
+		HRVFactor      float64 `json:"hrv_factor"`
+		SleepFactor    float64 `json:"sleep_factor"`
+		FatigueFactor  float64 `json:"fatigue_factor"`
+		Recommendation string  `json:"recommendation"`
 	}
 
 	writeJSON(w, http.StatusOK, response{
@@ -364,10 +364,7 @@ func tailMean(vals []float64, n int) float64 {
 	if len(vals) == 0 {
 		return 0
 	}
-	start := len(vals) - n
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(vals)-n, 0)
 	tail := vals[start:]
 	var sum float64
 	for _, v := range tail {

@@ -81,7 +81,7 @@ func Calculate(from, to time.Time, dailyTSS map[string]float64, previousCTL, pre
 	ctl := previousCTL
 	atl := previousATL
 
-	for i := 0; i < days; i++ {
+	for i := range days {
 		d := from.AddDate(0, 0, i)
 		dateStr := d.Format("2006-01-02")
 

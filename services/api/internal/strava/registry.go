@@ -2,6 +2,7 @@ package strava
 
 import (
 	"context"
+	"slices"
 	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -113,10 +114,5 @@ func (r *ImportRegistry) RunModules(ctx context.Context, modules []string, param
 }
 
 func containsStr(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }

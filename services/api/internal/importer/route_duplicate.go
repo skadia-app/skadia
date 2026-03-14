@@ -81,8 +81,8 @@ func CheckRouteDuplicate(
 // Returns empty slice on parse error (graceful degradation).
 func geoJSONToLatLngs(geojson string) []LatLng {
 	var g struct {
-		Type        string      `json:"type"`
-		Coordinates interface{} `json:"coordinates"`
+		Type        string `json:"type"`
+		Coordinates any    `json:"coordinates"`
 	}
 	if err := json.Unmarshal([]byte(geojson), &g); err != nil {
 		return nil

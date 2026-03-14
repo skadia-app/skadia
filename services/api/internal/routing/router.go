@@ -58,7 +58,7 @@ func NewRouter(g *graph.Graph, poolSize int, maxSparse int) *Router {
 		pool:      make(chan *RouterState, poolSize),
 		sparseSem: make(chan struct{}, maxSparse),
 	}
-	for i := 0; i < poolSize; i++ {
+	for range poolSize {
 		r.pool <- newRouterState(g.NodeCount)
 	}
 	return r
@@ -99,7 +99,7 @@ func (r *Router) RouteVia(ctx context.Context, waypoints []LatLon,
 	for i := 0; i < len(waypoints)-1; i++ {
 		leg, err := r.Route(ctx, RouteRequest{
 			FromLat: waypoints[i].Lat, FromLon: waypoints[i].Lon,
-			ToLat:   waypoints[i+1].Lat, ToLon: waypoints[i+1].Lon,
+			ToLat: waypoints[i+1].Lat, ToLon: waypoints[i+1].Lon,
 		}, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("leg %d: %w", i, err)

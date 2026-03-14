@@ -44,7 +44,7 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 
 	// Find the largest component size.
 	maxSize := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		root := find(i)
 		if size[root] > maxSize {
 			maxSize = size[root]
@@ -52,7 +52,7 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 	}
 
 	keep := make([]bool, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		root := find(i)
 		// Keep a node if its component is >= minSize, OR if it belongs to
 		// the largest component (always keep the main graph body).
@@ -73,7 +73,7 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 
 	remap := make([]uint32, n)
 	newID := uint32(0)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if keep[i] {
 			remap[i] = newID
 			newID++
@@ -91,7 +91,7 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 	newG.NodeLon = make([]int32, keptCount)
 	newG.NodeEle = make([]int32, keptCount)
 	newG.NodeTags = make([]uint8, keptCount)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if keep[i] {
 			j := remap[i]
 			newG.NodeLat[j] = g.NodeLat[i]

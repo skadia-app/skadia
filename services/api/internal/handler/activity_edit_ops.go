@@ -323,7 +323,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		FROM activities WHERE id = $1`,
 		activityID, newID, origTitle,
 		metrics2.StartedAt,
-		func() interface{} {
+		func() any {
 			if metrics2.EndedAt.IsZero() {
 				return nil
 			}
@@ -331,19 +331,19 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		}(),
 		metrics2.ElapsedS,
 		metrics2.MovingS,
-		func() interface{} {
+		func() any {
 			if metrics2.DistanceM == 0 {
 				return nil
 			}
 			return metrics2.DistanceM
 		}(),
-		func() interface{} {
+		func() any {
 			if metrics2.AvgSpeedMS == 0 {
 				return nil
 			}
 			return metrics2.AvgSpeedMS
 		}(),
-		func() interface{} {
+		func() any {
 			if metrics2.MaxSpeedMS == 0 {
 				return nil
 			}

@@ -2,6 +2,7 @@ package fitimport
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/muktihari/fit/profile/basetype"
@@ -138,10 +139,5 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 }
 
 func containsStr(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }

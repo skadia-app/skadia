@@ -16,24 +16,21 @@ func MetricsFromStreams(points []model.StreamPoint) StreamMetrics {
 	first := points[0]
 	last := points[len(points)-1]
 
-	elapsed := int(last.Time.Sub(first.Time).Seconds())
-	if elapsed < 0 {
-		elapsed = 0
-	}
+	elapsed := max(int(last.Time.Sub(first.Time).Seconds()), 0)
 
 	var (
-		hrSum    float64
-		hrCount  int
-		maxHR    int
-		pwSum    float64
-		pwCount  int
-		maxPW    int
-		cadSum   float64
-		cadCount int
-		tempSum  float64
+		hrSum     float64
+		hrCount   int
+		maxHR     int
+		pwSum     float64
+		pwCount   int
+		maxPW     int
+		cadSum    float64
+		cadCount  int
+		tempSum   float64
 		tempCount int
-		maxSpd   float64
-		movingS  int
+		maxSpd    float64
+		movingS   int
 	)
 
 	prevTime := first.Time
