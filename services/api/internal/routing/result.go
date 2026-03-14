@@ -3,6 +3,7 @@ package routing
 import (
 	"encoding/json"
 	"math"
+	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
@@ -152,12 +153,8 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 	path = append(path, src)
 
 	// Reverse to get src→dst order
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-	for i, j := 0, len(edges)-1; i < j; i, j = i+1, j-1 {
-		edges[i], edges[j] = edges[j], edges[i]
-	}
+	slices.Reverse(path)
+	slices.Reverse(edges)
 
 	// Build coordinates and compute metrics
 	coords := make([]LatLonEle, len(path))
