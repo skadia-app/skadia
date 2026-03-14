@@ -159,7 +159,7 @@ func CheckTier2(ctx context.Context, db *database.DB, userID string, activityID 
 
 // extractLatLng extrahiert lat/lng aus Streams (filtert nil).
 func extractLatLng(streams []model.StreamResponse) []LatLng {
-	var out []LatLng
+	out := make([]LatLng, 0, len(streams))
 	for _, s := range streams {
 		if s.Lat != nil && s.Lng != nil {
 			out = append(out, LatLng{Lat: *s.Lat, Lng: *s.Lng})
@@ -203,7 +203,7 @@ func countFields(a *model.Activity) int {
 
 // missingFields gibt die Namen aller fehlenden Metriken (nil oder 0) zurück.
 func missingFields(a *model.Activity) []string {
-	var fields []string
+	fields := make([]string, 0, 8)
 	if a.AvgHeartRate == nil || *a.AvgHeartRate == 0 {
 		fields = append(fields, "avg_heart_rate")
 	}
