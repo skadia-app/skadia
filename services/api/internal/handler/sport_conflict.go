@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -46,6 +47,14 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			slog.Warn("sport conflict resolve: invalid request body", "error", err)
+		}
+	}
+
+	// Validate sport type against taxonomy (prevent garbage via direct API calls)
+	if req.SportType != "" {
+		if _, ok := sport.GetSportDef(req.SportType); !ok {
+			writeError(w, http.StatusBadRequest, "Bad Request", "unknown sport type", r.URL.Path)
+			return
 		}
 	}
 

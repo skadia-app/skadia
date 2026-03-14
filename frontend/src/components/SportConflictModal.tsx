@@ -61,7 +61,7 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
     setLoading(true)
     try {
       await resolveSportConflict(activity.id, sportType)
-      addToast({ type: 'success', title: 'Sport-Typ aktualisiert' })
+      addToast({ type: 'success', title: sportType ? 'Sport-Typ aktualisiert' : 'Sport-Konflikt aufgelöst' })
       onResolved()
       onClose()
     } catch {

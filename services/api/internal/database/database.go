@@ -831,7 +831,7 @@ func (db *DB) DeleteActivities(ctx context.Context, userID string, ids []string)
 	cleanPlaceholders := make([]string, len(ids))
 	for i, id := range ids {
 		cleanArgs = append(cleanArgs, id)
-		cleanPlaceholders[i] = fmt.Sprintf("(metadata->>'activity_id')::uuid = $%d", i+2)
+		cleanPlaceholders[i] = fmt.Sprintf("metadata->>'activity_id' = $%d", i+2)
 	}
 	cleanQuery := fmt.Sprintf(
 		`UPDATE import_queue SET status = 'resolved', resolved_at = NOW()
