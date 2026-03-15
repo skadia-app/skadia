@@ -1,2 +1,3 @@
 ALTER TABLE osm_ways ALTER COLUMN way_id DROP DEFAULT;
+ALTER SEQUENCE IF EXISTS osm_ways_way_id_seq OWNED BY NONE;
 DROP SEQUENCE IF EXISTS osm_ways_way_id_seq;
