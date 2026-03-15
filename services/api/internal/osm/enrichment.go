@@ -8,56 +8,53 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 )
 
-// RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using raster-based sampling.
+// RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using direct polygon joins.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
-// forceRebuild: when true, truncates enrichment.raster_tiles before rasterizing.
+// forceRebuild: kept for API compatibility (RetryOSMEnrichment), no longer functional.
 // Reports progress via the progressFn callback (0-100).
 func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild bool, progressFn func(int)) error {
-	if forceRebuild {
-		slog.Info("enrichment: force rebuild — truncating enrichment.raster_tiles")
-		if _, err := pool.Exec(ctx, "TRUNCATE enrichment.raster_tiles"); err != nil {
-			slog.Warn("enrichment: truncate raster_tiles failed (may not exist yet)", "error", err)
-		}
-	}
+	// forceRebuild kept for API compat (RetryOSMEnrichment), no longer functional
+	_ = forceRebuild
 
-	// Reset alle Enrichment-Spalten vor Neuberechnung
 	slog.Info("enrichment: resetting enrichment columns")
 	if _, err := pool.Exec(ctx, `UPDATE osm_ways SET forest_pct = NULL, protected_area = NULL,
 		landuse_class = NULL, noise_score = NULL, traffic_class = NULL WHERE highway IS NOT NULL`); err != nil {
 		return fmt.Errorf("enrichment: reset columns: %w", err)
 	}
 
-	type enrichStep struct {
+	report := func(pct int) {
+		if progressFn != nil {
+			progressFn(pct)
+		}
+	}
+
+	// === Phase 1: Polygon-basierte Spatial Joins (parallel) ===
+	slog.Info("enrichment: phase 1 — spatial joins (parallel)")
+	g1, ctx1 := errgroup.WithContext(ctx)
+	g1.Go(func() error { return EnrichForestPct(ctx1, pool) })
+	g1.Go(func() error { return EnrichProtectedArea(ctx1, pool) })
+	g1.Go(func() error { return EnrichLanduseFromPolygons(ctx1, pool) })
+	if err := g1.Wait(); err != nil {
+		return fmt.Errorf("enrichment phase 1 (spatial joins): %w", err)
+	}
+	report(40)
+
+	// === Phase 2: Derived Enrichment (sequential — row locks prevent parallel UPDATEs) ===
+	slog.Info("enrichment: phase 2 — derived enrichment (sequential)")
+	phase2Steps := []struct {
 		name string
 		pct  int
 		fn   func(context.Context, *pgxpool.Pool) error
+	}{
+		{"noise_score", 55, EnrichNoiseScore},
+		{"landuse_class", 65, EnrichLanduseClass},
+		{"traffic_class", 75, EnrichTrafficClass},
+		{"route_membership", 85, EnrichRouteMembership},
 	}
-	steps := []enrichStep{
-		// Phase 1: Rasterize
-		{"rasterize_forest", 5, RasterizeForest},
-		{"rasterize_protected", 12, RasterizeProtected},
-		{"rasterize_landuse", 18, RasterizeLanduse},
-		// Phase 1.5: ANALYZE
-		{"analyze_rasters", 22, AnalyzeEnrichmentRasters},
-		// Phase 2: Sample + NULL-Defaults
-		{"sample_forest_pct", 32, SampleForestPct},
-		{"sample_protected", 42, SampleProtectedArea},
-		{"sample_landuse", 52, SampleLanduse},
-		// Phase 3: Nicht-Raster-Enrichment
-		{"noise_score", 62, EnrichNoiseScore},
-		{"landuse_class", 70, EnrichLanduseClass},
-		{"traffic_class", 82, EnrichTrafficClass},
-		{"route_membership", 95, EnrichRouteMembership},
-		// Phase 4: Cleanup
-		{"analyze", 100, func(ctx context.Context, pool *pgxpool.Pool) error {
-			_, err := pool.Exec(ctx, "ANALYZE osm_ways")
-			return err
-		}},
-	}
-
-	for _, step := range steps {
+	for _, step := range phase2Steps {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("enrichment cancelled before %s: %w", step.name, err)
 		}
@@ -65,12 +62,18 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 		if err := step.fn(ctx, pool); err != nil {
 			return fmt.Errorf("enrichment step %s: %w", step.name, err)
 		}
-		if progressFn != nil {
-			progressFn(step.pct)
-		}
-		slog.Info("enrichment: step complete", "step", step.name, "progress_pct", step.pct)
+		report(step.pct)
+		slog.Info("enrichment: step complete", "step", step.name)
 	}
+	report(90)
 
+	// === Phase 3: Final ANALYZE ===
+	if _, err := pool.Exec(ctx, "ANALYZE osm_ways"); err != nil {
+		slog.Warn("enrichment: final ANALYZE failed", "error", err)
+	}
+	report(100)
+
+	slog.Info("enrichment: all phases complete")
 	return nil
 }
 
