@@ -35,11 +35,11 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
 		SELECT w.way_id,
-			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, f.geom), 2)::geography))
-				/ NULLIF(ST_Length(w.geom::geography), 0)))::SMALLINT AS pct
+			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, f.geom), 2)))
+				/ NULLIF(ST_Length(w.geom), 0)))::SMALLINT AS pct
 		FROM osm_ways w
 		JOIN osm_forests f ON ST_Intersects(w.geom, f.geom)
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL AND ST_Length(w.geom::geography) > 0
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL AND ST_Length(w.geom) > 0
 		GROUP BY w.way_id, w.geom
 	`)
 	if err != nil {
@@ -166,7 +166,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 		WHERE w.highway IS NOT NULL
 		  AND w.landuse_class IS NULL
 		  AND lu.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry')
-		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, lu.geom), 2)::geography) DESC NULLS LAST
+		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, lu.geom), 2)) DESC NULLS LAST
 	`)
 	if err != nil {
 		return fmt.Errorf("enrichment landuse_polygons: create staging: %w", err)
