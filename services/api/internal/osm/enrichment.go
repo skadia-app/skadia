@@ -5,11 +5,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 )
+
+// validWKTRe validates that a WKT string is a safe POLYGON (defense in depth against SQL injection).
+var validWKTRe = regexp.MustCompile(`^POLYGON\(\([0-9\s.,eE+-]+\)\)$`)
 
 // RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using direct polygon joins.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
@@ -34,6 +38,8 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 			regions).Scan(&bboxWKT)
 		if err != nil || bboxWKT == "" {
 			slog.Warn("enrichment: BBox computation failed, falling back to global", "regions", regionFilter, "error", err)
+		} else if !validWKTRe.MatchString(bboxWKT) {
+			slog.Warn("enrichment: invalid BBox WKT, falling back to global", "wkt", bboxWKT)
 		} else {
 			bboxClause = fmt.Sprintf(` AND ST_Intersects(w.geom, ST_GeomFromText('%s', 4326))`, bboxWKT)
 			slog.Info("enrichment: BBox-filtered enrichment active", "regions", regionFilter, "bbox", bboxWKT)
@@ -41,39 +47,34 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	}
 
 	// PostgreSQL Enrichment-Tuning: work_mem + parallel workers hochsetzen.
-	// ALTER SYSTEM wirkt global (alle neuen Connections), wird nach Enrichment zurückgesetzt.
-	// Enrichment läuft als separater Job — alle Cores stehen zur Verfügung.
+	// Uses connection-level SET (not ALTER SYSTEM) to avoid affecting other connections.
 	// work_mem: 10% des verfügbaren RAM (min 64MB, max 512MB)
 	workMemMB := availableRAMMB() * 10 / 100
 	if workMemMB > 512 { workMemMB = 512 }
 	if workMemMB < 64 { workMemMB = 64 }
 
+	tuningConn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment: acquire tuning conn: %w", err)
+	}
+	defer tuningConn.Release()
+
 	for _, stmt := range []string{
-		fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dMB'", workMemMB),
-		"ALTER SYSTEM SET max_parallel_workers_per_gather = 6",
-		"SELECT pg_reload_conf()",
+		fmt.Sprintf("SET work_mem = '%dMB'", workMemMB),
+		"SET max_parallel_workers_per_gather = 6",
 	} {
-		if _, err := pool.Exec(ctx, stmt); err != nil {
+		if _, err := tuningConn.Exec(ctx, stmt); err != nil {
 			slog.Warn("enrichment: tuning failed (non-fatal)", "stmt", stmt, "error", err)
 		}
 	}
-	slog.Info("enrichment: tuning applied", "work_mem_mb", workMemMB, "parallel_workers", 6)
-	defer func() {
-		for _, stmt := range []string{
-			"ALTER SYSTEM RESET work_mem",
-			"ALTER SYSTEM RESET max_parallel_workers_per_gather",
-			"SELECT pg_reload_conf()",
-		} {
-			pool.Exec(context.Background(), stmt)
-		}
-		slog.Info("enrichment: tuning reset")
-	}()
+	slog.Info("enrichment: tuning applied (connection-level)", "work_mem_mb", workMemMB, "parallel_workers", 6)
+	// No need for defer/reset — SET only applies to this connection and resets on release.
 
 	slog.Info("enrichment: resetting enrichment columns", "region_filter", regionFilter)
 	resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
 		landuse_class = NULL, noise_score = NULL, traffic_class = NULL
 		WHERE highway IS NOT NULL%s`, bboxClause)
-	if _, err := pool.Exec(ctx, resetSQL); err != nil {
+	if _, err := tuningConn.Exec(ctx, resetSQL); err != nil {
 		return fmt.Errorf("enrichment: reset columns: %w", err)
 	}
 
@@ -104,11 +105,15 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		{"noise_score", 55, func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichNoiseScore(ctx, p, bboxClause)
 		}},
-		{"landuse_class", 65, EnrichLanduseClass},
+		{"landuse_class", 65, func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichLanduseClass(ctx, p, bboxClause)
+		}},
 		{"traffic_class", 75, func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichTrafficClass(ctx, p, bboxClause)
 		}},
-		{"route_membership", 85, EnrichRouteMembership},
+		{"route_membership", 85, func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichRouteMembership(ctx, p, bboxClause)
+		}},
 	}
 	for _, step := range phase2Steps {
 		if err := ctx.Err(); err != nil {
@@ -391,14 +396,13 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 // Raster sampling (SampleLanduse) runs first and sets the primary landuse class;
 // this step fills in forest/residential for ways not covered by the landuse raster.
 // 0=other, 1=forest, 2=agricultural, 3=residential, 4=industrial, 5=commercial, 6=quarry.
-func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting landuse_class (forest + residential derivation)")
 
 	// 1. Forest aus forest_pct ableiten (präziserer 10m-Raster)
 	_, err := pool.Exec(ctx, `
-		UPDATE osm_ways SET landuse_class = 1
-		WHERE highway IS NOT NULL AND forest_pct >= 60 AND landuse_class = 0
-	`)
+		UPDATE osm_ways w SET landuse_class = 1
+		WHERE w.highway IS NOT NULL AND w.forest_pct >= 60 AND w.landuse_class = 0`+bboxClause)
 	if err != nil {
 		return fmt.Errorf("enrichment landuse_class: forest: %w", err)
 	}
@@ -407,9 +411,8 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 	// Wege mit forest_pct >= 60 wurden bereits als Wald (1) klassifiziert —
 	// ein Waldweg (highway=residential durch Wald) bleibt Wald, nicht Wohngebiet.
 	_, err = pool.Exec(ctx, `
-		UPDATE osm_ways SET landuse_class = 3
-		WHERE highway IN ('residential', 'living_street') AND landuse_class = 0
-	`)
+		UPDATE osm_ways w SET landuse_class = 3
+		WHERE w.highway IN ('residential', 'living_street') AND w.landuse_class = 0`+bboxClause)
 	if err != nil {
 		return fmt.Errorf("enrichment landuse_class: residential: %w", err)
 	}
@@ -423,7 +426,7 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool) error {
 // NOTE: Uses spatial proximity (ST_DWithin 15m) as proxy for relation membership.
 // This may produce false positives for nearby but unrelated ways.
 // P3-TODO: Import explicit relation membership via Lua script for precise matching.
-func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting route_membership")
 
 	// Check if Lua-extracted route members exist (source='relation')
@@ -439,7 +442,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool) error {
 			SELECT DISTINCT r.osm_id, w.osm_id, 'proximity'
 			FROM osm_routes r
 			JOIN osm_ways w ON ST_DWithin(r.geom::geography, w.geom::geography, 15)
-			WHERE w.highway IS NOT NULL
+			WHERE w.highway IS NOT NULL`+bboxClause+`
 			ON CONFLICT DO NOTHING`)
 		if err != nil {
 			return fmt.Errorf("enrichment route_membership: proximity fallback: %w", err)
