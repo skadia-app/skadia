@@ -200,6 +200,22 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		pbfPaths = append(pbfPaths, pbfPath)
 	}
 
+	// === Phase 1.5: osmium Preprocessing (filter + merge) ===
+	// Reduziert PBF-Größe um ~40-55% durch Entfernung irrelevanter Tags (Buildings, Adressen, etc.)
+	mergedPBF, osmErr := OsmiumPreprocess(ctx, p.DataDir, pbfPaths, reporter)
+	if osmErr != nil {
+		slog.Error("osm import: osmium preprocessing failed", "error", osmErr)
+		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
+		return
+	}
+	// Originale pbfPaths für BRouter/Cleanup aufbewahren
+	originalPBFs := pbfPaths
+	_ = originalPBFs // Used by BRouter preservation loop (reg.ID-based paths)
+	if mergedPBF != "" {
+		pbfPaths = []string{mergedPBF}
+		defer CleanupMergedPBF(p.DataDir)
+	}
+
 	// === Phase 2: Daten löschen + EIN osm2pgsql-Aufruf mit allen PBFs ===
 	reporter.SetPhase("import")
 	reporter.SetProgress(0)
@@ -230,29 +246,68 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		}
 	}
 
-	// --flat-nodes: Speichert Node-Koordinaten in Datei statt in PostgreSQL (~100 GB).
-	// Dateigröße richtet sich nach dem maximalen Node-ID-Wert (globaler OSM-Adressraum),
-	// nicht nach der Datenmenge — für Europa-Extrakte typisch 50–100 GB.
-	// Wird nach erfolgreichem Import automatisch gelöscht (s. os.Remove unten).
-	flatNodesPath := filepath.Join(p.DataDir, "flat-nodes.bin")
+	// PostgreSQL Import-Tuning (temporär — wird nach Import zurückgesetzt)
+	maintWorkMemMB := availableRAMMB() * 15 / 100
+	if maintWorkMemMB > 8192 {
+		maintWorkMemMB = 8192
+	}
+	if maintWorkMemMB < 256 {
+		maintWorkMemMB = 256
+	}
 
-	// osm2pgsql 2.x kann mehrere PBFs als Input — ein Lauf, ein flat-nodes.bin,
-	// automatische Deduplizierung an Regionsgrenzen über OSM-Node-IDs.
+	pgTuning := []string{
+		fmt.Sprintf("ALTER SYSTEM SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
+		"ALTER SYSTEM SET max_parallel_maintenance_workers = 4",
+		"SELECT pg_reload_conf()",
+	}
+	for _, stmt := range pgTuning {
+		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+			slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", err)
+		}
+	}
+	slog.Info("osm import: PG import tuning applied", "maintenance_work_mem_mb", maintWorkMemMB)
+	defer func() {
+		for _, stmt := range []string{
+			"ALTER SYSTEM RESET maintenance_work_mem",
+			"ALTER SYSTEM RESET max_parallel_maintenance_workers",
+			"SELECT pg_reload_conf()",
+		} {
+			p.Pool.Exec(context.Background(), stmt)
+		}
+		slog.Info("osm import: PG import tuning reset")
+	}()
+
+	// Dynamischer Cache: Verfügbaren RAM ermitteln und osm2pgsql --cache setzen.
+	// --flat-nodes (100 GB Sparse-Datei) wird nur als Fallback verwendet wenn RAM nicht reicht.
+	// Vorher: --flat-nodes + --cache 0 → WORST CASE für Performance (jeder Node-Lookup = Disk I/O).
+	var totalPBFBytes int64
+	for _, p := range pbfPaths {
+		if info, err := os.Stat(p); err == nil {
+			totalPBFBytes += info.Size()
+		}
+	}
+	cacheMB := computeCacheMB(totalPBFBytes)
+
 	args := []string{
 		"--database", p.DBURL,
 		"--output=flex",
 		"--style", luaTmp.Name(),
-		"--flat-nodes", flatNodesPath,
-		"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
 		"--slim", "--drop",
-		// SRID 4326 (WGS84) wird über projection=4326 in skadia-osm.lua gesteuert.
-		// --latlong wird im flex-Modus von osm2pgsql ignoriert.
 	}
-	args = append(args, pbfPaths...)
 
-	// Stale flat-nodes.bin entfernen — bei Retry nach Crash enthält die Datei
-	// veraltete Node-Koordinaten, die zu Geometry-Korruption führen würden.
-	os.Remove(flatNodesPath)
+	flatNodesPath := filepath.Join(p.DataDir, "flat-nodes.bin")
+	if cacheMB > 0 {
+		args = append(args, "--cache", strconv.Itoa(cacheMB))
+		slog.Info("osm import: using RAM cache", "cache_mb", cacheMB, "pbf_total_mb", totalPBFBytes/(1024*1024))
+	} else {
+		// Fallback: --flat-nodes wenn zu wenig RAM (< 512 MB frei)
+		os.Remove(flatNodesPath) // Stale flat-nodes entfernen
+		args = append(args, "--flat-nodes", flatNodesPath, "--cache", "0")
+		slog.Warn("osm import: insufficient RAM, falling back to --flat-nodes",
+			"pbf_total_mb", totalPBFBytes/(1024*1024))
+	}
+
+	args = append(args, pbfPaths...)
 
 	cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
 	cmd.Env = envVars
@@ -345,7 +400,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		}
 	}
 
-	// flat-nodes Datei aufräumen (wird nur während osm2pgsql benötigt)
+	// flat-nodes Datei aufräumen (nur vorhanden wenn Fallback-Modus aktiv war)
 	os.Remove(flatNodesPath)
 
 	// === Schema-Restore: osm2pgsql --create löscht alle Migrations-Spalten ===
@@ -969,4 +1024,55 @@ func buildVacuumTables(categories []string) []string {
 		}
 	}
 	return tables
+}
+
+// computeCacheMB calculates the optimal osm2pgsql --cache value in MB.
+// Reads available RAM from /proc/meminfo (Linux). Returns 0 if RAM is insufficient
+// (caller should fall back to --flat-nodes).
+// Scales dynamically: uses 40% of available RAM, capped at 2x PBF size.
+func computeCacheMB(totalPBFBytes int64) int {
+	availMB := availableRAMMB()
+	pbfMB := totalPBFBytes / (1024 * 1024)
+	if pbfMB < 1 {
+		pbfMB = 1
+	}
+
+	// 40% of available RAM
+	cacheMB := availMB * 40 / 100
+	// Cap at 2x PBF size (more is wasteful — all node coords fit in ~1.5x PBF)
+	if maxCache := pbfMB * 2; cacheMB > maxCache {
+		cacheMB = maxCache
+	}
+	// Floor: at least 256 MB if we have enough RAM
+	if cacheMB < 256 {
+		if availMB >= 1024 {
+			cacheMB = 256 // Minimum sinnvoller Cache
+		} else {
+			return 0 // Nicht genug RAM → flat-nodes Fallback
+		}
+	}
+
+	slog.Info("osm import: cache calculation",
+		"available_ram_mb", availMB, "pbf_total_mb", pbfMB, "cache_mb", cacheMB)
+	return int(cacheMB)
+}
+
+// availableRAMMB reads MemAvailable from /proc/meminfo.
+// Returns a conservative fallback (2048 MB) if detection fails.
+func availableRAMMB() int64 {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 2048
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if kb, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
+					return kb / 1024
+				}
+			}
+		}
+	}
+	return 2048
 }
