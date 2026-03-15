@@ -157,6 +157,37 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		slog.Warn("enrichment: osm_railways empty — skipping railway noise sources")
 	}
 
+	// Wind turbines
+	windSQL := ""
+	var windCount int64
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_pois WHERE category = 'wind_turbine'").Scan(&windCount); err == nil && windCount > 0 {
+		windSQL = `
+        UNION ALL
+        SELECT geom::geometry, 'wind_turbine', 800, 0.5
+        FROM osm_pois WHERE category = 'wind_turbine'`
+		slog.Info("enrichment: wind turbines found", "count", windCount)
+	}
+
+	// Shooting ranges
+	shootingSQL := ""
+	var shootingCount int64
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_pois WHERE category = 'shooting_range'").Scan(&shootingCount); err == nil && shootingCount > 0 {
+		shootingSQL = `
+        UNION ALL
+        SELECT geom::geometry, 'shooting_range', 400, 0.4
+        FROM osm_pois WHERE category = 'shooting_range'`
+	}
+
+	// Military areas — polygon directly (distance to nearest edge, not centroid)
+	militarySQL := ""
+	var militaryCount int64
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_landuse WHERE landuse = 'military'").Scan(&militaryCount); err == nil && militaryCount > 0 {
+		militarySQL = `
+        UNION ALL
+        SELECT geom::geometry, 'military', 500, 0.6
+        FROM osm_landuse WHERE landuse = 'military'`
+	}
+
 	// Vollständiger View inkl. optionaler Railway-Quellen
 	viewSQL := `CREATE TEMP VIEW noise_sources AS
     SELECT geom::geometry, 'motorway' AS source_type, 500 AS buffer_m, 1.0::float AS weight
@@ -169,7 +200,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
     FROM osm_ways WHERE highway IN ('secondary', 'secondary_link')
     UNION ALL
     SELECT geom::geometry, 'aerodrome', 3000, 0.9
-    FROM osm_pois WHERE type = 'aerodrome'` + railwaySQL
+    FROM osm_pois WHERE category = 'aerodrome' AND subtype NOT IN ('gliding', 'hang_gliding')` + windSQL + shootingSQL + militarySQL + railwaySQL
 
 	if _, err = conn.Exec(ctx, viewSQL); err != nil {
 		return fmt.Errorf("enrichment noise_score: create view: %w", err)
