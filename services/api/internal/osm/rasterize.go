@@ -17,6 +17,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: forest_pct starting (polygon join)")
 
 	// Phase 1: Berechnung in Staging-Table (nutzt parallel workers via CTAS)
+	// AND w.forest_pct IS NULL — nur resettete Ways (BBox-Reset hat nicht-betroffene bereits gesetzt)
 	_, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
@@ -25,7 +26,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 				/ NULLIF(ST_Length(w.geom::geography), 0)))::SMALLINT AS pct
 		FROM osm_ways w
 		JOIN osm_forests f ON ST_Intersects(w.geom, ST_MakeValid(f.geom))
-		WHERE w.highway IS NOT NULL AND ST_Length(w.geom::geography) > 0
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL AND ST_Length(w.geom::geography) > 0
 		GROUP BY w.way_id, w.geom
 	`)
 	if err != nil {
@@ -60,6 +61,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: protected_area starting (polygon join)")
 
+	// AND w.protected_area IS NULL — nur resettete Ways
 	_, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS _protected;
 		CREATE UNLOGGED TABLE _protected AS
@@ -72,6 +74,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM osm_ways w
 		JOIN osm_boundaries b ON ST_Intersects(w.geom, ST_MakeValid(b.geom))
 		WHERE w.highway IS NOT NULL
+		  AND w.protected_area IS NULL
 		  AND b.boundary_type IN ('protected_area','national_park')
 		GROUP BY w.way_id
 	`)
@@ -106,6 +109,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool) error {
 	slog.Info("enrichment: landuse_from_polygons starting")
 
+	// AND w.landuse_class IS NULL — nur resettete Ways
 	_, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS _landuse;
 		CREATE UNLOGGED TABLE _landuse AS
@@ -121,6 +125,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM osm_ways w
 		JOIN osm_landuse lu ON ST_Intersects(w.geom, ST_MakeValid(lu.geom))
 		WHERE w.highway IS NOT NULL
+		  AND w.landuse_class IS NULL
 		  AND lu.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry')
 		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, ST_MakeValid(lu.geom)), 2)::geography) DESC NULLS LAST
 	`)

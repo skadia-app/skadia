@@ -13,11 +13,32 @@ import (
 
 // RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using direct polygon joins.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
-// forceRebuild: kept for API compatibility (RetryOSMEnrichment), no longer functional.
+// regionFilter: "" = global (all ways), "germany" = only DE + 50km buffer,
+// "germany,austria" = union of both + buffer.
 // Reports progress via the progressFn callback (0-100).
-func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild bool, progressFn func(int)) error {
-	// forceRebuild kept for API compat (RetryOSMEnrichment), no longer functional
-	_ = forceRebuild
+func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter string, progressFn func(int)) error {
+	// Build BBox clause from region filter.
+	// Used to restrict the reset + all enrichment sub-functions to the affected area only.
+	bboxClause := ""
+	if regionFilter != "" {
+		regions := strings.Split(regionFilter, ",")
+		for i := range regions {
+			regions[i] = strings.TrimSpace(regions[i])
+		}
+		var bboxWKT string
+		err := pool.QueryRow(ctx, `
+			SELECT ST_AsText(ST_Expand(
+				(SELECT ST_Extent(w.geom) FROM osm_ways w
+				 JOIN osm_way_regions wr ON w.osm_id = wr.osm_id
+				 WHERE wr.region_id = ANY($1::text[])), 0.5))`,
+			regions).Scan(&bboxWKT)
+		if err != nil || bboxWKT == "" {
+			slog.Warn("enrichment: BBox computation failed, falling back to global", "regions", regionFilter, "error", err)
+		} else {
+			bboxClause = fmt.Sprintf(` AND ST_Intersects(w.geom, ST_GeomFromText('%s', 4326))`, bboxWKT)
+			slog.Info("enrichment: BBox-filtered enrichment active", "regions", regionFilter, "bbox", bboxWKT)
+		}
+	}
 
 	// PostgreSQL Enrichment-Tuning: work_mem + parallel workers hochsetzen.
 	// ALTER SYSTEM wirkt global (alle neuen Connections), wird nach Enrichment zurückgesetzt.
@@ -48,9 +69,11 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 		slog.Info("enrichment: tuning reset")
 	}()
 
-	slog.Info("enrichment: resetting enrichment columns")
-	if _, err := pool.Exec(ctx, `UPDATE osm_ways SET forest_pct = NULL, protected_area = NULL,
-		landuse_class = NULL, noise_score = NULL, traffic_class = NULL WHERE highway IS NOT NULL`); err != nil {
+	slog.Info("enrichment: resetting enrichment columns", "region_filter", regionFilter)
+	resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
+		landuse_class = NULL, noise_score = NULL, traffic_class = NULL
+		WHERE highway IS NOT NULL%s`, bboxClause)
+	if _, err := pool.Exec(ctx, resetSQL); err != nil {
 		return fmt.Errorf("enrichment: reset columns: %w", err)
 	}
 
@@ -160,6 +183,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 
 	// Calculate noise score.
 	// osm_ways.geom is already SRID 4326 — cast directly to ::geography for meter distances.
+	// AND w2.noise_score IS NULL — nur resettete Ways, verhindert Überschreiben nicht-betroffener Regionen.
 	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET noise_score = sub.score
 		FROM (
@@ -176,7 +200,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 				n.geom::geography,
 				n.buffer_m
 			)
-			WHERE w2.highway IS NOT NULL
+			WHERE w2.highway IS NOT NULL AND w2.noise_score IS NULL
 			GROUP BY w2.way_id
 		) sub
 		WHERE w.way_id = sub.way_id
@@ -304,6 +328,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 			GROUP BY g.geom
 		`},
 		// osm_ways.geom and routing_grid are both 4326 — direct ST_Intersects
+		// AND w3.traffic_class IS NULL — nur resettete Ways, verhindert Überschreiben nicht-betroffener Regionen.
 		{"classify", `
 			UPDATE osm_ways w SET traffic_class = sub.tc
 			FROM (
@@ -329,6 +354,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 					LEFT JOIN motorway_density md ON md.cell = g.geom
 					LEFT JOIN highway_density hd ON hd.cell = g.geom
 					WHERE w3.highway IN ('primary','primary_link','secondary','secondary_link','tertiary')
+					  AND w3.traffic_class IS NULL
 				) inner_q
 			) sub
 			WHERE w.way_id = sub.way_id
