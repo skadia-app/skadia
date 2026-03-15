@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
   fetchOSMDiskUsage,
   deleteOSMRegion,
   cancelOSMImport,
+  retryOSMEnrichment,
   type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
@@ -68,8 +69,20 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     },
   })
 
+  const enrichmentMutation = useMutation({
+    mutationFn: retryOSMEnrichment,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
+      addToast({ type: 'info', title: 'Enrichment gestartet' })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 })
+    },
+  })
+
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
+  const activeEnrichmentJob = jobs.find((j) => j.job_type === 'osm_enrichment' && j.status === 'running')
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
@@ -245,6 +258,19 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {regions.some((r) => r.status === 'imported') && !activeOsmJob && (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => enrichmentMutation.mutate()}
+            disabled={!!activeEnrichmentJob || enrichmentMutation.isPending}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 hover:border-accent-DEFAULT/30 dark:hover:border-accent-400/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {activeEnrichmentJob ? 'Enrichment läuft…' : 'Enrichment neu starten'}
+          </button>
         </div>
       )}
     </div>

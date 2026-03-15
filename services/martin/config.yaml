@@ -21,30 +21,6 @@ postgres:
       function: forests_mvt
 
   tables:
-    # Trail-/Wege-Netz für Routing-Overlay (osm_ways, ehem. osm_trails)
-    osm_ways:
-      schema: public
-      table: osm_ways
-      geometry_column: geom
-      srid: 4326
-      id_column: id
-      minzoom: 10
-      maxzoom: 22
-      properties:
-        highway: varchar
-        surface: varchar
-        tracktype: text
-        sac_scale: varchar
-        mtb_scale: varchar
-        cycleway: varchar
-        name: text
-        oneway: boolean
-        bridge: boolean
-        tunnel: boolean
-        is_lift: boolean
-        length_m: float8
-        avg_slope: float8
-
     # POIs (Gipfel, Pässe, Amenities — ehem. osm_peaks + osm_amenities)
     pois_mvt:
       schema: public
@@ -60,55 +36,38 @@ postgres:
         ele: float4
       bounds: [-180, -90, 180, 90]
 
-    # Benannte Routen (Wanderwege, Radrouten, MTB, Ski, Ferry, Via Ferrata)
-    osm_routes:
-      schema: public
-      table: osm_routes
-      geometry_column: geom
-      srid: 4326
-      id_column: id
-      minzoom: 6
-      maxzoom: 16
-      properties:
-        osm_id: int8
-        name: text
-        ref: text
-        route: text
-        network: text
-        colour: text
-        distance: float4
-
-    # Pisten (Ski/Snowboard)
-    pistes_mvt:
-      schema: public
-      table: osm_pistes
-      geometry_column: geom
-      srid: 4326
-      id_column: id
-      properties:
-        name: varchar
-        piste_type: varchar
-        difficulty: varchar
-        grooming: varchar
-      bounds: [-180, -90, 180, 90]
-
-    # Straßennetz für Kartenanzeige (gefiltert auf benannte Straßen)
-    osm_roads:
-      schema: public
-      table: osm_ways
-      srid: 4326
-      geometry_column: geom
-      geometry_type: LINESTRING
-      id_column: id
-      minzoom: 6
-      maxzoom: 16
-      sql: >
-        SELECT id, osm_id, name, highway, surface, oneway, bridge, tunnel, geom
-        FROM public.osm_ways
-        WHERE name IS NOT NULL
-          AND highway IN ('motorway','motorway_link','trunk','trunk_link',
-                          'primary','primary_link','secondary','secondary_link',
-                          'tertiary','tertiary_link','residential','unclassified','living_street')
+    # HINWEIS: Die folgenden Table-Sources sind temporär deaktiviert, weil Martin
+    # v1.3.1 nach dem Software-Update bei SRID-Mismatch (erkennt 3857, Config sagt 4326)
+    # und unsupportedem 'sql:'-Key mit Exit-Code 1 crasht.
+    # osm_roads verwendet 'sql:' (unsupported in Martin table sources).
+    # osm_ways, osm_routes, pistes_mvt: Martin-SRID-Erkennungs-Bug (Daten sind 4326).
+    # Heatmap/Tracks funktionieren über Function-Sources (heatmap_lines, heatmap_points).
+    # TODO: Untersuchen warum Martin SRID=3857 für geometry(LineString,4326) meldet.
+    #
+    # osm_ways:
+    #   schema: public
+    #   table: osm_ways
+    #   geometry_column: geom
+    #   srid: 4326
+    #   id_column: id
+    #   ...
+    #
+    # osm_routes:
+    #   schema: public
+    #   table: osm_routes
+    #   geometry_column: geom
+    #   srid: 4326
+    #   id_column: id
+    #   ...
+    #
+    # pistes_mvt:
+    #   schema: public
+    #   table: osm_pistes
+    #   ...
+    #
+    # osm_roads (uses unsupported 'sql:' key):
+    #   table: osm_ways
+    #   sql: SELECT ... WHERE highway IN (...)
 
 # Basemap-Tiles (Full-Modus, PgOSM Flex Tabellen im osm-Schema)
 # Nur aktiv wenn PgOSM Flex importiert wurde (osm-Schema existiert)
