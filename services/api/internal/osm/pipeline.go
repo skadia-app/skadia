@@ -1283,6 +1283,11 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 // RunPerRegion imports a single region via staging schema. This is the preferred
 // import method — it supports per-region add/remove/update without affecting other regions.
 //
+// Concurrency: An advisory lock prevents concurrent imports of the SAME region.
+// Parallel imports of DIFFERENT regions are allowed but may experience row-level
+// lock waits on border ways (shared osm_ids). For sequential behavior, callers
+// should serialize region imports (which runOSMImport already does).
+//
 // Flow:
 //  1. Download PBF (with cache)
 //  2. osmium tags-filter
@@ -1300,11 +1305,22 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 
 	// Acquire advisory lock to prevent concurrent imports of the same region.
 	// Uses FNV-1a hash of regionID for a stable int64 lock key.
+	// IMPORTANT: The lock connection must be pinned (Acquire) because advisory locks
+	// are session-level — if we used Pool.QueryRow, pgx would return the connection
+	// to the pool immediately and the lock would be held on an arbitrary connection.
 	h := fnv.New32a()
 	h.Write([]byte(regionID))
 	lockKey := int64(h.Sum32())
+
+	lockConn, err := p.Pool.Acquire(ctx)
+	if err != nil {
+		reporter.Fail("Lock-Connection nicht verfügbar: " + err.Error())
+		return false
+	}
+	defer lockConn.Release()
+
 	var acquired bool
-	if err := p.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
+	if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
 		slog.Error("osm import: advisory lock query failed", "region", regionID, "error", err)
 		reporter.Fail("Advisory Lock fehlgeschlagen: " + err.Error())
 		return false
@@ -1314,7 +1330,7 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		reporter.Fail("Region wird bereits importiert")
 		return false
 	}
-	defer p.Pool.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
+	defer lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
 
 	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
@@ -1574,6 +1590,50 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		return false
 	}
 
+	// Update osm_import_regions INSIDE the transaction so that if the process
+	// crashes after COMMIT, the status is already 'imported'. Without this,
+	// a crash between COMMIT and the status UPDATE would leave the region stuck
+	// in 'importing' even though data was successfully merged.
+	durationS := int(time.Since(importStart).Seconds())
+	pbfInfo, _ := os.Stat(pbfPath)
+	var pbfSize int64
+	if pbfInfo != nil {
+		pbfSize = pbfInfo.Size()
+	}
+
+	// [I3] PBF NOT deleted — kept for future updates/patching.
+	// Extract replication metadata from the PBF header so the DB reflects the
+	// actual data date and replication coordinates rather than import-wall-clock.
+	// These calls read the local PBF via osmium — safe inside a transaction (<1s).
+	replURL, replSeq, _ := extractReplicationInfo(pbfPath)
+	dataDate, _ := extractReplicationTimestamp(pbfPath)
+
+	var replURLArg *string
+	if replURL != "" {
+		replURLArg = &replURL
+	}
+	var replSeqArg *int
+	if replSeq != 0 {
+		replSeqArg = &replSeq
+	}
+
+	_, regErr := tx.Exec(ctx, `
+		UPDATE osm_import_regions SET
+			status = 'imported', imported_at = now(),
+			pbf_size_bytes = $2, pbf_path = $3,
+			categories = $4, import_duration_s = $5,
+			replication_url = COALESCE($6, replication_url),
+			last_sequence_number = COALESCE($7, last_sequence_number),
+			data_date = COALESCE($8, now())
+		WHERE region_id = $1`,
+		regionID, pbfSize, pbfPath, config.Categories, durationS,
+		replURLArg, replSeqArg, dataDate)
+	if regErr != nil {
+		slog.Error("osm import: status update in tx failed", "region", regionID, "error", regErr)
+		reporter.Fail("Region-Status konnte nicht aktualisiert werden: " + regErr.Error())
+		return false
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("osm import: commit failed", "error", err)
 		reporter.Fail("Transaktion konnte nicht committed werden: " + err.Error())
@@ -1595,44 +1655,6 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 			slog.Warn("osm import: analyze failed", "table", table, "error", err)
 		}
 		reporter.SetProgress(int64(i + 1))
-	}
-
-	// === Phase 6: Update osm_import_regions ===
-	durationS := int(time.Since(importStart).Seconds())
-	pbfInfo, _ := os.Stat(pbfPath)
-	var pbfSize int64
-	if pbfInfo != nil {
-		pbfSize = pbfInfo.Size()
-	}
-
-	// [I3] PBF NOT deleted — kept for future updates/patching.
-	// Extract replication metadata from the PBF header so the DB reflects the
-	// actual data date and replication coordinates rather than import-wall-clock.
-	replURL, replSeq, _ := extractReplicationInfo(pbfPath)
-	dataDate, _ := extractReplicationTimestamp(pbfPath)
-
-	var replURLArg *string
-	if replURL != "" {
-		replURLArg = &replURL
-	}
-	var replSeqArg *int
-	if replSeq != 0 {
-		replSeqArg = &replSeq
-	}
-
-	_, regErr := p.Pool.Exec(ctx, `
-		UPDATE osm_import_regions SET
-			status = 'imported', imported_at = now(),
-			pbf_size_bytes = $2, pbf_path = $3,
-			categories = $4, import_duration_s = $5,
-			replication_url = COALESCE($6, replication_url),
-			last_sequence_number = COALESCE($7, last_sequence_number),
-			data_date = COALESCE($8, now())
-		WHERE region_id = $1`,
-		regionID, pbfSize, pbfPath, config.Categories, durationS,
-		replURLArg, replSeqArg, dataDate)
-	if regErr != nil {
-		slog.Warn("osm import: failed to update region status", "region", regionID, "error", regErr)
 	}
 
 	// NOTE: reporter.Complete() is NOT called here — the caller manages job completion
