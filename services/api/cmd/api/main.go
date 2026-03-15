@@ -278,6 +278,7 @@ func main() {
 			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettings)
 			r.Post("/shadow-fs/preview-rename", h.PreviewRename)
 			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
+			r.Get("/hotfolder/imports", h.GetHotfolderImports)
 
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
 			r.Get("/activities/{id}/enrichment-status", h.GetEnrichmentStatus)

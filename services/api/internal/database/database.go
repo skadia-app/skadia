@@ -1504,7 +1504,7 @@ func (db *DB) UpdateActivityLocalFilePathByOldPath(ctx context.Context, userID, 
 // ListActivitiesWithLocalPath returns activities that have a local_file_path set.
 func (db *DB) ListActivitiesWithLocalPath(ctx context.Context, userID string) ([]model.ActivityWithPath, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, started_at, sport_type, sub_type, title, city, distance_m, elapsed_time_s,
+		SELECT id, started_at, sport_type, sub_type, title, start_city, distance_m, elapsed_time_s,
 			original_file_format, local_file_path
 		FROM activities
 		WHERE user_id = $1 AND local_file_path IS NOT NULL
