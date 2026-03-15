@@ -208,9 +208,6 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
 		return false
 	}
-	// Originale pbfPaths für BRouter/Cleanup aufbewahren
-	originalPBFs := pbfPaths
-	_ = originalPBFs // Used by BRouter preservation loop (reg.ID-based paths)
 	if mergedPBF != "" {
 		pbfPaths = []string{mergedPBF}
 		defer CleanupMergedPBF(p.DataDir)

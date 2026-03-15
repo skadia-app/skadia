@@ -22,8 +22,13 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 	// PostgreSQL Enrichment-Tuning: work_mem + parallel workers hochsetzen.
 	// ALTER SYSTEM wirkt global (alle neuen Connections), wird nach Enrichment zurückgesetzt.
 	// Enrichment läuft als separater Job — alle Cores stehen zur Verfügung.
+	// work_mem: 10% des verfügbaren RAM (min 64MB, max 512MB)
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+
 	for _, stmt := range []string{
-		"ALTER SYSTEM SET work_mem = '256MB'",
+		fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dMB'", workMemMB),
 		"ALTER SYSTEM SET max_parallel_workers_per_gather = 6",
 		"SELECT pg_reload_conf()",
 	} {
@@ -31,7 +36,7 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 			slog.Warn("enrichment: tuning failed (non-fatal)", "stmt", stmt, "error", err)
 		}
 	}
-	slog.Info("enrichment: tuning applied (work_mem=256MB, parallel_workers=6)")
+	slog.Info("enrichment: tuning applied", "work_mem_mb", workMemMB, "parallel_workers", 6)
 	defer func() {
 		for _, stmt := range []string{
 			"ALTER SYSTEM RESET work_mem",

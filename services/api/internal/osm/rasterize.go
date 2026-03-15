@@ -38,14 +38,14 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM _forest_coverage c WHERE osm_ways.way_id = c.way_id
 	`)
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage")
 		return fmt.Errorf("enrichment forest_pct: update: %w", err)
 	}
 
 	// Phase 3: Default 0 für Ways ohne Wald-Überlappung
 	_, err = pool.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL")
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage")
 		return fmt.Errorf("enrichment forest_pct: default: %w", err)
 	}
 
@@ -84,13 +84,13 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM _protected p WHERE osm_ways.way_id = p.way_id
 	`)
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _protected")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _protected")
 		return fmt.Errorf("enrichment protected_area: update: %w", err)
 	}
 
 	_, err = pool.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL")
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _protected")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _protected")
 		return fmt.Errorf("enrichment protected_area: default: %w", err)
 	}
 
@@ -133,13 +133,13 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM _landuse l WHERE osm_ways.way_id = l.way_id
 	`)
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _landuse")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse")
 		return fmt.Errorf("enrichment landuse_polygons: update: %w", err)
 	}
 
 	_, err = pool.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL")
 	if err != nil {
-		pool.Exec(ctx, "DROP TABLE IF EXISTS _landuse")
+		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse")
 		return fmt.Errorf("enrichment landuse_polygons: default: %w", err)
 	}
 
