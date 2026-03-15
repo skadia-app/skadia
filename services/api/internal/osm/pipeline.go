@@ -116,13 +116,13 @@ var categoryEnvVars = map[string][]string{
 
 // Run executes the full OSM import pipeline. It reports progress via reporter and never returns an error —
 // failures are reported via reporter.Fail().
-func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineConfig, reporter ProgressReporter) {
+func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineConfig, reporter ProgressReporter) bool {
 	categories := config.Categories
 
 	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
 		reporter.Fail("Datenverzeichnis konnte nicht erstellt werden: " + err.Error())
-		return
+		return false
 	}
 
 	// Lua-Script in Temp-Datei schreiben
@@ -130,13 +130,13 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	if err != nil {
 		slog.Error("osm import: failed to write lua tmp", "error", err)
 		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
-		return
+		return false
 	}
 	defer os.Remove(luaTmp.Name())
 	if _, err := luaTmp.Write(LuaScript); err != nil {
 		slog.Error("osm import: failed to write lua content", "error", err)
 		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
-		return
+		return false
 	}
 	luaTmp.Close()
 
@@ -177,7 +177,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 					reporter.Fail(fmt.Sprintf(
 						"Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
 						freeBytes/1024/1024, requiredBytes/1024/1024))
-					return
+					return false
 				}
 			}
 
@@ -190,7 +190,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			}); err != nil {
 				slog.Error("osm import: download failed", "region", reg.ID, "error", err)
 				reporter.Fail(fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
-				return
+				return false
 			}
 			if info, err := os.Stat(pbfPath); err == nil {
 				downloadedOffset += info.Size()
@@ -206,7 +206,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	if osmErr != nil {
 		slog.Error("osm import: osmium preprocessing failed", "error", osmErr)
 		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
-		return
+		return false
 	}
 	// Originale pbfPaths für BRouter/Cleanup aufbewahren
 	originalPBFs := pbfPaths
@@ -233,7 +233,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	if err := p.clearOSMData(ctx, categories); err != nil {
 		slog.Error("osm import: clearOSMData failed", "error", err)
 		reporter.Fail("Datenlöschung fehlgeschlagen: " + err.Error())
-		return
+		return false
 	}
 
 	// Env-Vars für Lua-Script zusammenstellen
@@ -318,7 +318,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	if err := cmd.Start(); err != nil {
 		slog.Error("osm import: osm2pgsql start failed", "error", err)
 		reporter.Fail("osm2pgsql konnte nicht gestartet werden: " + err.Error())
-		return
+		return false
 	}
 
 	// Letzte stderr-Zeilen für Fehlerbericht sammeln
@@ -368,7 +368,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		lastLinesMu.Unlock()
 		slog.Error("osm import: osm2pgsql failed", "error", err, "last_output", errDetail)
 		reporter.Fail(fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
-		return
+		return false
 	}
 	slog.Info("osm import: osm2pgsql completed", "regions", len(regions))
 
@@ -655,40 +655,41 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		}
 	}
 
-	// === Phase 6: Spatial Enrichment (on osm_ways, BEFORE splitting) ===
-	// Runs independently of Phase 5 — enriches the original osm_ways table.
-	{
-		waysImported := slices.Contains(categories, "ways")
-		if waysImported {
-			reporter.SetPhase("enrichment")
-			reporter.SetProgress(0)
-			slog.Info("osm import: starting spatial enrichment")
+	// === Import abgeschlossen — Enrichment wird vom Handler als separater Job gestartet ===
+	reporter.Complete()
+	slog.Info("osm import: completed (enrichment starts separately)")
+	return true
+}
 
-			if err := RunSpatialEnrichment(ctx, p.Pool, true, func(pct int) {
-				reporter.SetProgress(int64(pct))
-			}); err != nil {
-				slog.Error("osm import: spatial enrichment failed", "error", err)
-				reporter.Fail("Spatial Enrichment fehlgeschlagen: " + err.Error())
-				return
-			}
+// RunEnrichmentAndSplitting führt Spatial Enrichment + Intersection Splitting aus.
+// Kann als separater Background-Job nach dem Import laufen.
+func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context, reporter ProgressReporter) {
+	reporter.SetPhase("enrichment")
+	reporter.SetProgress(0)
+	slog.Info("osm enrichment: starting spatial enrichment")
 
-			// === Phase 7: Intersection Splitting (creates osm_ways_noded) ===
-			reporter.SetPhase("splitting")
-			reporter.SetProgress(0)
-			slog.Info("osm import: starting intersection splitting")
+	if err := RunSpatialEnrichment(ctx, p.Pool, true, func(pct int) {
+		reporter.SetProgress(int64(pct))
+	}); err != nil {
+		slog.Error("osm enrichment: spatial enrichment failed", "error", err)
+		reporter.Fail("Spatial Enrichment fehlgeschlagen: " + err.Error())
+		return
+	}
 
-			if err := SplitAtIntersections(ctx, p.Pool, func(pct int) {
-				reporter.SetProgress(int64(pct))
-			}); err != nil {
-				slog.Error("osm import: intersection splitting failed", "error", err)
-				reporter.Fail("Intersection Splitting fehlgeschlagen: " + err.Error())
-				return
-			}
-		}
+	reporter.SetPhase("splitting")
+	reporter.SetProgress(0)
+	slog.Info("osm enrichment: starting intersection splitting")
+
+	if err := SplitAtIntersections(ctx, p.Pool, func(pct int) {
+		reporter.SetProgress(int64(pct))
+	}); err != nil {
+		slog.Error("osm enrichment: intersection splitting failed", "error", err)
+		reporter.Fail("Intersection Splitting fehlgeschlagen: " + err.Error())
+		return
 	}
 
 	reporter.Complete()
-	slog.Info("osm import: completed")
+	slog.Info("osm enrichment: completed")
 }
 
 // RunTopologyOnly executes only the topology build phase (Phase 5) on existing osm_ways.

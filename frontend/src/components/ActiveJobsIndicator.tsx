@@ -20,10 +20,12 @@ function formatElapsed(startedAt: string): string {
 }
 
 function JobRow({ job }: { job: ActiveJob }) {
-  const isOSMImport = job.job_type === 'osm_import'
+  const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
 
-  const label = isOSMImport
+  const label = job.job_type === 'osm_enrichment'
+    ? 'OSM-Enrichment'
+    : isOSMJob
     ? 'OSM-Import'
     : job.job_type === 'garmin_import'
     ? 'Garmin-Import'
@@ -46,12 +48,12 @@ function JobRow({ job }: { job: ActiveJob }) {
     : job.entity_name ?? job.job_type
 
   const pct =
-    !isOSMImport && job.progress_total > 0
+    !isOSMJob && job.progress_total > 0
       ? Math.round((job.progress_current / job.progress_total) * 100)
       : null
 
   const subLabel =
-    !isOSMImport && !isDataImport && job.status === 'running' && job.progress_total > 0
+    !isOSMJob && !isDataImport && job.status === 'running' && job.progress_total > 0
       ? job.job_type === 'segment_recompute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
         : job.job_type === 'photo_preview_recompute'
@@ -68,18 +70,19 @@ function JobRow({ job }: { job: ActiveJob }) {
       : null
 
   const downloadPct =
-    isOSMImport && job.phase === 'download' && job.progress_total > 0
+    isOSMJob && job.phase === 'download' && job.progress_total > 0
       ? Math.round((job.progress_current / job.progress_total) * 100)
       : null
 
-  const phaseLabel =
-    job.phase === 'download'    ? 'Phase 1/7 — Herunterladen' :
-    job.phase === 'import'      ? 'Phase 2/7 — Importieren' :
-    job.phase === 'index'       ? 'Phase 3/7 — Indizieren' :
-    job.phase === 'optimize'    ? 'Phase 4/7 — Optimieren' :
-    job.phase === 'topology'    ? 'Phase 5/7 — Topologie' :
-    job.phase === 'enrichment'  ? 'Phase 6/7 — Anreichern' :
-    job.phase === 'splitting'   ? 'Phase 7/7 — Aufteilen' : null
+  const isEnrichmentJob = job.job_type === 'osm_enrichment'
+  const phaseLabel = isEnrichmentJob
+    ? (job.phase === 'enrichment'  ? 'Phase 1/2 — Anreichern' :
+       job.phase === 'splitting'   ? 'Phase 2/2 — Aufteilen' : null)
+    : (job.phase === 'download'    ? 'Phase 1/5 — Herunterladen' :
+       job.phase === 'import'      ? 'Phase 2/5 — Importieren' :
+       job.phase === 'index'       ? 'Phase 3/5 — Indizieren' :
+       job.phase === 'optimize'    ? 'Phase 4/5 — Optimieren' :
+       job.phase === 'topology'    ? 'Phase 5/5 — Topologie' : null)
 
   return (
     <div className="flex items-center gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
@@ -97,13 +100,13 @@ function JobRow({ job }: { job: ActiveJob }) {
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
           {label}
-          {isOSMImport && job.entity_name && (
+          {isOSMJob && job.entity_name && (
             <span className="font-normal text-neutral-400"> ({job.entity_name})</span>
           )}
         </p>
 
         {/* OSM-Import: Phasen-Anzeige */}
-        {isOSMImport && job.status === 'running' && (
+        {isOSMJob && job.status === 'running' && (
           <>
             {phaseLabel && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{phaseLabel}</p>
@@ -127,7 +130,7 @@ function JobRow({ job }: { job: ActiveJob }) {
         )}
 
         {/* Normale Jobs: Fortschrittsbalken + SubLabel */}
-        {!isOSMImport && (
+        {!isOSMJob && (
           <>
             {job.status === 'running' && (
               <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden relative">
@@ -154,13 +157,13 @@ function JobRow({ job }: { job: ActiveJob }) {
         )}
 
         {/* Abgeschlossen/Fehler für OSM */}
-        {isOSMImport && job.status !== 'running' && (
+        {isOSMJob && job.status !== 'running' && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
             {job.status === 'completed' ? 'Abgeschlossen' : 'Fehler'}
           </p>
         )}
       </div>
-      {isOSMImport && job.status === 'running' && (
+      {isOSMJob && job.status === 'running' && (
         <button
           onClick={async (e) => {
             e.stopPropagation()

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -154,11 +155,34 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		pipeline.DataDir = "/data/osm"
 	}
 	reporter := &jobReporter{db: h.DB, jobID: jobID}
-	pipeline.Run(ctx, regions, osmregions.PipelineConfig{
+	success := pipeline.Run(ctx, regions, osmregions.PipelineConfig{
 		Categories:    req.Categories,
 		BuildBRouter:  req.BuildBRouter,
 		BuildTopology: req.BuildTopology,
 	}, reporter)
+
+	// Enrichment NUR starten wenn Import erfolgreich war
+	if !success || !slices.Contains(req.Categories, "ways") {
+		return
+	}
+
+	enrichName := "Enrichment + Splitting"
+	enrichJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
+		"osm_enrichment", nil, &enrichName, 100)
+	if err != nil {
+		slog.Error("osm import: failed to create enrichment job", "error", err)
+		return
+	}
+
+	enrichCtx, enrichCancel := context.WithCancel(context.Background())
+	osmJobCancels.Store(enrichJobID, enrichCancel)
+
+	go func() {
+		defer osmJobCancels.Delete(enrichJobID)
+		defer enrichCancel()
+		enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
+		pipeline.RunEnrichmentAndSplitting(enrichCtx, enrichReporter)
+	}()
 }
 
 // jobReporter implements osmregions.ProgressReporter by delegating to background_jobs.
