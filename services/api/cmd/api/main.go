@@ -315,6 +315,8 @@ func main() {
 			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
 			r.Post("/admin/osm-import/retry-enrichment", h.RetryOSMEnrichment)
 			r.Post("/admin/osm-import/retry-topology", h.RetryOSMTopology)
+			r.Get("/admin/osm-schedule", h.GetOSMSchedule)
+			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
 			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
 
@@ -603,6 +605,9 @@ func main() {
 
 	// Resume interrupted background jobs from previous server process.
 	go h.ResumeInterruptedJobs(context.Background())
+
+	// Start OSM update scheduler (checks every hour whether any region update is due).
+	h.StartOSMUpdateScheduler(ctx)
 
 	// Clean up orphaned ZIP-scan temp directories from previous server runs.
 	// These are created by UploadGarminZIPScan / UploadStravaZIPScan and only
