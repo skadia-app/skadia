@@ -21,8 +21,8 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
 		SELECT w.way_id,
-			ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, ST_MakeValid(f.geom)), 2)::geography))
-				/ NULLIF(ST_Length(w.geom::geography), 0))::SMALLINT AS pct
+			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, ST_MakeValid(f.geom)), 2)::geography))
+				/ NULLIF(ST_Length(w.geom::geography), 0)))::SMALLINT AS pct
 		FROM osm_ways w
 		JOIN osm_forests f ON ST_Intersects(w.geom, ST_MakeValid(f.geom))
 		WHERE w.highway IS NOT NULL AND ST_Length(w.geom::geography) > 0
