@@ -65,7 +65,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   )
   const [activeContinent, setActiveContinent] = useState(initialContinent ?? 'Europa')
   const [buildBRouter, setBuildBRouter] = useState(true)
-  const [buildTopology, setBuildTopology] = useState(true)
+  // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology
 
   const { data: regionsData, isLoading } = useQuery({
     queryKey: ['osm-regions'],
@@ -246,23 +246,8 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   </span>
                 </div>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={buildTopology}
-                  onChange={() => setBuildTopology(!buildTopology)}
-                  disabled={!selectedCategories.includes('ways')}
-                  className="accent-accent-DEFAULT"
-                />
-                <div>
-                  <span className={`text-sm ${!selectedCategories.includes('ways') ? 'text-neutral-500' : ''}`}>
-                    Trail-Topologie aufbauen
-                  </span>
-                  <span className="text-xs text-neutral-400 block">
-                    pgRouting-Netzwerk + Kostenberechnung (~10–30 Min)
-                  </span>
-                </div>
-              </label>
+              {/* Trail-Topologie entfernt: pgRouting 4.0+ hat pgr_createTopology entfernt.
+                  FITroute's CSR Graph Builder berechnet Topologie direkt aus osm_ways. */}
             </div>
           </div>
 
@@ -296,7 +281,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   regions: selectedRegions,
                   categories: selectedCategories,
                   build_brouter: buildBRouter,
-                  build_topology: buildTopology,
+                  build_topology: false,
                 })
               }}
               disabled={!canStart}

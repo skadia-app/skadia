@@ -1108,7 +1108,6 @@ function LocalMapAndGeoSection() {
   const importedRegions = regionData?.regions ?? []
   const hasImportedRegions = importedRegions.length > 0
 
-  // Trail topology
   const { addToast } = useToast()
 
   // OSM scheduler
@@ -1170,15 +1169,8 @@ function LocalMapAndGeoSection() {
       addToast({ type: 'error', title: 'Fehler beim Speichern des Update-Zeitplans', duration: 0 })
     })
   }
-  const buildTopology = useMutation({
-    mutationFn: () => apiFetch('/api/v1/trails/build-topology', { method: 'POST' }).then(r => r.json()),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Trail-Topologie wird aufgebaut', message: 'Der Prozess läuft im Hintergrund.' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Aufbau der Topologie', duration: 0 })
-    },
-  })
+  // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology.
+  // FITroute's CSR graph builder computes topology from osm_ways directly.
 
   const martinBadge =
     martinStatus === 'loading' ? (
@@ -1231,16 +1223,7 @@ function LocalMapAndGeoSection() {
               )}
             </>
           )}
-          <button
-            onClick={() => buildTopology.mutate()}
-            disabled={buildTopology.isPending || !hasOsmData}
-            className="mt-1 w-full py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-          >
-            {buildTopology.isPending ? 'Aufbau läuft…' : 'Trail-Topologie aufbauen'}
-          </button>
-          {!hasOsmData && (
-            <p className="text-xs text-neutral-400">OSM-Daten müssen zuerst importiert werden.</p>
-          )}
+          {/* Trail-Topologie Button entfernt: pgRouting 4.0+ removed pgr_createTopology */}
         </div>
       </div>
 
