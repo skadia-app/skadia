@@ -86,7 +86,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 			SELECT (dp).geom
 			FROM ST_DumpPoints(
 				ST_LineInterpolatePoints(w.geom,
-					LEAST(1.0, 25.0 / GREATEST(25.0, ST_Length(w.geom) * 111320 * COS(RADIANS(ST_Y(ST_Centroid(w.geom))))))
+					LEAST(1.0, 25.0 / GREATEST(25.0, ST_Length(w.geom::geography)))
 				)
 			) dp
 		) pt
@@ -261,7 +261,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 				SELECT (dp).geom
 				FROM ST_DumpPoints(
 					ST_LineInterpolatePoints(w.geom,
-						LEAST(1.0, 50.0 / GREATEST(50.0, ST_Length(w.geom) * 111320 * COS(RADIANS(ST_Y(ST_Centroid(w.geom))))))
+						LEAST(1.0, 50.0 / GREATEST(50.0, ST_Length(w.geom::geography)))
 					)
 				) dp
 			) pt
