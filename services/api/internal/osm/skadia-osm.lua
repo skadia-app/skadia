@@ -213,6 +213,7 @@ local import_climbing      = os.getenv("SKADIA_IMPORT_CLIMBING")      ~= nil
 local import_routes        = os.getenv("SKADIA_IMPORT_ROUTES")        ~= nil
 local import_landuse      = os.getenv("SKADIA_IMPORT_LANDUSE")      ~= nil
 local import_railways     = os.getenv("SKADIA_IMPORT_RAILWAYS")     ~= nil
+local import_wind_turbines = os.getenv("SKADIA_IMPORT_WIND_TURBINES") ~= nil
 
 -- If NO flag is set → import everything (backward compat for shell scripts)
 local import_all = not (import_peaks or import_passes or import_lifts or
@@ -222,7 +223,7 @@ local import_all = not (import_peaks or import_passes or import_lifts or
     import_landmarks or import_religion or import_ways or import_waterways or
     import_forests or import_glaciers or import_wetlands or
     import_boundaries or import_pistes or import_ferries or import_climbing or
-    import_routes or import_landuse or import_railways)
+    import_routes or import_landuse or import_railways or import_wind_turbines)
 
 -- ============================================================
 -- Helper functions
@@ -555,6 +556,18 @@ function classify_poi(tags)
             table.insert(results, {
                 category   = 'barrier', poi_type = 'barrier', subtype = tags.barrier,
                 extra_tags = build_tags(tags, {'access','bicycle','foot','locked'}),
+            })
+        end
+    end
+
+    -- Windkraftanlagen (eigene Kategorie, Noise-Quelle)
+    if (import_all or import_wind_turbines) then
+        if tags.power == 'generator' and tags['generator:source'] == 'wind' then
+            table.insert(results, {
+                category = 'wind_turbine',
+                poi_type = 'power',
+                subtype  = 'wind_turbine',
+                extra_tags = build_tags(tags, {'height','rotor:diameter','operator','manufacturer'}),
             })
         end
     end

@@ -20,6 +20,7 @@ const ALL_CATEGORIES = [
   { id: 'information',    label: 'Wegweiser & Info',         group: 'POIs' },
   { id: 'landmarks',      label: 'Gipfelkreuze & Landmarks', group: 'POIs' },
   { id: 'religion',       label: 'Kapellen & Wegkreuze',     group: 'POIs' },
+  { id: 'wind_turbines', label: 'Windkraftanlagen',         group: 'POIs' },
   // Wege
   { id: 'ways',           label: 'Wegenetz (Routing)',       group: 'Wege' },
   { id: 'lifts',          label: 'Lifte & Seilbahnen',       group: 'Wege' },

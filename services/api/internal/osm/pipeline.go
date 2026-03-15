@@ -69,6 +69,7 @@ var categoryToPOI = map[string][]string{
 	"information":    {"information"},
 	"landmarks":      {"landmark"},
 	"religion":       {"religious"},
+	"wind_turbines":  {"wind_turbine"},
 }
 
 var categoryToTable = map[string][]string{
@@ -115,6 +116,7 @@ var categoryEnvVars = map[string][]string{
 	"routes":         {"SKADIA_IMPORT_ROUTES"},
 	"landuse":        {"SKADIA_IMPORT_LANDUSE"},
 	"railways":       {"SKADIA_IMPORT_RAILWAYS"},
+	"wind_turbines":  {"SKADIA_IMPORT_WIND_TURBINES"},
 }
 
 // Deprecated: Use RunPerRegion() instead. Run imports all regions at once without per-region tracking.
