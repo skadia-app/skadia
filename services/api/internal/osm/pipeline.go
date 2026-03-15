@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -244,7 +247,8 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		}
 	}
 
-	// PostgreSQL Import-Tuning (temporär — wird nach Import zurückgesetzt)
+	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
+	// Note: osm2pgsql manages its own connections — these settings apply to post-import queries only.
 	maintWorkMemMB := availableRAMMB() * 15 / 100
 	if maintWorkMemMB > 8192 {
 		maintWorkMemMB = 8192
@@ -253,27 +257,21 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		maintWorkMemMB = 256
 	}
 
-	pgTuning := []string{
-		fmt.Sprintf("ALTER SYSTEM SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
-		"ALTER SYSTEM SET max_parallel_maintenance_workers = 4",
-		"SELECT pg_reload_conf()",
-	}
-	for _, stmt := range pgTuning {
-		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
-			slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", err)
-		}
-	}
-	slog.Info("osm import: PG import tuning applied", "maintenance_work_mem_mb", maintWorkMemMB)
-	defer func() {
+	importConn, err := p.Pool.Acquire(ctx)
+	if err != nil {
+		slog.Warn("osm import: failed to acquire tuning conn (non-fatal)", "error", err)
+	} else {
 		for _, stmt := range []string{
-			"ALTER SYSTEM RESET maintenance_work_mem",
-			"ALTER SYSTEM RESET max_parallel_maintenance_workers",
-			"SELECT pg_reload_conf()",
+			fmt.Sprintf("SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
+			"SET max_parallel_maintenance_workers = 4",
 		} {
-			p.Pool.Exec(context.Background(), stmt)
+			if _, stmtErr := importConn.Exec(ctx, stmt); stmtErr != nil {
+				slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", stmtErr)
+			}
 		}
-		slog.Info("osm import: PG import tuning reset")
-	}()
+		slog.Info("osm import: PG import tuning applied (connection-level)", "maintenance_work_mem_mb", maintWorkMemMB)
+		defer importConn.Release()
+	}
 
 	// Dynamischer Cache: Verfügbaren RAM ermitteln und osm2pgsql --cache setzen.
 	// --flat-nodes (100 GB Sparse-Datei) wird nur als Fallback verwendet wenn RAM nicht reicht.
@@ -1074,15 +1072,26 @@ func availableRAMMB() int64 {
 // [I5] SQL injection defense — only alphanumeric + underscore allowed.
 var validSchemaRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
+// querier abstracts pgxpool.Pool and pgx.Tx so that ClearRegionData / ImportRegionFromStaging
+// can run either standalone or inside a transaction.
+type querier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // ClearRegionData removes all OSM data associated with a specific region.
 // Junction tables (osm_way_regions, osm_route_regions) track ownership — orphaned
 // ways/routes (no remaining region) are cleaned up afterward.
 func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
+	return clearRegionData(ctx, p.Pool, regionID)
+}
+
+func clearRegionData(ctx context.Context, q querier, regionID string) error {
 	slog.Info("osm import: clearing region data", "region", regionID)
 
 	// Junction-Tables: Region-Ownership entfernen
 	for _, jt := range []string{"osm_way_regions", "osm_route_regions"} {
-		if _, err := p.Pool.Exec(ctx,
+		if _, err := q.Exec(ctx,
 			fmt.Sprintf("DELETE FROM %s WHERE region_id = $1", jt), regionID); err != nil {
 			return fmt.Errorf("clear %s: %w", jt, err)
 		}
@@ -1093,7 +1102,7 @@ func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
 		"DELETE FROM osm_ways w WHERE NOT EXISTS (SELECT 1 FROM osm_way_regions r WHERE r.osm_id = w.osm_id)",
 		"DELETE FROM osm_routes r WHERE NOT EXISTS (SELECT 1 FROM osm_route_regions rr WHERE rr.osm_id = r.osm_id)",
 	} {
-		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+		if _, err := q.Exec(ctx, stmt); err != nil {
 			slog.Warn("osm import: orphan cleanup failed (non-fatal)", "error", err)
 		}
 	}
@@ -1104,14 +1113,14 @@ func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
 		"osm_railways", "osm_waterways", "osm_waters", "osm_glaciers",
 		"osm_wetlands", "osm_pistes", "osm_piste_areas", "osm_lifts",
 	} {
-		if _, err := p.Pool.Exec(ctx,
+		if _, err := q.Exec(ctx,
 			fmt.Sprintf("DELETE FROM %s WHERE source_region = $1", table), regionID); err != nil {
 			return fmt.Errorf("clear %s: %w", table, err)
 		}
 	}
 
 	// osm_route_way_members: stale Einträge entfernen (referenzierte Ways/Routes fehlen)
-	_, _ = p.Pool.Exec(ctx, `DELETE FROM osm_route_way_members m
+	_, _ = q.Exec(ctx, `DELETE FROM osm_route_way_members m
 		WHERE NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)
 		   OR NOT EXISTS (SELECT 1 FROM osm_routes r WHERE r.osm_id = m.route_osm_id)`)
 
@@ -1125,6 +1134,10 @@ func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
 // osm_ways/osm_routes: INSERT + junction table registration.
 // All others: INSERT with source_region.
 func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, regionID string) error {
+	return importRegionFromStaging(ctx, p.Pool, stagingSchema, regionID)
+}
+
+func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regionID string) error {
 	slog.Info("osm import: importing from staging", "region", regionID, "schema", stagingSchema)
 
 	// [I5] Validate staging schema name
@@ -1137,7 +1150,7 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 	// has Lua-defined columns, public has Lua + migration columns (enrichment etc.).
 	// Intersection = only Lua columns = exactly what we want to copy.
 	getStagingColumns := func(table string) ([]string, error) {
-		rows, err := p.Pool.Query(ctx, `
+		rows, err := q.Query(ctx, `
 			SELECT s.column_name
 			FROM information_schema.columns s
 			JOIN information_schema.columns p
@@ -1170,7 +1183,7 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 	if len(wayCols) > 0 {
 		colList := strings.Join(wayCols, ", ")
 
-		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+		_, err = q.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO public.osm_ways (%s, length_m)
 			SELECT %s, ST_Length(geom::geography) FROM %s.osm_ways
 		`, colList, colList, stagingSchema))
@@ -1179,7 +1192,7 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 		}
 
 		// Junction-Table: Region-Ownership registrieren
-		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+		_, err = q.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO public.osm_way_regions (osm_id, region_id)
 			SELECT osm_id, $1 FROM %s.osm_ways
 			ON CONFLICT DO NOTHING
@@ -1197,14 +1210,14 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 	if len(routeCols) > 0 {
 		routeColList := strings.Join(routeCols, ", ")
 
-		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+		_, err = q.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO public.osm_routes (%s) SELECT %s FROM %s.osm_routes
 		`, routeColList, routeColList, stagingSchema))
 		if err != nil {
 			return fmt.Errorf("import routes from staging: %w", err)
 		}
 
-		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+		_, err = q.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO public.osm_route_regions (osm_id, region_id)
 			SELECT osm_id, $1 FROM %s.osm_routes
 			ON CONFLICT DO NOTHING
@@ -1217,7 +1230,7 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 	// [C2] osm_route_way_members: copy Lua-extracted route memberships
 	// No ON CONFLICT — osm2pgsql --create drops PK constraints from Lua tables.
 	// WHERE NOT EXISTS to avoid duplicates.
-	_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+	_, err = q.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO public.osm_route_way_members (route_osm_id, way_osm_id, source)
 		SELECT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
 		WHERE NOT EXISTS (
@@ -1245,7 +1258,7 @@ func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, r
 			continue
 		}
 		cl := strings.Join(cols, ", ")
-		_, err = p.Pool.Exec(ctx, fmt.Sprintf(
+		_, err = q.Exec(ctx, fmt.Sprintf(
 			"INSERT INTO public.%s (%s, source_region) SELECT %s, $1 FROM %s.%s",
 			table, cl, cl, stagingSchema, table), regionID)
 		if err != nil {
@@ -1274,6 +1287,24 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	reporter ProgressReporter) bool {
 
 	regionID := reg.ID
+
+	// Acquire advisory lock to prevent concurrent imports of the same region.
+	// Uses FNV-1a hash of regionID for a stable int64 lock key.
+	h := fnv.New32a()
+	h.Write([]byte(regionID))
+	lockKey := int64(h.Sum32())
+	var acquired bool
+	if err := p.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
+		slog.Error("osm import: advisory lock query failed", "region", regionID, "error", err)
+		reporter.Fail("Advisory Lock fehlgeschlagen: " + err.Error())
+		return false
+	}
+	if !acquired {
+		slog.Warn("osm import: region already being imported", "region", regionID)
+		reporter.Fail("Region wird bereits importiert")
+		return false
+	}
+	defer p.Pool.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
 
 	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
@@ -1363,16 +1394,9 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		ON CONFLICT (region_id) DO UPDATE SET status = 'importing', imported_at = now()`,
 		reg.ID, reg.Label, reg.Continent, config.Categories)
 
-	// === Phase 2: Clear old region data ===
-	reporter.SetPhase("clear")
-	reporter.SetProgress(0)
-	if err := p.ClearRegionData(ctx, regionID); err != nil {
-		slog.Error("osm import: clear region data failed", "error", err)
-		reporter.Fail("Region-Daten löschen fehlgeschlagen: " + err.Error())
-		return false
-	}
-
-	// === Phase 3: Create staging schema + osm2pgsql import ===
+	// === Phase 2: Create staging schema + osm2pgsql import ===
+	// NOTE: ClearRegionData is deferred to Phase 4 (atomic clear+merge in a single transaction)
+	// to prevent data loss if the process crashes between clear and merge.
 	// [C3] Unique schema name per region prevents race conditions
 	stagingSchema := "staging_" + strings.ReplaceAll(regionID, "-", "_")
 	// [I5] Validate schema name
@@ -1402,7 +1426,7 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		}
 	}
 
-	// PostgreSQL Import-Tuning (temporär)
+	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
 	maintWorkMemMB := availableRAMMB() * 15 / 100
 	if maintWorkMemMB > 8192 {
 		maintWorkMemMB = 8192
@@ -1410,24 +1434,20 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	if maintWorkMemMB < 256 {
 		maintWorkMemMB = 256
 	}
-	for _, stmt := range []string{
-		fmt.Sprintf("ALTER SYSTEM SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
-		"ALTER SYSTEM SET max_parallel_maintenance_workers = 4",
-		"SELECT pg_reload_conf()",
-	} {
-		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
-			slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", err)
-		}
-	}
-	defer func() {
+	regionImportConn, err := p.Pool.Acquire(ctx)
+	if err != nil {
+		slog.Warn("osm import: failed to acquire tuning conn (non-fatal)", "error", err)
+	} else {
 		for _, stmt := range []string{
-			"ALTER SYSTEM RESET maintenance_work_mem",
-			"ALTER SYSTEM RESET max_parallel_maintenance_workers",
-			"SELECT pg_reload_conf()",
+			fmt.Sprintf("SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
+			"SET max_parallel_maintenance_workers = 4",
 		} {
-			_, _ = p.Pool.Exec(context.Background(), stmt)
+			if _, stmtErr := regionImportConn.Exec(ctx, stmt); stmtErr != nil {
+				slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", stmtErr)
+			}
 		}
-	}()
+		defer regionImportConn.Release()
+	}
 
 	// Dynamic cache
 	var pbfBytes int64
@@ -1518,12 +1538,35 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	// Enrichment-Spalten existieren bereits in public.osm_ways (Migration).
 	// ImportRegionFromStaging kopiert nur Lua-definierte Spalten.
 
-	// === Phase 4: Staging -> Public ===
+	// === Phase 3: Atomic Clear + Merge (single transaction) ===
+	// Old data is cleared and new data is inserted in one transaction.
+	// If anything fails, the transaction rolls back and old data remains intact.
 	reporter.SetPhase("merge")
 	reporter.SetProgress(0)
-	if err := p.ImportRegionFromStaging(ctx, stagingSchema, regionID); err != nil {
-		slog.Error("osm import: staging import failed", "error", err)
+
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		slog.Error("osm import: begin transaction failed", "error", err)
+		reporter.Fail("Transaktion konnte nicht gestartet werden: " + err.Error())
+		return false
+	}
+	defer tx.Rollback(context.Background())
+
+	if err := clearRegionData(ctx, tx, regionID); err != nil {
+		slog.Error("osm import: clear region data in tx failed", "error", err)
+		reporter.Fail("Region-Daten löschen fehlgeschlagen: " + err.Error())
+		return false
+	}
+
+	if err := importRegionFromStaging(ctx, tx, stagingSchema, regionID); err != nil {
+		slog.Error("osm import: staging import in tx failed", "error", err)
 		reporter.Fail("Staging-Import fehlgeschlagen: " + err.Error())
+		return false
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("osm import: commit failed", "error", err)
+		reporter.Fail("Transaktion konnte nicht committed werden: " + err.Error())
 		return false
 	}
 
