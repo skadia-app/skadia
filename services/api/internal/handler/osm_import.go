@@ -48,6 +48,7 @@ var osmCategories = map[string][]string{
 	"routes":         {"osm_routes"},
 	"landuse":        {"osm_landuse"},
 	"railways":       {"osm_railways"},
+	"wind_turbines":  {"osm_pois"},
 }
 
 type osmImportRequest struct {

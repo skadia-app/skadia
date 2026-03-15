@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
@@ -63,12 +65,16 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// === Phase 1: Polygon-basierte Spatial Joins (parallel) ===
+	// === Phase 1: Polygon-basierte Spatial Joins (parallel with deadlock retry) ===
+	// The three enrichment functions UPDATE different columns on the same osm_ways rows.
+	// PostgreSQL row-level locks can cause deadlocks when concurrent UPDATEs hit
+	// overlapping rows in different order. The functions are idempotent (WHERE col IS NULL
+	// guards + DROP IF EXISTS on staging tables), so retry is safe.
 	slog.Info("enrichment: phase 1 — spatial joins (parallel)")
 	g1, ctx1 := errgroup.WithContext(ctx)
-	g1.Go(func() error { return EnrichForestPct(ctx1, pool, bboxClause) })
-	g1.Go(func() error { return EnrichProtectedArea(ctx1, pool, bboxClause) })
-	g1.Go(func() error { return EnrichLanduseFromPolygons(ctx1, pool, bboxClause) })
+	g1.Go(func() error { return withDeadlockRetry(ctx1, "forest_pct", func() error { return EnrichForestPct(ctx1, pool, bboxClause) }) })
+	g1.Go(func() error { return withDeadlockRetry(ctx1, "protected_area", func() error { return EnrichProtectedArea(ctx1, pool, bboxClause) }) })
+	g1.Go(func() error { return withDeadlockRetry(ctx1, "landuse_from_polygons", func() error { return EnrichLanduseFromPolygons(ctx1, pool, bboxClause) }) })
 	if err := g1.Wait(); err != nil {
 		return fmt.Errorf("enrichment phase 1 (spatial joins): %w", err)
 	}
@@ -561,3 +567,27 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 // osm_ways_noded is no longer consumed. FITroute's CSR graph builder
 // (routing/graph/topology.go) computes topology from osm_ways directly.
 // pgr_createTopology was removed in pgRouting 4.0.1.
+
+// withDeadlockRetry retries a function up to 3 times on PostgreSQL deadlock (40P01).
+// The enrichment functions are idempotent (WHERE col IS NULL guards), so retry is safe.
+// This is the standard PostgreSQL recommendation for deadlock handling.
+func withDeadlockRetry(ctx context.Context, name string, fn func() error) error {
+	const maxRetries = 3
+	for attempt := range maxRetries + 1 {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "40P01") || attempt == maxRetries {
+			return err
+		}
+		backoff := time.Duration(50+rand.IntN(200)) * time.Millisecond
+		slog.Warn("enrichment: deadlock detected, retrying", "step", name, "attempt", attempt+1, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return nil // unreachable
+}
