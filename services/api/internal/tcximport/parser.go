@@ -258,6 +258,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 	data.MaxHeartRate = maxHR
 
+	streams = deriveTCXGPSMetrics(streams)
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
@@ -370,4 +371,77 @@ func parseTCXCreator(creator tcxCreator) (source, device string) {
 	}
 
 	return source, device
+}
+
+// deriveTCXGPSMetrics fills in distance_m and speed_ms from GPS positions and
+// timestamps when absent from the TCX file (same logic as FIT and GPX importers).
+func deriveTCXGPSMetrics(points []model.StreamPoint) []model.StreamPoint {
+	if len(points) < 2 {
+		return points
+	}
+	hasDist := false
+	hasSpeed := false
+	for _, p := range points {
+		if p.DistanceM != nil {
+			hasDist = true
+		}
+		if p.SpeedMS != nil {
+			hasSpeed = true
+		}
+		if hasDist && hasSpeed {
+			return points
+		}
+	}
+	if !hasDist {
+		var cumDist float64
+		var prevLat, prevLng float64
+		hasPrev := false
+		for i := range points {
+			if points[i].Lat == nil || points[i].Lng == nil {
+				continue
+			}
+			if hasPrev {
+				cumDist += tcxHaversineM(prevLat, prevLng, *points[i].Lat, *points[i].Lng)
+			}
+			dist := cumDist
+			points[i].DistanceM = &dist
+			prevLat = *points[i].Lat
+			prevLng = *points[i].Lng
+			hasPrev = true
+		}
+	}
+	if !hasSpeed {
+		for i := 1; i < len(points); i++ {
+			if points[i].Lat == nil || points[i].Lng == nil {
+				continue
+			}
+			if points[i-1].Lat == nil || points[i-1].Lng == nil {
+				continue
+			}
+			dt := points[i].Time.Sub(points[i-1].Time).Seconds()
+			if dt <= 0 {
+				continue
+			}
+			var d float64
+			if points[i].DistanceM != nil && points[i-1].DistanceM != nil {
+				d = *points[i].DistanceM - *points[i-1].DistanceM
+			} else {
+				d = tcxHaversineM(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
+			}
+			spd := d / dt
+			points[i].SpeedMS = &spd
+		}
+	}
+	return points
+}
+
+func tcxHaversineM(lat1, lng1, lat2, lng2 float64) float64 {
+	const R = 6371000.0
+	φ1 := lat1 * math.Pi / 180
+	φ2 := lat2 * math.Pi / 180
+	Δφ := (lat2 - lat1) * math.Pi / 180
+	Δλ := (lng2 - lng1) * math.Pi / 180
+	a := math.Sin(Δφ/2)*math.Sin(Δφ/2) +
+		math.Cos(φ1)*math.Cos(φ2)*math.Sin(Δλ/2)*math.Sin(Δλ/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
