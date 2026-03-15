@@ -114,6 +114,7 @@ var categoryEnvVars = map[string][]string{
 	"railways":       {"SKADIA_IMPORT_RAILWAYS"},
 }
 
+// Deprecated: Use RunPerRegion() instead. Run imports all regions at once without per-region tracking.
 // Run executes the full OSM import pipeline. It reports progress via reporter and never returns an error —
 // failures are reported via reporter.Fail().
 func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineConfig, reporter ProgressReporter) bool {
@@ -665,7 +666,7 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context, reporter Progr
 	reporter.SetProgress(0)
 	slog.Info("osm enrichment: starting spatial enrichment")
 
-	if err := RunSpatialEnrichment(ctx, p.Pool, true, func(pct int) {
+	if err := RunSpatialEnrichment(ctx, p.Pool, "", func(pct int) {
 		reporter.SetProgress(int64(pct))
 	}); err != nil {
 		slog.Error("osm enrichment: spatial enrichment failed", "error", err)
@@ -1066,4 +1067,507 @@ func availableRAMMB() int64 {
 		}
 	}
 	return 2048
+}
+
+// sanitizeStagingSchema validates a staging schema name contains only safe characters.
+// [I5] SQL injection defense — only alphanumeric + underscore allowed.
+var validSchemaRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ClearRegionData removes all OSM data associated with a specific region.
+// Junction tables (osm_way_regions, osm_route_regions) track ownership — orphaned
+// ways/routes (no remaining region) are cleaned up afterward.
+func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
+	slog.Info("osm import: clearing region data", "region", regionID)
+
+	// Junction-Tables: Region-Ownership entfernen
+	for _, jt := range []string{"osm_way_regions", "osm_route_regions"} {
+		if _, err := p.Pool.Exec(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE region_id = $1", jt), regionID); err != nil {
+			return fmt.Errorf("clear %s: %w", jt, err)
+		}
+	}
+
+	// [M2] Verwaiste Ways/Routes löschen — NOT EXISTS statt NOT IN (performant auf großen Tabellen)
+	for _, stmt := range []string{
+		"DELETE FROM osm_ways w WHERE NOT EXISTS (SELECT 1 FROM osm_way_regions r WHERE r.osm_id = w.osm_id)",
+		"DELETE FROM osm_routes r WHERE NOT EXISTS (SELECT 1 FROM osm_route_regions rr WHERE rr.osm_id = r.osm_id)",
+	} {
+		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+			slog.Warn("osm import: orphan cleanup failed (non-fatal)", "error", err)
+		}
+	}
+
+	// Alle Tabellen mit source_region
+	for _, table := range []string{
+		"osm_pois", "osm_forests", "osm_boundaries", "osm_landuse",
+		"osm_railways", "osm_waterways", "osm_waters", "osm_glaciers",
+		"osm_wetlands", "osm_pistes", "osm_piste_areas", "osm_lifts",
+	} {
+		if _, err := p.Pool.Exec(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE source_region = $1", table), regionID); err != nil {
+			return fmt.Errorf("clear %s: %w", table, err)
+		}
+	}
+
+	// osm_route_way_members: stale Einträge entfernen (referenzierte Ways/Routes fehlen)
+	_, _ = p.Pool.Exec(ctx, `DELETE FROM osm_route_way_members m
+		WHERE NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)
+		   OR NOT EXISTS (SELECT 1 FROM osm_routes r WHERE r.osm_id = m.route_osm_id)`)
+
+	slog.Info("osm import: region data cleared", "region", regionID)
+	return nil
+}
+
+// ImportRegionFromStaging copies data from the staging schema into public tables.
+// [C1] Column names are read dynamically from information_schema.columns (intersection
+// of staging and public schema columns). Hardcoded column lists are forbidden.
+// osm_ways/osm_routes: INSERT + junction table registration.
+// All others: INSERT with source_region.
+func (p *Pipeline) ImportRegionFromStaging(ctx context.Context, stagingSchema, regionID string) error {
+	slog.Info("osm import: importing from staging", "region", regionID, "schema", stagingSchema)
+
+	// [I5] Validate staging schema name
+	if !validSchemaRe.MatchString(stagingSchema) {
+		return fmt.Errorf("invalid staging schema name: %q", stagingSchema)
+	}
+
+	// getStagingColumns returns the intersection of columns in both staging and public schemas,
+	// excluding auto-generated ID columns. This is robust against schema changes — staging only
+	// has Lua-defined columns, public has Lua + migration columns (enrichment etc.).
+	// Intersection = only Lua columns = exactly what we want to copy.
+	getStagingColumns := func(table string) ([]string, error) {
+		rows, err := p.Pool.Query(ctx, `
+			SELECT s.column_name
+			FROM information_schema.columns s
+			JOIN information_schema.columns p
+			  ON p.table_schema = 'public' AND p.table_name = s.table_name AND p.column_name = s.column_name
+			WHERE s.table_schema = $1 AND s.table_name = $2
+			  AND s.column_name NOT IN ('way_id', 'id')
+			ORDER BY s.ordinal_position`, stagingSchema, table)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var cols []string
+		for rows.Next() {
+			var col string
+			if err := rows.Scan(&col); err != nil {
+				return nil, err
+			}
+			cols = append(cols, col)
+		}
+		return cols, rows.Err()
+	}
+
+	// === osm_ways: dynamic columns, NO ON CONFLICT (duplicates allowed) ===
+	// Lua can insert same osm_id multiple times (highway+ferry), so no UNIQUE.
+	// Border duplicates (~0.1%) are acceptable. Graph builder uses DISTINCT ON (osm_id).
+	wayCols, err := getStagingColumns("osm_ways")
+	if err != nil {
+		return fmt.Errorf("get way columns: %w", err)
+	}
+	if len(wayCols) > 0 {
+		colList := strings.Join(wayCols, ", ")
+
+		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO public.osm_ways (%s, length_m)
+			SELECT %s, ST_Length(geom::geography) FROM %s.osm_ways
+		`, colList, colList, stagingSchema))
+		if err != nil {
+			return fmt.Errorf("import ways from staging: %w", err)
+		}
+
+		// Junction-Table: Region-Ownership registrieren
+		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO public.osm_way_regions (osm_id, region_id)
+			SELECT osm_id, $1 FROM %s.osm_ways
+			ON CONFLICT DO NOTHING
+		`, stagingSchema), regionID)
+		if err != nil {
+			return fmt.Errorf("import way_regions: %w", err)
+		}
+	}
+
+	// === osm_routes: dynamic columns, NO ON CONFLICT ===
+	routeCols, err := getStagingColumns("osm_routes")
+	if err != nil {
+		return fmt.Errorf("get route columns: %w", err)
+	}
+	if len(routeCols) > 0 {
+		routeColList := strings.Join(routeCols, ", ")
+
+		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO public.osm_routes (%s) SELECT %s FROM %s.osm_routes
+		`, routeColList, routeColList, stagingSchema))
+		if err != nil {
+			return fmt.Errorf("import routes from staging: %w", err)
+		}
+
+		_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO public.osm_route_regions (osm_id, region_id)
+			SELECT osm_id, $1 FROM %s.osm_routes
+			ON CONFLICT DO NOTHING
+		`, stagingSchema), regionID)
+		if err != nil {
+			return fmt.Errorf("import route_regions: %w", err)
+		}
+	}
+
+	// [C2] osm_route_way_members: copy Lua-extracted route memberships
+	// No ON CONFLICT — osm2pgsql --create drops PK constraints from Lua tables.
+	// WHERE NOT EXISTS to avoid duplicates.
+	_, err = p.Pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO public.osm_route_way_members (route_osm_id, way_osm_id, source)
+		SELECT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
+		WHERE NOT EXISTS (
+			SELECT 1 FROM public.osm_route_way_members p
+			WHERE p.route_osm_id = s.route_osm_id AND p.way_osm_id = s.way_osm_id
+		)
+	`, stagingSchema))
+	if err != nil {
+		slog.Warn("osm import: route_way_members staging insert failed", "error", err)
+	}
+
+	// === All other tables: dynamic columns + source_region ===
+	otherTables := []string{
+		"osm_pois", "osm_forests", "osm_boundaries", "osm_landuse",
+		"osm_railways", "osm_waterways", "osm_waters", "osm_glaciers",
+		"osm_wetlands", "osm_pistes", "osm_piste_areas", "osm_lifts",
+	}
+	for _, table := range otherTables {
+		cols, err := getStagingColumns(table)
+		if err != nil {
+			slog.Warn("osm import: get columns failed", "table", table, "error", err)
+			continue
+		}
+		if len(cols) == 0 {
+			continue
+		}
+		cl := strings.Join(cols, ", ")
+		_, err = p.Pool.Exec(ctx, fmt.Sprintf(
+			"INSERT INTO public.%s (%s, source_region) SELECT %s, $1 FROM %s.%s",
+			table, cl, cl, stagingSchema, table), regionID)
+		if err != nil {
+			slog.Warn("osm import: staging insert failed", "table", table, "error", err)
+		}
+	}
+
+	slog.Info("osm import: staging import complete", "region", regionID)
+	return nil
+}
+
+// RunPerRegion imports a single region via staging schema. This is the preferred
+// import method — it supports per-region add/remove/update without affecting other regions.
+//
+// Flow:
+//  1. Download PBF (with cache)
+//  2. osmium tags-filter
+//  3. Mark region as 'importing'
+//  4. Clear old region data
+//  5. Create staging schema + osm2pgsql --create --schema=staging
+//  6. Import staging -> public
+//  7. Drop staging schema
+//  8. ANALYZE affected tables
+//  9. Update osm_import_regions with replication info
+func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config PipelineConfig,
+	reporter ProgressReporter) bool {
+
+	regionID := reg.ID
+
+	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
+		slog.Error("osm import: failed to create data dir", "error", err)
+		reporter.Fail("Datenverzeichnis konnte nicht erstellt werden: " + err.Error())
+		return false
+	}
+
+	// Lua-Script in Temp-Datei schreiben
+	luaTmp, err := os.CreateTemp("", "skadia-osm-*.lua")
+	if err != nil {
+		slog.Error("osm import: failed to write lua tmp", "error", err)
+		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		return false
+	}
+	defer os.Remove(luaTmp.Name())
+	if _, err := luaTmp.Write(LuaScript); err != nil {
+		slog.Error("osm import: failed to write lua content", "error", err)
+		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		return false
+	}
+	luaTmp.Close()
+
+	// === Phase 1: Download PBF ===
+	reporter.SetPhase("download")
+	reporter.SetProgress(0)
+
+	pbfPath := filepath.Join(p.DataDir, reg.ID+"-latest.osm.pbf")
+	const maxPBFAge = 7 * 24 * time.Hour
+
+	skipDownload := false
+	if info, statErr := os.Stat(pbfPath); statErr == nil {
+		age := time.Since(info.ModTime())
+		if age < maxPBFAge {
+			slog.Info("osm import: reusing existing PBF",
+				"region", reg.ID, "age", age.Round(time.Hour), "size", info.Size())
+			skipDownload = true
+		}
+	}
+
+	if !skipDownload {
+		// Disk-Space-Check: mindestens 8x PBF-Größe frei
+		var stat syscall.Statfs_t
+		if sysErr := syscall.Statfs(p.DataDir, &stat); sysErr == nil {
+			freeBytes := stat.Bavail * uint64(stat.Bsize)
+			requiredBytes := uint64(reg.SizeMB) * 1024 * 1024 * 8
+			if freeBytes < requiredBytes {
+				slog.Error("osm import: insufficient disk space",
+					"free_mb", freeBytes/1024/1024,
+					"required_mb", requiredBytes/1024/1024,
+					"region", reg.ID)
+				reporter.Fail(fmt.Sprintf(
+					"Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
+					freeBytes/1024/1024, requiredBytes/1024/1024))
+				return false
+			}
+		}
+
+		slog.Info("osm import: downloading", "region", reg.ID, "url", reg.URL)
+		if err := downloadWithProgress(ctx, reg.URL, pbfPath, func(downloaded, total int64) {
+			if total > 0 {
+				reporter.SetProgress(downloaded)
+			}
+		}); err != nil {
+			slog.Error("osm import: download failed", "region", reg.ID, "error", err)
+			reporter.Fail(fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
+			return false
+		}
+	}
+
+	// === Phase 1.5: osmium tags-filter ===
+	filteredPBF, osmErr := OsmiumPreprocess(ctx, p.DataDir, []string{pbfPath}, reporter)
+	if osmErr != nil {
+		slog.Error("osm import: osmium preprocessing failed", "error", osmErr)
+		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
+		return false
+	}
+	importPBF := pbfPath
+	if filteredPBF != "" {
+		importPBF = filteredPBF
+		defer CleanupMergedPBF(p.DataDir)
+	}
+
+	// Mark region as 'importing' (crash recovery: next start detects incomplete imports)
+	_, _ = p.Pool.Exec(ctx, `
+		INSERT INTO osm_import_regions (region_id, label, continent, categories, status)
+		VALUES ($1, $2, $3, $4, 'importing')
+		ON CONFLICT (region_id) DO UPDATE SET status = 'importing', imported_at = now()`,
+		reg.ID, reg.Label, reg.Continent, config.Categories)
+
+	// === Phase 2: Clear old region data ===
+	reporter.SetPhase("clear")
+	reporter.SetProgress(0)
+	if err := p.ClearRegionData(ctx, regionID); err != nil {
+		slog.Error("osm import: clear region data failed", "error", err)
+		reporter.Fail("Region-Daten löschen fehlgeschlagen: " + err.Error())
+		return false
+	}
+
+	// === Phase 3: Create staging schema + osm2pgsql import ===
+	// [C3] Unique schema name per region prevents race conditions
+	stagingSchema := "staging_" + strings.ReplaceAll(regionID, "-", "_")
+	// [I5] Validate schema name
+	if !validSchemaRe.MatchString(stagingSchema) {
+		reporter.Fail(fmt.Sprintf("Ungültiger Staging-Schema-Name: %q", stagingSchema))
+		return false
+	}
+
+	reporter.SetPhase("import")
+	reporter.SetProgress(0)
+
+	if _, err := p.Pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+stagingSchema); err != nil {
+		reporter.Fail("Staging-Schema konnte nicht erstellt werden: " + err.Error())
+		return false
+	}
+	defer func() {
+		_, _ = p.Pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+stagingSchema+" CASCADE")
+	}()
+
+	// Env-Vars für Lua-Script
+	envVars := os.Environ()
+	for _, cat := range config.Categories {
+		if envVarList, ok := categoryEnvVars[cat]; ok {
+			for _, envVar := range envVarList {
+				envVars = append(envVars, envVar+"=1")
+			}
+		}
+	}
+
+	// PostgreSQL Import-Tuning (temporär)
+	maintWorkMemMB := availableRAMMB() * 15 / 100
+	if maintWorkMemMB > 8192 {
+		maintWorkMemMB = 8192
+	}
+	if maintWorkMemMB < 256 {
+		maintWorkMemMB = 256
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf("ALTER SYSTEM SET maintenance_work_mem = '%dMB'", maintWorkMemMB),
+		"ALTER SYSTEM SET max_parallel_maintenance_workers = 4",
+		"SELECT pg_reload_conf()",
+	} {
+		if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+			slog.Warn("osm import: PG tuning failed (non-fatal)", "stmt", stmt, "error", err)
+		}
+	}
+	defer func() {
+		for _, stmt := range []string{
+			"ALTER SYSTEM RESET maintenance_work_mem",
+			"ALTER SYSTEM RESET max_parallel_maintenance_workers",
+			"SELECT pg_reload_conf()",
+		} {
+			_, _ = p.Pool.Exec(context.Background(), stmt)
+		}
+	}()
+
+	// Dynamic cache
+	var pbfBytes int64
+	if info, err := os.Stat(importPBF); err == nil {
+		pbfBytes = info.Size()
+	}
+	cacheMB := computeCacheMB(pbfBytes)
+
+	args := []string{
+		"--database", p.DBURL,
+		"--output=flex",
+		"--style", luaTmp.Name(),
+		"--schema=" + stagingSchema,
+		"--middle-schema=" + stagingSchema,
+		"--slim", "--drop",
+	}
+
+	flatNodesPath := filepath.Join(p.DataDir, "flat-nodes.bin")
+	if cacheMB > 0 {
+		args = append(args, "--cache", strconv.Itoa(cacheMB))
+	} else {
+		os.Remove(flatNodesPath)
+		args = append(args, "--flat-nodes", flatNodesPath, "--cache", "0")
+	}
+
+	args = append(args, importPBF)
+
+	cmd := exec.CommandContext(ctx, "osm2pgsql", args...)
+	cmd.Env = envVars
+
+	stderr, _ := cmd.StderrPipe()
+	importStart := time.Now()
+	if err := cmd.Start(); err != nil {
+		slog.Error("osm import: osm2pgsql start failed", "error", err)
+		reporter.Fail("osm2pgsql konnte nicht gestartet werden: " + err.Error())
+		return false
+	}
+
+	var lastLines []string
+	var lastLinesMu sync.Mutex
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			slog.Info("osm2pgsql", "line", line)
+
+			lastLinesMu.Lock()
+			lastLines = append(lastLines, line)
+			if len(lastLines) > 5 {
+				lastLines = lastLines[len(lastLines)-5:]
+			}
+			lastLinesMu.Unlock()
+
+			if m := osmProgressNodeRe.FindStringSubmatch(line); len(m) > 1 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					reporter.SetProgress(int64(n) * 1000)
+				}
+			}
+			if m := osmProgressWayRe.FindStringSubmatch(line); len(m) > 1 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					reporter.SetProgress(int64(n) * 1000)
+				}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			slog.Warn("osm2pgsql: scanner error, draining stderr", "error", err)
+		}
+		io.Copy(io.Discard, stderr)
+	}()
+
+	if err := cmd.Wait(); err != nil {
+		lastLinesMu.Lock()
+		errDetail := strings.Join(lastLines, "\n")
+		lastLinesMu.Unlock()
+		slog.Error("osm import: osm2pgsql failed", "error", err, "last_output", errDetail)
+		reporter.Fail(fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
+		return false
+	}
+	slog.Info("osm import: osm2pgsql completed", "region", regionID,
+		"duration", time.Since(importStart).Round(time.Second))
+
+	// flat-nodes aufräumen
+	os.Remove(flatNodesPath)
+
+	// [I1] Schema-Restore auf Staging ENTFÄLLT:
+	// Enrichment-Spalten existieren bereits in public.osm_ways (Migration).
+	// ImportRegionFromStaging kopiert nur Lua-definierte Spalten.
+
+	// === Phase 4: Staging -> Public ===
+	reporter.SetPhase("merge")
+	reporter.SetProgress(0)
+	if err := p.ImportRegionFromStaging(ctx, stagingSchema, regionID); err != nil {
+		slog.Error("osm import: staging import failed", "error", err)
+		reporter.Fail("Staging-Import fehlgeschlagen: " + err.Error())
+		return false
+	}
+
+	// === Phase 5: ANALYZE affected tables ===
+	// [I4] Without ANALYZE the query planner uses stale statistics -> bad query plans
+	reporter.SetPhase("analyze")
+	reporter.SetProgress(0)
+	analyzeTables := []string{
+		"osm_ways", "osm_pois", "osm_forests", "osm_boundaries", "osm_landuse",
+		"osm_railways", "osm_waterways", "osm_waters", "osm_glaciers",
+		"osm_wetlands", "osm_pistes", "osm_piste_areas", "osm_lifts",
+		"osm_routes", "osm_way_regions", "osm_route_regions", "osm_route_way_members",
+	}
+	for i, table := range analyzeTables {
+		if _, err := p.Pool.Exec(ctx, "ANALYZE "+table); err != nil {
+			slog.Warn("osm import: analyze failed", "table", table, "error", err)
+		}
+		reporter.SetProgress(int64(i + 1))
+	}
+
+	// === Phase 6: Update osm_import_regions ===
+	durationS := int(time.Since(importStart).Seconds())
+	pbfInfo, _ := os.Stat(pbfPath)
+	var pbfSize int64
+	if pbfInfo != nil {
+		pbfSize = pbfInfo.Size()
+	}
+
+	// [I3] PBF NOT deleted — kept for future updates/patching.
+	// Replication info extraction is handled by Task 8 (osmium.go).
+	// For now, store what we have.
+	_, regErr := p.Pool.Exec(ctx, `
+		UPDATE osm_import_regions SET
+			status = 'imported', imported_at = now(),
+			pbf_size_bytes = $2, pbf_path = $3,
+			categories = $4, import_duration_s = $5,
+			data_date = now()
+		WHERE region_id = $1`,
+		regionID, pbfSize, pbfPath, config.Categories, durationS)
+	if regErr != nil {
+		slog.Warn("osm import: failed to update region status", "region", regionID, "error", regErr)
+	}
+
+	reporter.Complete()
+	slog.Info("osm import: per-region import completed", "region", regionID,
+		"duration_s", durationS)
+	return true
 }

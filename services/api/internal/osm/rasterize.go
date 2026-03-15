@@ -13,7 +13,7 @@ import (
 // Ergebnis: forest_pct = Prozent der Way-Länge die durch osm_forests verläuft.
 // Nutzt CREATE UNLOGGED TABLE (kann parallel workers nutzen) + UPDATE FROM (schneller PK-Join).
 // Genauer als Raster-Sampling: exakte geometrische Schnittlänge statt diskretisierte 10m-Pixel.
-func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: forest_pct starting (polygon join)")
 
 	// Phase 1: Berechnung in Staging-Table (nutzt parallel workers via CTAS)
@@ -44,7 +44,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Phase 3: Default 0 für Ways ohne Wald-Überlappung
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL")
+	_, err = pool.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
 	if err != nil {
 		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage")
 		return fmt.Errorf("enrichment forest_pct: default: %w", err)
@@ -58,7 +58,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 // EnrichProtectedArea bestimmt die Schutzklasse jeder Way via ST_Intersects.
 // Keine ST_Intersection nötig — nur boolean Überlappungsprüfung.
 // Schutzklassen: 0=kein, 1=allgemein, 2=mittel (class 2/3/4), 3=streng (class 1/1a/1b).
-func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: protected_area starting (polygon join)")
 
 	// AND w.protected_area IS NULL — nur resettete Ways
@@ -91,7 +91,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment protected_area: update: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL")
+	_, err = pool.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
 	if err != nil {
 		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _protected")
 		return fmt.Errorf("enrichment protected_area: default: %w", err)
@@ -106,7 +106,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 // Wählt den Landuse-Typ mit der längsten Überlappung (DISTINCT ON + ORDER BY Schnittlänge).
 // Enum: 0=other, 2=farmland, 3=residential, 4=industrial, 5=commercial, 6=quarry.
 // Forest (1) und highway-basiert Residential (3) werden separat in EnrichLanduseClass gesetzt.
-func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: landuse_from_polygons starting")
 
 	// AND w.landuse_class IS NULL — nur resettete Ways
@@ -142,7 +142,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment landuse_polygons: update: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL")
+	_, err = pool.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
 	if err != nil {
 		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse")
 		return fmt.Errorf("enrichment landuse_polygons: default: %w", err)

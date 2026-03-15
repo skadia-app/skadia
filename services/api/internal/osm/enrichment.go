@@ -86,9 +86,9 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	// === Phase 1: Polygon-basierte Spatial Joins (parallel) ===
 	slog.Info("enrichment: phase 1 — spatial joins (parallel)")
 	g1, ctx1 := errgroup.WithContext(ctx)
-	g1.Go(func() error { return EnrichForestPct(ctx1, pool) })
-	g1.Go(func() error { return EnrichProtectedArea(ctx1, pool) })
-	g1.Go(func() error { return EnrichLanduseFromPolygons(ctx1, pool) })
+	g1.Go(func() error { return EnrichForestPct(ctx1, pool, bboxClause) })
+	g1.Go(func() error { return EnrichProtectedArea(ctx1, pool, bboxClause) })
+	g1.Go(func() error { return EnrichLanduseFromPolygons(ctx1, pool, bboxClause) })
 	if err := g1.Wait(); err != nil {
 		return fmt.Errorf("enrichment phase 1 (spatial joins): %w", err)
 	}
@@ -101,9 +101,13 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		pct  int
 		fn   func(context.Context, *pgxpool.Pool) error
 	}{
-		{"noise_score", 55, EnrichNoiseScore},
+		{"noise_score", 55, func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichNoiseScore(ctx, p, bboxClause)
+		}},
 		{"landuse_class", 65, EnrichLanduseClass},
-		{"traffic_class", 75, EnrichTrafficClass},
+		{"traffic_class", 75, func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichTrafficClass(ctx, p, bboxClause)
+		}},
 		{"route_membership", 85, EnrichRouteMembership},
 	}
 	for _, step := range phase2Steps {
@@ -133,7 +137,7 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 // Sources: road hierarchy proximity + aerodromes + optional railway lines.
 // Uses pool.Acquire() for connection pinning (TEMP VIEW needs same connection).
 // osm_ways.geom is SRID 4326 — cast directly to ::geography for meter distances.
-func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting noise_score")
 
 	conn, err := pool.Acquire(ctx)
@@ -209,11 +213,10 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("enrichment noise_score: update: %w", err)
 	}
 
-	// Default 0 for ways with no nearby noise sources
+	// Default 0 for ways with no nearby noise sources (restricted to BBox region if active)
 	_, err = conn.Exec(ctx, `
-		UPDATE osm_ways SET noise_score = 0
-		WHERE noise_score IS NULL AND highway IS NOT NULL
-	`)
+		UPDATE osm_ways w SET noise_score = 0
+		WHERE w.noise_score IS NULL AND w.highway IS NOT NULL`+bboxClause)
 	if err != nil {
 		return fmt.Errorf("enrichment noise_score: default: %w", err)
 	}
@@ -230,7 +233,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool) error {
 // Adapted from BRouter's brouter.sql formula.
 // Uses pool.Acquire() for connection pinning (TEMP tables across steps).
 // P3-TODO: industrial_factor returns 0 until Lua imports landuse=industrial.
-func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
+func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting traffic_class")
 
 	conn, err := pool.Acquire(ctx)
@@ -369,8 +372,9 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Default 0 for ways not covered by the traffic grid (path, track, footway, etc.)
-	if _, err = pool.Exec(ctx, `UPDATE osm_ways SET traffic_class = 0
-		WHERE highway IS NOT NULL AND traffic_class IS NULL`); err != nil {
+	// Restricted to BBox region if active, to avoid overwriting unrelated regions.
+	if _, err = pool.Exec(ctx, `UPDATE osm_ways w SET traffic_class = 0
+		WHERE w.highway IS NOT NULL AND w.traffic_class IS NULL`+bboxClause); err != nil {
 		slog.Warn("enrichment: traffic_class null default failed", "error", err)
 	}
 
