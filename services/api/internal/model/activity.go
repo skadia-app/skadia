@@ -685,10 +685,11 @@ type Tag struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	// Optional geo-coordinates — when set, the tag acts as a "location tag"
 	// that appears as a pin on the map.
-	Lat           *float64 `json:"lat,omitempty"`
-	Lng           *float64 `json:"lng,omitempty"`
-	CoverImageURL *string  `json:"cover_image_url,omitempty"`
-	Zone          *TagZone `json:"zone,omitempty"`
+	Lat                *float64 `json:"lat,omitempty"`
+	Lng                *float64 `json:"lng,omitempty"`
+	CoverImageURL      *string  `json:"cover_image_url,omitempty"`
+	CoverImageThumbURL *string  `json:"cover_image_thumb_url,omitempty"`
+	Zone               *TagZone `json:"zone,omitempty"`
 }
 
 // TagZone represents an optional geographic zone attached to a location tag.
