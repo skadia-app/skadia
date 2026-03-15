@@ -16,9 +16,22 @@ import (
 func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: forest_pct starting (polygon join)")
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment forest_pct: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment forest_pct: SET work_mem failed (non-fatal)", "error", err)
+	}
+
 	// Phase 1: Berechnung in Staging-Table (nutzt parallel workers via CTAS)
 	// AND w.forest_pct IS NULL — nur resettete Ways (BBox-Reset hat nicht-betroffene bereits gesetzt)
-	_, err := pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
 		SELECT w.way_id,
@@ -34,23 +47,23 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 	}
 
 	// Phase 2: Schreiben (schneller PK-Join, kein Spatial)
-	_, err = pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways SET forest_pct = c.pct
 		FROM _forest_coverage c WHERE osm_ways.way_id = c.way_id
 	`)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
 		return fmt.Errorf("enrichment forest_pct: update: %w", err)
 	}
 
 	// Phase 3: Default 0 für Ways ohne Wald-Überlappung
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
 		return fmt.Errorf("enrichment forest_pct: default: %w", err)
 	}
 
-	pool.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage")
+	conn.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
 	slog.Info("enrichment: forest_pct complete")
 	return nil
 }
@@ -61,8 +74,21 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: protected_area starting (polygon join)")
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment protected_area: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment protected_area: SET work_mem failed (non-fatal)", "error", err)
+	}
+
 	// AND w.protected_area IS NULL — nur resettete Ways
-	_, err := pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		DROP TABLE IF EXISTS _protected;
 		CREATE UNLOGGED TABLE _protected AS
 		SELECT w.way_id,
@@ -82,22 +108,22 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 		return fmt.Errorf("enrichment protected_area: create staging: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways SET protected_area = p.level
 		FROM _protected p WHERE osm_ways.way_id = p.way_id
 	`)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _protected")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _protected") //nolint:errcheck
 		return fmt.Errorf("enrichment protected_area: update: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _protected")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _protected") //nolint:errcheck
 		return fmt.Errorf("enrichment protected_area: default: %w", err)
 	}
 
-	pool.Exec(ctx, "DROP TABLE IF EXISTS _protected")
+	conn.Exec(ctx, "DROP TABLE IF EXISTS _protected") //nolint:errcheck
 	slog.Info("enrichment: protected_area complete")
 	return nil
 }
@@ -109,8 +135,21 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: landuse_from_polygons starting")
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment landuse_polygons: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment landuse_polygons: SET work_mem failed (non-fatal)", "error", err)
+	}
+
 	// AND w.landuse_class IS NULL — nur resettete Ways
-	_, err := pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		DROP TABLE IF EXISTS _landuse;
 		CREATE UNLOGGED TABLE _landuse AS
 		SELECT DISTINCT ON (w.way_id) w.way_id,
@@ -133,22 +172,22 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 		return fmt.Errorf("enrichment landuse_polygons: create staging: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways SET landuse_class = l.lc
 		FROM _landuse l WHERE osm_ways.way_id = l.way_id
 	`)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
 		return fmt.Errorf("enrichment landuse_polygons: update: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
 	if err != nil {
-		pool.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse")
+		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
 		return fmt.Errorf("enrichment landuse_polygons: default: %w", err)
 	}
 
-	pool.Exec(ctx, "DROP TABLE IF EXISTS _landuse")
+	conn.Exec(ctx, "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
 	slog.Info("enrichment: landuse_from_polygons complete")
 	return nil
 }

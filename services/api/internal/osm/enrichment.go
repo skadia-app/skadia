@@ -46,35 +46,14 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// PostgreSQL Enrichment-Tuning: work_mem + parallel workers hochsetzen.
-	// Uses connection-level SET (not ALTER SYSTEM) to avoid affecting other connections.
-	// work_mem: 10% des verfügbaren RAM (min 64MB, max 512MB)
-	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
-
-	tuningConn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("enrichment: acquire tuning conn: %w", err)
-	}
-	defer tuningConn.Release()
-
-	for _, stmt := range []string{
-		fmt.Sprintf("SET work_mem = '%dMB'", workMemMB),
-		"SET max_parallel_workers_per_gather = 6",
-	} {
-		if _, err := tuningConn.Exec(ctx, stmt); err != nil {
-			slog.Warn("enrichment: tuning failed (non-fatal)", "stmt", stmt, "error", err)
-		}
-	}
-	slog.Info("enrichment: tuning applied (connection-level)", "work_mem_mb", workMemMB, "parallel_workers", 6)
-	// No need for defer/reset — SET only applies to this connection and resets on release.
+	// Each enrichment sub-function acquires its own pinned connection and applies
+	// connection-level work_mem tuning. No top-level tuning connection needed here.
 
 	slog.Info("enrichment: resetting enrichment columns", "region_filter", regionFilter)
 	resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
 		landuse_class = NULL, noise_score = NULL, traffic_class = NULL
 		WHERE highway IS NOT NULL%s`, bboxClause)
-	if _, err := tuningConn.Exec(ctx, resetSQL); err != nil {
+	if _, err := pool.Exec(ctx, resetSQL); err != nil {
 		return fmt.Errorf("enrichment: reset columns: %w", err)
 	}
 
@@ -150,6 +129,13 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		return fmt.Errorf("enrichment noise_score: acquire conn: %w", err)
 	}
 	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment noise_score: SET work_mem failed (non-fatal)", "error", err)
+	}
 
 	// Prüfe ob osm_railways Daten hat
 	var railCount int64
@@ -246,6 +232,14 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		return fmt.Errorf("enrichment traffic_class: acquire conn: %w", err)
 	}
 	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment traffic_class: SET work_mem failed (non-fatal)", "error", err)
+	}
+
 	defer func() {
 		for _, t := range []string{"cities_pop", "industrial_areas", "routing_grid",
 			"motorway_density", "highway_density", "populate_factor", "industrial_factor"} {
@@ -429,15 +423,28 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting route_membership")
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment route_membership: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	workMemMB := availableRAMMB() * 10 / 100
+	if workMemMB > 512 { workMemMB = 512 }
+	if workMemMB < 64 { workMemMB = 64 }
+	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
+		slog.Warn("enrichment route_membership: SET work_mem failed (non-fatal)", "error", err)
+	}
+
 	// Check if Lua-extracted route members exist (source='relation')
 	var luaCount int64
-	pool.QueryRow(ctx,
+	conn.QueryRow(ctx,
 		`SELECT count(*) FROM osm_route_way_members WHERE source = 'relation'`).Scan(&luaCount)
 
 	if luaCount == 0 {
 		// Fallback: populate junction table via spatial proximity
 		slog.Info("enrichment: no Lua route members found, using spatial proximity fallback")
-		_, err := pool.Exec(ctx, `
+		_, err := conn.Exec(ctx, `
 			INSERT INTO osm_route_way_members (route_osm_id, way_osm_id, source)
 			SELECT DISTINCT r.osm_id, w.osm_id, 'proximity'
 			FROM osm_routes r
@@ -450,7 +457,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	} else {
 		slog.Info("enrichment: using Lua-extracted route members", "count", luaCount)
 		// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering)
-		tag, err := pool.Exec(ctx, `
+		tag, err := conn.Exec(ctx, `
 			DELETE FROM osm_route_way_members m
 			WHERE source = 'relation'
 			  AND NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)`)
@@ -462,7 +469,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	}
 
 	// Set cycleroute flags with best network level
-	_, err := pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET
 			is_cycleroute = true,
 			cycleroute_network = sub.best_network
@@ -487,7 +494,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	}
 
 	// Set hikeroute flags with best network level
-	_, err = pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET
 			is_hikeroute = true,
 			hikeroute_network = sub.best_network
@@ -511,7 +518,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 		return fmt.Errorf("enrichment route_membership: hikeroute: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
+	_, err = conn.Exec(ctx, "ANALYZE osm_ways")
 	if err != nil {
 		slog.Warn("enrichment: ANALYZE after route_membership failed", "error", err)
 	}
