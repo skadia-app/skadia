@@ -1134,6 +1134,30 @@ function LocalMapAndGeoSection() {
     }
   }, [schedData, schedLoaded])
 
+  function computeNextUpdate(interval: string, weekday: number, day: number, hour: number): string {
+    const now = new Date();
+    const next = new Date();
+    next.setMinutes(0, 0, 0);
+    next.setHours(hour);
+
+    if (interval === 'weekly') {
+      // weekday: 1=Monday...7=Sunday (ISO 8601)
+      const isoWeekday = now.getDay() === 0 ? 7 : now.getDay(); // convert JS Sunday=0 to 7
+      let daysUntil = weekday - isoWeekday;
+      if (daysUntil < 0 || (daysUntil === 0 && now.getHours() >= hour)) {
+        daysUntil += 7;
+      }
+      next.setDate(now.getDate() + daysUntil);
+    } else if (interval === 'monthly') {
+      next.setDate(day);
+      if (next <= now) {
+        next.setMonth(next.getMonth() + 1);
+      }
+    }
+
+    return next.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  }
+
   function saveSchedule(patch: Partial<OSMSchedule>) {
     const schedule: OSMSchedule = {
       interval: schedInterval,
@@ -1501,6 +1525,16 @@ function LocalMapAndGeoSection() {
                   </div>
                 )}
               </div>
+              {schedInterval !== 'manual' && (
+                <p className="text-sm text-neutral-500">
+                  Nächstes Update: {computeNextUpdate(schedInterval, schedWeekday, schedDay, schedHour)}
+                </p>
+              )}
+              {schedInterval !== 'manual' && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                  Automatische Updates werden in einer zukünftigen Version aktiviert. Aktuell dient diese Einstellung nur zur Planung.
+                </p>
+              )}
             </div>
           )}
 
