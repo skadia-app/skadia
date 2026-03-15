@@ -314,7 +314,7 @@ func main() {
 			r.Post("/admin/osm-import/start", h.StartOSMImport)
 			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
 			r.Post("/admin/osm-import/retry-enrichment", h.RetryOSMEnrichment)
-			r.Post("/admin/osm-import/retry-topology", h.RetryOSMTopology)
+			// retry-topology removed: pgr_createTopology removed in pgRouting 4.0.1
 			r.Get("/admin/osm-schedule", h.GetOSMSchedule)
 			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
 			r.Get("/admin/dem-status", h.GetDEMStatus)

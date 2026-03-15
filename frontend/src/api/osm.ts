@@ -95,9 +95,8 @@ export async function retryOSMEnrichment(): Promise<StartOSMImportResponse> {
   return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-enrichment', { method: 'POST' })
 }
 
-export async function retryOSMTopology(): Promise<StartOSMImportResponse> {
-  return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-topology', { method: 'POST' })
-}
+// retryOSMTopology removed: pgr_createTopology removed in pgRouting 4.0.1.
+// FITroute's CSR graph builder computes topology from osm_ways directly.
 
 export interface OSMSchedule {
   interval: string  // 'manual' | 'weekly' | 'monthly'

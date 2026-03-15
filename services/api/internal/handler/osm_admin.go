@@ -387,38 +387,8 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-// RetryOSMTopology re-runs only the topology build phase (5) on existing osm_ways.
-// POST /api/v1/admin/osm-import/retry-topology
-func (h *Handler) RetryOSMTopology(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	entityName := "Topology Retry"
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 5)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
-		return
-	}
-
-	go func() {
-		ctx := context.Background()
-		reporter := &jobReporter{db: h.DB, jobID: jobID}
-
-		pipeline := &osmregions.Pipeline{
-			Pool:    h.DB.Pool,
-			DataDir: os.Getenv("OSM_DATA_DIR"),
-			DBURL:   os.Getenv("DATABASE_URL"),
-		}
-		if pipeline.DataDir == "" {
-			pipeline.DataDir = "/data/osm"
-		}
-
-		reporter.SetPhase("topology")
-		reporter.SetProgress(0)
-		pipeline.RunTopologyOnly(ctx, reporter)
-		reporter.Complete()
-	}()
-
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
-}
+// RetryOSMTopology was removed: pgr_createTopology was removed in pgRouting 4.0.1.
+// FITroute's CSR graph builder computes topology from osm_ways directly.
 
 // GetOSMSchedule returns current scheduler settings shared across all imported regions.
 // GET /api/v1/admin/osm-schedule

@@ -715,76 +715,9 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	slog.Info("osm enrichment: completed")
 }
 
-// RunTopologyOnly executes only the topology build phase (Phase 5) on existing osm_ways.
-// Used by the retry-topology endpoint.
-func (p *Pipeline) RunTopologyOnly(ctx context.Context, reporter ProgressReporter) {
-	slog.Info("osm topology retry: starting")
-
-	// TODO(pgRouting): pgr_createTopology wurde in pgRouting 4.0.1 entfernt. Diese Funktion
-	// (RunTopologyOnly) wird durch den Retry-Topology-Endpoint aufgerufen und schlägt aktuell
-	// grundsätzlich fehl. Skadia's A*-Router (routing/graph/) nutzt pgRouting-Topologie nicht —
-	// er baut seinen CSR-Graphen direkt aus osm_ways. Die Retry-Topology-Funktion ist daher
-	// derzeit ohne Effekt und sollte langfristig entweder entfernt oder auf einen manuellen
-	// Topology-Builder umgestellt werden (ST_StartPoint/ST_EndPoint + KNN-Vertex-Matching).
-	reporter.SetProgress(1)
-	_, topoErr := p.Pool.Exec(ctx, `
-		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
-	`)
-	if topoErr != nil {
-		slog.Error("osm topology retry: topology build failed", "error", topoErr)
-		reporter.Fail("Topologie-Build fehlgeschlagen: " + topoErr.Error())
-		return
-	}
-
-	reporter.SetProgress(2)
-	_, costErr := p.Pool.Exec(ctx, `
-		UPDATE osm_ways SET
-			cost = CASE
-				WHEN is_lift THEN 0.001
-				WHEN oneway  THEN -1
-				ELSE length_m / NULLIF(tobler_speed(COALESCE(avg_slope, 0)) * 1000.0 / 60.0, 0)
-				     * sac_cost_factor(sac_scale)
-				     * surface_cost_factor(surface)
-			END,
-			reverse_cost = CASE
-				WHEN is_lift THEN 60.0
-				WHEN oneway  THEN -1
-				ELSE length_m / NULLIF(tobler_speed(-COALESCE(avg_slope, 0)) * 1000.0 / 60.0, 0)
-				     * sac_cost_factor(sac_scale)
-				     * surface_cost_factor(surface)
-			END
-		WHERE cost IS NULL OR reverse_cost IS NULL
-	`)
-	if costErr != nil {
-		slog.Warn("osm topology retry: cost computation failed", "error", costErr)
-	}
-
-	reporter.SetProgress(3)
-	_, liftErr := p.Pool.Exec(ctx, `
-		INSERT INTO osm_ways (osm_id, highway, name, length_m, avg_slope, is_lift, geom)
-		SELECT l.osm_id, 'lift', l.name, ST_Length(l.geom::geography), 0.0, TRUE, l.geom
-		FROM osm_lifts l
-		WHERE NOT EXISTS (
-			SELECT 1 FROM osm_ways t
-			WHERE t.osm_id = l.osm_id AND t.is_lift = TRUE
-		)
-	`)
-	if liftErr != nil {
-		slog.Warn("osm topology retry: lift merge failed", "error", liftErr)
-	}
-
-	// TODO(pgRouting): Wie oben — pgr_createTopology in pgRouting 4.0.1 entfernt.
-	reporter.SetProgress(4)
-	_, retopoErr := p.Pool.Exec(ctx, `
-		SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
-	`)
-	if retopoErr != nil {
-		slog.Warn("osm topology retry: lift topology rebuild failed", "error", retopoErr)
-	}
-
-	reporter.SetProgress(5)
-	slog.Info("osm topology retry: completed")
-}
+// RunTopologyOnly was removed: pgr_createTopology was removed in pgRouting 4.0.1,
+// and FITroute's CSR graph builder (routing/graph/topology.go) computes topology
+// directly from osm_ways coordinates. No SQL-based topology needed.
 
 // clearOSMData löscht die Daten der gewählten Kategorien:
 // osm_pois wird per DELETE mit category-Filter geleert, andere Tabellen per TRUNCATE.
