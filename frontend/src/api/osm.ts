@@ -65,6 +65,9 @@ export interface OSMImportRegion {
   import_duration_s: number | null
   categories: string[]
   status: 'importing' | 'imported' | 'failed'
+  data_date: string | null        // Datum der OSM-Kartendaten
+  update_interval: string         // 'manual' | 'weekly' | 'monthly'
+  replication_url: string | null  // Replication-URL für Updates
 }
 
 export interface OSMDiskUsage {
@@ -94,4 +97,19 @@ export async function retryOSMEnrichment(): Promise<StartOSMImportResponse> {
 
 export async function retryOSMTopology(): Promise<StartOSMImportResponse> {
   return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-topology', { method: 'POST' })
+}
+
+export interface OSMSchedule {
+  interval: string  // 'manual' | 'weekly' | 'monthly'
+  weekday: number   // 1=Montag … 7=Sonntag (relevant for weekly)
+  day: number       // 1–28 (relevant for monthly)
+  hour: number      // 0–23
+}
+
+export async function getOSMSchedule(): Promise<OSMSchedule> {
+  return apiClient<OSMSchedule>('/admin/osm-schedule')
+}
+
+export async function setOSMSchedule(schedule: OSMSchedule): Promise<void> {
+  await apiClient<void>('/admin/osm-schedule', { method: 'POST', body: schedule })
 }

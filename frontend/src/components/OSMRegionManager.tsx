@@ -156,6 +156,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                 <th className="text-left pb-2 pr-3 font-medium">Region</th>
                 <th className="text-left pb-2 pr-3 font-medium">Kontinent</th>
                 <th className="text-left pb-2 pr-3 font-medium">Importiert</th>
+                <th className="text-left pb-2 pr-3 font-medium">Daten vom</th>
                 <th className="text-left pb-2 pr-3 font-medium">Kategorien</th>
                 <th className="text-left pb-2 pr-3 font-medium">Größe</th>
                 <th className="text-left pb-2 pr-3 font-medium">Status</th>
@@ -176,6 +177,9 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400">
                     {formatDate(reg.imported_at)}
+                  </td>
+                  <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400">
+                    {reg.data_date ? formatDate(reg.data_date) : '—'}
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400 text-xs">
                     {reg.categories.join(', ')}
@@ -214,7 +218,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                         onClick={() => {
                           openModal({
                             title: 'Region entfernen?',
-                            message: `"${reg.label}" wird aus dem Tracking entfernt. OSM-Daten bleiben erhalten.`,
+                            message: `"${reg.label}" und alle zugehörigen OSM-Daten werden unwiderruflich gelöscht.`,
                             buttons: [
                               {
                                 label: 'Abbrechen',

@@ -13,7 +13,7 @@ import { getImportSettings, updateImportSettings, type ImportSettings, type Conf
 import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
 import { apiFetch } from '@/lib/auth'
-import { type OSMStatus } from '@/api/osm'
+import { type OSMStatus, getOSMSchedule, setOSMSchedule, type OSMSchedule, fetchOSMRegionStatus } from '@/api/osm'
 import { OSMRegionManager } from '@/components/OSMRegionManager'
 import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
@@ -1100,8 +1100,52 @@ function LocalMapAndGeoSection() {
   })
   const hasOsmData = osmStatus?.has_data ?? false
 
+  // OSM region list (to know if any regions are imported)
+  const { data: regionData } = useQuery({
+    queryKey: ['osm-regions-status'],
+    queryFn: fetchOSMRegionStatus,
+  })
+  const importedRegions = regionData?.regions ?? []
+  const hasImportedRegions = importedRegions.length > 0
+
   // Trail topology
   const { addToast } = useToast()
+
+  // OSM scheduler
+  const [schedInterval, setSchedInterval] = useState<string>('manual')
+  const [schedWeekday, setSchedWeekday] = useState<number>(1)
+  const [schedDay, setSchedDay] = useState<number>(1)
+  const [schedHour, setSchedHour] = useState<number>(3)
+  const [schedLoaded, setSchedLoaded] = useState(false)
+
+  const { data: schedData } = useQuery<OSMSchedule>({
+    queryKey: ['osm-schedule'],
+    queryFn: getOSMSchedule,
+    enabled: hasImportedRegions,
+  })
+
+  useEffect(() => {
+    if (schedData && !schedLoaded) {
+      setSchedInterval(schedData.interval)
+      setSchedWeekday(schedData.weekday)
+      setSchedDay(schedData.day)
+      setSchedHour(schedData.hour)
+      setSchedLoaded(true)
+    }
+  }, [schedData, schedLoaded])
+
+  function saveSchedule(patch: Partial<OSMSchedule>) {
+    const schedule: OSMSchedule = {
+      interval: schedInterval,
+      weekday: schedWeekday,
+      day: schedDay,
+      hour: schedHour,
+      ...patch,
+    }
+    setOSMSchedule(schedule).catch(() => {
+      addToast({ type: 'error', title: 'Fehler beim Speichern des Update-Zeitplans', duration: 0 })
+    })
+  }
   const buildTopology = useMutation({
     mutationFn: () => apiFetch('/api/v1/trails/build-topology', { method: 'POST' }).then(r => r.json()),
     onSuccess: () => {
@@ -1372,6 +1416,93 @@ function LocalMapAndGeoSection() {
           )}
           {/* Importierte Regionen */}
           <OSMRegionManager hasOsmData={hasOsmData} />
+
+          {/* ── Automatische Karten-Updates (Scheduler) ── */}
+          {hasImportedRegions && (
+            <div className="space-y-3 pt-2 border-t border-neutral-200 dark:border-neutral-700">
+              <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                Automatische Karten-Updates
+              </h3>
+              <div className="flex flex-wrap gap-3 items-center text-sm">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-neutral-500 dark:text-neutral-400">Intervall</label>
+                  <select
+                    value={schedInterval}
+                    onChange={e => {
+                      setSchedInterval(e.target.value)
+                      saveSchedule({ interval: e.target.value })
+                    }}
+                    className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                  >
+                    <option value="manual">Aus (manuell)</option>
+                    <option value="weekly">Wöchentlich</option>
+                    <option value="monthly">Monatlich</option>
+                  </select>
+                </div>
+
+                {schedInterval === 'weekly' && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Wochentag</label>
+                    <select
+                      value={schedWeekday}
+                      onChange={e => {
+                        const v = Number(e.target.value)
+                        setSchedWeekday(v)
+                        saveSchedule({ weekday: v })
+                      }}
+                      className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      <option value={1}>Montag</option>
+                      <option value={2}>Dienstag</option>
+                      <option value={3}>Mittwoch</option>
+                      <option value={4}>Donnerstag</option>
+                      <option value={5}>Freitag</option>
+                      <option value={6}>Samstag</option>
+                      <option value={7}>Sonntag</option>
+                    </select>
+                  </div>
+                )}
+
+                {schedInterval === 'monthly' && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Tag des Monats</label>
+                    <select
+                      value={schedDay}
+                      onChange={e => {
+                        const v = Number(e.target.value)
+                        setSchedDay(v)
+                        saveSchedule({ day: v })
+                      }}
+                      className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      {Array.from({ length: 28 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>{i + 1}.</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {schedInterval !== 'manual' && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Uhrzeit</label>
+                    <select
+                      value={schedHour}
+                      onChange={e => {
+                        const v = Number(e.target.value)
+                        setSchedHour(v)
+                        saveSchedule({ hour: v })
+                      }}
+                      className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <option key={i} value={i}>{String(i).padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Buttons */}
           <div className="flex flex-col gap-2">
