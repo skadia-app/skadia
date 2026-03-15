@@ -130,6 +130,8 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 		"osm_pistes", "osm_piste_areas", "osm_routes", "osm_import_regions",
 		"osm_landuse", "osm_railways",
 		"enrichment.raster_tiles",
+		// osm2pgsql-interne Staging-Tabellen (während und nach Import vorhanden)
+		"planet_osm_ways", "planet_osm_nodes", "planet_osm_rels",
 	}
 
 	type tableSize struct {
