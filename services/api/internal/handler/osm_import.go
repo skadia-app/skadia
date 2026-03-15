@@ -181,7 +181,12 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		defer osmJobCancels.Delete(enrichJobID)
 		defer enrichCancel()
 		enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
-		pipeline.RunEnrichmentAndSplitting(enrichCtx, enrichReporter)
+		regionIDs := make([]string, len(regions))
+		for i, r := range regions {
+			regionIDs[i] = r.ID
+		}
+		regionFilter := strings.Join(regionIDs, ",")
+		pipeline.RunEnrichmentAndSplitting(enrichCtx, regionFilter, enrichReporter)
 	}()
 }
 

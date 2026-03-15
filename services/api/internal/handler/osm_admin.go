@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -162,7 +163,7 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteOSMRegion removes a region from tracking (does NOT delete OSM data).
+// DeleteOSMRegion removes a region: deletes OSM data, tracking entry, and PBF files.
 // DELETE /api/v1/admin/osm-regions/{regionID}
 func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	regionID := chi.URLParam(r, "regionID")
@@ -170,16 +171,37 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "missing region ID", r.URL.Path)
 		return
 	}
-	tag, err := h.DB.Pool.Exec(r.Context(),
-		`DELETE FROM osm_import_regions WHERE region_id = $1`, regionID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
-		return
-	}
-	if tag.RowsAffected() == 0 {
+
+	// Verify region exists before doing any work
+	var exists bool
+	h.DB.Pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM osm_import_regions WHERE region_id = $1)`, regionID).Scan(&exists)
+	if !exists {
 		writeError(w, http.StatusNotFound, "Not Found", "region not found", r.URL.Path)
 		return
 	}
+
+	// Delete OSM data associated with this region
+	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool}
+	if err := pipeline.ClearRegionData(r.Context(), regionID); err != nil {
+		slog.Error("delete region: clear data failed", "region", regionID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	// Delete tracking entry
+	h.DB.Pool.Exec(r.Context(),
+		`DELETE FROM osm_import_regions WHERE region_id = $1`, regionID)
+
+	// Delete PBF files to reclaim disk space
+	dataDir := os.Getenv("OSM_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/data/osm"
+	}
+	pbfPath := filepath.Join(dataDir, regionID+"-latest.osm.pbf")
+	os.Remove(pbfPath)
+	os.Remove(strings.TrimSuffix(pbfPath, ".osm.pbf") + "-filtered.osm.pbf")
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -351,7 +373,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 			dataDir = "/data/osm"
 		}
 		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
-		pipeline.RunEnrichmentAndSplitting(enrichCtx, reporter)
+		pipeline.RunEnrichmentAndSplitting(enrichCtx, "", reporter)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

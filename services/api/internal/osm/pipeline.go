@@ -661,12 +661,13 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 // RunEnrichmentAndSplitting führt Spatial Enrichment + Intersection Splitting aus.
 // Kann als separater Background-Job nach dem Import laufen.
-func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context, reporter ProgressReporter) {
+func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
+	regionFilter string, reporter ProgressReporter) {
 	reporter.SetPhase("enrichment")
 	reporter.SetProgress(0)
 	slog.Info("osm enrichment: starting spatial enrichment")
 
-	if err := RunSpatialEnrichment(ctx, p.Pool, "", func(pct int) {
+	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(pct int) {
 		reporter.SetProgress(int64(pct))
 	}); err != nil {
 		slog.Error("osm enrichment: spatial enrichment failed", "error", err)
