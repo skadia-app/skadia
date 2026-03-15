@@ -152,7 +152,7 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent, nil)
+	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent, nil, nil)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
@@ -226,7 +226,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Bad Request", "activity_photo_url is required", r.URL.Path)
 			return
 		}
-		updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &req.ActivityPhotoURL)
+		updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &req.ActivityPhotoURL, nil)
 		if err != nil {
 			slog.Error("update tag cover_image_url failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
@@ -281,7 +281,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	coverURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
-	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL)
+	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL, nil)
 	if err != nil {
 		slog.Error("update tag cover_image_url failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
