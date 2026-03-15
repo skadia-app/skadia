@@ -1,0 +1,38 @@
+# Wege (Ways)
+w/highway
+w/waterway
+w/railway
+w/piste:type
+w/aerialway
+w/route=ferry
+w/natural=wood,glacier,wetland,coastline,water
+w/landuse
+w/leisure=park,nature_reserve,golf_course,pitch,track,swimming_pool
+w/boundary=protected_area,national_park,administrative
+# POI-Nodes
+n/amenity
+n/tourism
+n/shop
+n/sport
+n/information
+n/place
+n/natural=peak,saddle,glacier,cave_entrance,volcano,spring,hot_spring
+n/highway=bus_stop
+n/railway=station,halt,tram_stop
+n/aerialway=station
+n/leisure=swimming_pool,firepit,picnic_table,fitness_station,sports_centre,pitch,golf_course
+n/man_made=tower,observation_tower,cross,survey_point
+n/historic
+n/barrier=gate,lift_gate,cattle_grid,bollard,cycle_barrier
+n/building=chapel
+n/waterway=waterfall
+n/mountain_pass=yes
+w/mountain_pass=yes
+# Relations
+r/type=route,multipolygon,boundary
+r/route=bicycle,hiking,foot,mtb,ski,running,ferry,via_ferrata,horse
+r/boundary=protected_area,national_park,administrative
+r/natural=wood,wetland,glacier,water
+r/landuse
+r/leisure=park,nature_reserve
+r/piste:type
