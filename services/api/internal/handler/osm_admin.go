@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
@@ -103,10 +104,13 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 	var regions []region
 	for rows.Next() {
 		var reg region
-		if err := rows.Scan(&reg.RegionID, &reg.Label, &reg.Continent, &reg.ImportedAt,
+		var importedAt time.Time
+		if err := rows.Scan(&reg.RegionID, &reg.Label, &reg.Continent, &importedAt,
 			&reg.PBFDate, &reg.PBFSizeBytes, &reg.ImportDurationS, &reg.Categories, &reg.Status); err != nil {
+			slog.Warn("osm regions: scan failed", "error", err)
 			continue
 		}
+		reg.ImportedAt = importedAt.Format(time.RFC3339)
 		regions = append(regions, reg)
 	}
 	if regions == nil {
