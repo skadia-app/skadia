@@ -58,7 +58,9 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 		HotfolderEnabled: hotfolderEnabled,
 	}
 
-	if h.ShadowFS != nil {
+	if h.WatcherManager != nil {
+		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
+	} else if h.ShadowFS != nil {
 		resp.HotfolderPath = h.ShadowFS.HotfolderPath
 	}
 
@@ -90,10 +92,27 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 
 	// Update hotfolder_enabled if provided.
 	if req.HotfolderEnabled != nil {
+		// Read current value before update to detect changes.
+		currentEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
+		if err != nil {
+			slog.Warn("get current hotfolder enabled failed", "error", err)
+		}
+
 		if err := h.DB.UpdateUserHotfolderEnabled(r.Context(), userID, *req.HotfolderEnabled); err != nil {
 			slog.Error("update hotfolder enabled failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update hotfolder setting", r.URL.Path)
 			return
+		}
+
+		// Start or stop the per-user watcher if the value changed.
+		if h.WatcherManager != nil && *req.HotfolderEnabled != currentEnabled {
+			if *req.HotfolderEnabled {
+				if err := h.WatcherManager.EnableUser(userID); err != nil {
+					slog.Warn("hotfolder watcher enable failed", "user", userID, "error", err)
+				}
+			} else {
+				h.WatcherManager.DisableUser(userID)
+			}
 		}
 	}
 
@@ -111,7 +130,9 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 		Schema:           schema,
 		HotfolderEnabled: hotfolderEnabled,
 	}
-	if h.ShadowFS != nil {
+	if h.WatcherManager != nil {
+		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
+	} else if h.ShadowFS != nil {
 		resp.HotfolderPath = h.ShadowFS.HotfolderPath
 	}
 
@@ -202,7 +223,7 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 	result := shadowfs.ExecuteRename(h.ShadowFS.BasePath, items)
 
 	// Update local_file_path in DB for successfully renamed files
-	for _, item := range items {
+	for _, item := range result.SucceededItems {
 		if err := h.DB.UpdateActivityLocalFilePathByOldPath(r.Context(), userID, item.OldPath, item.NewPath); err != nil {
 			slog.Error("update local file path after rename failed",
 				"old", item.OldPath,

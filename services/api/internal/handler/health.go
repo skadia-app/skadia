@@ -19,7 +19,8 @@ type Handler struct {
 	Storage       *storage.S3Client
 	Events        *event.Publisher
 	Auth          *AuthConfig              // nil when auth is not configured
-	ShadowFS      *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
+	ShadowFS       *shadowfs.ShadowFSConfig  // nil when shadow FS is not configured
+	WatcherManager *shadowfs.WatcherManager  // nil when per-user hotfolder is not configured
 	Config        *HandlerConfig           // LLM/LiteLLM configuration
 	ImportService *importer.Service        // shared post-processing pipeline
 	GraphManager  *routing.GraphManager    // nil when routing graph is not configured

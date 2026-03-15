@@ -104,6 +104,9 @@ func MoveShadowFile(basePath, oldPath, newPath string) error {
 
 // DeleteShadowFile removes a shadow file and its .meta sidecar.
 func DeleteShadowFile(basePath, relativePath string) error {
+	if err := validatePath(basePath, relativePath); err != nil {
+		return err
+	}
 	fullPath := filepath.Join(basePath, relativePath)
 
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {

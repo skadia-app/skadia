@@ -1463,6 +1463,26 @@ func (db *DB) GetUserHotfolderEnabled(ctx context.Context, userID string) (bool,
 	return enabled, nil
 }
 
+// GetUsersWithHotfolderEnabled returns IDs of all users that have hotfolder_enabled = true.
+func (db *DB) GetUsersWithHotfolderEnabled(ctx context.Context) ([]string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id FROM users WHERE hotfolder_enabled = true`)
+	if err != nil {
+		return nil, fmt.Errorf("get users with hotfolder enabled: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // UpdateUserHotfolderEnabled persists the hotfolder_enabled toggle for a user.
 func (db *DB) UpdateUserHotfolderEnabled(ctx context.Context, userID string, enabled bool) error {
 	_, err := db.Pool.Exec(ctx,

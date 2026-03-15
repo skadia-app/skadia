@@ -18,12 +18,12 @@ type FileCallback func(filePath string) error
 
 // Watcher monitors a hotfolder directory for new files.
 type Watcher struct {
-	dir       string
-	callback  FileCallback
-	watcher   *fsnotify.Watcher
-	debounce  time.Duration
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	dir      string
+	callback FileCallback
+	watcher  *fsnotify.Watcher
+	debounce time.Duration
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // NewWatcher creates a new hotfolder watcher.
@@ -72,23 +72,27 @@ func (w *Watcher) Stop() {
 		w.watcher.Close()
 	}
 	w.wg.Wait()
-	slog.Info("hotfolder watcher stopped")
+	slog.Info("hotfolder watcher stopped", "dir", w.dir)
+}
+
+// pendingEntry tracks an in-flight debounce timer with pointer identity so we
+// can detect when a newer event has superseded an older one before it fires.
+type pendingEntry struct {
+	timer *time.Timer
 }
 
 func (w *Watcher) loop() {
 	defer w.wg.Done()
 
-	// pending tracks files that have been written to but not yet processed.
-	// The timer is reset on each write event to debounce rapid writes.
-	pending := make(map[string]*time.Timer)
+	pending := make(map[string]*pendingEntry)
 	var mu sync.Mutex
 
 	for {
 		select {
 		case <-w.stopCh:
 			mu.Lock()
-			for _, t := range pending {
-				t.Stop()
+			for _, e := range pending {
+				e.timer.Stop()
 			}
 			mu.Unlock()
 			return
@@ -108,7 +112,8 @@ func (w *Watcher) loop() {
 			if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".meta") {
 				continue
 			}
-			if strings.Contains(evt.Name, "/quarantine/") {
+			if strings.Contains(evt.Name, string(filepath.Separator)+"quarantine"+string(filepath.Separator)) ||
+				strings.HasSuffix(evt.Name, string(filepath.Separator)+"quarantine") {
 				continue
 			}
 
@@ -118,19 +123,29 @@ func (w *Watcher) loop() {
 				continue
 			}
 
+			// Stop any previous timer for this path and create a fresh entry.
+			// Using pointer identity (entry vs. pending[filePath]) prevents the
+			// race where a just-fired AfterFunc goroutine processes a file that
+			// was superseded by a newer write event.
 			mu.Lock()
-			if t, exists := pending[evt.Name]; exists {
-				t.Reset(w.debounce)
-			} else {
-				filePath := evt.Name
-				pending[filePath] = time.AfterFunc(w.debounce, func() {
-					mu.Lock()
-					delete(pending, filePath)
-					mu.Unlock()
-
-					w.processFile(filePath)
-				})
+			if old, exists := pending[evt.Name]; exists {
+				old.timer.Stop()
+				delete(pending, evt.Name)
 			}
+			filePath := evt.Name
+			entry := &pendingEntry{}
+			pending[filePath] = entry
+			entry.timer = time.AfterFunc(w.debounce, func() {
+				mu.Lock()
+				if pending[filePath] != entry {
+					// Superseded by a newer event — skip.
+					mu.Unlock()
+					return
+				}
+				delete(pending, filePath)
+				mu.Unlock()
+				w.processFile(filePath)
+			})
 			mu.Unlock()
 
 		case err, ok := <-w.watcher.Errors:
@@ -176,4 +191,70 @@ func (w *Watcher) quarantine(filePath string) {
 			"error", err,
 		)
 	}
+}
+
+// ── WatcherManager ────────────────────────────────────────────────────────────
+
+// WatcherManager manages one hotfolder Watcher per user.
+// Each user gets an isolated subdirectory: {BasePath}/{userID}/.
+// Files dropped into a user's directory are only imported for that user.
+type WatcherManager struct {
+	basePath string
+	callback func(userID, filePath string) error
+	mu       sync.RWMutex
+	watchers map[string]*Watcher // userID → Watcher
+}
+
+// NewWatcherManager creates a manager rooted at basePath.
+// callback is invoked with the owning userID and the full file path.
+func NewWatcherManager(basePath string, callback func(userID, filePath string) error) *WatcherManager {
+	return &WatcherManager{
+		basePath: basePath,
+		callback: callback,
+		watchers: make(map[string]*Watcher),
+	}
+}
+
+// UserPath returns the hotfolder path for a specific user.
+func (wm *WatcherManager) UserPath(userID string) string {
+	return filepath.Join(wm.basePath, userID)
+}
+
+// EnableUser starts a watcher for the user's hotfolder subdirectory.
+// If a watcher is already running for this user, this is a no-op.
+func (wm *WatcherManager) EnableUser(userID string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	if _, exists := wm.watchers[userID]; exists {
+		return nil // already watching
+	}
+	userPath := filepath.Join(wm.basePath, userID)
+	w := NewWatcher(userPath, func(filePath string) error {
+		return wm.callback(userID, filePath)
+	})
+	if err := w.Start(); err != nil {
+		return err
+	}
+	wm.watchers[userID] = w
+	return nil
+}
+
+// DisableUser stops and removes the watcher for the given user.
+func (wm *WatcherManager) DisableUser(userID string) {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	if w, exists := wm.watchers[userID]; exists {
+		w.Stop()
+		delete(wm.watchers, userID)
+	}
+}
+
+// StopAll stops all running watchers. Call on server shutdown.
+func (wm *WatcherManager) StopAll() {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	for _, w := range wm.watchers {
+		w.Stop()
+	}
+	wm.watchers = make(map[string]*Watcher)
 }

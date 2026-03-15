@@ -655,22 +655,34 @@ func main() {
 		slog.Info("startup PMC recalculation complete", "users", len(userIDs))
 	}()
 
-	// Start hotfolder watcher if configured
-	var hotfolderWatcher *shadowfs.Watcher
-	if shadowFSCfg != nil && shadowFSCfg.HotfolderEnabled && shadowFSCfg.HotfolderPath != "" {
-		hotfolderWatcher = shadowfs.NewWatcher(shadowFSCfg.HotfolderPath, func(filePath string) error {
-			userID := cfg.HotfolderUserID
-			if userID == "" {
-				slog.Warn("hotfolder: HOTFOLDER_USER_ID not configured, skipping file", "path", filePath)
-				return nil
-			}
-			ctx := context.Background()
-			return h.UploadFromFile(ctx, userID, filePath)
+	// Start per-user hotfolder watchers if the hotfolder base path is configured.
+	// Each user gets an isolated subdirectory: {HotfolderPath}/{userID}/.
+	// HOTFOLDER_USER_ID is no longer used; each user controls their own watcher
+	// via the hotfolder_enabled toggle in their settings.
+	if shadowFSCfg != nil && shadowFSCfg.HotfolderPath != "" {
+		if cfg.HotfolderUserID != "" {
+			slog.Warn("HOTFOLDER_USER_ID env var is deprecated and ignored; " +
+				"users control their hotfolder via the settings toggle")
+		}
+		wm := shadowfs.NewWatcherManager(shadowFSCfg.HotfolderPath, func(userID, filePath string) error {
+			return h.UploadFromFile(context.Background(), userID, filePath)
 		})
-		if err := hotfolderWatcher.Start(); err != nil {
-			slog.Warn("hotfolder watcher failed to start", "error", err)
+		h.WatcherManager = wm
+		defer wm.StopAll()
+
+		// Start watchers for all users that have hotfolder enabled in DB.
+		enabledUsers, err := db.GetUsersWithHotfolderEnabled(ctx)
+		if err != nil {
+			slog.Warn("hotfolder: failed to load enabled users", "error", err)
 		} else {
-			defer hotfolderWatcher.Stop()
+			for _, userID := range enabledUsers {
+				if err := wm.EnableUser(userID); err != nil {
+					slog.Warn("hotfolder: failed to start watcher for user",
+						"user_id", userID, "error", err)
+				}
+			}
+			slog.Info("hotfolder watchers started", "users", len(enabledUsers),
+				"base_path", shadowFSCfg.HotfolderPath)
 		}
 	}
 

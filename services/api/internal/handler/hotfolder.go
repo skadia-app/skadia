@@ -31,6 +31,32 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		return fmt.Errorf("unsupported format: %s", filename)
 	}
 
+	// Record the import attempt so it shows up in the UI.
+	importID, dbErr := h.DB.InsertHotfolderImport(ctx, userID, filename, "processing")
+	if dbErr != nil {
+		slog.Warn("hotfolder: failed to record import start", "file", filename, "error", dbErr)
+	}
+
+	// finalizeImport updates the hotfolder_imports record with the outcome.
+	// activityID is nil for errors and skipped/duplicate cases.
+	finalizeImport := func(activityID *string, importErr error) {
+		if importID == "" {
+			return
+		}
+		status := "completed"
+		var errMsg *string
+		if importErr != nil {
+			status = "error"
+			msg := importErr.Error()
+			errMsg = &msg
+		} else if activityID == nil {
+			status = "skipped"
+		}
+		if err := h.DB.UpdateHotfolderImport(ctx, importID, status, errMsg, activityID); err != nil {
+			slog.Warn("hotfolder: failed to update import record", "id", importID, "error", err)
+		}
+	}
+
 	// SHA256 hash
 	hash := sha256.Sum256(fileBytes)
 	hashStr := hex.EncodeToString(hash[:])
@@ -44,7 +70,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	// Upload original file to S3 before inserting to DB so the key is always
 	// resolvable even if a later step fails.
 	if err := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-		return fmt.Errorf("S3 upload: %w", err)
+		importErr := fmt.Errorf("S3 upload: %w", err)
+		finalizeImport(nil, importErr)
+		return importErr
 	}
 
 	// For FIT files, try multi-session parsing first to detect multisport activities.
@@ -57,13 +85,16 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 				importer.ImportMetadata{SourcePlatform: "hotfolder"},
 			)
 			if msErr != nil {
-				return fmt.Errorf("process multisport: %w", msErr)
+				importErr := fmt.Errorf("process multisport: %w", msErr)
+				finalizeImport(nil, importErr)
+				return importErr
 			}
 			slog.Info("hotfolder: multisport activity processed",
 				"parent_id", msResult.ParentID,
 				"children", len(msResult.Children),
 				"file", filename,
 			)
+			finalizeImport(&msResult.ParentID, nil)
 			return nil
 		}
 	}
@@ -79,7 +110,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		data, err = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
 	}
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", format, err)
+		importErr := fmt.Errorf("parse %s: %w", format, err)
+		finalizeImport(nil, importErr)
+		return importErr
 	}
 
 	// Must be set on data before ProcessActivity so InsertActivity can persist it.
@@ -91,7 +124,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	})
 	if err != nil {
 		slog.Error("hotfolder: ProcessActivity failed", "file", filename, "error", err)
-		return fmt.Errorf("process activity: %w", err)
+		importErr := fmt.Errorf("process activity: %w", err)
+		finalizeImport(nil, importErr)
+		return importErr
 	}
 
 	// PostProcess (streams, heatmap, events, shadow FS, segment matching …) only
@@ -110,5 +145,12 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		"format", format,
 		"file", filename,
 	)
+
+	// For duplicates/skipped, don't pass activityID so the record shows "skipped".
+	if result.Status == "skipped" {
+		finalizeImport(nil, nil)
+	} else {
+		finalizeImport(&result.ActivityID, nil)
+	}
 	return nil
 }
