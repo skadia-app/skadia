@@ -287,12 +287,17 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               Abbrechen
             </button>
             <button
-              onClick={() => mutation.mutate({
-                regions: selectedRegions,
-                categories: selectedCategories,
-                build_brouter: buildBRouter,
-                build_topology: buildTopology,
-              })}
+              onClick={() => {
+                if ('Notification' in window && Notification.permission === 'default') {
+                  Notification.requestPermission()
+                }
+                mutation.mutate({
+                  regions: selectedRegions,
+                  categories: selectedCategories,
+                  build_brouter: buildBRouter,
+                  build_topology: buildTopology,
+                })
+              }}
               disabled={!canStart}
               className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-50 transition-colors"
             >

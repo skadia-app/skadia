@@ -32,7 +32,16 @@ export function useActiveJobs() {
     const current = data.jobs
 
     for (const job of current) {
-      const wasRunning = prev.find(j => j.id === job.id)?.status === 'running'
+      const prevJob = prev.find(j => j.id === job.id)
+      const wasRunning = prevJob?.status === 'running'
+      if (wasRunning && (job.status === 'completed' || job.status === 'failed')) {
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          const title = job.status === 'completed'
+            ? `${job.entity_name ?? job.job_type} abgeschlossen`
+            : `${job.entity_name ?? job.job_type} fehlgeschlagen`
+          new Notification(title, { icon: '/favicon.ico' })
+        }
+      }
       if (wasRunning && job.status === 'completed') {
         if (job.job_type === 'segment_recompute' && job.entity_id) {
           queryClient.invalidateQueries({ queryKey: ['segment', job.entity_id] })
