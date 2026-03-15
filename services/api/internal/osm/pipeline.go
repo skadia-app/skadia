@@ -705,17 +705,11 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 		return
 	}
 
-	reporter.SetPhase("splitting")
-	reporter.SetProgress(0)
-	slog.Info("osm enrichment: starting intersection splitting")
-
-	if err := SplitAtIntersections(ctx, p.Pool, func(pct int) {
-		reporter.SetProgress(int64(pct))
-	}); err != nil {
-		slog.Error("osm enrichment: intersection splitting failed", "error", err)
-		reporter.Fail("Intersection Splitting fehlgeschlagen: " + err.Error())
-		return
-	}
+	// SplitAtIntersections removed: osm_ways_noded is no longer consumed.
+	// The Go-side topology builder (routing/graph/topology.go: BuildTopology)
+	// reads osm_ways directly and creates per-vertex-pair edges with
+	// coordinate-hashing for intersection detection. pgr_createTopology
+	// was already non-fatal (removed in pgRouting 4.0+).
 
 	reporter.Complete()
 	slog.Info("osm enrichment: completed")
