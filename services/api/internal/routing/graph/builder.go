@@ -124,7 +124,7 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 // LoadWays queries osm_ways from PostGIS and returns RawWays.
 func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT
+		SELECT DISTINCT ON (osm_id)
 			osm_id,
 			ST_AsText(geom) AS geom_wkt,
 			highway,
@@ -150,7 +150,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		WHERE highway IS NOT NULL
 		  AND highway != 'construction'
 		  AND (tags->>'area') IS DISTINCT FROM 'yes'
-		ORDER BY osm_id`)
+		ORDER BY osm_id, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("query osm_ways: %w", err)
 	}
