@@ -791,16 +791,6 @@ func (p *Pipeline) clearOSMData(ctx context.Context, categories []string) error 
 			return err
 		}
 	}
-	// Enrichment-Raster-Tiles invalidieren wenn relevante Kategorien importiert werden
-	enrichmentCats := map[string]bool{"forests": true, "boundaries": true, "landuse": true, "ways": true}
-	for _, cat := range categories {
-		if enrichmentCats[cat] {
-			if _, err := p.Pool.Exec(ctx, "TRUNCATE enrichment.raster_tiles"); err != nil {
-				slog.Warn("clearOSMData: truncate enrichment.raster_tiles failed (may not exist yet)", "error", err)
-			}
-			break
-		}
-	}
 	// osm_ways: Wenn alle Sub-Kategorien gewählt → TRUNCATE (schneller als 3 DELETEs)
 	hasWays, hasFerries, hasClimbing := false, false, false
 	for _, cat := range categories {
@@ -1038,19 +1028,22 @@ func computeCacheMB(totalPBFBytes int64) int {
 		pbfMB = 1
 	}
 
+	// Mindestens 1 GB RAM frei → Cache verwenden
+	if availMB < 1024 {
+		slog.Warn("osm import: insufficient RAM for cache, using --flat-nodes",
+			"available_mb", availMB)
+		return 0
+	}
+
 	// 40% of available RAM
 	cacheMB := availMB * 40 / 100
-	// Cap at 2x PBF size (more is wasteful — all node coords fit in ~1.5x PBF)
-	if maxCache := pbfMB * 2; cacheMB > maxCache {
+	// Cap at 2x PBF size (more is wasteful) — but only if maxCache > 256
+	if maxCache := pbfMB * 2; cacheMB > maxCache && maxCache > 256 {
 		cacheMB = maxCache
 	}
-	// Floor: at least 256 MB if we have enough RAM
+	// Floor: mindestens 256 MB
 	if cacheMB < 256 {
-		if availMB >= 1024 {
-			cacheMB = 256 // Minimum sinnvoller Cache
-		} else {
-			return 0 // Nicht genug RAM → flat-nodes Fallback
-		}
+		cacheMB = 256
 	}
 
 	slog.Info("osm import: cache calculation",

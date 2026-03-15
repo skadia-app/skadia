@@ -333,33 +333,25 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	entityName := "Enrichment Retry"
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, 100)
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_enrichment", nil, &entityName, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
+	enrichCtx, enrichCancel := context.WithCancel(context.Background())
+	osmJobCancels.Store(jobID, enrichCancel)
+
 	go func() {
-		ctx := context.Background()
+		defer osmJobCancels.Delete(jobID)
+		defer enrichCancel()
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
-
-		reporter.SetPhase("enrichment")
-		reporter.SetProgress(0)
-		if err := osmregions.RunSpatialEnrichment(ctx, h.DB.Pool, false, func(pct int) {
-			reporter.SetProgress(int64(pct))
-		}); err != nil {
-			slog.Error("retry enrichment: spatial enrichment failed", "error", err)
+		dataDir := os.Getenv("OSM_DATA_DIR")
+		if dataDir == "" {
+			dataDir = "/data/osm"
 		}
-
-		reporter.SetPhase("splitting")
-		reporter.SetProgress(0)
-		if err := osmregions.SplitAtIntersections(ctx, h.DB.Pool, func(pct int) {
-			reporter.SetProgress(int64(pct))
-		}); err != nil {
-			slog.Error("retry enrichment: splitting failed", "error", err)
-		}
-
-		reporter.Complete()
+		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
+		pipeline.RunEnrichmentAndSplitting(enrichCtx, reporter)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

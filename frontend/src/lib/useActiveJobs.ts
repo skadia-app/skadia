@@ -55,6 +55,10 @@ export function useActiveJobs() {
           queryClient.invalidateQueries({ queryKey: ['osm-status'] })
           queryClient.invalidateQueries({ queryKey: ['osm-regions-status'] })
         }
+        if (job.job_type === 'osm_enrichment') {
+          queryClient.invalidateQueries({ queryKey: ['osm-status'] })
+          queryClient.invalidateQueries({ queryKey: ['osm-regions'] })
+        }
         if (job.job_type === 'garmin_import' || job.job_type === 'strava_import') {
           queryClient.invalidateQueries({ queryKey: ['activities'] })
         }
