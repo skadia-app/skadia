@@ -229,7 +229,10 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var thumbURLPtr *string
+		// Fallback: activity_photo_url selbst als Thumb verwenden, damit ein Re-Upload
+		// niemals einen veralteten Thumb aus einem früheren Upload hinterlässt.
+		thumbURL := req.ActivityPhotoURL
+		thumbURLPtr := &thumbURL
 
 		if req.ActivityPhotoID != "" {
 			// Photo aus DB laden um S3-Key zu bekommen.
@@ -244,7 +247,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 				}
 				photoData, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, srcKey)
 				if dlErr == nil {
-					// imageutil.Resize gibt (nil, nil) wenn Bild bereits ≤ 800×800 — kein Fehler.
+					// imageutil.Resize gibt (nil, nil) wenn Bild bereits ≤ 800×800 — Fallback auf activity_photo_url.
 					thumbData, resizeErr := imageutil.Resize(photoData, 800, 800, 85)
 					if resizeErr == nil && thumbData != nil {
 						thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
@@ -253,6 +256,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 							thumbURLPtr = &u
 						} else {
 							slog.Warn("upload tag cover thumb from photo failed", "error", ulErr)
+							// Fallback auf activity_photo_url bleibt
 						}
 					}
 				} else {
@@ -318,26 +322,22 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Thumbnail generieren (800×800 px, quadratisch).
-	// Hinweis: imageutil.Resize gibt (nil, nil) zurück wenn das Bild bereits ≤ 800×800 ist
-	// (kein Upscaling). In diesem Fall bleibt thumbURLPtr nil — das ist kein Fehler, sondern
-	// gewolltes Verhalten: das Frontend fällt auf cover_image_url zurück.
+	// imageutil.Resize gibt (nil, nil) zurück wenn das Bild bereits ≤ 800×800 ist (kein Upscaling).
+	// In beiden Fällen (kein Thumb oder Thumb-Upload-Fehler) verwenden wir coverURL als Thumb,
+	// damit ein Re-Upload eines kleinen Bildes keinen veralteten Thumb aus dem Vorgänger-Upload hinterlässt.
 	thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
-	var thumbURL string
+	coverURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
+	thumbURL := coverURL // Fallback: Cover ist sein eigenes Thumbnail
 	thumbData, thumbErr := imageutil.Resize(data, 800, 800, 85)
 	if thumbErr == nil && thumbData != nil {
 		if uploadErr := h.Storage.UploadToBucket(r.Context(), bucket, thumbKey, thumbData, "image/jpeg"); uploadErr != nil {
 			slog.Warn("s3 upload tag cover thumb failed", "error", uploadErr)
-			// Thumb-Fehler ist nicht fatal — weiter ohne Thumb
+			// Thumb-Fehler ist nicht fatal — Fallback auf coverURL bleibt
 		} else {
 			thumbURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, thumbKey)
 		}
 	}
-
-	coverURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
-	var thumbURLPtr *string
-	if thumbURL != "" {
-		thumbURLPtr = &thumbURL
-	}
+	thumbURLPtr := &thumbURL
 	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL, thumbURLPtr)
 	if err != nil {
 		slog.Error("update tag cover_image_url failed", "error", err)

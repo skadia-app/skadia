@@ -92,6 +92,7 @@ func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bo
 func jobCompletionTitle(jobType string, entityName *string, failed bool) string {
 	labels := map[string]string{
 		"osm_import":              "OSM-Import",
+		"osm_enrichment":          "OSM-Anreicherung",
 		"garmin_import":           "Garmin-Import",
 		"strava_import":           "Strava-Import",
 		"komoot_import":           "Komoot-Import",
