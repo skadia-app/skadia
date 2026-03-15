@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, CheckCircle2, XCircle, Settings, AlertTriangle, Wrench, MessageCircle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/auth'
 import { apiClient } from '@/api/client'
 
 interface Notification {
@@ -62,9 +61,7 @@ export default function NotificationCenter() {
 
   async function fetchNotifications() {
     try {
-      const res = await apiFetch('/api/v1/notifications?limit=30')
-      if (!res.ok) return
-      const data = await res.json() as { items: Notification[]; unread_count: number }
+      const data = await apiClient<{ items: Notification[]; unread_count: number }>('/notifications?limit=30')
       setNotifications(data.items ?? [])
       queryClient.setQueryData(UNREAD_KEY, { unread_count: data.unread_count })
     } catch {
@@ -74,7 +71,7 @@ export default function NotificationCenter() {
 
   async function markAllRead() {
     try {
-      await apiFetch('/api/v1/notifications/read-all', { method: 'POST' })
+      await apiClient('/notifications/read-all', { method: 'POST' })
       queryClient.setQueryData(UNREAD_KEY, { unread_count: 0 })
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
     } catch {
@@ -94,7 +91,7 @@ export default function NotificationCenter() {
       }))
     }
     try {
-      await apiFetch(`/api/v1/notifications/${id}`, { method: 'DELETE' })
+      await apiClient(`/notifications/${id}`, { method: 'DELETE' })
     } catch {
       // Bei Fehler Liste neu laden
       fetchNotifications()
@@ -107,7 +104,7 @@ export default function NotificationCenter() {
     setNotifications([])
     queryClient.setQueryData(UNREAD_KEY, { unread_count: 0 })
     try {
-      await apiFetch('/api/v1/notifications', { method: 'DELETE' })
+      await apiClient('/notifications', { method: 'DELETE' })
     } catch {
       // Bei Fehler Liste neu laden
       fetchNotifications()
