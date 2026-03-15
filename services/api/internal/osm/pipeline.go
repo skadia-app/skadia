@@ -1567,7 +1567,8 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		slog.Warn("osm import: failed to update region status", "region", regionID, "error", regErr)
 	}
 
-	reporter.Complete()
+	// NOTE: reporter.Complete() is NOT called here — the caller manages job completion
+	// because multiple regions share one reporter in sequential mode.
 	slog.Info("osm import: per-region import completed", "region", regionID,
 		"duration_s", durationS)
 	return true

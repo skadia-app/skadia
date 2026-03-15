@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -155,14 +156,28 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		pipeline.DataDir = "/data/osm"
 	}
 	reporter := &jobReporter{db: h.DB, jobID: jobID}
-	success := pipeline.Run(ctx, regions, osmregions.PipelineConfig{
-		Categories:    req.Categories,
-		BuildBRouter:  req.BuildBRouter,
-		BuildTopology: req.BuildTopology,
-	}, reporter)
 
-	// Enrichment NUR starten wenn Import erfolgreich war
-	if !success || !slices.Contains(req.Categories, "ways") {
+	// Sequentiell: jede Region einzeln importieren
+	for i, reg := range regions {
+		if ctx.Err() != nil {
+			break
+		}
+		reporter.SetPhase(fmt.Sprintf("region_%d_%s", i+1, reg.ID))
+		slog.Info("osm import: importing region", "region", reg.ID, "index", i+1, "total", len(regions))
+
+		if !pipeline.RunPerRegion(ctx, reg, osmregions.PipelineConfig{
+			Categories:    req.Categories,
+			BuildBRouter:  req.BuildBRouter,
+			BuildTopology: req.BuildTopology,
+		}, reporter) {
+			return // RunPerRegion hat reporter.Fail() aufgerufen
+		}
+	}
+
+	reporter.Complete()
+
+	// Enrichment NUR starten wenn ways importiert wurden
+	if !slices.Contains(req.Categories, "ways") {
 		return
 	}
 
