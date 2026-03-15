@@ -415,6 +415,18 @@ function classify_poi(tags)
         end
     end
 
+    -- Flughäfen/Flugplätze inkl. Segelflugplätze (als Node-POI)
+    if (import_all or import_transport) then
+        if tags.aeroway == 'aerodrome' then
+            table.insert(results, {
+                category = 'aerodrome',
+                poi_type = 'aeroway',
+                subtype  = tags['aerodrome:type'] or 'unknown',
+                extra_tags = build_tags(tags, {'iata','icao','operator','aerodrome:type'}),
+            })
+        end
+    end
+
     -- Parking
     if (import_all or import_infrastructure) then
         if tags.amenity == 'parking' then
@@ -471,6 +483,18 @@ function classify_poi(tags)
             table.insert(results, {
                 category = 'sport', poi_type = 'leisure', subtype = tags.leisure,
                 extra_tags = build_tags(tags, {'sport','access'}),
+            })
+        end
+    end
+
+    -- Schießstände (Noise-Quelle, unter Sport)
+    if (import_all or import_sport) then
+        if tags.leisure == 'shooting_range' then
+            table.insert(results, {
+                category = 'shooting_range',
+                poi_type = 'leisure',
+                subtype  = 'shooting_range',
+                extra_tags = build_tags(tags, {'name','operator','sport'}),
             })
         end
     end
@@ -829,7 +853,7 @@ function osm2pgsql.process_way(object)
         local landuse_types = {
             farmland=true, meadow=true, orchard=true, vineyard=true,
             industrial=true, retail=true, commercial=true, quarry=true,
-            residential=true
+            residential=true, military=true, landfill=true
         }
         if tags.landuse and landuse_types[tags.landuse] and object.is_closed then
             tables.landuse:insert({
@@ -850,6 +874,21 @@ function osm2pgsql.process_way(object)
                 name    = tags.name,
                 railway = tags.railway,
                 geom    = object:as_linestring(),
+            })
+        end
+    end
+
+    -- Flughäfen als Flächen (geschlossene Ways)
+    if (import_all or import_transport) then
+        if tags.aeroway == 'aerodrome' and object.is_closed then
+            tables.pois:insert({
+                osm_id   = object.id,
+                name     = tags.name,
+                category = 'aerodrome',
+                type     = 'aeroway',
+                subtype  = tags['aerodrome:type'] or 'unknown',
+                tags     = build_tags(tags, {'iata','icao','operator','aerodrome:type'}),
+                geom     = object:as_polygon(),
             })
         end
     end
@@ -983,7 +1022,7 @@ function osm2pgsql.process_relation(object)
         local landuse_types = {
             farmland=true, meadow=true, orchard=true, vineyard=true,
             industrial=true, retail=true, commercial=true, quarry=true,
-            residential=true
+            residential=true, military=true, landfill=true
         }
         if tags.type == 'multipolygon' and tags.landuse and landuse_types[tags.landuse] then
             local mp = object:as_multipolygon()

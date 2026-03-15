@@ -34,7 +34,7 @@ const ALL_CATEGORIES = [
   { id: 'glaciers',       label: 'Gletscher',                group: 'Flächen' },
   { id: 'wetlands',       label: 'Feuchtgebiete & Moore',    group: 'Flächen' },
   { id: 'boundaries',     label: 'Grenzen & Schutzgebiete',   group: 'Flächen' },
-  { id: 'landuse',        label: 'Landnutzung (Felder, Industrie)', group: 'Flächen' },
+  { id: 'landuse',        label: 'Landnutzung (Felder, Industrie, Militär)', group: 'Flächen' },
   // Wege (additional)
   { id: 'railways',       label: 'Eisenbahnlinien',            group: 'Wege' },
 ] as const
