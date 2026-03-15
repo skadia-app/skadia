@@ -712,7 +712,9 @@ export default function MapPage() {
   const selectedLocationTag = selectedLocationTagId
     ? (locationTags.find(t => t.id === selectedLocationTagId) ?? null)
     : null
-  const coverImageBlobUrl = useAuthImage(selectedLocationTag?.cover_image_url)
+  const coverImageBlobUrl = useAuthImage(
+    selectedLocationTag?.cover_image_thumb_url ?? selectedLocationTag?.cover_image_url
+  )
 
   const updateTagLocationMutation = useMutation({
     mutationFn: ({ id, lat, lng }: { id: string; lat: number; lng: number }) =>
@@ -2617,12 +2619,9 @@ export default function MapPage() {
                   )}
                   <button
                     onClick={async () => {
-                      await clearTagCoverImage(selectedLocationTag.id)
+                      const clearedTag = await clearTagCoverImage(selectedLocationTag.id)
                       queryClient.setQueryData<Tag[]>(['tags'], old =>
-                        old?.map(t => t.id === selectedLocationTag.id
-                          ? { ...t, cover_image_url: undefined }
-                          : t
-                        ) ?? []
+                        old?.map(t => t.id === selectedLocationTag.id ? clearedTag : t) ?? []
                       )
                     }}
                     className="absolute top-1.5 right-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs cursor-pointer"
@@ -2647,13 +2646,10 @@ export default function MapPage() {
                       if (!file) return
                       const { uploadTagCoverImage } = await import('@/api/tags')
                       try {
-                        const result = await uploadTagCoverImage(selectedLocationTag.id, file)
+                        const updatedTag = await uploadTagCoverImage(selectedLocationTag.id, file)
                         // Sofort im Cache aktualisieren → live ohne Refetch-Verzögerung
                         queryClient.setQueryData<Tag[]>(['tags'], old =>
-                          old?.map(t => t.id === selectedLocationTag.id
-                            ? { ...t, cover_image_url: result.cover_image_url }
-                            : t
-                          ) ?? []
+                          old?.map(t => t.id === selectedLocationTag.id ? updatedTag : t) ?? []
                         )
                       } catch (err) {
                         console.error('Cover image upload failed:', err)
@@ -2772,12 +2768,9 @@ export default function MapPage() {
                             onClick={async () => {
                               if (tagGallerySelectMode) {
                                 const { setTagCoverImageFromPhoto } = await import('@/api/tags')
-                                const result = await setTagCoverImageFromPhoto(selectedLocationTag.id, photo.full_url)
+                                const updatedTag = await setTagCoverImageFromPhoto(selectedLocationTag.id, photo.full_url, photo.id)
                                 queryClient.setQueryData<Tag[]>(['tags'], old =>
-                                  old?.map(t => t.id === selectedLocationTag.id
-                                    ? { ...t, cover_image_url: result.cover_image_url }
-                                    : t
-                                  ) ?? []
+                                  old?.map(t => t.id === selectedLocationTag.id ? updatedTag : t) ?? []
                                 )
                                 setTagGallerySelectMode(false)
                               } else {

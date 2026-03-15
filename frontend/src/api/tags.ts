@@ -57,6 +57,8 @@ export interface Tag {
   created_at: string
   // Optional cover image URL for the location tag popup.
   cover_image_url?: string | null
+  // Optional thumbnail URL for the cover image (if available).
+  cover_image_thumb_url?: string | null
   // Optional geo-coordinates — when set, the tag acts as a "location tag".
   lat?: number | null
   lng?: number | null
@@ -179,24 +181,23 @@ export async function syncTagLocation(tagId: string): Promise<{ updated_count: n
  * sourceId is deleted afterwards.
  * Returns the surviving (target) tag.
  */
-export async function uploadTagCoverImage(tagId: string, file: File): Promise<{ cover_image_url: string }> {
+export async function uploadTagCoverImage(tagId: string, file: File): Promise<Tag> {
   const formData = new FormData()
   formData.append('image', file)
-  return apiUpload<{ cover_image_url: string }>(`/tags/${tagId}/cover-image`, formData)
+  const tag = await apiUpload<Tag>(`/tags/${tagId}/cover-image`, formData)
+  return normaliseTag(tag)
 }
 
-export async function setTagCoverImageFromPhoto(tagId: string, photoUrl: string): Promise<{ cover_image_url: string }> {
-  return apiClient<{ cover_image_url: string }>(`/tags/${tagId}/cover-image`, {
+export async function setTagCoverImageFromPhoto(tagId: string, photoUrl: string, photoId: string): Promise<Tag> {
+  const tag = await apiClient<Tag>(`/tags/${tagId}/cover-image`, {
     method: 'POST',
-    body: { activity_photo_url: photoUrl },
+    body: { activity_photo_url: photoUrl, activity_photo_id: photoId },
   })
+  return normaliseTag(tag)
 }
 
 export async function clearTagCoverImage(tagId: string): Promise<Tag> {
-  const tag = await apiClient<Tag>(`/tags/${tagId}`, {
-    method: 'PATCH',
-    body: { cover_image_url: null },
-  })
+  const tag = await apiClient<Tag>(`/tags/${tagId}/cover-image`, { method: 'DELETE' })
   return normaliseTag(tag)
 }
 
