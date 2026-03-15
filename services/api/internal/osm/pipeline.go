@@ -665,6 +665,36 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	reporter.SetProgress(0)
 	slog.Info("osm enrichment: starting spatial enrichment")
 
+	// Build subdivided polygon tables for faster spatial joins.
+	// Must run AFTER all regions are imported (not per-region, otherwise DROP destroys prior regions).
+	// Uses regular tables (not UNLOGGED) to survive PostgreSQL crash.
+	slog.Info("osm enrichment: building subdivided polygon tables")
+	// Each table may need extra columns carried forward (e.g., osm_landuse needs "landuse"
+	// for WHERE filtering in EnrichLanduseFromPolygons point-sampling).
+	subdivideSpecs := []struct{ table, extra string }{
+		{"osm_forests", ""},
+		{"osm_boundaries", ""},
+		{"osm_landuse", ", landuse"},
+	}
+	for _, spec := range subdivideSpecs {
+		subTable := spec.table + "_subdivided"
+		stmts := []string{
+			fmt.Sprintf("DROP TABLE IF EXISTS %s", subTable),
+			fmt.Sprintf(`CREATE TABLE %s AS
+				SELECT osm_id, source_region%s, (ST_Dump(ST_Subdivide(geom, 128))).geom AS geom
+				FROM %s`, subTable, spec.extra, spec.table),
+			fmt.Sprintf("CREATE INDEX ON %s USING GIST (geom)", subTable),
+			fmt.Sprintf("ANALYZE %s", subTable),
+		}
+		for _, stmt := range stmts {
+			if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+				slog.Warn("osm enrichment: subdivide failed (non-fatal)", "table", spec.table, "error", err)
+				break
+			}
+		}
+	}
+	slog.Info("osm enrichment: subdivided polygon tables built")
+
 	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(pct int) {
 		reporter.SetProgress(int64(pct))
 	}); err != nil {

@@ -87,8 +87,23 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 		slog.Warn("enrichment protected_area: SET work_mem failed (non-fatal)", "error", err)
 	}
 
+	// Prüfe ob subdivided Tabelle existiert (Fallback auf Original sonst)
+	var boundarySubExists bool
+	conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_boundaries_subdivided')").Scan(&boundarySubExists) //nolint:errcheck
+	boundaryTable := "osm_boundaries"
+	if boundarySubExists {
+		boundaryTable = "osm_boundaries_subdivided"
+	} else {
+		slog.Warn("enrichment: osm_boundaries_subdivided not found, falling back to osm_boundaries")
+	}
+
 	// AND w.protected_area IS NULL — nur resettete Ways
-	_, err = conn.Exec(ctx, `
+	// If subdivided table exists: join against subdivided (tight BBs → fast GIST),
+	// then back to original for boundary_type filtering.
+	// If fallback: simple join directly against osm_boundaries.
+	var stagingSQL string
+	if boundarySubExists {
+		stagingSQL = fmt.Sprintf(`
 		DROP TABLE IF EXISTS _protected;
 		CREATE UNLOGGED TABLE _protected AS
 		SELECT w.way_id,
@@ -98,12 +113,26 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 				ELSE 1
 			END)::SMALLINT AS level
 		FROM osm_ways w
-		JOIN osm_boundaries b ON ST_Intersects(w.geom, b.geom)
-		WHERE w.highway IS NOT NULL
-		  AND w.protected_area IS NULL
-		  AND b.boundary_type IN ('protected_area','national_park')
-		GROUP BY w.way_id
-	`)
+		JOIN %s bs ON ST_Intersects(w.geom, bs.geom)
+		JOIN osm_boundaries b ON b.osm_id = bs.osm_id AND b.boundary_type IN ('protected_area','national_park')
+		WHERE w.highway IS NOT NULL AND w.protected_area IS NULL
+		GROUP BY w.way_id`, boundaryTable)
+	} else {
+		stagingSQL = `
+		DROP TABLE IF EXISTS _protected;
+		CREATE UNLOGGED TABLE _protected AS
+		SELECT w.way_id,
+			MAX(CASE
+				WHEN b.protect_class IN ('1','1a','1b') THEN 3
+				WHEN b.protect_class IN ('2','3','4') THEN 2
+				ELSE 1
+			END)::SMALLINT AS level
+		FROM osm_ways w
+		JOIN osm_boundaries b ON ST_Intersects(w.geom, b.geom) AND b.boundary_type IN ('protected_area','national_park')
+		WHERE w.highway IS NOT NULL AND w.protected_area IS NULL
+		GROUP BY w.way_id`
+	}
+	_, err = conn.Exec(ctx, stagingSQL)
 	if err != nil {
 		return fmt.Errorf("enrichment protected_area: create staging: %w", err)
 	}
