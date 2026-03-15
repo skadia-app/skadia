@@ -218,7 +218,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool) error {
 		{"routing_grid", `
 			CREATE TEMP TABLE routing_grid AS
 			SELECT (ST_SquareGrid(0.09,
-				(SELECT ST_Expand(ST_Extent(geom), 0.45) FROM osm_ways WHERE highway IS NOT NULL)
+				(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.45)::geometry, 4326) FROM osm_ways WHERE highway IS NOT NULL)
 			)).geom
 		`},
 		// ST_Length via ::geography for accurate meter-based density
@@ -513,7 +513,9 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 	groupByClause := strings.Join(groupByCols, ", ")
 
 	// SELECT list for split_ways: way_id → nextval, geom → ST_Dump(ST_Split(...)),
-	// all other columns forwarded as w.<col>.
+	// source/target → NULL (set later by topology builder), all other columns forwarded.
+	// Note: source/target may already exist in allCols after schema-restore — treat them
+	// as NULL placeholders here (the split segments start without topology info).
 	var selectParts []string
 	for _, col := range allCols {
 		switch col {
@@ -521,12 +523,14 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 			selectParts = append(selectParts, "nextval('osm_ways_noded_way_id_seq')")
 		case "geom":
 			selectParts = append(selectParts, "(ST_Dump(ST_Split(w.geom, w.split_points))).geom")
+		case "source", "target":
+			selectParts = append(selectParts, "NULL::BIGINT")
 		default:
 			selectParts = append(selectParts, "w."+col)
 		}
 	}
-	// Append noded-only columns
-	selectParts = append(selectParts, "w.way_id AS parent_way_id", "NULL::BIGINT", "NULL::BIGINT")
+	// Append noded-only column (parent_way_id is not in osm_ways)
+	selectParts = append(selectParts, "w.way_id AS parent_way_id")
 	selectClause := strings.Join(selectParts, ",\n\t\t\t\t")
 
 	splitWaysSQL := fmt.Sprintf(`
@@ -583,7 +587,7 @@ func SplitAtIntersections(ctx context.Context, pool *pgxpool.Pool, progressFn fu
 		`},
 		{"copy_unsplit_ways", 50, `
 			INSERT INTO osm_ways_noded
-			SELECT w.*, w.way_id AS parent_way_id, NULL::BIGINT AS source, NULL::BIGINT AS target
+			SELECT w.*, w.way_id AS parent_way_id
 			FROM osm_ways w
 			WHERE w.highway IS NOT NULL
 			  AND NOT EXISTS (

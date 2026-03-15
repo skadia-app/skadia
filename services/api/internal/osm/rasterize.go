@@ -53,7 +53,7 @@ func RasterizeForest(ctx context.Context, pool *pgxpool.Pool) error {
 			10.0
 		FROM osm_forests f,
 			 (SELECT geom FROM ST_SquareGrid(0.45,
-				(SELECT ST_Expand(ST_Extent(geom), 0.01)
+				(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326)
 				 FROM osm_ways WHERE highway IS NOT NULL))) tile
 		WHERE ST_Intersects(f.geom, tile.geom)
 		GROUP BY tile.geom
@@ -104,7 +104,7 @@ func RasterizeProtected(ctx context.Context, pool *pgxpool.Pool) error {
 				25.0
 			FROM osm_boundaries b,
 				 (SELECT geom FROM ST_SquareGrid(0.45,
-					(SELECT ST_Expand(ST_Extent(geom), 0.01)
+					(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326)
 					 FROM osm_ways WHERE highway IS NOT NULL))) tile
 			WHERE (%s)
 			  AND ST_Intersects(b.geom, tile.geom)
@@ -158,7 +158,7 @@ func RasterizeLanduse(ctx context.Context, pool *pgxpool.Pool) error {
 				25.0
 			FROM osm_landuse lu,
 				 (SELECT geom FROM ST_SquareGrid(0.45,
-					(SELECT ST_Expand(ST_Extent(geom), 0.01)
+					(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326)
 					 FROM osm_ways WHERE highway IS NOT NULL))) tile
 			WHERE lu.landuse IN (%s)
 			  AND ST_Intersects(lu.geom, tile.geom)
@@ -186,7 +186,7 @@ func SampleForestPct(ctx context.Context, pool *pgxpool.Pool) error {
 			data_extent GEOMETRY;
 			processed INT := 0;
 		BEGIN
-			SELECT ST_Expand(ST_Extent(geom), 0.01) INTO data_extent
+			SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326) INTO data_extent
 			FROM osm_ways WHERE highway IS NOT NULL;
 			IF data_extent IS NULL THEN
 				RAISE NOTICE 'No osm_ways found';
@@ -244,7 +244,7 @@ func SampleProtectedArea(ctx context.Context, pool *pgxpool.Pool) error {
 			data_extent GEOMETRY;
 			processed INT := 0;
 		BEGIN
-			SELECT ST_Expand(ST_Extent(geom), 0.01) INTO data_extent
+			SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326) INTO data_extent
 			FROM osm_ways WHERE highway IS NOT NULL;
 			IF data_extent IS NULL THEN RETURN; END IF;
 
@@ -296,7 +296,7 @@ func SampleLanduse(ctx context.Context, pool *pgxpool.Pool) error {
 			data_extent GEOMETRY;
 			processed INT := 0;
 		BEGIN
-			SELECT ST_Expand(ST_Extent(geom), 0.01) INTO data_extent
+			SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.01)::geometry, 4326) INTO data_extent
 			FROM osm_ways WHERE highway IS NOT NULL;
 			IF data_extent IS NULL THEN RETURN; END IF;
 
