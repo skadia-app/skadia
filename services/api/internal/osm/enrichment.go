@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/sync/errgroup"
 )
 
 // validWKTRe validates that a WKT string is a safe POLYGON (defense in depth against SQL injection).
@@ -65,18 +64,25 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// === Phase 1: Polygon-basierte Spatial Joins (parallel with deadlock retry) ===
-	// The three enrichment functions UPDATE different columns on the same osm_ways rows.
-	// PostgreSQL row-level locks can cause deadlocks when concurrent UPDATEs hit
-	// overlapping rows in different order. The functions are idempotent (WHERE col IS NULL
-	// guards + DROP IF EXISTS on staging tables), so retry is safe.
-	slog.Info("enrichment: phase 1 — spatial joins (parallel)")
-	g1, ctx1 := errgroup.WithContext(ctx)
-	g1.Go(func() error { return withDeadlockRetry(ctx1, "forest_pct", func() error { return EnrichForestPct(ctx1, pool, bboxClause) }) })
-	g1.Go(func() error { return withDeadlockRetry(ctx1, "protected_area", func() error { return EnrichProtectedArea(ctx1, pool, bboxClause) }) })
-	g1.Go(func() error { return withDeadlockRetry(ctx1, "landuse_from_polygons", func() error { return EnrichLanduseFromPolygons(ctx1, pool, bboxClause) }) })
-	if err := g1.Wait(); err != nil {
-		return fmt.Errorf("enrichment phase 1 (spatial joins): %w", err)
+	// === Phase 1: Polygon-basierte Spatial Joins (sequential) ===
+	// Sequential because parallel UPDATEs on the same osm_ways rows cause PostgreSQL
+	// deadlocks (row-level locks) and mutual I/O contention — no net speedup.
+	// CH benchmark: parallel with retries took ~40 min for Phase 1; sequential avoids
+	// all lock overhead and should be comparable or faster.
+	slog.Info("enrichment: phase 1 — spatial joins (sequential)")
+	for _, step := range []struct {
+		name string
+		fn   func(context.Context, *pgxpool.Pool, string) error
+	}{
+		{"forest_pct", EnrichForestPct},
+		{"protected_area", EnrichProtectedArea},
+		{"landuse_from_polygons", EnrichLanduseFromPolygons},
+	} {
+		slog.Info("enrichment: starting " + step.name)
+		if err := step.fn(ctx, pool, bboxClause); err != nil {
+			return fmt.Errorf("enrichment phase 1 (%s): %w", step.name, err)
+		}
+		slog.Info("enrichment: " + step.name + " done")
 	}
 	report(40)
 
