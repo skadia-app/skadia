@@ -332,7 +332,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			VALUES ($1, $2, $3, $4, $5, $6, 'imported')
 			ON CONFLICT (region_id) DO UPDATE SET
 				imported_at = now(), pbf_size_bytes = $4,
-				categories = (SELECT ARRAY(SELECT DISTINCT unnest(osm_import_regions.categories || $5::text[]))),
+				categories = $5,
 				import_duration_s = $6, status = 'imported'`,
 			reg.ID, reg.Label, reg.Continent, pbfSize, categories, durationS)
 		if regErr != nil {
