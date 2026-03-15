@@ -23,6 +23,17 @@ const maxResumableJobAge = 4 * time.Hour
 // (leftovers from the previous server process) and either resumes or cancels them.
 // Must be called after the Handler is fully initialised.
 func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
+	// Reset aggressive PG import settings that may persist after container crash
+	for _, stmt := range []string{
+		"ALTER SYSTEM RESET maintenance_work_mem",
+		"ALTER SYSTEM RESET max_parallel_maintenance_workers",
+		"SELECT pg_reload_conf()",
+	} {
+		if _, err := h.DB.Pool.Exec(ctx, stmt); err != nil {
+			slog.Warn("resume: PG settings reset failed (non-fatal)", "error", err)
+		}
+	}
+
 	jobs, err := h.DB.ListStaleRunningJobs(ctx)
 	if err != nil {
 		slog.Warn("resume: failed to list stale jobs", "error", err)
