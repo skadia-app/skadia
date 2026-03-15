@@ -173,12 +173,19 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify region exists before doing any work
-	var exists bool
-	h.DB.Pool.QueryRow(r.Context(),
-		`SELECT EXISTS(SELECT 1 FROM osm_import_regions WHERE region_id = $1)`, regionID).Scan(&exists)
-	if !exists {
-		writeError(w, http.StatusNotFound, "Not Found", "region not found", r.URL.Path)
+	// Fetch status (also verifies the region exists)
+	var status string
+	err := h.DB.Pool.QueryRow(r.Context(),
+		"SELECT status FROM osm_import_regions WHERE region_id = $1", regionID).Scan(&status)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Not Found", "Region nicht gefunden", r.URL.Path)
+		return
+	}
+	if status == "importing" {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "importing",
+			"message": "Region wird gerade importiert — Löschen nicht möglich",
+		})
 		return
 	}
 
@@ -520,6 +527,8 @@ func (h *Handler) checkAndRunScheduledUpdates(ctx context.Context) {
 		slog.Info("osm scheduler: update due", "region", regionID, "label", label, "interval", interval)
 		// TODO(T11): trigger patchPBF + reimport as background job
 		// patchPBF and full reimport will be wired up during T11 integration testing
+		slog.Warn("osm scheduler: update due but auto-update not yet implemented — manual reimport required",
+			"region", regionID, "interval", interval)
 	}
 }
 
@@ -534,7 +543,10 @@ func isUpdateDue(interval string, weekday, day, hour int, importedAt, now time.T
 		if daysSince < 6 {
 			return false
 		}
-		return int(now.Weekday()) == weekday && now.Hour() == hour
+		// Convert Go weekday (Sunday=0…Saturday=6) to ISO 8601 (Monday=1…Sunday=7)
+		// so that a stored value of 7 (ISO Sunday) matches correctly.
+		isoWeekday := (int(now.Weekday())+6)%7 + 1 // Monday=1…Sunday=7
+		return isoWeekday == weekday && now.Hour() == hour
 	case "monthly":
 		if now.Day() != day {
 			return false
