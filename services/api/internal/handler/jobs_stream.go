@@ -41,16 +41,19 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.Events == nil {
-		// NATS nicht konfiguriert — nur keepalives senden bis Client trennt.
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
+		// NATS nicht konfiguriert — re-send job list periodically.
+		jobTicker := time.NewTicker(5 * time.Second)
+		defer jobTicker.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
-				fmt.Fprintf(w, ": keepalive\n\n")
-				flusher.Flush()
+			case <-jobTicker.C:
+				if jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID); err == nil {
+					data, _ := json.Marshal(jobs)
+					fmt.Fprintf(w, "event: init\ndata: %s\n\n", data)
+					flusher.Flush()
+				}
 			}
 		}
 	}
@@ -72,8 +75,12 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sub.Unsubscribe()
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	// Re-send job list periodically so the UI picks up status changes
+	// (completed/failed) without relying solely on client-side polling.
+	jobTicker := time.NewTicker(5 * time.Second)
+	defer jobTicker.Stop()
+	keepaliveTicker := time.NewTicker(30 * time.Second)
+	defer keepaliveTicker.Stop()
 
 	for {
 		select {
@@ -98,7 +105,14 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
 			flusher.Flush()
 
-		case <-ticker.C:
+		case <-jobTicker.C:
+			if jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID); err == nil {
+				data, _ := json.Marshal(jobs)
+				fmt.Fprintf(w, "event: init\ndata: %s\n\n", data)
+				flusher.Flush()
+			}
+
+		case <-keepaliveTicker.C:
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}

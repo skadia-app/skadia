@@ -61,6 +61,9 @@ export function useJobStream() {
 
                 if (currentEvent === 'init') {
                   qc.setQueryData(['active-jobs'], { jobs: data, pending_enrichments: 0 })
+                  // Also invalidate to ensure polling picks up any changes that
+                  // happened between SSE reconnects (staleTime could prevent refetch)
+                  qc.invalidateQueries({ queryKey: ['active-jobs'] })
                 } else if (currentEvent === 'progress') {
                   qc.invalidateQueries({ queryKey: ['active-jobs'] })
                   if (data.status === 'done') {
