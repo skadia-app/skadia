@@ -1145,19 +1145,19 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 		return fmt.Errorf("invalid staging schema name: %q", stagingSchema)
 	}
 
-	// getStagingColumns returns the intersection of columns in both staging and public schemas,
-	// excluding auto-generated ID columns. This is robust against schema changes — staging only
-	// has Lua-defined columns, public has Lua + migration columns (enrichment etc.).
-	// Intersection = only Lua columns = exactly what we want to copy.
-	getStagingColumns := func(table string) ([]string, error) {
+	// getStagingColumns returns the intersection of columns in both staging and public schemas.
+	// excludeCols allows excluding auto-generated ID columns that public generates via sequence.
+	// Only osm_ways excludes way_id (router needs sequential IDs for version ordering).
+	// All other tables copy their IDs from staging (deterministic OSM IDs, no routing involvement).
+	getStagingColumns := func(table string, excludeCols ...string) ([]string, error) {
 		rows, err := q.Query(ctx, `
 			SELECT s.column_name
 			FROM information_schema.columns s
 			JOIN information_schema.columns p
 			  ON p.table_schema = 'public' AND p.table_name = s.table_name AND p.column_name = s.column_name
 			WHERE s.table_schema = $1 AND s.table_name = $2
-			  AND s.column_name NOT IN ('way_id', 'id')
-			ORDER BY s.ordinal_position`, stagingSchema, table)
+			  AND ($3::text[] IS NULL OR s.column_name != ALL($3))
+			ORDER BY s.ordinal_position`, stagingSchema, table, excludeCols)
 		if err != nil {
 			return nil, err
 		}
@@ -1176,7 +1176,7 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 	// === osm_ways: dynamic columns, NO ON CONFLICT (duplicates allowed) ===
 	// Lua can insert same osm_id multiple times (highway+ferry), so no UNIQUE.
 	// Border duplicates (~0.1%) are acceptable. Graph builder uses DISTINCT ON (osm_id).
-	wayCols, err := getStagingColumns("osm_ways")
+	wayCols, err := getStagingColumns("osm_ways", "way_id")
 	if err != nil {
 		return fmt.Errorf("get way columns: %w", err)
 	}

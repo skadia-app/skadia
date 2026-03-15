@@ -57,7 +57,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 	}
 
 	// Phase 3: Default 0 für Ways ohne Wald-Überlappung
-	_, err = conn.Exec(ctx, "UPDATE osm_ways SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
 	if err != nil {
 		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
 		return fmt.Errorf("enrichment forest_pct: default: %w", err)
@@ -117,7 +117,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 		return fmt.Errorf("enrichment protected_area: update: %w", err)
 	}
 
-	_, err = conn.Exec(ctx, "UPDATE osm_ways SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
 	if err != nil {
 		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _protected") //nolint:errcheck
 		return fmt.Errorf("enrichment protected_area: default: %w", err)
@@ -181,7 +181,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 		return fmt.Errorf("enrichment landuse_polygons: update: %w", err)
 	}
 
-	_, err = conn.Exec(ctx, "UPDATE osm_ways SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
+	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
 	if err != nil {
 		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
 		return fmt.Errorf("enrichment landuse_polygons: default: %w", err)

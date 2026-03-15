@@ -150,7 +150,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		WHERE highway IS NOT NULL
 		  AND highway != 'construction'
 		  AND (tags->>'area') IS DISTINCT FROM 'yes'
-		ORDER BY osm_id, id DESC`)
+		ORDER BY osm_id, way_id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("query osm_ways: %w", err)
 	}
