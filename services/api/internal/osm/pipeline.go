@@ -1227,9 +1227,19 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 		}
 	}
 
-	// [C2] osm_route_way_members: copy Lua-extracted route memberships
+	// [C2] osm_route_way_members: clean stale memberships for this region's routes,
+	// then re-insert current memberships from staging.
+	// Routes were just cleared and re-inserted above, so staging contains the authoritative set.
+	_, err = q.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM osm_route_way_members m
+		WHERE m.route_osm_id IN (
+			SELECT osm_id FROM %s.osm_routes
+		)`, stagingSchema))
+	if err != nil {
+		slog.Warn("osm import: stale route_way_members cleanup failed", "error", err)
+	}
+
 	// No ON CONFLICT — osm2pgsql --create drops PK constraints from Lua tables.
-	// WHERE NOT EXISTS to avoid duplicates.
 	_, err = q.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO public.osm_route_way_members (route_osm_id, way_osm_id, source)
 		SELECT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
@@ -1596,16 +1606,31 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	}
 
 	// [I3] PBF NOT deleted — kept for future updates/patching.
-	// Replication info extraction is handled by Task 8 (osmium.go).
-	// For now, store what we have.
+	// Extract replication metadata from the PBF header so the DB reflects the
+	// actual data date and replication coordinates rather than import-wall-clock.
+	replURL, replSeq, _ := extractReplicationInfo(pbfPath)
+	dataDate, _ := extractReplicationTimestamp(pbfPath)
+
+	var replURLArg *string
+	if replURL != "" {
+		replURLArg = &replURL
+	}
+	var replSeqArg *int
+	if replSeq != 0 {
+		replSeqArg = &replSeq
+	}
+
 	_, regErr := p.Pool.Exec(ctx, `
 		UPDATE osm_import_regions SET
 			status = 'imported', imported_at = now(),
 			pbf_size_bytes = $2, pbf_path = $3,
 			categories = $4, import_duration_s = $5,
-			data_date = now()
+			replication_url = COALESCE($6, replication_url),
+			last_sequence_number = COALESCE($7, last_sequence_number),
+			data_date = COALESCE($8, now())
 		WHERE region_id = $1`,
-		regionID, pbfSize, pbfPath, config.Categories, durationS)
+		regionID, pbfSize, pbfPath, config.Categories, durationS,
+		replURLArg, replSeqArg, dataDate)
 	if regErr != nil {
 		slog.Warn("osm import: failed to update region status", "region", regionID, "error", regErr)
 	}
