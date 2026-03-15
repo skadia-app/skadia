@@ -22,6 +22,7 @@ n/highway=bus_stop
 n/railway=station,halt,tram_stop
 n/aerialway=station
 n/leisure=swimming_pool,firepit,picnic_table,fitness_station,sports_centre,pitch,golf_course,shooting_range
+n/aeroway=aerodrome
 n/power=generator
 n/man_made=tower,observation_tower,cross,survey_point
 n/historic
