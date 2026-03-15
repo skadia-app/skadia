@@ -19,6 +19,30 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, forceRebuild 
 	// forceRebuild kept for API compat (RetryOSMEnrichment), no longer functional
 	_ = forceRebuild
 
+	// PostgreSQL Enrichment-Tuning: work_mem + parallel workers hochsetzen.
+	// ALTER SYSTEM wirkt global (alle neuen Connections), wird nach Enrichment zurückgesetzt.
+	// Enrichment läuft als separater Job — alle Cores stehen zur Verfügung.
+	for _, stmt := range []string{
+		"ALTER SYSTEM SET work_mem = '256MB'",
+		"ALTER SYSTEM SET max_parallel_workers_per_gather = 6",
+		"SELECT pg_reload_conf()",
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			slog.Warn("enrichment: tuning failed (non-fatal)", "stmt", stmt, "error", err)
+		}
+	}
+	slog.Info("enrichment: tuning applied (work_mem=256MB, parallel_workers=6)")
+	defer func() {
+		for _, stmt := range []string{
+			"ALTER SYSTEM RESET work_mem",
+			"ALTER SYSTEM RESET max_parallel_workers_per_gather",
+			"SELECT pg_reload_conf()",
+		} {
+			pool.Exec(context.Background(), stmt)
+		}
+		slog.Info("enrichment: tuning reset")
+	}()
+
 	slog.Info("enrichment: resetting enrichment columns")
 	if _, err := pool.Exec(ctx, `UPDATE osm_ways SET forest_pct = NULL, protected_area = NULL,
 		landuse_class = NULL, noise_score = NULL, traffic_class = NULL WHERE highway IS NOT NULL`); err != nil {

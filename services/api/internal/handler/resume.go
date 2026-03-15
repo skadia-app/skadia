@@ -27,6 +27,8 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 	for _, stmt := range []string{
 		"ALTER SYSTEM RESET maintenance_work_mem",
 		"ALTER SYSTEM RESET max_parallel_maintenance_workers",
+		"ALTER SYSTEM RESET work_mem",
+		"ALTER SYSTEM RESET max_parallel_workers_per_gather",
 		"SELECT pg_reload_conf()",
 	} {
 		if _, err := h.DB.Pool.Exec(ctx, stmt); err != nil {
