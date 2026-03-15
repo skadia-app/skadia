@@ -33,9 +33,8 @@ type Pipeline struct {
 
 // PipelineConfig holds per-run import settings.
 type PipelineConfig struct {
-	Categories    []string
-	BuildBRouter  bool
-	BuildTopology bool
+	Categories   []string
+	BuildBRouter bool
 }
 
 // ProgressReporter abstracts job tracking from pipeline logic.
@@ -574,84 +573,8 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		}
 	}
 
-	// === Phase 5: Trail-Topologie (optional) ===
-	if config.BuildTopology {
-		waysImported := slices.Contains(categories, "ways")
-		if waysImported {
-			reporter.SetPhase("topology")
-			reporter.SetProgress(0)
-			slog.Info("osm import: starting trail topology build")
-
-			// Phase 5a: pgr_createTopology — WICHTIG: 'id' ist die PK-Spalte, NICHT 'way_id'
-			// TODO(pgRouting): pgr_createTopology wurde in pgRouting 4.0.1 entfernt und
-			// schlägt hier fehl. Skadia's A*-Router (routing/graph/) nutzt KEINE
-			// pgRouting-Topologie — er baut seinen CSR-Graphen direkt aus osm_ways.
-			// source/target in osm_ways bleiben NULL, was für den eigenen Router irrelevant ist.
-			// Fix: Manuellen Topology-Builder implementieren (ST_StartPoint/ST_EndPoint +
-			// KNN-Vertex-Matching) oder pgRouting <4.0 verwenden.
-			reporter.SetProgress(1)
-			_, topoErr := p.Pool.Exec(ctx, `
-				SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
-			`)
-			if topoErr != nil {
-				slog.Error("osm import: topology build failed", "error", topoErr)
-				// Nicht fatal — Import war erfolgreich, nur Topologie fehlgeschlagen
-			} else {
-				// Phase 5b: cost/reverse_cost berechnen (exakt wie trail_topology.go)
-				reporter.SetProgress(2)
-				_, costErr := p.Pool.Exec(ctx, `
-					UPDATE osm_ways SET
-						cost = CASE
-							WHEN is_lift THEN 0.001
-							WHEN oneway  THEN -1
-							ELSE length_m / NULLIF(tobler_speed(COALESCE(avg_slope, 0)) * 1000.0 / 60.0, 0)
-							     * sac_cost_factor(sac_scale)
-							     * surface_cost_factor(surface)
-						END,
-						reverse_cost = CASE
-							WHEN is_lift THEN 60.0
-							WHEN oneway  THEN -1
-							ELSE length_m / NULLIF(tobler_speed(-COALESCE(avg_slope, 0)) * 1000.0 / 60.0, 0)
-							     * sac_cost_factor(sac_scale)
-							     * surface_cost_factor(surface)
-						END
-					WHERE cost IS NULL OR reverse_cost IS NULL
-				`)
-				if costErr != nil {
-					slog.Warn("osm import: cost computation failed", "error", costErr)
-				}
-
-				// Phase 5c: Lifte aus osm_lifts in osm_ways importieren
-				reporter.SetProgress(3)
-				_, liftErr := p.Pool.Exec(ctx, `
-					INSERT INTO osm_ways (osm_id, highway, name, length_m, avg_slope, is_lift, geom)
-					SELECT l.osm_id, 'lift', l.name, ST_Length(l.geom::geography), 0.0, TRUE, l.geom
-					FROM osm_lifts l
-					WHERE NOT EXISTS (
-						SELECT 1 FROM osm_ways t
-						WHERE t.osm_id = l.osm_id AND t.is_lift = TRUE
-					)
-				`)
-				if liftErr != nil {
-					slog.Warn("osm import: lift merge failed", "error", liftErr)
-				}
-
-				// Phase 5d: Re-Topologie für Lifte (source/target für neue Rows)
-				// TODO(pgRouting): Wie Phase 5a — pgr_createTopology in pgRouting 4.0.1 entfernt.
-				reporter.SetProgress(4)
-				_, retopoErr := p.Pool.Exec(ctx, `
-					SELECT pgr_createTopology('osm_ways', 0.00001, 'geom', 'id', 'source', 'target')
-				`)
-				if retopoErr != nil {
-					slog.Warn("osm import: lift topology rebuild failed (non-fatal)", "error", retopoErr)
-				}
-
-				slog.Info("osm import: trail topology build completed")
-			}
-		} else {
-			slog.Info("osm import: skipping topology build — 'ways' category not imported")
-		}
-	}
+	// Phase 5 (Trail-Topologie) removed: pgr_createTopology removed in pgRouting 4.0.1.
+	// FITroute's CSR graph builder computes topology from osm_ways directly.
 
 	// === Import abgeschlossen — Enrichment wird vom Handler als separater Job gestartet ===
 	reporter.Complete()

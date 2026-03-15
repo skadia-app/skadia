@@ -422,8 +422,7 @@ func main() {
 			// Peaks Collection
 			r.Get("/peaks/collection", h.GetPeakCollection)
 
-			// Trails
-			r.Post("/trails/build-topology", h.BuildTrailTopology)
+			// Trails: build-topology removed (pgRouting 4.0+ removed pgr_createTopology)
 
 			// Isochrone (pgRouting)
 			r.Post("/isochrone", h.Isochrone)

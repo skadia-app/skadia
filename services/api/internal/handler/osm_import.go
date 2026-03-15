@@ -51,10 +51,9 @@ var osmCategories = map[string][]string{
 }
 
 type osmImportRequest struct {
-	Regions       []string `json:"regions"`
-	Categories    []string `json:"categories"`
-	BuildBRouter  bool     `json:"build_brouter"`
-	BuildTopology bool     `json:"build_topology"`
+	Regions      []string `json:"regions"`
+	Categories   []string `json:"categories"`
+	BuildBRouter bool     `json:"build_brouter"`
 }
 
 // osmJobCancels speichert CancelFuncs für laufende OSM-Import-Jobs.
@@ -166,9 +165,8 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		slog.Info("osm import: importing region", "region", reg.ID, "index", i+1, "total", len(regions))
 
 		if !pipeline.RunPerRegion(ctx, reg, osmregions.PipelineConfig{
-			Categories:    req.Categories,
-			BuildBRouter:  req.BuildBRouter,
-			BuildTopology: req.BuildTopology,
+			Categories:   req.Categories,
+			BuildBRouter: req.BuildBRouter,
 		}, reporter) {
 			return // RunPerRegion hat reporter.Fail() aufgerufen
 		}

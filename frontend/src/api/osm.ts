@@ -37,7 +37,7 @@ export interface StartOSMImportRequest {
   regions: string[]
   categories: string[]
   build_brouter?: boolean
-  build_topology?: boolean
+  // build_topology removed: pgRouting 4.0+ removed pgr_createTopology
 }
 
 export interface StartOSMImportResponse {

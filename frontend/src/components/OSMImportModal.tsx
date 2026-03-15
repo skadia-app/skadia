@@ -281,7 +281,6 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   regions: selectedRegions,
                   categories: selectedCategories,
                   build_brouter: buildBRouter,
-                  build_topology: false,
                 })
               }}
               disabled={!canStart}

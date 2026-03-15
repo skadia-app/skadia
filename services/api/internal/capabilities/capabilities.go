@@ -28,18 +28,14 @@ type Capabilities struct {
 func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabilities {
 	caps := Capabilities{}
 
-	// pgRouting extension present?
-	var pgr int
+	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
+	// pgr_createTopology check removed — pgRouting 4.0+ removed it, and FITroute's CSR graph
+	// builder computes topology in Go (routing/graph/topology.go), not via pgRouting.
+	var wayCount int
 	if err := pool.QueryRow(ctx,
-		"SELECT 1 FROM pg_extension WHERE extname='pgrouting'").Scan(&pgr); err == nil {
-		// Trail topology built (source column populated by pgr_createTopology)?
-		var trailCount int
-		if err := pool.QueryRow(ctx,
-			"SELECT COUNT(*) FROM osm_ways WHERE source IS NOT NULL").Scan(&trailCount); err == nil && trailCount > 0 {
-			caps.Routing = true
-			caps.Isochrone = true
-			caps.SurfaceEnrich = true
-		}
+		"SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL").Scan(&wayCount); err == nil && wayCount > 0 {
+		caps.Routing = true
+		caps.SurfaceEnrich = true
 	}
 
 	// BRouter reachable?
