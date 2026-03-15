@@ -613,7 +613,8 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 				reporter.SetProgress(int64(pct))
 			}); err != nil {
 				slog.Error("osm import: spatial enrichment failed", "error", err)
-				// Non-fatal: enrichment failure should not block the import
+				reporter.Fail("Spatial Enrichment fehlgeschlagen: " + err.Error())
+				return
 			}
 
 			// === Phase 7: Intersection Splitting (creates osm_ways_noded) ===
@@ -625,7 +626,8 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 				reporter.SetProgress(int64(pct))
 			}); err != nil {
 				slog.Error("osm import: intersection splitting failed", "error", err)
-				// Non-fatal: splitting failure should not block the import
+				reporter.Fail("Intersection Splitting fehlgeschlagen: " + err.Error())
+				return
 			}
 		}
 	}
