@@ -207,12 +207,23 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 	return nil
 }
 
-// EnrichLanduseFromPolygons bestimmt die dominante Landnutzung jeder Way.
-// Wählt den Landuse-Typ mit der längsten Überlappung (DISTINCT ON + ORDER BY Schnittlänge).
-// Enum: 0=other, 2=farmland, 3=residential, 4=industrial, 5=commercial, 6=quarry.
-// Forest (1) und highway-basiert Residential (3) werden separat in EnrichLanduseClass gesetzt.
+// EnrichLanduseFromPolygons bestimmt die dominante Landnutzung jeder Way via Point-Sampling Mehrheitsvotum.
+// BRouter-Hybrid-Muster: Punkte alle 50m, ST_Intersects (boolean) statt ST_Intersection (Geometrie).
+// Enum: 0=other, 2=farmland/meadow/orchard/vineyard, 3=residential, 4=industrial,
+// 5=commercial/retail, 6=quarry, 7=military, 8=landfill.
+// Forest (1) und highway-basiertes Residential werden separat in EnrichLanduseClass gesetzt.
 func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: landuse_from_polygons starting")
+	slog.Info("enrichment: landuse_from_polygons starting (point-sampling)")
+
+	// Fallback wenn subdivided Tabelle fehlt
+	var landuseSubExists bool
+	pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_landuse_subdivided')").Scan(&landuseSubExists) //nolint:errcheck
+	landuseTable := "osm_landuse"
+	if landuseSubExists {
+		landuseTable = "osm_landuse_subdivided"
+	} else {
+		slog.Warn("enrichment: osm_landuse_subdivided not found, falling back to osm_landuse")
+	}
 
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -227,25 +238,39 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 		slog.Warn("enrichment landuse_polygons: SET work_mem failed (non-fatal)", "error", err)
 	}
 
-	// AND w.landuse_class IS NULL — nur resettete Ways
+	// Point-Sampling: Punkte alle 50m, Mehrheitsvotum des Landuse-Typs
 	_, err = conn.Exec(ctx, `
 		DROP TABLE IF EXISTS _landuse;
 		CREATE UNLOGGED TABLE _landuse AS
-		SELECT DISTINCT ON (w.way_id) w.way_id,
-			(CASE lu.landuse
-				WHEN 'farmland' THEN 2 WHEN 'meadow' THEN 2 WHEN 'orchard' THEN 2 WHEN 'vineyard' THEN 2
-				WHEN 'residential' THEN 3
-				WHEN 'industrial' THEN 4
-				WHEN 'commercial' THEN 5 WHEN 'retail' THEN 5
-				WHEN 'quarry' THEN 6
-				ELSE 0
-			END)::SMALLINT AS lc
-		FROM osm_ways w
-		JOIN osm_landuse lu ON ST_Intersects(w.geom, lu.geom)
-		WHERE w.highway IS NOT NULL
-		  AND w.landuse_class IS NULL
-		  AND lu.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry')
-		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, lu.geom), 2)) DESC NULLS LAST
+		SELECT DISTINCT ON (way_id) way_id, lc
+		FROM (
+			SELECT w.way_id,
+				(CASE lus.landuse
+					WHEN 'farmland' THEN 2 WHEN 'meadow' THEN 2 WHEN 'orchard' THEN 2 WHEN 'vineyard' THEN 2
+					WHEN 'residential' THEN 3
+					WHEN 'industrial' THEN 4
+					WHEN 'commercial' THEN 5 WHEN 'retail' THEN 5
+					WHEN 'quarry' THEN 6
+					WHEN 'military' THEN 7
+					WHEN 'landfill' THEN 8
+					ELSE 0
+				END)::SMALLINT AS lc,
+				COUNT(*) AS cnt
+			FROM osm_ways w
+			CROSS JOIN LATERAL (
+				SELECT (dp).geom
+				FROM ST_DumpPoints(
+					ST_LineInterpolatePoints(w.geom,
+						LEAST(1.0, 50.0 / GREATEST(50.0, ST_Length(w.geom) * 111320 * COS(RADIANS(ST_Y(ST_Centroid(w.geom))))))
+					)
+				) dp
+			) pt
+			JOIN `+landuseTable+` lus ON ST_Intersects(lus.geom, pt.geom)
+			WHERE w.highway IS NOT NULL AND w.landuse_class IS NULL
+			  AND lus.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry','military','landfill')
+			GROUP BY w.way_id, lc
+		) votes
+		ORDER BY way_id, cnt DESC
 	`)
 	if err != nil {
 		return fmt.Errorf("enrichment landuse_polygons: create staging: %w", err)
