@@ -9,12 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// EnrichForestPct berechnet den Waldanteil jeder Way via direkte Polygon-Intersection.
-// Ergebnis: forest_pct = Prozent der Way-Länge die durch osm_forests verläuft.
-// Nutzt CREATE UNLOGGED TABLE (kann parallel workers nutzen) + UPDATE FROM (schneller PK-Join).
-// Genauer als Raster-Sampling: exakte geometrische Schnittlänge statt diskretisierte 10m-Pixel.
+// EnrichForestPct berechnet den Waldanteil jeder Way via BRouter-Hybrid Point-Sampling.
+// 3-Phasen-Ansatz: ST_CoveredBy für vollständig im Wald liegende Ways (~70%, instant),
+// DWithin-Filter für Ways weit weg von jedem Wald (instant), Point-Sampling alle 25m
+// für Grenzfälle (~30%). Nutzt ST_Intersects (boolean) statt ST_Intersection (Geometrie).
 func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: forest_pct starting (polygon join)")
+	slog.Info("enrichment: forest_pct starting (BRouter-hybrid point-sampling)")
 
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -29,24 +29,74 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 		slog.Warn("enrichment forest_pct: SET work_mem failed (non-fatal)", "error", err)
 	}
 
-	// Phase 1: Berechnung in Staging-Table (nutzt parallel workers via CTAS)
-	// AND w.forest_pct IS NULL — nur resettete Ways (BBox-Reset hat nicht-betroffene bereits gesetzt)
+	// Phase 1: Ways komplett im Wald → forest_pct = 100
+	// ST_CoveredBy statt ST_Within: behandelt MultiPolygone mit Löchern korrekt.
+	_, err = conn.Exec(ctx, `
+		UPDATE osm_ways w SET forest_pct = 100
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
+		  AND EXISTS (
+			SELECT 1 FROM osm_forests f
+			WHERE ST_CoveredBy(w.geom, f.geom)
+		  )
+	`)
+	if err != nil {
+		return fmt.Errorf("enrichment forest_pct: within phase: %w", err)
+	}
+	slog.Info("enrichment: forest_pct ST_Within phase complete")
+
+	// Prüfe ob subdivided Tabelle existiert (Fallback auf Original sonst)
+	var forestSubExists bool
+	conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_forests_subdivided')").Scan(&forestSubExists) //nolint:errcheck
+	forestTable := "osm_forests"
+	if forestSubExists {
+		forestTable = "osm_forests_subdivided"
+	} else {
+		slog.Warn("enrichment: osm_forests_subdivided not found, falling back to osm_forests")
+	}
+
+	// Phase 2: Ways weit weg von jedem Wald → forest_pct = 0
+	// 0.0015° ≈ ~120m bei 47°N (konservativ)
+	_, err = conn.Exec(ctx, fmt.Sprintf(`
+		UPDATE osm_ways w SET forest_pct = 0
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM %s fs
+			WHERE ST_DWithin(w.geom, fs.geom, 0.0015)
+		  )
+	`, forestTable))
+	if err != nil {
+		return fmt.Errorf("enrichment forest_pct: no-forest phase: %w", err)
+	}
+	slog.Info("enrichment: forest_pct no-forest phase complete")
+
+	// Phase 3: Grenzfälle — Point-Sampling alle 25m entlang der Way
+	// ST_Intersects pro Punkt (boolean, billig) statt ST_Intersection (Geometrie, teuer)
 	_, err = conn.Exec(ctx, `
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
 		SELECT w.way_id,
-			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, f.geom), 2)))
-				/ NULLIF(ST_Length(w.geom), 0)))::SMALLINT AS pct
+			ROUND(100.0 *
+				COUNT(*) FILTER (WHERE EXISTS (
+					SELECT 1 FROM `+forestTable+` fs
+					WHERE ST_Intersects(fs.geom, pt.geom)
+				))::float / NULLIF(COUNT(*), 0)
+			)::SMALLINT AS pct
 		FROM osm_ways w
-		JOIN osm_forests f ON ST_Intersects(w.geom, f.geom)
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL AND ST_Length(w.geom) > 0
-		GROUP BY w.way_id, w.geom
+		CROSS JOIN LATERAL (
+			SELECT (dp).geom
+			FROM ST_DumpPoints(
+				ST_LineInterpolatePoints(w.geom,
+					LEAST(1.0, 25.0 / GREATEST(25.0, ST_Length(w.geom) * 111320 * COS(RADIANS(ST_Y(ST_Centroid(w.geom))))))
+				)
+			) dp
+		) pt
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
+		GROUP BY w.way_id
 	`)
 	if err != nil {
-		return fmt.Errorf("enrichment forest_pct: create staging: %w", err)
+		return fmt.Errorf("enrichment forest_pct: point-sampling phase: %w", err)
 	}
 
-	// Phase 2: Schreiben (schneller PK-Join, kein Spatial)
 	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways SET forest_pct = c.pct
 		FROM _forest_coverage c WHERE osm_ways.way_id = c.way_id
@@ -56,7 +106,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 		return fmt.Errorf("enrichment forest_pct: update: %w", err)
 	}
 
-	// Phase 3: Default 0 für Ways ohne Wald-Überlappung
+	// Phase 4: Verbleibende NULLs → 0 (sehr kurze Ways ohne Sample-Punkte)
 	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
 	if err != nil {
 		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
@@ -64,7 +114,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 	}
 
 	conn.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
-	slog.Info("enrichment: forest_pct complete")
+	slog.Info("enrichment: forest_pct complete (BRouter-hybrid)")
 	return nil
 }
 
