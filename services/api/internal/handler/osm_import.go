@@ -69,7 +69,7 @@ func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Pool.Exec(r.Context(),
-		`UPDATE background_jobs SET status = 'failed', error = 'Vom Benutzer abgebrochen',
+		`UPDATE background_jobs SET status = 'failed',
 		 finished_at = now() WHERE id = $1 AND status IN ('running', 'pending')`, jobID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)

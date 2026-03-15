@@ -170,7 +170,9 @@ function JobRow({ job }: { job: ActiveJob }) {
             try {
               const { apiClient } = await import('@/api/client')
               await apiClient(`/admin/osm-import/cancel/${job.id}`, { method: 'POST' })
-            } catch {}
+            } catch (err) {
+              console.error('Cancel job failed:', err)
+            }
           }}
           className="flex-shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-400 hover:text-red-500 transition-colors"
           title="Import abbrechen"
