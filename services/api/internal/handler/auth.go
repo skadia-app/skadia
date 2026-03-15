@@ -298,7 +298,8 @@ func (h *Handler) postTokenEndpoint(ctx context.Context, body url.Values) (*oidc
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
@@ -325,7 +326,8 @@ func (h *Handler) fetchUserInfo(ctx context.Context, accessToken string) (*oidcU
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("userinfo request: %w", err)
 	}

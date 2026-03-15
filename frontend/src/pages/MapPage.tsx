@@ -2894,6 +2894,13 @@ function removeTerraIncognitaLayers(map: maplibregl.Map) {
     const srcId = `terra-fog-src-${i}`
     if (map.getSource(srcId)) map.removeSource(srcId)
   }
+  // Halo-Layer + Sources aufräumen
+  for (const [ringIdx] of HALO_CONFIG) {
+    const haloLayerId = `terra-fog-halo-${ringIdx}`
+    const haloSrcId = `terra-fog-halo-src-${ringIdx}`
+    if (map.getLayer(haloLayerId)) map.removeLayer(haloLayerId)
+    if (map.getSource(haloSrcId)) map.removeSource(haloSrcId)
+  }
 }
 
 /**
@@ -2932,22 +2939,23 @@ function buildDonutFeature(ringGeometry: GeoJSON.Geometry): GeoJSON.FeatureColle
 }
 
 /**
- * Fügt 5 gestapelte Fill-Layer für den Fog-Gradient hinzu.
- * Jeder Layer ist ein Donut (Welt minus Ring[i]). Die Donuts überlappen —
- * die additive Alpha-Compositing in WebGL erzeugt den Gradient.
+ * Fügt 5 gestapelte Fill-Layer + 3 Halo-Line-Layer für Fog-of-War hinzu.
  *
- * Ring-Reihenfolge (vom Backend):
+ * Fill-Layer (Nebel-Körper):
+ *   Jeder Layer ist ein Donut (Welt minus Ring[i]). Die Donuts überlappen —
+ *   additive Alpha-Compositing in WebGL erzeugt den Gradient.
  *   rings[0] = innerster (-0.3R, kleinstes Loch → meiste Abdeckung)
  *   rings[4] = äußerster (+0.6R, größtes Loch → wenigste Abdeckung)
  *
- * Layer-Reihenfolge: rings[4] zuerst (bottom), rings[0] zuletzt (top).
- * Äußerster Ring hat die höchste Per-Layer-Opacity (0.57).
+ * Halo-Layer (weiche Ränder):
+ *   Dicke weiße Linien mit line-blur auf den 3 äußeren Ring-Grenzen.
+ *   GPU-Shader-Effekt — keine Canvas-Performance-Probleme.
+ *   Erzeugen den charakteristischen wolkigen Rand-Effekt.
  */
 function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geometry[]) {
   removeTerraIncognitaLayers(map)
 
-  // Layer von außen (ring[4]) nach innen (ring[0]) hinzufügen.
-  // Äußerer Ring = bottom layer = höchste Per-Layer-Opacity.
+  // Fill-Layer von außen (ring[4]) nach innen (ring[0]) hinzufügen.
   for (let i = TERRA_RING_COUNT - 1; i >= 0; i--) {
     const ring = rings[i]
     if (!ring) continue
@@ -2968,7 +2976,31 @@ function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geometry[])
     })
   }
 
-  // Einblend-Animation (easeInOutQuad, 1.8s)
+  // Halo-Layer: dicke verschwommene Linien auf den äußeren Ring-Grenzen.
+  // Werden über den Fill-Layern gezeichnet → weiche, wolkige Außenkanten.
+  for (const [ringIdx, lineWidth, lineBlur] of HALO_CONFIG) {
+    const ring = rings[ringIdx]
+    if (!ring) continue
+    const haloSrcId = `terra-fog-halo-src-${ringIdx}`
+    const haloLayerId = `terra-fog-halo-${ringIdx}`
+    map.addSource(haloSrcId, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: ring, properties: {} }] },
+    })
+    map.addLayer({
+      id: haloLayerId,
+      type: 'line',
+      source: haloSrcId,
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': lineWidth,
+        'line-blur': lineBlur,
+        'line-opacity': 0,
+      },
+    })
+  }
+
+  // Einblend-Animation (easeInOutQuad, 1.8s) — Fill + Halo gleichzeitig
   const DURATION = 1800
   const ease = (t: number) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
   const startTs = performance.now()
@@ -2978,9 +3010,14 @@ function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geometry[])
     for (let i = 0; i < TERRA_RING_COUNT; i++) {
       const layerId = `terra-fog-ring-${i}`
       if (map.getLayer(layerId)) {
-        // Äußerster Ring (i=4) bekommt die höchste Opacity pro Layer
         const targetOpacity = RING_LAYER_OPACITIES[TERRA_RING_COUNT - 1 - i]
         map.setPaintProperty(layerId, 'fill-opacity', e * targetOpacity)
+      }
+    }
+    for (const [ringIdx, , , targetOpacity] of HALO_CONFIG) {
+      const haloLayerId = `terra-fog-halo-${ringIdx}`
+      if (map.getLayer(haloLayerId)) {
+        map.setPaintProperty(haloLayerId, 'line-opacity', e * targetOpacity)
       }
     }
     if (p < 1) terraAnimRafId = requestAnimationFrame(animate)
