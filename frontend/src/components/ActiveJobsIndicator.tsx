@@ -23,29 +23,32 @@ function JobRow({ job }: { job: ActiveJob }) {
   const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
 
-  const label = job.job_type === 'osm_enrichment'
-    ? 'OSM-Enrichment'
-    : isOSMJob
-    ? 'OSM-Import'
-    : job.job_type === 'garmin_import'
-    ? 'Garmin-Import'
-    : job.job_type === 'strava_import'
-    ? 'Strava-Import'
-    : job.job_type === 'komoot_import'
-    ? 'Komoot-Import'
-    : job.job_type === 'activity_recompute_all'
-    ? 'Alle Aktivitäten neu berechnen'
-    : job.job_type === 'recompute_multisport'
-    ? 'Multisport neu berechnen'
-    : job.job_type === 'photo_preview_recompute'
-    ? 'Foto-Vorschauen'
-    : job.job_type === 'photo_clip_embed'
-    ? 'Foto-Indexierung'
-    : job.job_type === 'phash_backfill'
-    ? 'pHash-Berechnung'
-    : job.job_type === 'segment_recompute'
+  const JOB_LABELS: Record<string, string> = {
+    osm_import:              'OSM-Import',
+    osm_enrichment:          'OSM-Anreicherung',
+    garmin_import:           'Garmin-Synchronisierung',
+    strava_import:           'Strava-Synchronisierung',
+    komoot_import:           'Komoot-Import',
+    activity_recompute_all:  'Alle Aktivitäten neu berechnen',
+    activity_recompute:      'Aktivität neu berechnen',
+    recompute_multisport:    'Multisport neu berechnen',
+    photo_preview_recompute: 'Foto-Vorschaubilder neu erstellen',
+    photo_thumb_recompute:   'Foto-Thumbnails neu erstellen',
+    photo_clip_embed:        'Foto-Indexierung',
+    photo_embed_backfill:    'Foto-Einbettungen berechnen',
+    phash_backfill:          'Foto-Duplikaterkennung berechnen',
+    elevation_reset:         'Höhenkorrektur zurücksetzen',
+    elevation_correction:    'Höhenkorrektur anwenden',
+    distance_correction:     'Distanzkorrektur anwenden',
+    distance_reset:          'Distanzkorrektur zurücksetzen',
+    dem_import:              'Höhenmodell importieren',
+    apply_rules:             'Regeln anwenden',
+    routing_graph_build:     'Routing-Graph erstellen',
+  }
+
+  const label = job.job_type === 'segment_recompute'
     ? `Segment „${job.entity_name ?? 'Segment'}"`
-    : job.entity_name ?? job.job_type
+    : JOB_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
 
   const pct =
     !isOSMJob && job.progress_total > 0
@@ -56,12 +59,12 @@ function JobRow({ job }: { job: ActiveJob }) {
     !isOSMJob && !isDataImport && job.status === 'running' && job.progress_total > 0
       ? job.job_type === 'segment_recompute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
-        : job.job_type === 'photo_preview_recompute'
-        ? `${job.progress_current} / ${job.progress_total} Thumbnails generiert`
-        : job.job_type === 'photo_clip_embed'
+        : job.job_type === 'photo_preview_recompute' || job.job_type === 'photo_thumb_recompute'
+        ? `${job.progress_current} / ${job.progress_total} Fotos verarbeitet`
+        : job.job_type === 'photo_clip_embed' || job.job_type === 'photo_embed_backfill'
         ? `${job.progress_current} / ${job.progress_total} Fotos indexiert`
         : job.job_type === 'phash_backfill'
-        ? `${job.progress_current} / ${job.progress_total} Fotos berechnet`
+        ? `${job.progress_current} / ${job.progress_total} Fotos analysiert`
         : `${job.progress_current} / ${job.progress_total} Aktivitäten`
       : (job.job_type === 'garmin_import' || job.job_type === 'strava_import') && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`
