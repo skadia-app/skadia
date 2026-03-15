@@ -294,6 +294,7 @@ func main() {
 			r.Post("/tags/{id}/merge", h.MergeTag)
 			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
 			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
+			r.Delete("/tags/{id}/cover-image", h.ClearTagCoverImage)
 
 			// ML System Settings (nightly job toggles etc.)
 			r.Get("/settings/ml", h.GetMLSystemSettings)
