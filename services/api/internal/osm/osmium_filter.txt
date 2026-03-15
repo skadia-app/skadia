@@ -7,7 +7,8 @@ w/aerialway
 w/route=ferry
 w/natural=wood,glacier,wetland,coastline,water
 w/landuse
-w/leisure=park,nature_reserve,golf_course,pitch,track,swimming_pool
+w/leisure=park,nature_reserve,golf_course,pitch,track,swimming_pool,shooting_range
+w/aeroway=aerodrome
 w/boundary=protected_area,national_park,administrative
 # POI-Nodes
 n/amenity
@@ -20,7 +21,8 @@ n/natural=peak,saddle,glacier,cave_entrance,volcano,spring,hot_spring
 n/highway=bus_stop
 n/railway=station,halt,tram_stop
 n/aerialway=station
-n/leisure=swimming_pool,firepit,picnic_table,fitness_station,sports_centre,pitch,golf_course
+n/leisure=swimming_pool,firepit,picnic_table,fitness_station,sports_centre,pitch,golf_course,shooting_range
+n/power=generator
 n/man_made=tower,observation_tower,cross,survey_point
 n/historic
 n/barrier=gate,lift_gate,cattle_grid,bollard,cycle_barrier
