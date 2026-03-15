@@ -1657,6 +1657,16 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		reporter.SetProgress(int64(i + 1))
 	}
 
+	// === Phase 5.5: Validate polygon geometries (einmalig, statt bei jedem Enrichment-Join) ===
+	slog.Info("osm import: validating polygon geometries")
+	for _, table := range []string{"osm_forests", "osm_boundaries", "osm_landuse", "osm_waters", "osm_wetlands", "osm_glaciers", "osm_piste_areas"} {
+		_, err := p.Pool.Exec(ctx, fmt.Sprintf(
+			"UPDATE %s SET geom = ST_MakeValid(geom) WHERE NOT ST_IsValid(geom) AND source_region = $1", table), regionID)
+		if err != nil {
+			slog.Warn("osm import: ST_MakeValid failed (non-fatal)", "table", table, "error", err)
+		}
+	}
+
 	// NOTE: reporter.Complete() is NOT called here — the caller manages job completion
 	// because multiple regions share one reporter in sequential mode.
 	slog.Info("osm import: per-region import completed", "region", regionID,

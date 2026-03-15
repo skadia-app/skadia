@@ -35,10 +35,10 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 		DROP TABLE IF EXISTS _forest_coverage;
 		CREATE UNLOGGED TABLE _forest_coverage AS
 		SELECT w.way_id,
-			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, ST_MakeValid(f.geom)), 2)::geography))
+			LEAST(100, ROUND(100.0 * SUM(ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, f.geom), 2)::geography))
 				/ NULLIF(ST_Length(w.geom::geography), 0)))::SMALLINT AS pct
 		FROM osm_ways w
-		JOIN osm_forests f ON ST_Intersects(w.geom, ST_MakeValid(f.geom))
+		JOIN osm_forests f ON ST_Intersects(w.geom, f.geom)
 		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL AND ST_Length(w.geom::geography) > 0
 		GROUP BY w.way_id, w.geom
 	`)
@@ -98,7 +98,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 				ELSE 1
 			END)::SMALLINT AS level
 		FROM osm_ways w
-		JOIN osm_boundaries b ON ST_Intersects(w.geom, ST_MakeValid(b.geom))
+		JOIN osm_boundaries b ON ST_Intersects(w.geom, b.geom)
 		WHERE w.highway IS NOT NULL
 		  AND w.protected_area IS NULL
 		  AND b.boundary_type IN ('protected_area','national_park')
@@ -162,11 +162,11 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 				ELSE 0
 			END)::SMALLINT AS lc
 		FROM osm_ways w
-		JOIN osm_landuse lu ON ST_Intersects(w.geom, ST_MakeValid(lu.geom))
+		JOIN osm_landuse lu ON ST_Intersects(w.geom, lu.geom)
 		WHERE w.highway IS NOT NULL
 		  AND w.landuse_class IS NULL
 		  AND lu.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry')
-		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, ST_MakeValid(lu.geom)), 2)::geography) DESC NULLS LAST
+		ORDER BY w.way_id, ST_Length(ST_CollectionExtract(ST_Intersection(w.geom, lu.geom), 2)::geography) DESC NULLS LAST
 	`)
 	if err != nil {
 		return fmt.Errorf("enrichment landuse_polygons: create staging: %w", err)
