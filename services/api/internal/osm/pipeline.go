@@ -245,7 +245,8 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		"--flat-nodes", flatNodesPath,
 		"--cache", "0", // Mit --flat-nodes kein RAM-Cache nötig; verhindert OOM-Kill
 		"--slim", "--drop",
-		"--latlong", // WGS84 (SRID 4326) — erforderlich für ::geography Casts und Indexes
+		// SRID 4326 (WGS84) wird über projection=4326 in skadia-osm.lua gesteuert.
+		// --latlong wird im flex-Modus von osm2pgsql ignoriert.
 	}
 	args = append(args, pbfPaths...)
 

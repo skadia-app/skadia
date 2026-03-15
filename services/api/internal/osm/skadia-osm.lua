@@ -62,21 +62,21 @@ tables.ways = osm2pgsql.define_way_table('osm_ways', {
     { column = 'network',          type = 'text' },
     { column = 'operator',         type = 'text' },
     { column = 'tags',             type = 'jsonb' },
-    { column = 'geom',             type = 'linestring', not_null = true },
+    { column = 'geom',             type = 'linestring', projection = 4326, not_null = true },
 })
 
 tables.lifts = osm2pgsql.define_way_table('osm_lifts', {
     { column = 'osm_id',    type = 'int8',    not_null = true },
     { column = 'name',      type = 'text' },
     { column = 'aerialway', type = 'text' },
-    { column = 'geom',      type = 'linestring', not_null = true },
+    { column = 'geom',      type = 'linestring', projection = 4326, not_null = true },
 })
 
 tables.waterways = osm2pgsql.define_way_table('osm_waterways', {
     { column = 'osm_id',    type = 'int8',    not_null = true },
     { column = 'name',      type = 'text' },
     { column = 'waterway',  type = 'text' },
-    { column = 'geom',      type = 'linestring', not_null = true },
+    { column = 'geom',      type = 'linestring', projection = 4326, not_null = true },
 })
 
 tables.pistes = osm2pgsql.define_way_table('osm_pistes', {
@@ -87,34 +87,34 @@ tables.pistes = osm2pgsql.define_way_table('osm_pistes', {
     { column = 'grooming',   type = 'text' },
     { column = 'lit',        type = 'boolean' },
     { column = 'tags',       type = 'jsonb' },
-    { column = 'geom',       type = 'linestring', not_null = true },
+    { column = 'geom',       type = 'linestring', projection = 4326, not_null = true },
 })
 
 tables.forests = osm2pgsql.define_area_table('osm_forests', {
     { column = 'osm_id',    type = 'int8',    not_null = true },
     { column = 'name',      type = 'text' },
     { column = 'landuse',   type = 'text' },
-    { column = 'geom',      type = 'geometry', not_null = true },
+    { column = 'geom',      type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.waters = osm2pgsql.define_area_table('osm_waters', {
     { column = 'osm_id',    type = 'int8',    not_null = true },
     { column = 'name',      type = 'text' },
     { column = 'water',     type = 'text' },
-    { column = 'geom',      type = 'geometry', not_null = true },
+    { column = 'geom',      type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.glaciers = osm2pgsql.define_area_table('osm_glaciers', {
     { column = 'osm_id',    type = 'int8',    not_null = true },
     { column = 'name',      type = 'text' },
-    { column = 'geom',      type = 'geometry', not_null = true },
+    { column = 'geom',      type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.wetlands = osm2pgsql.define_area_table('osm_wetlands', {
     { column = 'osm_id',       type = 'int8',    not_null = true },
     { column = 'name',         type = 'text' },
     { column = 'wetland_type', type = 'text' },
-    { column = 'geom',         type = 'geometry', not_null = true },
+    { column = 'geom',         type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.boundaries = osm2pgsql.define_area_table('osm_boundaries', {
@@ -123,7 +123,7 @@ tables.boundaries = osm2pgsql.define_area_table('osm_boundaries', {
     { column = 'boundary_type',  type = 'text' },
     { column = 'admin_level',    type = 'int2' },
     { column = 'protect_class',  type = 'text' },
-    { column = 'geom',           type = 'geometry', not_null = true },
+    { column = 'geom',           type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.routes = osm2pgsql.define_relation_table('osm_routes', {
@@ -141,7 +141,7 @@ tables.routes = osm2pgsql.define_relation_table('osm_routes', {
     { column = 'description', type = 'text' },
     { column = 'website',     type = 'text' },
     { column = 'tags',        type = 'jsonb' },
-    { column = 'geom',        type = 'multilinestring', not_null = true },
+    { column = 'geom',        type = 'multilinestring', projection = 4326, not_null = true },
 })
 
 -- Route-Membership Junction-Table (non-geometry, populated via process_relation)
@@ -161,14 +161,14 @@ tables.landuse = osm2pgsql.define_area_table('osm_landuse', {
     { column = 'osm_id',   type = 'int8',     not_null = true },
     { column = 'name',     type = 'text' },
     { column = 'landuse',  type = 'text',     not_null = true },
-    { column = 'geom',     type = 'geometry', not_null = true },
+    { column = 'geom',     type = 'geometry', projection = 4326, not_null = true },
 })
 
 tables.railways = osm2pgsql.define_way_table('osm_railways', {
     { column = 'osm_id',   type = 'int8',       not_null = true },
     { column = 'name',     type = 'text' },
     { column = 'railway',  type = 'text',       not_null = true },
-    { column = 'geom',     type = 'linestring', not_null = true },
+    { column = 'geom',     type = 'linestring', projection = 4326, not_null = true },
 })
 
 tables.piste_areas = osm2pgsql.define_area_table('osm_piste_areas', {
@@ -179,7 +179,7 @@ tables.piste_areas = osm2pgsql.define_area_table('osm_piste_areas', {
     { column = 'grooming',   type = 'text' },
     { column = 'lit',        type = 'boolean' },
     { column = 'tags',       type = 'jsonb' },
-    { column = 'geom',       type = 'geometry', not_null = true },
+    { column = 'geom',       type = 'geometry', projection = 4326, not_null = true },
 })
 
 -- ============================================================
