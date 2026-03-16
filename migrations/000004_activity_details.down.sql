@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS activity_sensors CASCADE;
-DROP TABLE IF EXISTS activity_streams CASCADE;
-DROP TABLE IF EXISTS activity_tracks CASCADE;

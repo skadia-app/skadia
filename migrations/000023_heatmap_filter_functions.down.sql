@@ -1,3 +1,0 @@
--- Heatmap MVT Functions entfernen
-DROP FUNCTION IF EXISTS heatmap_lines_mvt(INTEGER, INTEGER, INTEGER, JSON);
-DROP FUNCTION IF EXISTS heatmap_points_mvt(INTEGER, INTEGER, INTEGER, JSON);

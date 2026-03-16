@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS activity_tags;
-DROP TABLE IF EXISTS tags;
