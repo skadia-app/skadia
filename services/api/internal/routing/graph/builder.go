@@ -107,11 +107,10 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	report("elevation_nodes", 100)
 	report("elevation_edges", 100)
 
-	report("prune_wcc", 0)
-	beforeNodes := g.NodeCount
-	g = PruneWCC(g, 100)
-	slog.Info("WCC pruned", "before", beforeNodes, "after", g.NodeCount,
-		"removed", beforeNodes-g.NodeCount)
+	// TODO: PruneWCC doubles RAM temporarily (copies entire graph).
+	// For 5 GB graph → 10 GB peak → OOM. Needs in-place pruning.
+	// Skipped for first route — small disconnected components won't affect routing quality.
+	slog.Info("skipping WCC pruning (would double RAM)", "nodes", g.NodeCount)
 	report("prune_wcc", 100)
 
 	report("spatial_index", 0)
