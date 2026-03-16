@@ -339,6 +339,28 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["tags"] = base
 	}
 
+	// E-Bike tag: if is_ebike is true, ensure "E-Bike" tag is in tags array
+	// and link in activity_tags junction table (same pattern as "Wettkampf" above).
+	if data.IsEbike {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "E-Bike")
+
+		// Upsert the "E-Bike" system tag and link it to this activity.
+		var ebikeTagID string
+		row := db.Pool.QueryRow(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_ebike)')
+			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			RETURNING id
+		`, userID)
+		if err := row.Scan(&ebikeTagID); err == nil {
+			_ = db.LinkActivityTag(ctx, activityID, ebikeTagID, "auto")
+		}
+	}
+
 	if len(fields) == 0 {
 		return
 	}
