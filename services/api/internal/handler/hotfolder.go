@@ -111,14 +111,15 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			// Update log with monitoring metadata
 			if logID != "" {
 				elapsed := int(time.Since(start).Milliseconds())
+				if err := h.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, nil, &elapsed); err != nil {
+					slog.Warn("hotfolder: failed to finalize monitoring FIT log", "id", logID, "error", err)
+				}
 				meta, _ := json.Marshal(map[string]any{
 					"fit_file_type": ftype,
 					"data_type":     "monitoring",
 				})
-				metaStr := string(meta)
-				_ = metaStr // metadata stored via UpdateImportLogStatus (no metadata param)
-				if err := h.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, nil, &elapsed); err != nil {
-					slog.Warn("hotfolder: failed to finalize monitoring FIT log", "id", logID, "error", err)
+				if err := h.DB.UpdateImportLogMetadata(ctx, logID, meta); err != nil {
+					slog.Warn("hotfolder: failed to set monitoring FIT metadata", "id", logID, "error", err)
 				}
 			}
 			// Delete source file

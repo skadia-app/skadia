@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 type importLogResponse struct {
-	Entries interface{} `json:"entries"`
-	Total   int         `json:"total"`
+	Entries []model.ImportLogEntry `json:"entries"`
+	Total   int                    `json:"total"`
 }
 
 // GetImports godoc

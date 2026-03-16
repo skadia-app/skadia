@@ -445,10 +445,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				continue
 			}
 
-			if actResult.Status == "skipped" || actResult.Status == "enriched" {
+			if actResult.Status == "skipped" {
 				result.Skipped++
 				if logID != "" {
 					_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+				}
+				continue
+			}
+			if actResult.Status == "enriched" {
+				result.Skipped++ // counts as "not newly created" for import stats
+				if logID != "" {
+					_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actResult.ActivityID, nil)
 				}
 				continue
 			}

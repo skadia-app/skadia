@@ -50,6 +50,18 @@ func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, erro
 	return nil
 }
 
+// UpdateImportLogMetadata sets the metadata field of an import_log entry.
+func (db *DB) UpdateImportLogMetadata(ctx context.Context, id string, metadata []byte) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE import_log SET metadata = $2, updated_at = NOW() WHERE id = $1`,
+		id, metadata,
+	)
+	if err != nil {
+		return fmt.Errorf("update import log metadata: %w", err)
+	}
+	return nil
+}
+
 // ListImportLog returns paginated import_log entries for a user, with optional filters.
 // Returns (entries, total, error).
 func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []string, sourcePlatform string, limit, offset int) ([]model.ImportLogEntry, int, error) {

@@ -50,9 +50,6 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 		return 0, nil
 	}
 
-	totalHRV := 0
-	totalNightHRV := 0
-	totalRHR := 0
 	fitErrors := 0
 
 	for _, z := range zips {
@@ -74,10 +71,9 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 				continue
 			}
 
-			// Determine FIT file type — skip activity and unknown types.
 			ftype := readFITFileType(data)
 
-			// Import log: insert pending entry before processing.
+			// Import log entry for this file.
 			monLogEntry := model.ImportLogEntry{
 				UserID:         params.UserID,
 				SourcePlatform: "garmin",
@@ -86,79 +82,39 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 			}
 			monLogID, _ := params.DB.InsertImportLog(ctx, monLogEntry)
 
-			switch ftype {
-			case fitFileTypeMonitorMain:
-				result := parseMonitorMainFIT(data, params.UserID)
-				// Store hrv_status_summary snapshots.
-				for i := range result.HRVSnapshots {
-					snap := &result.HRVSnapshots[i]
-					if err := params.DB.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
-						slog.Warn("garmin monitoring fit: upsert HRV snapshot failed", "error", err)
-					} else {
-						totalHRV++
-					}
-				}
-				// Store 5-min HRV night values (msg 371 in type 68).
-				if len(result.HRVNightValues) > 0 {
-					if err := params.DB.UpsertHealthHRVNightValuesBatch(ctx, params.UserID, result.HRVNightValues); err != nil {
-						slog.Warn("garmin monitoring fit: upsert HRV night values failed", "error", err)
-					} else {
-						totalNightHRV += len(result.HRVNightValues)
-					}
-				}
-				// Store daily resting heart rate.
-				for calDate, rhr := range result.RestingHRByDate {
-					rhrVal := rhr
-					summary := &model.HealthDailySummary{
-						UserID:           params.UserID,
-						CalendarDate:     calDate,
-						RestingHeartRate: &rhrVal,
-						SourceType:       "garmin_fit",
-					}
-					if err := params.DB.UpsertHealthDailySummary(ctx, summary); err != nil {
-						slog.Warn("garmin monitoring fit: upsert resting HR failed", "date", calDate, "error", err)
-					} else {
-						totalRHR++
-					}
-				}
-				if monLogID != "" {
-					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
-				}
-
-			case fitFileTypeHRVNight:
-				result := parseHRVNightFIT(data, params.UserID)
-				if len(result.HRVNightValues) > 0 {
-					if err := params.DB.UpsertHealthHRVNightValuesBatch(ctx, params.UserID, result.HRVNightValues); err != nil {
-						slog.Warn("garmin monitoring fit: upsert HRV night values (44) failed", "error", err)
-					} else {
-						totalNightHRV += len(result.HRVNightValues)
-					}
-				}
-				if monLogID != "" {
-					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
-				}
-
-			default:
-				// Activity files (type 4) are handled by ActivitiesImporter.
-				// All other types (32, 41, 49, 58 etc.) contain only step/activity-level
-				// data already available in the JSON exports — skip silently.
+			// Activity files (type 4) are handled by ActivitiesImporter.
+			// All other non-monitoring types skip silently.
+			if ftype != fitFileTypeMonitorMain && ftype != fitFileTypeHRVNight {
 				if monLogID != "" {
 					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "skipped", nil, nil, nil)
 				}
 				continue
+			}
+
+			// Delegate to ProcessMonitoringFIT — shared with hotfolder/upload paths.
+			if procErr := ProcessMonitoringFIT(ctx, params.DB, data, params.UserID); procErr != nil {
+				slog.Warn("garmin monitoring fit: process failed", "file", f.Name, "error", procErr)
+				if monLogID != "" {
+					msg := procErr.Error()
+					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "error", &msg, nil, nil)
+				}
+				fitErrors++
+				continue
+			}
+
+			imported++
+			if monLogID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
 			}
 		}
 		zr.Close()
 	}
 
 	slog.Info("garmin monitoring fit: import done",
-		"hrv_daily", totalHRV,
-		"hrv_night_5min", totalNightHRV,
-		"resting_hr_days", totalRHR,
+		"imported", imported,
 		"fit_errors", fitErrors,
 	)
 
-	imported = totalHRV + totalNightHRV + totalRHR
 	return imported, errs
 }
 
