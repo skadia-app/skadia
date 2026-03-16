@@ -432,6 +432,13 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Clear any removal records — user is explicitly re-adding this tag.
+	for _, actID := range req.ActivityIDs {
+		if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
+			slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
+		}
+	}
+
 	if err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
 		slog.Error("assign activities to tag failed", "tag_id", tagID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
@@ -537,11 +544,33 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Load tag to check if it's a system tag (for recording removal decision).
+	tag, tagErr := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if tagErr != nil {
+		slog.Error("unassign activities: get tag failed", "tag_id", tagID, "error", tagErr)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		return
+	}
+	if tag == nil {
+		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		return
+	}
+
 	if err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
 		slog.Error("unassign activities from tag failed", "tag_id", tagID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to unassign activities", r.URL.Path)
 		return
 	}
+
+	// If this is a system tag, record the removal so enrichment won't re-add it.
+	if tag.IsSystem {
+		for _, actID := range req.ActivityIDs {
+			if err := h.DB.RecordTagRemoval(r.Context(), actID, tagID); err != nil {
+				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

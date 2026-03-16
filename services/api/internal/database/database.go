@@ -3813,6 +3813,35 @@ func (db *DB) LinkActivityTag(ctx context.Context, activityID, tagID, assignedBy
 	return nil
 }
 
+// RecordTagRemoval records that a user explicitly removed a system tag from an activity.
+// This prevents enrichment from re-adding the tag later.
+func (db *DB) RecordTagRemoval(ctx context.Context, activityID, tagID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO activity_tag_removals (activity_id, tag_id)
+		 VALUES ($1, $2)
+		 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+		activityID, tagID)
+	return err
+}
+
+// ClearTagRemoval deletes a removal record, allowing enrichment to re-add the tag.
+// Called when a user manually re-assigns a system tag to an activity.
+func (db *DB) ClearTagRemoval(ctx context.Context, activityID, tagID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM activity_tag_removals WHERE activity_id = $1 AND tag_id = $2`,
+		activityID, tagID)
+	return err
+}
+
+// IsTagRemovalRecorded checks whether a user has explicitly removed a system tag from an activity.
+func (db *DB) IsTagRemovalRecorded(ctx context.Context, activityID, tagID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_tag_removals WHERE activity_id = $1 AND tag_id = $2)`,
+		activityID, tagID).Scan(&exists)
+	return exists, err
+}
+
 // contrastTextColor returns a readable text color (#1a1a1a or #ffffff) for a given
 // hex background color using the YIQ luminance formula, matching the frontend logic.
 func contrastTextColor(hex string) string {
