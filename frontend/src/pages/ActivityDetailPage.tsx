@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings, getWeatherSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
-import { fetchTags, createTag } from '@/api/tags'
+import { fetchTags, createTag, unassignActivitiesFromTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
@@ -44,8 +44,6 @@ import type { GeoTag, ActivityStop } from '@/api/types'
 import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
 import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
-import TrimDialog from '@/components/TrimDialog'
-import SplitDialog from '@/components/SplitDialog'
 import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
@@ -766,8 +764,6 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
-  const [trimDialogOpen, setTrimDialogOpen] = useState(false)
-  const [splitDialogOpen, setSplitDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
   const { data: routingCapabilities } = useQuery({
@@ -1109,32 +1105,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         </>
       )}
 
-      {/* Non-destructive edit operations — not applicable for multisport parents */}
-      {activity.sport_type !== 'multisport' && (
-        <>
-          <button
-            onClick={() => setTrimDialogOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-            title="Anfang oder Ende der Aktivitat abschneiden"
-          >
-            &#9986; Trimmen
-          </button>
-          <button
-            onClick={() => setSplitDialogOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
-            title="Aktivitat an einem Zeitpunkt aufteilen"
-          >
-            &#10178; Aufteilen
-          </button>
-        </>
-      )}
-      {/* Trim / Split / Merge dialogs */}
-      {trimDialogOpen && (
-        <TrimDialog activity={activity} onClose={() => setTrimDialogOpen(false)} />
-      )}
-      {splitDialogOpen && (
-        <SplitDialog activity={activity} onClose={() => setSplitDialogOpen(false)} />
-      )}
+      {/* Merge dialog */}
       {mergeDialogOpen && (
         <MergeDialog activity={activity} onClose={() => setMergeDialogOpen(false)} />
       )}
@@ -1579,11 +1550,30 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
     'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
   ]
 
+  const { data: allTags } = useQuery({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
+    staleTime: 60_000, // 1 min — avoids redundant refetches while staying on the page
+  })
+
   const removeMut = useMutation({
-    mutationFn: (tagToRemove: string) =>
-      updateActivity(activityId, { tags: tags.filter(t => t !== tagToRemove) }),
+    mutationFn: async (tagToRemove: string) => {
+      // Find the tag's ID from the loaded allTags list.
+      // Tags with id === '' are "orphan" tags (in activities.tags TEXT[] but not in tags table).
+      const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagToRemove.toLowerCase())
+      if (tagObj && tagObj.id) {
+        // Proper removal: delete from activity_tags junction table + sync TEXT[] cache.
+        await unassignActivitiesFromTag(tagObj.id, [activityId])
+        // Return fresh activity data for cache update.
+        return updateActivity(activityId, {})
+      } else {
+        // Orphan tag (not in tags table): update TEXT[] cache directly.
+        return updateActivity(activityId, { tags: tags.filter(t => t !== tagToRemove) })
+      }
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(['activity', activityId], updated)
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
     },
   })
 
@@ -1608,12 +1598,6 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
       setSearch('')
       setAddOpen(false)
     },
-  })
-
-  const { data: allTags } = useQuery({
-    queryKey: ['tags'],
-    queryFn: fetchTags,
-    enabled: addOpen,
   })
 
   // Close popover on click outside
@@ -1703,7 +1687,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
           {tag}
           <button
             onClick={() => removeMut.mutate(tag)}
-            className="text-xs opacity-0 group-hover:opacity-100 ml-1 cursor-pointer transition-opacity"
+            className="text-xs ml-1.5 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
             title={`Tag "${tag}" entfernen`}
           >
             &times;

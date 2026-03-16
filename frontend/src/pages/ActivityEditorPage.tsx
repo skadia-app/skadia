@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -7,11 +7,12 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import { EditorMap } from '@/components/editor/EditorMap'
-import { TrimControls } from '@/components/editor/TrimControls'
+import { TrimSplitControls } from '@/components/editor/TrimSplitControls'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
+import { useToast } from '@/lib/toast'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -194,6 +195,8 @@ function buildHRChartOption(
 export default function ActivityEditorPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const splitSectionRef = useRef<HTMLDivElement>(null)
 
   const [detectedSpikes, setDetectedSpikes] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
@@ -208,10 +211,12 @@ export default function ActivityEditorPage() {
   const [isSavingGPS, setIsSavingGPS] = useState(false)
   const [gpsMethod, setGpsMethod] = useState<'interpolate' | 'remove'>('interpolate')
 
-  // ── Track / Trim State ─────────────────────────────────────────────────────
+  // ── Track / Trim / Split State ────────────────────────────────────────────
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
-  const [activeMapSelect, setActiveMapSelect] = useState<'start' | 'end' | null>(null)
+  const [splitIndex, setSplitIndex] = useState(0)
+  const [activeMapSelect, setActiveMapSelect] = useState<'start' | 'end' | 'split' | null>(null)
+  const [trimSplitMode, setTrimSplitMode] = useState<'trim' | 'split'>('trim')
 
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: ['activity', id],
@@ -270,15 +275,29 @@ export default function ActivityEditorPage() {
     if (!trackGeoJSON || didInitTrim.current) return
     const maxIdx = trackGeoJSON.coordinates.length - 1
     setTrimEnd(maxIdx)
+    setSplitIndex(Math.floor(maxIdx / 2))
     didInitTrim.current = true
   }, [trackGeoJSON])
 
-  // Map-Klick-Handler: je nach activeMapSelect Start oder Ende setzen
+  // Scroll to split section if ?section=split and switch to split mode
+  const didScrollToSplit = useRef(false)
+  useEffect(() => {
+    if (didScrollToSplit.current) return
+    if (searchParams.get('section') === 'split' && activity && splitSectionRef.current) {
+      setTrimSplitMode('split')
+      splitSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      didScrollToSplit.current = true
+    }
+  }, [searchParams, activity])
+
+  // Map-Klick-Handler: je nach activeMapSelect Start, Ende oder Split-Punkt setzen
   const handleTrackClick = useCallback((index: number) => {
     if (activeMapSelect === 'start') {
       setTrimStart(index)
     } else if (activeMapSelect === 'end') {
       setTrimEnd(index)
+    } else if (activeMapSelect === 'split') {
+      setSplitIndex(index)
     }
     setActiveMapSelect(null)
   }, [activeMapSelect])
@@ -415,53 +434,6 @@ export default function ActivityEditorPage() {
     }
   }
 
-  // Save trim as sidecar edits
-  async function handleSaveTrim() {
-    if (!id || !trackGeoJSON) return
-    const maxIdx = trackGeoJSON.coordinates.length - 1
-    const trimActive = trimStart > 0 || trimEnd < maxIdx
-    if (!trimActive) return
-
-    setIsSaving(true)
-    try {
-      const now = new Date().toISOString()
-      const newEdits: Edit[] = [
-        // Keep non-trim edits from existing sidecar
-        ...(sidecar?.edits.filter(e => e.type !== 'trim_start' && e.type !== 'trim_end') ?? []),
-      ]
-
-      // Map index → timestamp from streams (GPS points only)
-      const gpsStreams = streams.filter(s => s.lat != null && s.lng != null)
-      if (trimStart > 0 && gpsStreams[trimStart]) {
-        newEdits.push({
-          type: 'trim_start',
-          timestamp: new Date(gpsStreams[trimStart].time).toISOString(),
-        })
-      }
-      if (trimEnd < maxIdx && gpsStreams[trimEnd]) {
-        newEdits.push({
-          type: 'trim_end',
-          timestamp: new Date(gpsStreams[trimEnd].time).toISOString(),
-        })
-      }
-
-      const newSidecar: EditSidecar = {
-        version: 1,
-        activity_id: id,
-        created_at: sidecar?.created_at ?? now,
-        updated_at: now,
-        edits: newEdits,
-      }
-      await putEdits(id, newSidecar)
-      await refetchSidecar()
-      showStatus('Trim gespeichert.')
-    } catch {
-      showStatus('Trim-Speichern fehlgeschlagen.')
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   // Save GPS outliers as edit to sidecar
   async function handleSaveGPSOutliers() {
     if (!id || detectedGPSOutliers.length === 0) return
@@ -576,37 +548,29 @@ export default function ActivityEditorPage() {
             outlierPoints={outlierPoints}
             trimStart={trimStart}
             trimEnd={trimEnd}
+            splitIndex={splitIndex}
+            mode={trimSplitMode}
             onTrackClick={activeMapSelect ? handleTrackClick : undefined}
             className="h-72 rounded-lg overflow-hidden"
           />
 
-          <TrimControls
+          <TrimSplitControls
+            activity={activity}
+            streams={streams}
             totalPoints={trackGeoJSON.coordinates.length}
             trimStart={trimStart}
             trimEnd={trimEnd}
             onTrimStartChange={setTrimStart}
             onTrimEndChange={setTrimEnd}
+            splitIndex={splitIndex}
+            onSplitIndexChange={setSplitIndex}
             onSetFromMap={(which) => setActiveMapSelect(prev => prev === which ? null : which)}
             activeMapSelect={activeMapSelect}
+            onTrimSaved={() => refetchSidecar()}
+            onModeChange={setTrimSplitMode}
+            sectionRef={splitSectionRef}
+            initialMode={searchParams.get('section') === 'split' ? 'split' : 'trim'}
           />
-
-          {trimActive && (
-            <div className="flex justify-end">
-              <button
-                onClick={handleSaveTrim}
-                disabled={isSaving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-                           border border-amber-300 dark:border-amber-700
-                           text-amber-700 dark:text-amber-400
-                           hover:bg-amber-50 dark:hover:bg-amber-900/20
-                           disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-colors"
-              >
-                <SaveIcon className="w-4 h-4" />
-                {isSaving ? 'Speichere...' : 'Trim speichern'}
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -804,6 +768,7 @@ export default function ActivityEditorPage() {
           </div>
         )}
       </div>
+
     </div>
   )
 }
@@ -876,3 +841,4 @@ function CheckCircleIcon({ className }: { className?: string }) {
     </svg>
   )
 }
+

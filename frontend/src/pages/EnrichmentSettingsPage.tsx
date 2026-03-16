@@ -20,7 +20,7 @@ const TOGGLES: ToggleConfig[] = [
   {
     key: 'enable_weather_enrichment',
     label: 'Wetterdaten',
-    description: 'Lädt historische Wetterdaten für den Startzeitpunkt.',
+    description: 'Ruft historische Wetterdaten für jede Aktivität ab. Bei langen Touren oder großer Höhendifferenz werden automatisch mehrere Messwerte (z.\u202fB. Tal und Gipfel) ermittelt.',
     status: 'available',
   },
   {

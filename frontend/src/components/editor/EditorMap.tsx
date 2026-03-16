@@ -2,17 +2,25 @@ import { useRef, useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
+type EditorMapMode = 'trim' | 'split'
+
 interface EditorMapProps {
   trackGeoJSON: GeoJSON.LineString
   outlierPoints?: { lat: number; lng: number; time: string }[]
   trimStart?: number  // Index in track coordinates
   trimEnd?: number
+  /** Index of split point in track coordinates (split mode) */
+  splitIndex?: number
+  /** Current mode controls which visualization is shown */
+  mode?: EditorMapMode
   onTrackClick?: (index: number, time: string) => void
   className?: string
 }
 
 export function EditorMap({
-  trackGeoJSON, outlierPoints, trimStart, trimEnd, onTrackClick, className
+  trackGeoJSON, outlierPoints, trimStart, trimEnd,
+  splitIndex, mode = 'trim',
+  onTrackClick, className,
 }: EditorMapProps) {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -39,7 +47,7 @@ export function EditorMap({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Vollständiger Track (grau, dünn)
+      // Vollstandiger Track (grau, dunn)
       map.addSource('track-full', {
         type: 'geojson',
         data: { type: 'Feature', geometry: trackRef.current, properties: {} },
@@ -101,6 +109,35 @@ export function EditorMap({
         },
       })
 
+      // Split-point marker source (yellow/orange diamond)
+      map.addSource('split-marker', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'split-marker-point',
+        type: 'circle',
+        source: 'split-marker',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#f59e0b',
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': '#fff',
+        },
+      })
+      // Split label
+      map.addLayer({
+        id: 'split-marker-label',
+        type: 'symbol',
+        source: 'split-marker',
+        layout: {
+          'text-field': '\u2702',
+          'text-size': 14,
+          'text-offset': [0, -1.4],
+          'text-allow-overlap': true,
+        },
+      })
+
       // GPS-Outlier Source
       map.addSource('outliers', {
         type: 'geojson',
@@ -118,7 +155,7 @@ export function EditorMap({
         },
       })
 
-      // Klick auf Track-Linie → nächsten Punkt finden und Callback auslösen
+      // Klick auf Track-Linie -> nachsten Punkt finden und Callback auslosen
       map.on('click', 'track-full-line', (e) => {
         if (!e.lngLat) return
         const clickedCoord = [e.lngLat.lng, e.lngLat.lat]
@@ -151,37 +188,74 @@ export function EditorMap({
     if (!map?.isStyleLoaded()) return
 
     const coords = trackGeoJSON.coordinates
-    const start = trimStart ?? 0
-    const end = (trimEnd ?? coords.length - 1) + 1
-    const activeCoords = coords.slice(start, end)
 
-    const activeSource = map.getSource('track-active') as maplibregl.GeoJSONSource | undefined
-    activeSource?.setData({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: activeCoords },
-      properties: {},
-    })
+    if (mode === 'trim') {
+      // Show trimmed region: full track gray, active region blue
+      const start = trimStart ?? 0
+      const end = (trimEnd ?? coords.length - 1) + 1
+      const activeCoords = coords.slice(start, end)
 
-    // Trim-Marker aktualisieren
-    const markerSource = map.getSource('trim-markers') as maplibregl.GeoJSONSource | undefined
-    const features: GeoJSON.Feature[] = []
-    if (coords[start]) {
-      features.push({
+      const activeSource = map.getSource('track-active') as maplibregl.GeoJSONSource | undefined
+      activeSource?.setData({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: coords[start] },
-        properties: { role: 'start' },
+        geometry: { type: 'LineString', coordinates: activeCoords.length >= 2 ? activeCoords : coords },
+        properties: {},
       })
-    }
-    const endIdx = end - 1
-    if (coords[endIdx]) {
-      features.push({
+
+      // Trim-Marker aktualisieren
+      const markerSource = map.getSource('trim-markers') as maplibregl.GeoJSONSource | undefined
+      const features: GeoJSON.Feature[] = []
+      if (coords[start]) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: coords[start] },
+          properties: { role: 'start' },
+        })
+      }
+      const endIdx = end - 1
+      if (coords[endIdx]) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: coords[endIdx] },
+          properties: { role: 'end' },
+        })
+      }
+      markerSource?.setData({ type: 'FeatureCollection', features })
+
+      // Hide split marker
+      const splitSource = map.getSource('split-marker') as maplibregl.GeoJSONSource | undefined
+      splitSource?.setData({ type: 'FeatureCollection', features: [] })
+
+    } else {
+      // Split mode: show full track as active, show split marker
+      const activeSource = map.getSource('track-active') as maplibregl.GeoJSONSource | undefined
+      activeSource?.setData({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: coords[endIdx] },
-        properties: { role: 'end' },
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {},
       })
+
+      // Hide trim markers
+      const markerSource = map.getSource('trim-markers') as maplibregl.GeoJSONSource | undefined
+      markerSource?.setData({ type: 'FeatureCollection', features: [] })
+
+      // Show split marker
+      const splitSource = map.getSource('split-marker') as maplibregl.GeoJSONSource | undefined
+      const idx = splitIndex ?? 0
+      if (idx > 0 && idx < coords.length && coords[idx]) {
+        splitSource?.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: coords[idx] },
+            properties: {},
+          }],
+        })
+      } else {
+        splitSource?.setData({ type: 'FeatureCollection', features: [] })
+      }
     }
-    markerSource?.setData({ type: 'FeatureCollection', features })
-  }, [trimStart, trimEnd, trackGeoJSON])
+  }, [trimStart, trimEnd, splitIndex, trackGeoJSON, mode])
 
   // Outlier-Punkte aktualisieren
   useEffect(() => {
