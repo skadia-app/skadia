@@ -190,6 +190,35 @@ export function WeatherSettings() {
         </div>
       </div>
 
+      {/* Automatische Wetter-Tags */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-medium text-neutral-900 dark:text-white">
+            Automatische Wetter-Tags
+          </h4>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            Vergibt automatisch Tags wie &ldquo;Sonnig&rdquo; oder &ldquo;Regen&rdquo; basierend auf den Wetterdaten
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={localPrefs?.auto_tags ?? true}
+          onClick={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            (localPrefs?.auto_tags ?? true)
+              ? 'bg-accent-500'
+              : 'bg-neutral-300 dark:bg-neutral-600'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              (localPrefs?.auto_tags ?? true) ? 'translate-x-4.5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Backfill-Button */}
       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
         <p className="text-xs text-neutral-400 dark:text-neutral-500 mb-3">
