@@ -1103,7 +1103,6 @@ export default function ActivitiesPage() {
               </th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Sport</th>
-              <th className="w-7 px-0" />  {/* E-Bike indicator */}
               <th
                 className={`text-left ${sortableHeaderClass('started_at')}`}
                 onClick={() => toggleSort('started_at')}
@@ -1173,8 +1172,8 @@ export default function ActivitiesPage() {
                       <td className="py-1.5 pl-3 pr-2 w-8">
                         <div className="w-4 h-4 border-l-2 border-b-2 border-neutral-300 dark:border-neutral-600 ml-2" />
                       </td>
-                      {/* Titel + Sport + E-Bike + Datum — colSpan=4 */}
-                      <td colSpan={4} className="py-1.5 px-4">
+                      {/* Titel + Sport + Datum */}
+                      <td colSpan={3} className="py-1.5 px-4">
                         <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
                           <SportIcon sport={child.sport_type} subType={child.sub_type} isEbike={child.is_ebike} className="w-4 h-4 shrink-0 text-neutral-400" />
                           <span className="font-medium truncate">
@@ -1443,6 +1442,7 @@ function ActivityRow({
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+          <span className="w-4 text-center text-xs flex-shrink-0">{activity.is_ebike ? '🔌' : ''}</span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
@@ -1452,11 +1452,6 @@ function ActivityRow({
             </span>
           )}
         </span>
-      </td>
-      <td className="w-7 px-0 text-center">
-        {activity.is_ebike && (
-          <span className="text-sm" title="E-Bike" aria-label="E-Bike">🔌</span>
-        )}
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
         {format(date, 'EEE, dd. MMM yyyy', { locale: de })}
