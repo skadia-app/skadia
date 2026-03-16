@@ -30,10 +30,15 @@ function WeatherBadgeCard({ reading, displayFields }: WeatherBadgeCardProps) {
       className="inline-flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50"
       title={reading.model ? `Datenquelle: ${reading.model}` : undefined}
     >
-      {/* Label (Gipfel / Start etc.) */}
-      {reading.label && (
-        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 leading-none mb-0.5">
-          {reading.label}
+      {/* Label (Berg / Start etc.) + Uhrzeit */}
+      {(reading.label || reading.recorded_at) && (
+        <div className="flex items-center gap-3 text-xs font-medium text-neutral-500 dark:text-neutral-400 leading-none mb-0.5">
+          {reading.label && <span>{reading.label}</span>}
+          {reading.recorded_at && (
+            <span className="font-normal tabular-nums">
+              {new Date(reading.recorded_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
       )}
 

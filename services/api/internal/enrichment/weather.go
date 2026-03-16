@@ -282,7 +282,7 @@ func BuildWeatherRequests(
 
 	case CaseMountain:
 		label1 := fmt.Sprintf("▽ Start (%.0fm)", minAlt)
-		label2 := fmt.Sprintf("▲ Gipfel (%.0fm)", maxAlt)
+		label2 := fmt.Sprintf("▲ Berg (%.0fm)", maxAlt)
 		sumLat, sumLng, sumAlt := startLat, startLng, maxAlt
 		sumTime := startedAt.Add(time.Duration(elapsedSec/2) * time.Second)
 		if summitLat != nil {
