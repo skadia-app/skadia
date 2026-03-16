@@ -50,6 +50,30 @@ type TopologyResult struct {
 	NodeCount int
 }
 
+// CompactEdge is a memory-efficient directed edge with pre-encoded tags.
+// 36 bytes vs ~300 bytes for TopologyEdge (no string copies).
+type CompactEdge struct {
+	From  uint32
+	To    uint32
+	OSMID int64
+	Tags1 uint64 // EncodeOSMTags result
+	Tags2 uint64 // EncodeEdgeTags2 result
+	Dist  uint32 // distance in centimeters
+}
+
+// CompactTopologyResult holds topology with pre-encoded tags.
+type CompactTopologyResult struct {
+	Nodes     []Coord
+	Edges     []CompactEdge
+	NodeIndex map[CoordKey]uint32
+	NodeTags  []uint8
+	NodeCount int
+	// Edge geometry: intermediate coordinates for each edge.
+	// EdgeGeom[EdgeGeomOffset[i]:EdgeGeomOffset[i+1]] gives the geometry for edge i.
+	EdgeGeomOffset []uint32
+	EdgeGeomCoords []Coord
+}
+
 // BuildTopology computes the graph topology from raw ways.
 func BuildTopology(ways []RawWay) TopologyResult {
 	nodeIndex := make(map[CoordKey]uint32, len(ways)*10)
