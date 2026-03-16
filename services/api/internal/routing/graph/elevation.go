@@ -63,6 +63,34 @@ func SampleElevation(ctx context.Context, pool *pgxpool.Pool,
 	return elevations, nil
 }
 
+// SampleEdgeElevationProfiles queries DEM elevation for all edge geometry points
+// and builds the elevation profile arrays on the Graph.
+func SampleEdgeElevationProfiles(ctx context.Context, pool *pgxpool.Pool, g *Graph) error {
+	totalGeomPoints := len(g.EdgeGeomLat)
+	if totalGeomPoints == 0 {
+		for i := uint32(0); i <= g.EdgeCount; i++ {
+			g.EdgeElevOff[i] = 0
+		}
+		return nil
+	}
+
+	// Batch-query DEM for all geometry points
+	isBridge := make([]bool, totalGeomPoints) // no bridge info for geometry points
+	elevations, err := SampleElevation(ctx, pool, g.EdgeGeomLat, g.EdgeGeomLon, isBridge, nil)
+	if err != nil {
+		return fmt.Errorf("sample edge elevations: %w", err)
+	}
+
+	// Build elevation profile: same offsets as geometry
+	g.EdgeElevProf = make([]int32, totalGeomPoints)
+	copy(g.EdgeElevProf, elevations)
+
+	// EdgeElevOff mirrors EdgeGeomOff (same points, same offsets)
+	copy(g.EdgeElevOff, g.EdgeGeomOff)
+
+	return nil
+}
+
 // InterpolateMissing fills gaps in elevation data for bridge/tunnel segments.
 func InterpolateMissing(elevations []int32, isBridge []bool) {
 	n := len(elevations)

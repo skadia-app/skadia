@@ -42,12 +42,87 @@ func BuildFromWays(ways []RawWay, elevations []int32) *Graph {
 // Uses cursor-based streaming to avoid loading all ways into memory at once.
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	progressFn func(step string, pct int)) (*Graph, error) {
-	// TODO: update in Task 5 — needs BuildCSRCompact + edge elevation profiles
-	_ = ctx
-	_ = pool
-	_ = outputPath
-	_ = progressFn
-	return nil, fmt.Errorf("not implemented: waiting for Task 5")
+
+	report := func(step string, pct int) {
+		slog.Info("graph build", "step", step, "pct", pct)
+		if progressFn != nil {
+			progressFn(step, pct)
+		}
+	}
+
+	var totalWays int64
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL AND highway != 'construction' AND (tags->>'area') IS DISTINCT FROM 'yes'").Scan(&totalWays); err != nil {
+		return nil, fmt.Errorf("count ways: %w", err)
+	}
+	slog.Info("ways to load", "count", totalWays)
+
+	report("load_topology", 0)
+	topo, err := StreamTopology(ctx, pool, totalWays, func(loaded int64) {
+		if totalWays > 0 {
+			report("load_topology", int(loaded*100/totalWays))
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("stream topology: %w", err)
+	}
+	slog.Info("topology built", "nodes", topo.NodeCount, "edges", len(topo.Edges))
+	report("load_topology", 100)
+
+	report("build_csr", 0)
+	g := BuildCSRCompact(topo)
+	report("build_csr", 100)
+
+	report("elevation_nodes", 0)
+	// Detect bridge/tunnel from encoded tags — O(E) scan
+	isBridge := make([]bool, g.NodeCount)
+	for ni := uint32(0); ni < g.NodeCount; ni++ {
+		for ei := g.Offsets[ni]; ei < g.Offsets[ni+1]; ei++ {
+			if DecodeBool(g.EdgeTags1[ei], 38) || DecodeBool(g.EdgeTags1[ei], 39) {
+				isBridge[ni] = true
+				isBridge[g.Targets[ei]] = true
+			}
+		}
+	}
+	elevations, err := SampleElevation(ctx, pool, g.NodeLat, g.NodeLon, isBridge,
+		func(done, total int) {
+			report("elevation_nodes", done*100/total)
+		})
+	if err != nil {
+		return nil, fmt.Errorf("sample elevation: %w", err)
+	}
+	copy(g.NodeEle, elevations)
+	report("elevation_nodes", 100)
+
+	report("elevation_edges", 0)
+	if err := SampleEdgeElevationProfiles(ctx, pool, g); err != nil {
+		slog.Warn("edge elevation profiles failed (non-fatal)", "error", err)
+	}
+	report("elevation_edges", 100)
+
+	*topo = CompactTopologyResult{} // free topology memory
+
+	report("prune_wcc", 0)
+	beforeNodes := g.NodeCount
+	g = PruneWCC(g, 100)
+	slog.Info("WCC pruned", "before", beforeNodes, "after", g.NodeCount,
+		"removed", beforeNodes-g.NodeCount)
+	report("prune_wcc", 100)
+
+	report("spatial_index", 0)
+	g.Grid = BuildSpatialIndex(g, 0.01)
+	report("spatial_index", 100)
+
+	g.BuildTime = time.Now()
+
+	if outputPath != "" {
+		report("serialize", 0)
+		if err := Serialize(g, outputPath); err != nil {
+			return nil, fmt.Errorf("serialize: %w", err)
+		}
+		report("serialize", 100)
+	}
+
+	return g, nil
 }
 
 // waysQuery is the SQL for loading routing-eligible ways from PostGIS.
