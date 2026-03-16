@@ -12,13 +12,7 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 from db import get_pool
 from progress import publish_progress
 from enrichment import (
-    enrich_peaks,
-    enrich_settlements,
     enrich_commute,
-    enrich_borders,
-    enrich_water,
-    enrich_forests,
-    enrich_surfaces,
     enrich_stops,
     enrich_ascents,
     compute_route_embedding,
@@ -71,26 +65,12 @@ def get_metrics() -> dict:
 
 
 # Mapping of NATS subjects to enrichment functions
-#
-# NOTE: The following 5 modules have been migrated to Go SQL (geo_enrich.go)
-# and are executed synchronously in Stage 1 before this NATS event is emitted:
-#   peaks, settlements, forests, water, borders
-#
-# stage1.go always excludes these names from EnabledModules, so the
-# enabled_modules filter in _process_message() will skip them even if the
-# Python functions remain listed here.  They are kept for reference only.
 HIGH_PRIORITY_STEPS = [
-    ("peaks", enrich_peaks),          # Migrated to Go (geo_enrich.go) — skipped via EnabledModules
     ("lifts", enrich_lifts),
-    ("settlements", enrich_settlements),  # Migrated to Go (geo_enrich.go) — skipped via EnabledModules
     ("commute", enrich_commute),
-    ("borders", enrich_borders),      # Migrated to Go (geo_enrich.go) — skipped via EnabledModules
 ]
 
 NORMAL_PRIORITY_STEPS = [
-    ("water", enrich_water),          # Migrated to Go (geo_enrich.go) — skipped via EnabledModules
-    ("forests", enrich_forests),      # Migrated to Go (geo_enrich.go) — skipped via EnabledModules
-    ("surfaces", enrich_surfaces),
     ("stops", enrich_stops),
     ("intervals", enrich_intervals),
 ]
