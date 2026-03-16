@@ -99,6 +99,67 @@ func (s *Service) PostProcess(
 		slog.Error("insert streams failed", "error", err)
 	}
 
+	// 2a.1 Weather stream refinement — re-fetch with summit/midpoint GPS if relevant.
+	// Runs as a background goroutine to avoid blocking post-processing.
+	// The stage1 weather (start-only) is already stored; this overwrites it with
+	// more accurate readings using actual stream data.
+	if enrichment.NeedsStreamRefinement(data.HasGPS, data.MinElevationM, data.MaxElevationM, data.ElapsedTimeS) {
+		capturedID := activityID
+		capturedData := data
+		go func() {
+			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			prefs := model.DefaultWeatherPrefs()
+			var minPtr, maxPtr *float64
+			if capturedData.MinElevationM != 0 {
+				v := capturedData.MinElevationM
+				minPtr = &v
+			}
+			if capturedData.MaxElevationM != 0 {
+				v := capturedData.MaxElevationM
+				maxPtr = &v
+			}
+
+			var summitLat, summitLng *float64
+			var summitAlt float64
+			var summitAt *time.Time
+			var midLat, midLng, midMeanAlt float64
+			var midAt *time.Time
+
+			c := enrichment.DetermineWeatherCase(capturedData.ElapsedTimeS, capturedData.MinElevationM, capturedData.MaxElevationM, prefs)
+			if c == enrichment.CaseMountain {
+				if slat, slng, salt, sat, ok := enrichment.SummitPoint(ctx2, s.DB.Pool, capturedID); ok {
+					summitLat, summitLng, summitAlt = &slat, &slng, salt
+					summitAt = &sat
+				}
+			}
+			if c == enrichment.CaseMountain || c == enrichment.CaseLong {
+				if mlat, mlng, malt, mat, ok := enrichment.MidpointGPS(ctx2, s.DB.Pool, capturedID); ok {
+					midLat, midLng, midMeanAlt = mlat, mlng, malt
+					midAt = &mat
+				}
+			}
+
+			reqs := enrichment.BuildWeatherRequests(
+				capturedData.StartLat, capturedData.StartLng, capturedData.StartedAt,
+				capturedData.ElapsedTimeS, minPtr, maxPtr,
+				summitLat, summitLng, summitAlt,
+				midLat, midLng, midMeanAlt,
+				summitAt, midAt,
+				prefs,
+			)
+			readings, err := enrichment.FetchWeatherReadings(ctx2, reqs)
+			if err != nil {
+				slog.Warn("stream weather refinement fetch failed", "activity_id", capturedID, "error", err)
+				return
+			}
+			if err := s.DB.InsertWeatherReadings(ctx2, capturedID, readings); err != nil {
+				slog.Warn("stream weather refinement insert failed", "activity_id", capturedID, "error", err)
+			}
+		}()
+	}
+
 	// 2b. Insert R-R intervals (FIT only; empty for GPX/TCX)
 	if len(data.RRIntervals) > 0 {
 		if err := s.DB.InsertRRIntervals(ctx, activityID, data.RRIntervals); err != nil {

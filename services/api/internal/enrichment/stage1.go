@@ -219,10 +219,38 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// TODO(weather-improvements Task 5/6): Weather is now fetched via the new
-	// weather engine into activity_weather table using InsertWeatherReadings.
-	// The old flat-column approach (weather_temp_c etc.) has been removed.
-	// Stage 1 no longer writes weather fields directly.
+	// Weather enrichment — case-based, 1–2 readings stored in activity_weather.
+	// Streams are not yet available here, so summit/midpoint GPS is unknown.
+	// Stream-Refinement (summit/midpoint GPS) runs in service.go after stream insert.
+	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() {
+		var minElevPtr, maxElevPtr *float64
+		if data.MinElevationM != 0 {
+			v := data.MinElevationM
+			minElevPtr = &v
+		}
+		if data.MaxElevationM != 0 {
+			v := data.MaxElevationM
+			maxElevPtr = &v
+		}
+		weatherReqs := BuildWeatherRequests(
+			data.StartLat, data.StartLng, data.StartedAt,
+			data.ElapsedTimeS,
+			minElevPtr, maxElevPtr,
+			nil, nil, 0,  // summit point not yet known
+			0, 0, 0,      // midpoint GPS not yet known
+			nil, nil,
+			model.DefaultWeatherPrefs(),
+		)
+		if len(weatherReqs) > 0 {
+			if readings, err := FetchWeatherReadings(ctx, weatherReqs); err == nil {
+				if err := db.InsertWeatherReadings(ctx, activityID, readings); err != nil {
+					slog.Warn("stage1: weather insert failed (non-fatal)", "activity_id", activityID, "error", err)
+				}
+			} else {
+				slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
+			}
+		}
+	}
 
 	// Auto title
 	startCity, _ := fields["start_city"].(string)
