@@ -348,21 +348,31 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		return
 	}
 
-	// Geo enrichment (peaks, settlements, forests, water, borders) — Go SQL, no NATS.
+	// Load enrichment settings once — used both for geo-enrichment gating and
+	// for the Stage-2 NATS event (avoids a second DB round-trip).
+	var enrichSettings *model.EnrichmentSettings
+	if s, err := db.GetEnrichmentSettings(ctx, userID); err != nil {
+		slog.Warn("stage1: could not load enrichment settings, running all geo modules",
+			"user_id", userID, "error", err)
+	} else {
+		enrichSettings = s
+	}
+
+	geoSettings := allGeoEnabled()
+	if enrichSettings != nil {
+		geoSettings = geoSettingsFromModel(enrichSettings)
+	}
+
+	// Geo enrichment (peaks, settlements, forests, water, borders, lifts, surfaces) — Go SQL, no NATS.
 	// Best-effort: failures are logged but do not block the Stage-2 event.
-	if err := RunGeoEnrichment(ctx, db, activityID); err != nil {
+	if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
 		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 	}
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
 	if len(pub) > 0 && pub[0] != nil {
-		// Fetch user's module flags so the ML service can skip disabled modules.
-		// On error we fall back to nil (= all modules enabled) to stay backwards-compatible.
 		var enabledModules []string
-		if enrichSettings, err := db.GetEnrichmentSettings(ctx, userID); err != nil {
-			slog.Warn("stage1: could not load enrichment settings, enabling all stage-2 modules",
-				"user_id", userID, "error", err)
-		} else {
+		if enrichSettings != nil {
 			enabledModules = enrichSettings.EnabledModules()
 		}
 

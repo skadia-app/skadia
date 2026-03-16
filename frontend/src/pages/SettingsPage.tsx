@@ -49,21 +49,26 @@ function Stage2EnrichmentSection() {
     queryFn: fetchEnrichmentSettings,
   })
 
+  const [pendingField, setPendingField] = useState<string | null>(null)
+
   const mutation = useMutation({
     mutationFn: (patch: Parameters<typeof updateEnrichmentSettings>[0]) =>
       updateEnrichmentSettings(patch),
     onSuccess: (updated) => {
       queryClient.setQueryData(['enrichment-settings'], updated)
+      setPendingField(null)
     },
     onError: () => {
+      setPendingField(null)
       queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] })
       addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
     },
   })
 
   function toggle(apiField: typeof STAGE2_MODULES[number]['apiField']) {
-    if (!settings) return
-    const current = settings[apiField] !== false // default true when field absent
+    if (!settings || pendingField !== null) return
+    const current = settings[apiField] !== false
+    setPendingField(apiField)
     mutation.mutate({ [apiField]: !current })
   }
 
@@ -85,7 +90,7 @@ function Stage2EnrichmentSection() {
       <div className="space-y-2">
         {STAGE2_MODULES.map(({ apiField, label, description }) => {
           const enabled = settings ? (settings[apiField] !== false) : true
-          const isPending = mutation.isPending
+          const isThisPending = pendingField === apiField
           return (
             <div key={apiField} className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0 flex-1">
@@ -94,7 +99,7 @@ function Stage2EnrichmentSection() {
               </div>
               <button
                 onClick={() => toggle(apiField)}
-                disabled={isLoading || isPending}
+                disabled={isLoading || isThisPending}
                 className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
                 role="switch"

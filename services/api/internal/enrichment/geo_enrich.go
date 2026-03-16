@@ -6,29 +6,81 @@ import (
 	"log/slog"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// RunGeoEnrichment executes all 5 geo-enrichment queries directly in Go SQL.
-// It replaces the Python modules peaks.py, settlements.py, forests.py,
-// water.py and borders.py. Each module runs synchronously; failures are
-// logged and do not abort subsequent modules.
+// GeoEnrichmentSettings contains the per-user flags that gate individual
+// geo-enrichment modules. All flags default to true so that callers which
+// don't have settings available can pass a zero-value struct (all false
+// would skip everything, so always use allGeoEnabled or populate from
+// model.EnrichmentSettings).
+type GeoEnrichmentSettings struct {
+	EnablePeaks       bool
+	EnableSettlements bool
+	EnableForests     bool
+	EnableWater       bool
+	EnableBorders     bool
+	EnableSurfaces    bool
+}
+
+// geoSettingsFromModel converts a model.EnrichmentSettings into the smaller
+// GeoEnrichmentSettings struct used by RunGeoEnrichment.
+func geoSettingsFromModel(s *model.EnrichmentSettings) GeoEnrichmentSettings {
+	return GeoEnrichmentSettings{
+		EnablePeaks:       s.EnablePeaks,
+		EnableSettlements: s.EnableSettlements,
+		EnableForests:     s.EnableForests,
+		EnableWater:       s.EnableWater,
+		EnableBorders:     s.EnableBorders,
+		EnableSurfaces:    s.EnableSurfaces,
+	}
+}
+
+// allGeoEnabled returns a GeoEnrichmentSettings with every flag set to true,
+// used as a fallback when no user settings are available.
+func allGeoEnabled() GeoEnrichmentSettings {
+	return GeoEnrichmentSettings{
+		EnablePeaks:       true,
+		EnableSettlements: true,
+		EnableForests:     true,
+		EnableWater:       true,
+		EnableBorders:     true,
+		EnableSurfaces:    true,
+	}
+}
+
+// RunGeoEnrichment executes geo-enrichment queries directly in Go SQL.
+// It covers peaks, settlements, forests, water, borders, and surfaces.
+// Lifts are handled by the Python ML service (segment matching + heuristic detection).
+// Each module is gated by the corresponding flag in settings; pass
+// allGeoEnabled() to run every module regardless of user preferences.
+// Failures are logged per module and do not abort subsequent modules.
 //
 // Track source: activity_tracks.track_full (identical to the Python code).
-func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string) error {
+func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, settings GeoEnrichmentSettings) error {
 	slog.Info("running geo enrichment (Go SQL)", "activity_id", activityID)
 
-	modules := []struct {
-		name string
-		fn   func(context.Context, *database.DB, string) error
-	}{
-		{"peaks", enrichGeoTagsPeaks},
-		{"settlements", enrichGeoTagsSettlements},
-		{"forests", enrichGeoTagsForests},
-		{"water", enrichGeoTagsWater},
-		{"borders", enrichGeoTagsBorders},
+	type module struct {
+		name    string
+		enabled bool
+		fn      func(context.Context, *database.DB, string) error
+	}
+	modules := []module{
+		{"peaks", settings.EnablePeaks, enrichGeoTagsPeaks},
+		{"settlements", settings.EnableSettlements, enrichGeoTagsSettlements},
+		{"forests", settings.EnableForests, enrichGeoTagsForests},
+		{"water", settings.EnableWater, enrichGeoTagsWater},
+		{"borders", settings.EnableBorders, enrichGeoTagsBorders},
 	}
 
 	for _, m := range modules {
+		if !m.enabled {
+			slog.Debug("geo enrichment module disabled, skipping",
+				"module", m.name,
+				"activity_id", activityID,
+			)
+			continue
+		}
 		if err := m.fn(ctx, db, activityID); err != nil {
 			slog.Warn("geo enrichment module failed",
 				"module", m.name,
@@ -40,11 +92,18 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string) e
 
 	// Surfaces: only active in Full mode (osm_ways must exist and be populated).
 	// Writes to activity_surfaces; skips silently if osm_ways is not present.
-	if err := EnrichSurfaces(ctx, db, activityID); err != nil {
-		slog.Warn("geo enrichment module failed",
+	if settings.EnableSurfaces {
+		if err := EnrichSurfaces(ctx, db, activityID); err != nil {
+			slog.Warn("geo enrichment module failed",
+				"module", "surfaces",
+				"activity_id", activityID,
+				"error", err,
+			)
+		}
+	} else {
+		slog.Debug("geo enrichment module disabled, skipping",
 			"module", "surfaces",
 			"activity_id", activityID,
-			"error", err,
 		)
 	}
 
@@ -349,7 +408,7 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 			SELECT track_full AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT b.name, b.admin_level, b.country_code,
+		SELECT b.name, b.admin_level,
 		       ST_Intersection(route.geom, ST_Boundary(b.geom)) AS crossing_geom
 		FROM osm_boundaries b, route
 		WHERE ST_Crosses(route.geom, ST_Boundary(b.geom))
@@ -364,10 +423,9 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 	for rows.Next() {
 		var name *string
 		var adminLevel int
-		var countryCode *string
 		var crossingGeom []byte // WKB geometry
 
-		if err := rows.Scan(&name, &adminLevel, &countryCode, &crossingGeom); err != nil {
+		if err := rows.Scan(&name, &adminLevel, &crossingGeom); err != nil {
 			return fmt.Errorf("borders: scan: %w", err)
 		}
 
