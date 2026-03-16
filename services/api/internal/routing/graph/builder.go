@@ -204,9 +204,13 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		w.Tags = RawTags{
 			Highway: highway, Surface: surface, Tracktype: tracktype,
 			Smoothness: smoothness, SacScale: sacScale, MtbScale: mtbScale,
+			MtbScaleUphill: mtbScaleUphill, ViaFerrataScale: viaFerrataScale,
+			TrailVisibility: trailVisibility,
 			Access: access, Foot: foot, Bicycle: bicycle, Horse: horse,
 			Cycleway: cw, CyclewayLeft: cwLeft, CyclewayRight: cwRight,
-			CyclewayBoth: cwBoth, Maxspeed: maxspeed, Lanes: lanes,
+			CyclewayBoth: cwBoth, Maxspeed: maxspeed,
+			Width: width, Incline: incline, Sidewalk: sidewalk,
+			Lanes: lanes,
 			Oneway: oneway, OnewayBicycle: onewayBicycle,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
@@ -216,13 +220,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			TrafficClass: trafficClass, ProtectedArea: protectedArea,
 			IsCycleroute: isCycleroute, IsHikeroute: isHikeroute,
 			CyclerouteNetwork: cyclerouteNetwork, HikerouteNetwork: hikerouteNetwork,
-			LanduseClass:      landuseClass,
-			MtbScaleUphill:    mtbScaleUphill,
-			ViaFerrataScale:   viaFerrataScale,
-			TrailVisibility:   trailVisibility,
-			Width:             width,
-			Incline:           incline,
-			Sidewalk:          sidewalk,
+			LanduseClass: landuseClass,
 		}
 		w.Coords = parseLineStringWKT(geomWKT)
 		if w.Coords == nil && geomWKT != "" {

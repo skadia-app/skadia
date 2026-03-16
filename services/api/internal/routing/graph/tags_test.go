@@ -111,8 +111,8 @@ func TestNullEnrichmentDefaultsToZero(t *testing.T) {
 	}
 }
 
-func TestEncodeEnrichmentNewFields(t *testing.T) {
-	tags := RawEnrichment{
+func TestEncodeEdgeTags2_ExtendedOSM(t *testing.T) {
+	tags := RawTags{
 		MtbScaleUphill:  "3",
 		ViaFerrataScale: "K4",
 		TrailVisibility: "bad",
@@ -120,7 +120,7 @@ func TestEncodeEnrichmentNewFields(t *testing.T) {
 		Incline:         "15%",
 		Sidewalk:        "both",
 	}
-	encoded := EncodeEnrichmentTags(&tags)
+	encoded := EncodeEdgeTags2(&tags, &RawEnrichment{})
 
 	if got := DecodeField(encoded, 29, 3); got != uint64(mtbScaleUphillEnum["3"]) {
 		t.Errorf("mtb_scale_uphill: got %d, want %d", got, mtbScaleUphillEnum["3"])
@@ -188,24 +188,23 @@ func TestParseIncline(t *testing.T) {
 }
 
 func TestNewFieldsDoNotAffectOldFields(t *testing.T) {
-	// Verify new fields in bits 29-56 don't corrupt old fields in bits 0-28.
-	old := RawEnrichment{
+	// Verify OSM extended fields in bits 29-56 don't corrupt enrichment in bits 0-28.
+	enrich := RawEnrichment{
 		ForestPct: 75, NoiseScore: 30, TrafficClass: 2,
 		ProtectedArea: 1, IsCycleroute: true, LanduseClass: 4,
 	}
-	combined := RawEnrichment{
-		ForestPct: 75, NoiseScore: 30, TrafficClass: 2,
-		ProtectedArea: 1, IsCycleroute: true, LanduseClass: 4,
+	emptyTags := RawTags{}
+	fullTags := RawTags{
 		MtbScaleUphill: "5", ViaFerrataScale: "K6",
 		TrailVisibility: "no", Width: "3.0", Incline: "-20%", Sidewalk: "left",
 	}
-	oldEnc := EncodeEnrichmentTags(&old)
-	combEnc := EncodeEnrichmentTags(&combined)
+	oldEnc := EncodeEdgeTags2(&emptyTags, &enrich)
+	combEnc := EncodeEdgeTags2(&fullTags, &enrich)
 
 	// Lower 29 bits must be identical.
 	mask := uint64((1 << 29) - 1)
 	if oldEnc&mask != combEnc&mask {
-		t.Errorf("new fields corrupted old bits: old=%064b combined=%064b", oldEnc, combEnc)
+		t.Errorf("OSM extended fields corrupted enrichment bits: old=%064b combined=%064b", oldEnc, combEnc)
 	}
 }
 

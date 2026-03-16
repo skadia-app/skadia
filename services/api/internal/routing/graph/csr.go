@@ -72,7 +72,7 @@ func BuildCSR(topo TopologyResult) *Graph {
 
 		g.Targets[pos] = e.To
 		g.EdgeTags1[pos] = EncodeOSMTags(&e.Tags)
-		g.EdgeTags2[pos] = EncodeEnrichmentTags(&e.Enrichment)
+		g.EdgeTags2[pos] = EncodeEdgeTags2(&e.Tags, &e.Enrichment)
 		g.EdgeOSMIdx[pos] = osmIDMap[e.OSMID]
 
 		fromLat := topo.Nodes[e.From].Lat

@@ -40,7 +40,7 @@ type RawTags struct {
 	BicycleRoad      bool
 }
 
-// RawEnrichment holds enrichment values and extra OSM tags from PostGIS.
+// RawEnrichment holds computed enrichment values from PostGIS (not raw OSM tags).
 // Zero values represent NULL/unknown.
 type RawEnrichment struct {
 	ForestPct         int
@@ -52,12 +52,6 @@ type RawEnrichment struct {
 	CyclerouteNetwork string
 	HikerouteNetwork  string
 	LanduseClass      int
-	MtbScaleUphill    string
-	ViaFerrataScale   string
-	TrailVisibility   string
-	Width             string
-	Incline           string
-	Sidewalk          string
 }
 
 var highwayEnum = map[string]uint8{
@@ -211,28 +205,29 @@ func encodeCyclewaySide(t *RawTags) uint8 {
 	}
 }
 
-// EncodeEnrichmentTags packs RawEnrichment and extra OSM tags into the second uint64.
+// EncodeEdgeTags2 packs enrichment data and extended OSM tags into the second uint64.
 //
 // Bit layout:
 //
-//	Bits  0- 6: forest_pct (7)
-//	Bits  7-13: noise_score (7)
-//	Bits 14-15: traffic_class (2)
-//	Bits 16-17: protected_area (2)
-//	Bit  18:    is_cycleroute
-//	Bit  19:    is_hikeroute
-//	Bits 20-22: cycleroute_network (3)
-//	Bits 23-25: hikeroute_network (3)
-//	Bits 26-28: landuse_class (3)
-//	Bits 29-31: mtb_scale_uphill (3)
-//	Bits 32-34: via_ferrata_scale (3)
-//	Bits 35-37: trail_visibility (3)
-//	Bits 38-45: width_dm (8)
-//	Bits 46-53: incline_offset (8)   — value+128 so 0%=128
-//	Bits 54-56: sidewalk (3)
+//	Bits  0- 6: forest_pct (7)           — enrichment
+//	Bits  7-13: noise_score (7)          — enrichment
+//	Bits 14-15: traffic_class (2)        — enrichment
+//	Bits 16-17: protected_area (2)       — enrichment
+//	Bit  18:    is_cycleroute            — enrichment
+//	Bit  19:    is_hikeroute             — enrichment
+//	Bits 20-22: cycleroute_network (3)   — enrichment
+//	Bits 23-25: hikeroute_network (3)    — enrichment
+//	Bits 26-28: landuse_class (3)        — enrichment
+//	Bits 29-31: mtb_scale_uphill (3)     — OSM extended
+//	Bits 32-34: via_ferrata_scale (3)    — OSM extended
+//	Bits 35-37: trail_visibility (3)     — OSM extended
+//	Bits 38-45: width_dm (8)             — OSM extended
+//	Bits 46-53: incline_offset (8)       — OSM extended (value+128, 0=unknown)
+//	Bits 54-56: sidewalk (3)             — OSM extended
 //	Bits 57-63: reserve (7)
-func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
+func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	var v uint64
+	// Enrichment (bits 0-28)
 	v |= uint64(clamp(e.ForestPct, 0, 100))
 	v |= uint64(clamp(e.NoiseScore, 0, 100)) << 7
 	v |= uint64(clamp(e.TrafficClass, 0, 3)) << 14
@@ -246,13 +241,20 @@ func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 20
 	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 23
 	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 26
-	v |= uint64(mtbScaleUphillEnum[e.MtbScaleUphill]) << 29
-	v |= uint64(viaFerrataScaleEnum[e.ViaFerrataScale]) << 32
-	v |= uint64(trailVisibilityEnum[e.TrailVisibility]) << 35
-	v |= uint64(ParseWidth(e.Width)) << 38
-	v |= uint64(ParseIncline(e.Incline)) << 46
-	v |= uint64(sidewalkEnum[e.Sidewalk]) << 54
+	// OSM extended (bits 29-56)
+	v |= uint64(mtbScaleUphillEnum[t.MtbScaleUphill]) << 29
+	v |= uint64(viaFerrataScaleEnum[t.ViaFerrataScale]) << 32
+	v |= uint64(trailVisibilityEnum[t.TrailVisibility]) << 35
+	v |= uint64(ParseWidth(t.Width)) << 38
+	v |= uint64(ParseIncline(t.Incline)) << 46
+	v |= uint64(sidewalkEnum[t.Sidewalk]) << 54
 	return v
+}
+
+// EncodeEnrichmentTags is a convenience wrapper for callers that only have enrichment data.
+// Equivalent to EncodeEdgeTags2(&RawTags{}, e).
+func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
+	return EncodeEdgeTags2(&RawTags{}, e)
 }
 
 // --- Decode helpers ---
