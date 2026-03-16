@@ -132,7 +132,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => navigate('/segments')}
+                        onClick={() => navigate('/segments/' + effort.segment_id)}
                         className="text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT transition-colors text-left"
                       >
                         {effort.segment_name ?? 'Unbenannt'}

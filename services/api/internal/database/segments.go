@@ -322,11 +322,11 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 		       COALESCE((
 		           SELECT COUNT(*)::int FROM segment_efforts se
 		           JOIN activities a ON se.activity_id = a.id
-		           WHERE se.segment_id = s.id AND a.user_id = $2
+		           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
 		       ), 0) AS ridden_count,
 		       EXISTS(
 		           SELECT 1 FROM segment_favorites sf
-		           WHERE sf.segment_id = s.id AND sf.user_id = $2
+		           WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
 		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
 		       ST_AsGeoJSON(sv.track) AS track_geojson,
@@ -339,7 +339,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 			LIMIT 1
 		) sv ON true
 		WHERE s.id = $1
-		  AND ($2 = '' OR s.visibility = 'public' OR s.created_by = $2)`, segmentID, userID,
+		  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid)`, segmentID, userID,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,

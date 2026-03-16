@@ -47,10 +47,15 @@ type Graph struct {
 	BuildTime time.Time
 	BBox      [4]float64 // minLat, minLon, maxLat, maxLon
 
-	// mmap backing for cold sections. Cold-section slices (EdgeGeomLat etc.)
-	// point directly into mmapData. Read-only — must not be modified.
-	mmapData []byte   // entire file mmap'd (nil for heap-only graphs)
-	mmapFile *os.File // kept open for mmap lifetime
+	// Lazy I/O for cold sections. The backing file is kept open;
+	// cold section data (geometry, elevation profiles, OSM IDs) is read
+	// on demand via ReadAt. No mmap, no page faults, no RSS inflation.
+	backingFile  *os.File                 // graph.bin, kept open (nil for heap-only)
+	coldSections map[uint16]sectionEntry  // section type → file offset+length
+
+	// mmap resources (set by DeserializeMmap, nil for heap-only or ReadAt graphs).
+	mmapData []byte   // mmap'd file region; released by closeMmap finalizer
+	mmapFile *os.File // underlying file; closed after Munmap
 }
 
 // SpatialGrid is a flat grid index for O(1) cell lookup.
