@@ -18,11 +18,7 @@ from enrichment import (
 )
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
 from analytics import (
-    compute_readiness,
-    detect_anomalies,
     cluster_activities,
-    compute_projection,
-    compute_correlations,
 )
 
 logger = logging.getLogger(__name__)
@@ -325,12 +321,10 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
             # to avoid exhausting the pool (previously up to 9 connections)
             async with pool.acquire() as conn:
                 # Definiere alle zu berechnenden Module: (cache_key, factory)
+                # Note: readiness, anomalies, projection, correlations are now
+                # computed by the Go API (RefreshInsights → goanalytics package).
                 modules = [
-                    ("readiness", compute_readiness),
-                    ("anomalies", detect_anomalies),
                     ("clusters", cluster_activities),
-                    ("projection", compute_projection),
-                    ("correlations", compute_correlations),
                 ]
 
                 for cache_key, module_fn in modules:

@@ -1,15 +1,26 @@
 package analytics
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	goanalytics "github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+)
+
+// refreshSemaphores holds per-user mutexes to allow at most one concurrent
+// RefreshInsights computation per user.
+var (
+	refreshMu   sync.Mutex
+	refreshLock = map[string]struct{}{}
 )
 
 // GetInsightsReadiness returns the ML-computed readiness score from the analytics cache.
@@ -232,9 +243,11 @@ func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cac
 	w.Write(data) //nolint:errcheck
 }
 
-// RefreshInsights triggers re-computation of all analytics insights for the current user
-// by publishing a skadia.analytics.invalidate NATS event to the ML service.
-// Returns 202 Accepted immediately; the actual recomputation happens asynchronously.
+// RefreshInsights triggers re-computation of all analytics insights for the current user.
+// The four Go analytics functions (readiness, anomalies, projection, correlations) are
+// called directly in a background goroutine. Returns 202 Accepted immediately.
+// At most one computation per user runs concurrently; additional requests are silently
+// dropped (the in-flight computation will write fresh results).
 func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -242,8 +255,38 @@ func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Publisher != nil {
-		h.Publisher.PublishAnalyticsInvalidate(userID)
+	// Acquire per-user lock — non-blocking. If a computation is already running, skip.
+	refreshMu.Lock()
+	_, alreadyRunning := refreshLock[userID]
+	if !alreadyRunning {
+		refreshLock[userID] = struct{}{}
+	}
+	refreshMu.Unlock()
+
+	if !alreadyRunning {
+		db := h.DB
+		go func() {
+			defer func() {
+				refreshMu.Lock()
+				delete(refreshLock, userID)
+				refreshMu.Unlock()
+			}()
+
+			ctx := context.Background()
+
+			if err := goanalytics.ComputeReadiness(ctx, db, userID); err != nil {
+				slog.Error("RefreshInsights: ComputeReadiness failed", "user_id", userID, "err", err)
+			}
+			if err := goanalytics.DetectAnomalies(ctx, db, userID); err != nil {
+				slog.Error("RefreshInsights: DetectAnomalies failed", "user_id", userID, "err", err)
+			}
+			if err := goanalytics.ComputeProjection(ctx, db, userID); err != nil {
+				slog.Error("RefreshInsights: ComputeProjection failed", "user_id", userID, "err", err)
+			}
+			if err := goanalytics.ComputeCorrelations(ctx, db, userID); err != nil {
+				slog.Error("RefreshInsights: ComputeCorrelations failed", "user_id", userID, "err", err)
+			}
+		}()
 	}
 
 	w.WriteHeader(http.StatusAccepted)
