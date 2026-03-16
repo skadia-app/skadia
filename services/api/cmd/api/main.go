@@ -57,6 +57,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Clean up stale processing entries from previous runs (crash recovery).
+	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, 10*time.Minute); cleanErr == nil && cleaned > 0 {
+		slog.Info("import_log: cleaned stale processing entries", "count", cleaned)
+	}
+
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
@@ -160,6 +165,7 @@ func main() {
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
+			MaxUploadSize:       cfg.MaxUploadSize,
 		},
 	}
 
@@ -279,7 +285,7 @@ func main() {
 			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettings)
 			r.Post("/shadow-fs/preview-rename", h.PreviewRename)
 			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
-			r.Get("/hotfolder/imports", h.GetHotfolderImports)
+			r.Get("/imports", h.GetImports)
 
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
 			r.Get("/activities/{id}/enrichment-status", h.GetEnrichmentStatus)
@@ -670,8 +676,10 @@ func main() {
 			slog.Warn("HOTFOLDER_USER_ID env var is deprecated and ignored; " +
 				"users control their hotfolder via the settings toggle")
 		}
+		serverCtx, serverCancel := context.WithCancel(context.Background())
+		defer serverCancel()
 		wm := shadowfs.NewWatcherManager(shadowFSCfg.HotfolderPath, func(userID, filePath string) error {
-			return h.UploadFromFile(context.Background(), userID, filePath)
+			return h.UploadFromFile(serverCtx, userID, filePath)
 		})
 		h.WatcherManager = wm
 		defer wm.StopAll()

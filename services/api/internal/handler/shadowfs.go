@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -279,33 +278,6 @@ func (h *Handler) WriteShadowForActivity(ctx context.Context, userID, activityID
 	}
 
 	return nil
-}
-
-// GetHotfolderImports returns the most recent hotfolder import records for the user.
-//
-// GET /api/v1/hotfolder/imports?limit=20
-func (h *Handler) GetHotfolderImports(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
-		return
-	}
-
-	limit := 20
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	}
-
-	imports, err := h.DB.ListHotfolderImports(r.Context(), userID, limit)
-	if err != nil {
-		slog.Error("list hotfolder imports failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load imports", r.URL.Path)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, imports)
 }
 
 // activityToShadowInfo converts an ActivityWithPath to a shadowfs.ActivityInfo.

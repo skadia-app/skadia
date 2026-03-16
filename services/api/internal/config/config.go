@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -33,6 +34,7 @@ type Config struct {
 	HotfolderPath    string
 	HotfolderEnabled bool
 	HotfolderUserID  string // User ID that hotfolder imports are attributed to
+	MaxUploadSize    int64  // Maximum upload size in bytes (default 50 MB)
 
 	// LLM / LiteLLM
 	LiteLLMConfigPath  string // writable path to litellm config.yaml
@@ -75,6 +77,7 @@ func Load() (*Config, error) {
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
 		HotfolderEnabled: os.Getenv("HOTFOLDER_ENABLED") == "true",
 		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
+		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
@@ -106,4 +109,15 @@ func getEnvDefault(key, defaultValue string) string {
 		return v
 	}
 	return defaultValue
+}
+
+func parseMaxUploadSize(s string, defaultVal int64) int64 {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v <= 0 {
+		return defaultVal
+	}
+	return v
 }

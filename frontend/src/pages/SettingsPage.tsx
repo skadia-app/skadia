@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
-import { getShadowFSSettings, updateShadowFSSettings, getHotfolderImports, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
+import { getShadowFSSettings, updateShadowFSSettings, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { getCapabilities, type Capabilities } from '@/api/routes'
 import { fetchSportTypeStats } from '@/api/stats'
@@ -544,10 +544,6 @@ export default function SettingsPage() {
     queryFn: getShadowFSSettings,
   })
 
-  const { data: imports } = useQuery({
-    queryKey: ['hotfolder-imports'],
-    queryFn: getHotfolderImports,
-  })
 
   // Lokaler Schema-Wert oder vom Server
   const currentSchema = schemaValue ?? settings?.schema ?? ''
@@ -728,38 +724,6 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Letzte Imports */}
-        {imports && imports.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">Letzte Imports</h3>
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-neutral-800">
-                    <th className="text-left px-3 py-2 text-neutral-500 dark:text-neutral-400 font-medium">Datei</th>
-                    <th className="text-left px-3 py-2 text-neutral-500 dark:text-neutral-400 font-medium">Status</th>
-                    <th className="text-left px-3 py-2 text-neutral-500 dark:text-neutral-400 font-medium">Zeitpunkt</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-                  {imports.map((imp) => (
-                    <tr key={imp.id} className="even:bg-neutral-50/50 dark:even:bg-neutral-800/20">
-                      <td className="px-3 py-2 font-mono text-xs text-neutral-800 dark:text-neutral-200 truncate max-w-xs">
-                        {imp.filename}
-                      </td>
-                      <td className="px-3 py-2">
-                        <ImportStatusBadge status={imp.status} />
-                      </td>
-                      <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400 text-xs">
-                        {format(new Date(imp.created_at), 'dd. MMM yyyy HH:mm', { locale: de })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </section>
 
       {/* Enrichment Stage 1 */}
@@ -2081,16 +2045,3 @@ function ImportSettingsSection() {
   )
 }
 
-function ImportStatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    ok: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    error: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
-    duplicate: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  }
-
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'}`}>
-      {status}
-    </span>
-  )
-}

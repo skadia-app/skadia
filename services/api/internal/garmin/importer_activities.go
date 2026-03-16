@@ -20,6 +20,19 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
+// insertGarminActivityLog inserts a pending import_log entry and returns the log ID.
+// Errors are silently ignored — import_log tracking must never block activity import.
+func insertGarminActivityLog(ctx context.Context, params ImportParams, filename string) string {
+	logEntry := model.ImportLogEntry{
+		UserID:         params.UserID,
+		SourcePlatform: "garmin",
+		Filename:       filename,
+		Status:         "pending",
+	}
+	logID, _ := params.DB.InsertImportLog(ctx, logEntry)
+	return logID
+}
+
 // ActivitiesImporter imports FIT/GPX/TCX files from Garmin UploadedFiles ZIPs.
 //
 // Real Garmin export structure:
@@ -113,10 +126,16 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			params.OnProgress(current, total, "activities: "+ref.fileName)
 		}
 
+		logID := insertGarminActivityLog(ctx, params, ref.fileName)
+
 		fileBytes, err := readFileFromZip(filepath.Join(params.Source.BaseDir(), ref.zipPath), ref.fileName)
 		if err != nil {
 			slog.Warn("garmin activities: cannot read file from zip", "file", ref.fileName, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("read %s: %s", ref.fileName, err))
+			if logID != "" {
+				msg := err.Error()
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+			}
 			continue
 		}
 
@@ -127,6 +146,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		format := detectActivityFormat(fileBytes, ref.fileName)
 		if format == "" {
 			result.Skipped++
+			if logID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+			}
 			continue
 		}
 
@@ -135,7 +157,14 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// would always fail with "no session message".
 		if format == "fit" && readFITFileType(fileBytes) != fitFileTypeActivity {
 			result.Skipped++
+			if logID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+			}
 			continue
+		}
+
+		if logID != "" {
+			_ = params.DB.UpdateImportLogStatus(ctx, logID, "processing", nil, nil, nil)
 		}
 
 		// For FIT files: try multi-session parsing first (e.g. triathlons)
@@ -161,6 +190,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				if msErr != nil {
 					slog.Warn("garmin activities: multisport import failed", "file", ref.fileName, "sessions", len(sessions), "error", msErr)
 					result.Errors = append(result.Errors, fmt.Sprintf("multisport %s: %s", ref.fileName, msErr))
+					if logID != "" {
+						msg := msErr.Error()
+						_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+					}
 				} else {
 					for _, child := range msResult.Children {
 						if child.Status == "created" {
@@ -170,6 +203,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						}
 					}
 					slog.Info("garmin activities: multisport imported", "file", ref.fileName, "sessions", len(sessions), "parent", msResult.ParentID)
+					if logID != "" {
+						_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, nil, nil)
+					}
 				}
 				continue
 			}
@@ -189,16 +225,26 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if err != nil {
 			slog.Warn("garmin activities: parse failed", "file", ref.fileName, "format", format, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("parse %s: %s", ref.fileName, err))
+			if logID != "" {
+				msg := err.Error()
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+			}
 			continue
 		}
 
 		// Date filter
 		if params.Options.DateFrom != nil && data.StartedAt.Before(*params.Options.DateFrom) {
 			result.Skipped++
+			if logID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+			}
 			continue
 		}
 		if params.Options.DateTo != nil && data.StartedAt.After(*params.Options.DateTo) {
 			result.Skipped++
+			if logID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+			}
 			continue
 		}
 
@@ -222,12 +268,19 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if processErr != nil {
 				slog.Warn("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
 				result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", ref.fileName, processErr))
+				if logID != "" {
+					msg := processErr.Error()
+					_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+				}
 				continue
 			}
 
 			if actResult.Status != "created" {
 				// Duplicate or enriched — count as skipped for import stats
 				result.Skipped++
+				if logID != "" {
+					_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+				}
 				continue
 			}
 
@@ -248,6 +301,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
 				// Non-fatal: activity is already stored
 			}
+			if logID != "" {
+				actID := actResult.ActivityID
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actID, nil)
+			}
 			result.Imported++
 			continue
 		}
@@ -257,6 +314,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if dupErr != nil {
 			slog.Warn("garmin activities: duplicate check failed", "error", dupErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("dedup %s: %s", ref.fileName, dupErr))
+			if logID != "" {
+				msg := dupErr.Error()
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+			}
 			continue
 		}
 		if match != nil {
@@ -276,6 +337,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				_ = params.DB.SetActivityGarminID(ctx, match.ExistingActivityID, garminActivityID)
 			}
 			result.Skipped++
+			if logID != "" {
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
+			}
 			continue
 		}
 
@@ -283,10 +347,18 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if insertErr != nil {
 			slog.Warn("garmin activities: insert failed", "file", ref.fileName, "error", insertErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("insert %s: %s", ref.fileName, insertErr))
+			if logID != "" {
+				msg := insertErr.Error()
+				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
+			}
 			continue
 		}
 		if garminActivityID > 0 {
 			_ = params.DB.SetActivityGarminID(ctx, activity.ID, garminActivityID)
+		}
+		if logID != "" {
+			actID := activity.ID
+			_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actID, nil)
 		}
 		result.Imported++
 	}

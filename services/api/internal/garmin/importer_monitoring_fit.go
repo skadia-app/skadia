@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -74,6 +76,16 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 			// Determine FIT file type — skip activity and unknown types.
 			ftype := readFITFileType(data)
+
+			// Import log: insert pending entry before processing.
+			monLogEntry := model.ImportLogEntry{
+				UserID:         params.UserID,
+				SourcePlatform: "garmin",
+				Filename:       f.Name,
+				Status:         "pending",
+			}
+			monLogID, _ := params.DB.InsertImportLog(ctx, monLogEntry)
+
 			switch ftype {
 			case fitFileTypeMonitorMain:
 				result := parseMonitorMainFIT(data, params.UserID)
@@ -109,6 +121,9 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 						totalRHR++
 					}
 				}
+				if monLogID != "" {
+					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
+				}
 
 			case fitFileTypeHRVNight:
 				result := parseHRVNightFIT(data, params.UserID)
@@ -119,11 +134,17 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 						totalNightHRV += len(result.HRVNightValues)
 					}
 				}
+				if monLogID != "" {
+					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
+				}
 
 			default:
 				// Activity files (type 4) are handled by ActivitiesImporter.
 				// All other types (32, 41, 49, 58 etc.) contain only step/activity-level
 				// data already available in the JSON exports — skip silently.
+				if monLogID != "" {
+					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "skipped", nil, nil, nil)
+				}
 				continue
 			}
 		}
@@ -245,6 +266,65 @@ func readFITFileType(data []byte) uint8 {
 		}
 	}
 	return 0
+}
+
+// ReadFITFileType is the exported version of readFITFileType for use outside
+// the garmin package (hotfolder, HTTP upload handler).
+func ReadFITFileType(data []byte) uint8 {
+	return readFITFileType(data)
+}
+
+// ProcessMonitoringFIT parses a monitoring FIT file (type 68 or 44) and upserts
+// the health data into the database. Returns nil if the file was processed
+// successfully, or an error if the file type is not a supported monitoring type.
+func ProcessMonitoringFIT(ctx context.Context, db *database.DB, data []byte, userID string) error {
+	ftype := readFITFileType(data)
+	switch ftype {
+	case fitFileTypeMonitorMain:
+		result := parseMonitorMainFIT(data, userID)
+		if result == nil {
+			return nil
+		}
+		for i := range result.HRVSnapshots {
+			snap := &result.HRVSnapshots[i]
+			if err := db.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
+				slog.Warn("ProcessMonitoringFIT: upsert HRV snapshot failed", "error", err)
+			}
+		}
+		if len(result.HRVNightValues) > 0 {
+			if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
+				slog.Warn("ProcessMonitoringFIT: upsert HRV night values failed", "error", err)
+			}
+		}
+		for calDate, rhr := range result.RestingHRByDate {
+			rhrVal := rhr
+			summary := &model.HealthDailySummary{
+				UserID:           userID,
+				CalendarDate:     calDate,
+				RestingHeartRate: &rhrVal,
+				SourceType:       "garmin_fit",
+			}
+			if err := db.UpsertHealthDailySummary(ctx, summary); err != nil {
+				slog.Warn("ProcessMonitoringFIT: upsert resting HR failed", "date", calDate, "error", err)
+			}
+		}
+		return nil
+
+	case fitFileTypeHRVNight:
+		result := parseHRVNightFIT(data, userID)
+		if result == nil {
+			return nil
+		}
+		if len(result.HRVNightValues) > 0 {
+			if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
+				return fmt.Errorf("upsert HRV night values: %w", err)
+			}
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported monitoring FIT file type: %d", ftype)
+	}
 }
 
 // hrvsStatusExtra holds the extra HRV-status fields stored in health_snapshots.extra_data.

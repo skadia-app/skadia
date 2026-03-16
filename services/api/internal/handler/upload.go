@@ -11,16 +11,16 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
+	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
-
-const maxUploadSize = 50 << 20 // 50 MB
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
@@ -29,6 +29,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxUploadSize := h.Config.MaxUploadSize
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "file too large or invalid multipart form", r.URL.Path)
@@ -48,15 +49,19 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect format
-	format := detectFormat(fileBytes, header.Filename)
-	if format == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "unsupported file format (expected FIT, GPX, or TCX)", r.URL.Path)
+	// Detect format + decompress .gz if needed
+	maxSize := h.Config.MaxUploadSize
+	if maxSize <= 0 {
+		maxSize = 50 << 20
+	}
+	decompressed, format, decompErr := detectFormatAndDecompress(fileBytes, header.Filename, maxSize*10)
+	if decompErr != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unsupported or unreadable file: %s", decompErr), r.URL.Path)
 		return
 	}
 
-	// Calculate SHA256 hash
-	hash := sha256.Sum256(fileBytes)
+	// Calculate SHA256 hash on decompressed bytes
+	hash := sha256.Sum256(decompressed)
 	hashStr := hex.EncodeToString(hash[:])
 
 	// Resolve user's conflict strategy for duplicate handling
@@ -67,13 +72,55 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	filename := header.Filename
 
+	// Route monitoring FIT files (health data, no activity created)
+	if format == "fit" {
+		ftype := garmin.ReadFITFileType(decompressed)
+		if ftype == 68 || ftype == 44 {
+			start := time.Now()
+			logID := ""
+			sz := int64(len(decompressed))
+			logEntry := model.ImportLogEntry{
+				UserID:         userID,
+				SourcePlatform: "upload",
+				Filename:       header.Filename,
+				FileSizeBytes:  &sz,
+				Status:         "processing",
+			}
+			if id, logErr := h.DB.InsertImportLog(r.Context(), logEntry); logErr == nil {
+				logID = id
+			}
+			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, decompressed, userID)
+			if logID != "" {
+				elapsed := int(time.Since(start).Milliseconds())
+				if monErr != nil {
+					msg := monErr.Error()
+					h.DB.UpdateImportLogStatus(r.Context(), logID, "error", &msg, nil, &elapsed)
+				} else {
+					h.DB.UpdateImportLogStatus(r.Context(), logID, "completed", nil, nil, &elapsed)
+				}
+			}
+			if monErr != nil {
+				writeError(w, http.StatusUnprocessableEntity, "Process Error",
+					fmt.Sprintf("failed to process monitoring FIT: %s", monErr), r.URL.Path)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":    "completed",
+				"data_type": "monitoring",
+				"fit_type":  ftype,
+			})
+			return
+		}
+		// ftype == 4 or unknown → continue to activity import below
+	}
+
 	// For FIT files try multi-session parsing to detect multisport activities.
 	// GPX and TCX always produce a single activity.
 	if format == "fit" {
-		activities, parseErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
+		activities, parseErr := fitimport.ParseMultiSessionFIT(decompressed, filename)
 		if parseErr != nil || len(activities) == 0 {
 			// Fall back to single-session parse for error reporting
-			singleData, singleErr := fitimport.ParseFIT(bytes.NewReader(fileBytes), filename)
+			singleData, singleErr := fitimport.ParseFIT(bytes.NewReader(decompressed), filename)
 			if singleErr != nil {
 				slog.Error("parse FIT failed", "error", singleErr)
 				writeError(w, http.StatusUnprocessableEntity, "Parse Error",
@@ -86,12 +133,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if len(activities) > 1 {
 			// S3 upload first (shared by all children)
 			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-			if uploadErr := h.Storage.Upload(r.Context(), s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 				slog.Warn("s3 upload for multisport failed", "error", uploadErr)
 			}
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
-				r.Context(), userID, activities, fileBytes, hashStr,
+				r.Context(), userID, activities, decompressed, hashStr,
 				s3Key, format, filename,
 				importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy},
 			)
@@ -128,41 +175,51 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
+		// Import log for single-session FIT activity
+		start := time.Now()
+		sz := int64(len(decompressed))
+		logEntry := model.ImportLogEntry{
+			UserID:         userID,
+			SourcePlatform: "upload",
+			Filename:       filename,
+			FileSizeBytes:  &sz,
+			Status:         "processing",
+		}
+		logID := ""
+		if id, logErr := h.DB.InsertImportLog(r.Context(), logEntry); logErr == nil {
+			logID = id
+		}
+
+		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, decompressed, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 		if processErr != nil {
 			slog.Error("process activity failed", "error", processErr)
+			if logID != "" {
+				elapsed := int(time.Since(start).Milliseconds())
+				msg := processErr.Error()
+				h.DB.UpdateImportLogStatus(r.Context(), logID, "error", &msg, nil, &elapsed)
+			}
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 			return
 		}
 
-		switch fitResult.Status {
-		case "skipped":
+		if fitResult.Status == "skipped" {
+			if logID != "" {
+				elapsed := int(time.Since(start).Milliseconds())
+				h.DB.UpdateImportLogStatus(r.Context(), logID, "skipped", nil, nil, &elapsed)
+			}
 			writeJSON(w, http.StatusOK, map[string]any{
 				"status":      "duplicate",
 				"activity_id": fitResult.ActivityID,
 			})
 			return
-		case "enriched", "replaced":
-			writeJSON(w, http.StatusOK, map[string]any{
-				"status":      fitResult.Status,
-				"activity_id": fitResult.ActivityID,
-			})
-			return
 		}
 
-		// "created": upload original to S3, run post-processing
+		// For created/enriched/replaced: upload to S3 + PostProcess
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-		if uploadErr := h.Storage.Upload(r.Context(), s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+		if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 			slog.Error("S3 upload failed", "error", uploadErr)
 			writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 			return
-		}
-
-		// FIT physiological profile import
-		if data.UserProfileImport != nil {
-			if profErr := h.DB.SetUserProfileFieldsIfNull(r.Context(), userID, data.UserProfileImport); profErr != nil {
-				slog.Warn("set user profile fields failed", "error", profErr)
-			}
 		}
 
 		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
@@ -171,7 +228,34 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.postInsertActivity(r.Context(), userID, fitActivity, data, fileBytes, s3Key, format, filename)
+		h.postInsertActivity(r.Context(), userID, fitActivity, data, decompressed, s3Key, format, filename)
+
+		if logID != "" {
+			elapsed := int(time.Since(start).Milliseconds())
+			switch fitResult.Status {
+			case "skipped":
+				h.DB.UpdateImportLogStatus(r.Context(), logID, "skipped", nil, nil, &elapsed)
+			default:
+				actID := fitResult.ActivityID
+				h.DB.UpdateImportLogStatus(r.Context(), logID, "completed", nil, &actID, &elapsed)
+			}
+		}
+
+		switch fitResult.Status {
+		case "enriched", "replaced":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      fitResult.Status,
+				"activity_id": fitResult.ActivityID,
+			})
+			return
+		}
+
+		// "created": physiological profile + full response
+		if data.UserProfileImport != nil {
+			if profErr := h.DB.SetUserProfileFieldsIfNull(r.Context(), userID, data.UserProfileImport); profErr != nil {
+				slog.Warn("set user profile fields failed", "error", profErr)
+			}
+		}
 
 		full, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
 		if full == nil {
@@ -181,13 +265,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// GPX / TCX path (unchanged)
+	// GPX / TCX path
 	var data *model.ActivityData
 	switch format {
 	case "gpx":
-		data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), filename)
+		data, err = gpximport.ParseGPX(bytes.NewReader(decompressed), filename)
 	case "tcx":
-		data, err = tcximport.ParseTCX(bytes.NewReader(fileBytes), filename)
+		data, err = tcximport.ParseTCX(bytes.NewReader(decompressed), filename)
 	}
 	if err != nil {
 		slog.Error("parse failed", "format", format, "error", err)
@@ -217,29 +301,46 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, fileBytes, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
+	// Import log for GPX/TCX activity
+	start := time.Now()
+	sz := int64(len(decompressed))
+	gpxLogEntry := model.ImportLogEntry{
+		UserID:         userID,
+		SourcePlatform: "upload",
+		Filename:       filename,
+		FileSizeBytes:  &sz,
+		Status:         "processing",
+	}
+	gpxLogID := ""
+	if id, logErr := h.DB.InsertImportLog(r.Context(), gpxLogEntry); logErr == nil {
+		gpxLogID = id
+	}
+
+	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, decompressed, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 	if processErr != nil {
 		slog.Error("process activity failed", "error", processErr)
+		if gpxLogID != "" {
+			elapsed := int(time.Since(start).Milliseconds())
+			msg := processErr.Error()
+			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "error", &msg, nil, &elapsed)
+		}
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 		return
 	}
 
-	switch gpxResult.Status {
-	case "skipped":
+	if gpxResult.Status == "skipped" {
+		if gpxLogID != "" {
+			elapsed := int(time.Since(start).Milliseconds())
+			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "skipped", nil, nil, &elapsed)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":      "duplicate",
 			"activity_id": gpxResult.ActivityID,
 		})
 		return
-	case "enriched", "replaced":
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":      gpxResult.Status,
-			"activity_id": gpxResult.ActivityID,
-		})
-		return
 	}
 
-	// "created": upload original to Garage, run post-processing
+	// For created/enriched/replaced: upload to Garage + PostProcess
 	ext := format
 	if ext == "" {
 		ext = strings.TrimPrefix(filepath.Ext(filename), ".")
@@ -247,7 +348,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, ext)
 
 	contentType := "application/xml"
-	if err := h.Storage.Upload(r.Context(), s3Key, fileBytes, contentType); err != nil {
+	if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
 		slog.Error("S3 upload failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 		return
@@ -259,9 +360,28 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.postInsertActivity(r.Context(), userID, gpxActivity, data, fileBytes, s3Key, format, filename)
+	h.postInsertActivity(r.Context(), userID, gpxActivity, data, decompressed, s3Key, format, filename)
 
-	// Re-fetch full activity for response
+	if gpxLogID != "" {
+		elapsed := int(time.Since(start).Milliseconds())
+		switch gpxResult.Status {
+		case "skipped":
+			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "skipped", nil, nil, &elapsed)
+		default:
+			actID := gpxResult.ActivityID
+			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "completed", nil, &actID, &elapsed)
+		}
+	}
+
+	if gpxResult.Status == "enriched" || gpxResult.Status == "replaced" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":      gpxResult.Status,
+			"activity_id": gpxResult.ActivityID,
+		})
+		return
+	}
+
+	// "created": re-fetch full activity for response
 	full, err := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
 	if err != nil || full == nil {
 		full = gpxActivity

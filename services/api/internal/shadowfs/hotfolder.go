@@ -13,7 +13,7 @@ import (
 
 // FileCallback is called when a new file is detected in the hotfolder.
 // The callback receives the full file path. It should return nil on success
-// or an error if the file should be quarantined.
+// or an error if the file could not be imported.
 type FileCallback func(filePath string) error
 
 // Watcher monitors a hotfolder directory for new files.
@@ -24,6 +24,7 @@ type Watcher struct {
 	debounce time.Duration
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
+	processWg sync.WaitGroup // tracks in-flight processFile goroutines
 }
 
 // NewWatcher creates a new hotfolder watcher.
@@ -42,11 +43,6 @@ func (w *Watcher) Start() error {
 		return err
 	}
 
-	// Ensure quarantine subdirectory exists
-	if err := EnsureDir(filepath.Join(w.dir, "quarantine")); err != nil {
-		return err
-	}
-
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -61,6 +57,13 @@ func (w *Watcher) Start() error {
 	w.wg.Add(1)
 	go w.loop()
 
+	// Scan for files already present (dropped while server was down).
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		w.scanExisting()
+	}()
+
 	slog.Info("hotfolder watcher started", "dir", w.dir)
 	return nil
 }
@@ -72,6 +75,7 @@ func (w *Watcher) Stop() {
 		w.watcher.Close()
 	}
 	w.wg.Wait()
+	w.processWg.Wait() // wait for in-flight imports to complete
 	slog.Info("hotfolder watcher stopped", "dir", w.dir)
 }
 
@@ -107,19 +111,14 @@ func (w *Watcher) loop() {
 				continue
 			}
 
-			// Skip directories, dotfiles, .meta files, and quarantine/
+			// Skip directories, dotfiles, and .meta files
 			name := filepath.Base(evt.Name)
 			if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".meta") {
 				continue
 			}
-			if strings.Contains(evt.Name, string(filepath.Separator)+"quarantine"+string(filepath.Separator)) ||
-				strings.HasSuffix(evt.Name, string(filepath.Separator)+"quarantine") {
-				continue
-			}
 
-			// Check it's a supported file type
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext != ".fit" && ext != ".gpx" && ext != ".tcx" {
+			// Check it's a supported activity file type (including .gz variants)
+			if !isValidActivityExt(name) {
 				continue
 			}
 
@@ -144,6 +143,8 @@ func (w *Watcher) loop() {
 				}
 				delete(pending, filePath)
 				mu.Unlock()
+				w.processWg.Add(1)
+				defer w.processWg.Done()
 				w.processFile(filePath)
 			})
 			mu.Unlock()
@@ -159,38 +160,52 @@ func (w *Watcher) loop() {
 
 func (w *Watcher) processFile(filePath string) {
 	slog.Info("hotfolder: processing file", "path", filePath)
-
 	if err := w.callback(filePath); err != nil {
-		slog.Error("hotfolder: import failed, quarantining",
+		slog.Error("hotfolder: import failed, file left in place",
 			"path", filePath,
 			"error", err,
 		)
-		w.quarantine(filePath)
 		return
 	}
-
 	slog.Info("hotfolder: import succeeded", "path", filePath)
 }
 
-func (w *Watcher) quarantine(filePath string) {
-	name := filepath.Base(filePath)
-	dest := filepath.Join(w.dir, "quarantine", name)
-
-	// Avoid overwriting existing quarantine files
-	if _, err := os.Stat(dest); err == nil {
-		stem := strings.TrimSuffix(name, filepath.Ext(name))
-		ext := filepath.Ext(name)
-		dest = filepath.Join(w.dir, "quarantine",
-			stem+"_"+time.Now().Format("20060102-150405")+ext)
+// scanExisting processes any files already present in the hotfolder directory
+// when the watcher starts. This handles files dropped while the server was down
+// and error files left from previous runs.
+// Files are processed sequentially to avoid overwhelming DB/S3 on startup.
+func (w *Watcher) scanExisting() {
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		slog.Warn("hotfolder: startup scan failed", "dir", w.dir, "error", err)
+		return
 	}
-
-	if err := os.Rename(filePath, dest); err != nil {
-		slog.Error("hotfolder: quarantine move failed",
-			"src", filePath,
-			"dest", dest,
-			"error", err,
-		)
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() || !isValidActivityExt(e.Name()) {
+			continue
+		}
+		filePath := filepath.Join(w.dir, e.Name())
+		count++
+		w.processWg.Add(1)
+		w.processFile(filePath)
+		w.processWg.Done()
 	}
+	if count > 0 {
+		slog.Info("hotfolder: startup scan complete", "dir", w.dir, "files", count)
+	}
+}
+
+// isValidActivityExt returns true if name has a valid activity file extension,
+// including .gz variants (.fit, .gpx, .tcx, .fit.gz, .gpx.gz, .tcx.gz).
+func isValidActivityExt(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".fit", ".gpx", ".tcx"} {
+		if strings.HasSuffix(lower, ext) || strings.HasSuffix(lower, ext+".gz") {
+			return true
+		}
+	}
+	return false
 }
 
 // ── WatcherManager ────────────────────────────────────────────────────────────
@@ -226,6 +241,9 @@ func (wm *WatcherManager) EnableUser(userID string) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	if _, exists := wm.watchers[userID]; exists {
+		// TOCTOU note: read-then-write is harmless here because EnableUser is
+		// idempotent — a concurrent call would also find the watcher present and
+		// return nil without creating a duplicate.
 		return nil // already watching
 	}
 	userPath := filepath.Join(wm.basePath, userID)

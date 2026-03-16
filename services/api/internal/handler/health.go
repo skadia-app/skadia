@@ -38,6 +38,7 @@ type HandlerConfig struct {
 	KomootEncryptionKey string // 32-byte hex for AES-256-GCM Komoot password encryption
 	RoutingGraphPath   string        // path to binary graph file
 	RoutingTimeout     time.Duration // request timeout for route calculations (default 30s)
+	MaxUploadSize      int64         // maximum upload size in bytes
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

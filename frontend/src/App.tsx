@@ -48,6 +48,7 @@ const ChatPage = lazy(() => import('@/pages/ChatPage'))
 const FusionQueuePage = lazy(() => import('@/pages/FusionQueuePage'))
 const RoutesPage = lazy(() => import('@/pages/RoutesPage'))
 const ImportQueuePage = lazy(() => import('@/pages/ImportQueuePage'))
+const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -148,6 +149,7 @@ export default function App() {
                         <Route path="settings/import" element={<ImportPage />} />
                         <Route path="import/url" element={<ImportRedirect />} />
                         <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
+                        <Route path="imports" element={<ImportsPage />} />
                       </Route>
                     </Route>
                   </Routes>

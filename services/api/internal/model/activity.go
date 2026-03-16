@@ -598,17 +598,6 @@ type ActivityWithPath struct {
 	LocalFilePath      *string   `json:"local_file_path,omitempty"`
 }
 
-// HotfolderImport represents a record in the hotfolder_imports table.
-type HotfolderImport struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	Filename   string    `json:"filename"`
-	Status     string    `json:"status"`
-	ErrorMsg   *string   `json:"error_msg,omitempty"`
-	ActivityID *string   `json:"activity_id,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
 // PrivacyZone represents a user-defined private zone (e.g. home, work).
 type PrivacyZone struct {
 	ID        string    `json:"id"`
