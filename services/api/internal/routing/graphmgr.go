@@ -45,14 +45,20 @@ func (m *GraphManager) Load() *graph.Graph {
 	return m.graph.Load()
 }
 
-// LoadFromFile deserializes a graph from disk and stores it atomically.
+// LoadFromFile deserializes a graph from disk using mmap for cold sections
+// (geometry, OSM IDs) and stores it atomically. The old graph's mmap
+// resources are cleaned up automatically by the GC finalizer after all
+// in-flight requests drop their references.
 func (m *GraphManager) LoadFromFile(path string) error {
-	g, err := graph.Deserialize(path)
+	g, err := graph.DeserializeMmap(path)
 	if err != nil {
 		return fmt.Errorf("deserialize %s: %w", path, err)
 	}
+	m.routerMu.Lock()
+	m.router = nil
+	m.routerMu.Unlock()
 	m.graph.Store(g)
-	slog.Info("routing graph loaded",
+	slog.Info("routing graph loaded (mmap)",
 		"nodes", g.NodeCount,
 		"edges", g.EdgeCount,
 		"version", g.Version,
@@ -71,23 +77,18 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 	}
 	defer m.mu.Unlock()
 
-	g, err := graph.Build(ctx, pool, outputPath, progressFn)
+	// Build produces a heap graph and serializes to outputPath.
+	// Then load the serialized file via mmap for consistent behavior.
+	_, err := graph.Build(ctx, pool, outputPath, progressFn)
 	if err != nil {
 		return err
 	}
 
-	// Nil the old router before storing the new graph. This lets the GC
-	// collect the old RouterStates (~480 MB each) as soon as in-flight
-	// requests drop their references, rather than waiting for the next
-	// Router() call to replace it.
-	m.routerMu.Lock()
-	m.router = nil
-	m.routerMu.Unlock()
-
-	m.graph.Store(g)
-	slog.Info("routing graph rebuilt",
-		"nodes", g.NodeCount,
-		"edges", g.EdgeCount,
+	if err := m.LoadFromFile(outputPath); err != nil {
+		return fmt.Errorf("load after build: %w", err)
+	}
+	slog.Info("routing graph rebuilt and loaded via mmap",
+		"path", outputPath,
 	)
 	return nil
 }
