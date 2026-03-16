@@ -94,7 +94,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if logFilename == "" {
 			logFilename = colVal(row, hdr["Aktivitäts-ID"])
 		}
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, nil)
+		var batchIDPtr *string
+		if params.JobID != "" {
+			batchIDPtr = &params.JobID
+		}
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, batchIDPtr)
 		tracker.Processing(ctx)
 
 		// --- Parse Strava activity ID ---
@@ -107,7 +111,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if err != nil {
 			slog.Warn("strava activities: cannot parse date", "date", dateStr, "error", err)
 			result.Skipped++
-			tracker.Skipped(ctx, "date_filtered", nil)
+			tracker.Skipped(ctx, "date_parse_error", nil)
 			continue
 		}
 

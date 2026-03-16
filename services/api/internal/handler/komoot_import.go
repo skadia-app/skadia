@@ -308,6 +308,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			Storage:       h.Storage,
 			ImportService: h.ImportService,
 			UserID:        userID,
+			BatchID:       jobID,
 			TourIDs:       req.TourIDs,
 			Options:       req.Options,
 			OnProgress: func(current, total int, msg string) {

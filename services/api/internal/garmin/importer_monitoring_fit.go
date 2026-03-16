@@ -82,7 +82,11 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 			}
 
 			fileSize := int64(len(data))
-			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, nil)
+			var batchIDPtr *string
+			if params.JobID != "" {
+				batchIDPtr = &params.JobID
+			}
+			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, batchIDPtr)
 			tracker.Processing(ctx)
 			hashArr := sha256.Sum256(data)
 			tracker.SetFileHash(ctx, hex.EncodeToString(hashArr[:]))

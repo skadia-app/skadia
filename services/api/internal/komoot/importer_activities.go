@@ -33,6 +33,7 @@ type KomootImportParams struct {
 	Storage       *storage.S3Client
 	ImportService *importer.Service // centralised duplicate detection + insert
 	UserID        string
+	BatchID       string  // correlates all import_log entries for one import run
 	TourIDs       []int64 // nil/empty = all tours
 	Options       importer.ImportOptions
 	OnProgress    func(current, total int, msg string)
@@ -89,7 +90,11 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// --- Import log tracking ---
 		logFilename := fmt.Sprintf("%d", tour.ID)
-		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, nil)
+		var batchIDPtr *string
+		if p.BatchID != "" {
+			batchIDPtr = &p.BatchID
+		}
+		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, batchIDPtr)
 		tracker.Processing(ctx)
 
 		// Date filter

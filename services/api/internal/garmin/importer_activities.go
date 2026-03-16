@@ -113,7 +113,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			params.OnProgress(current, total, "activities: "+ref.fileName)
 		}
 
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", ref.fileName, nil, nil)
+		var batchIDPtr *string
+		if params.JobID != "" {
+			batchIDPtr = &params.JobID
+		}
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", ref.fileName, nil, batchIDPtr)
 		tracker.Processing(ctx)
 
 		fileBytes, err := readFileFromZip(filepath.Join(params.Source.BaseDir(), ref.zipPath), ref.fileName)
