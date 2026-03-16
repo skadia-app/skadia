@@ -74,6 +74,44 @@ type CompactTopologyResult struct {
 	EdgeGeomCoords []Coord
 }
 
+// VertexDegree tracks how many ways reference each coordinate.
+type VertexDegree struct {
+	counts    map[CoordKey]uint8
+	endpoints map[CoordKey]bool
+}
+
+// NewVertexDegree creates a new VertexDegree tracker.
+func NewVertexDegree() *VertexDegree {
+	return &VertexDegree{
+		counts:    make(map[CoordKey]uint8, 1_000_000),
+		endpoints: make(map[CoordKey]bool, 500_000),
+	}
+}
+
+// AddWay processes all vertices of a way: increments degree for interior vertices
+// that appear in multiple ways, marks first/last as endpoints.
+func (vd *VertexDegree) AddWay(coords []Coord) {
+	if len(coords) < 2 {
+		return
+	}
+	vd.endpoints[NewCoordKey(coords[0].Lat, coords[0].Lon)] = true
+	vd.endpoints[NewCoordKey(coords[len(coords)-1].Lat, coords[len(coords)-1].Lon)] = true
+	for i := 1; i < len(coords)-1; i++ {
+		key := NewCoordKey(coords[i].Lat, coords[i].Lon)
+		if vd.counts[key] < 255 {
+			vd.counts[key]++
+		}
+	}
+}
+
+// IsNetworkNode returns true if the coordinate should be a graph node.
+func (vd *VertexDegree) IsNetworkNode(key CoordKey) bool {
+	if vd.endpoints[key] {
+		return true
+	}
+	return vd.counts[key] >= 2
+}
+
 // BuildTopology computes the graph topology from raw ways.
 func BuildTopology(ways []RawWay) TopologyResult {
 	nodeIndex := make(map[CoordKey]uint32, len(ways)*10)

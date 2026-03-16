@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -41,89 +42,12 @@ func BuildFromWays(ways []RawWay, elevations []int32) *Graph {
 // Uses cursor-based streaming to avoid loading all ways into memory at once.
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	progressFn func(step string, pct int)) (*Graph, error) {
-
-	report := func(step string, pct int) {
-		slog.Info("graph build", "step", step, "pct", pct)
-		if progressFn != nil {
-			progressFn(step, pct)
-		}
-	}
-
-	// Get total count for progress reporting.
-	var totalWays int64
-	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL AND highway != 'construction' AND (tags->>'area') IS DISTINCT FROM 'yes'").Scan(&totalWays); err != nil {
-		return nil, fmt.Errorf("count ways: %w", err)
-	}
-	slog.Info("ways to load", "count", totalWays)
-
-	report("load_topology", 0)
-	topo, err := StreamTopology(ctx, pool, totalWays, func(loaded int64) {
-		if totalWays > 0 {
-			report("load_topology", int(loaded*100/totalWays))
-		}
-	})
-	if err != nil {
-		return nil, fmt.Errorf("stream topology: %w", err)
-	}
-	slog.Info("topology built", "nodes", topo.NodeCount, "edges", len(topo.Edges))
-	report("load_topology", 100)
-
-	report("elevation", 0)
-	isBridge := make([]bool, topo.NodeCount)
-	for _, e := range topo.Edges {
-		if e.Tags.Bridge {
-			isBridge[e.From] = true
-			isBridge[e.To] = true
-		}
-		if e.Tags.Tunnel {
-			isBridge[e.From] = true
-			isBridge[e.To] = true
-		}
-	}
-	lats := make([]int32, topo.NodeCount)
-	lons := make([]int32, topo.NodeCount)
-	for i, c := range topo.Nodes {
-		lats[i] = NewCoordKey(c.Lat, c.Lon).Lat
-		lons[i] = NewCoordKey(c.Lat, c.Lon).Lon
-	}
-	elevations, err := SampleElevation(ctx, pool, lats, lons, isBridge,
-		func(done, total int) {
-			report("elevation", done*100/total)
-		})
-	if err != nil {
-		return nil, fmt.Errorf("sample elevation: %w", err)
-	}
-	report("elevation", 100)
-
-	report("build_csr", 0)
-	g := BuildCSR(*topo)
-	copy(g.NodeEle, elevations)
-	report("build_csr", 100)
-
-	*topo = TopologyResult{} // release topology memory
-
-	report("prune_wcc", 0)
-	beforeNodes := g.NodeCount
-	g = PruneWCC(g, 100)
-	slog.Info("WCC pruned", "before", beforeNodes, "after", g.NodeCount,
-		"removed", beforeNodes-g.NodeCount)
-	report("prune_wcc", 100)
-
-	report("spatial_index", 0)
-	g.Grid = BuildSpatialIndex(g, 0.01)
-	report("spatial_index", 100)
-
-	g.BuildTime = time.Now()
-
-	if outputPath != "" {
-		report("serialize", 0)
-		if err := Serialize(g, outputPath); err != nil {
-			return nil, fmt.Errorf("serialize: %w", err)
-		}
-		report("serialize", 100)
-	}
-
-	return g, nil
+	// TODO: update in Task 5 — needs BuildCSRCompact + edge elevation profiles
+	_ = ctx
+	_ = pool
+	_ = outputPath
+	_ = progressFn
+	return nil, fmt.Errorf("not implemented: waiting for Task 5")
 }
 
 // waysQuery is the SQL for loading routing-eligible ways from PostGIS.
@@ -162,25 +86,61 @@ const waysQuery = `
 	  AND (tags->>'area') IS DISTINCT FROM 'yes'
 	ORDER BY osm_id, way_id DESC`
 
-// StreamTopology streams ways from PostGIS via pgx cursor and builds topology
-// incrementally. Unlike LoadWays+BuildTopology, this never holds all RawWay
-// objects in memory — each row is scanned, processed into topology edges, then
-// discarded. Peak memory is dominated by the TopologyResult (nodes + edges),
-// not the input data.
+// StreamTopology streams ways from PostGIS in two passes and builds a compact
+// topology with transfer-node elimination (TNE).
+//
+// Pass 1: geometry-only query to count vertex degrees and identify network nodes
+// (endpoints, intersections). Pass 2: full query with tags, immediately encoded
+// to uint64 — no string copies in CompactEdge (36 bytes vs ~300 bytes).
+// Intermediate vertices become edge geometry instead of graph nodes.
 func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
-	progressFn func(loaded int64)) (*TopologyResult, error) {
+	progressFn func(loaded int64)) (*CompactTopologyResult, error) {
 
-	rows, err := pool.Query(ctx, waysQuery)
+	// === Pass 1: Degree counting (geometry only, no tags) ===
+	slog.Info("stream topology: pass 1 — counting vertex degrees")
+	vd := NewVertexDegree()
+
+	rows1, err := pool.Query(ctx, `
+		SELECT DISTINCT ON (osm_id) ST_AsText(geom)
+		FROM osm_ways
+		WHERE highway IS NOT NULL AND highway != 'construction'
+		  AND (tags->>'area') IS DISTINCT FROM 'yes'
+		ORDER BY osm_id, way_id DESC`)
 	if err != nil {
-		return nil, fmt.Errorf("query osm_ways: %w", err)
+		return nil, fmt.Errorf("pass 1 query: %w", err)
 	}
-	defer rows.Close()
+	var pass1Count int64
+	for rows1.Next() {
+		var geomWKT string
+		if err := rows1.Scan(&geomWKT); err != nil {
+			rows1.Close()
+			return nil, fmt.Errorf("pass 1 scan: %w", err)
+		}
+		coords := parseLineStringWKT(geomWKT)
+		if len(coords) >= 2 {
+			vd.AddWay(coords)
+		}
+		pass1Count++
+		if pass1Count%500_000 == 0 {
+			slog.Info("pass 1 progress", "ways", pass1Count)
+		}
+	}
+	rows1.Close()
+	if err := rows1.Err(); err != nil {
+		return nil, fmt.Errorf("pass 1 rows: %w", err)
+	}
+	slog.Info("pass 1 complete", "ways", pass1Count,
+		"endpoints", len(vd.endpoints), "interior_shared", len(vd.counts))
 
-	// Topology state — built incrementally.
-	nodeIndex := make(map[CoordKey]uint32, int(totalWays)*4)
+	// === Pass 2: Build compact edges with immediate tag encoding ===
+	slog.Info("stream topology: pass 2 — building edges with TNE")
+
+	nodeIndex := make(map[CoordKey]uint32, len(vd.endpoints))
 	var nodes []Coord
 	var nodeTags []uint8
-	var edges []TopologyEdge
+	var edges []CompactEdge
+	var edgeGeomOffset []uint32
+	var edgeGeomCoords []Coord
 
 	assignNode := func(c Coord) uint32 {
 		key := NewCoordKey(c.Lat, c.Lon)
@@ -194,8 +154,13 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		return id
 	}
 
-	var loaded int64
-	for rows.Next() {
+	rows2, err := pool.Query(ctx, waysQuery)
+	if err != nil {
+		return nil, fmt.Errorf("pass 2 query: %w", err)
+	}
+
+	var pass2Count int64
+	for rows2.Next() {
 		var osmID int64
 		var geomWKT string
 		var highway, surface, tracktype, smoothness string
@@ -213,7 +178,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		var mtbScaleUphill, viaFerrataScale, trailVisibility string
 		var width, incline, sidewalk string
 
-		err := rows.Scan(
+		err := rows2.Scan(
 			&osmID, &geomWKT,
 			&highway, &surface, &tracktype, &smoothness,
 			&sacScale, &mtbScale,
@@ -230,15 +195,11 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			&width, &incline, &sidewalk,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan way: %w", err)
+			rows2.Close()
+			return nil, fmt.Errorf("pass 2 scan: %w", err)
 		}
 
-		coords := parseLineStringWKT(geomWKT)
-		if len(coords) < 2 {
-			loaded++
-			continue
-		}
-
+		// IMMEDIATELY encode tags — no string copies in edges.
 		tags := RawTags{
 			Highway: highway, Surface: surface, Tracktype: tracktype,
 			Smoothness: smoothness, SacScale: sacScale, MtbScale: mtbScale,
@@ -260,57 +221,165 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			CyclerouteNetwork: cyclerouteNetwork, HikerouteNetwork: hikerouteNetwork,
 			LanduseClass: landuseClass,
 		}
+		tags1 := EncodeOSMTags(&tags)
+		tags2 := EncodeEdgeTags2(&tags, &enrichment)
 
-		// Assign node IDs for all coordinates.
-		for _, c := range coords {
-			assignNode(c)
+		coords := parseLineStringWKT(geomWKT)
+		if len(coords) < 2 {
+			pass2Count++
+			continue
 		}
 
-		// Generate directed edges.
-		isOneway := tags.Oneway
-		for j := 0; j < len(coords)-1; j++ {
-			fromKey := NewCoordKey(coords[j].Lat, coords[j].Lon)
-			toKey := NewCoordKey(coords[j+1].Lat, coords[j+1].Lon)
-			fromID := nodeIndex[fromKey]
-			toID := nodeIndex[toKey]
-			if fromID == toID {
+		isOneway := oneway
+
+		// Assign network-node IDs (only for endpoints + intersections).
+		for _, c := range coords {
+			key := NewCoordKey(c.Lat, c.Lon)
+			if vd.IsNetworkNode(key) {
+				assignNode(c)
+			}
+		}
+
+		// Generate edges between consecutive network nodes.
+		var geomBuf []Coord
+		lastNetIdx := 0
+
+		for i := 1; i < len(coords); i++ {
+			key := NewCoordKey(coords[i].Lat, coords[i].Lon)
+			if !vd.IsNetworkNode(key) {
+				geomBuf = append(geomBuf, coords[i])
 				continue
 			}
 
-			if isOneway {
-				edges = append(edges, TopologyEdge{
+			fromKey := NewCoordKey(coords[lastNetIdx].Lat, coords[lastNetIdx].Lon)
+			toKey := key
+			fromID := nodeIndex[fromKey]
+			toID := nodeIndex[toKey]
+
+			if fromID != toID {
+				dist := edgeDistanceCm(coords[lastNetIdx : i+1])
+
+				fullGeom := make([]Coord, 0, len(geomBuf)+2)
+				fullGeom = append(fullGeom, coords[lastNetIdx])
+				fullGeom = append(fullGeom, geomBuf...)
+				fullGeom = append(fullGeom, coords[i])
+
+				geomStart := uint32(len(edgeGeomCoords))
+				edgeGeomCoords = append(edgeGeomCoords, fullGeom...)
+
+				edgeGeomOffset = append(edgeGeomOffset, geomStart)
+				edges = append(edges, CompactEdge{
 					From: fromID, To: toID, OSMID: osmID,
-					Tags: tags, Enrichment: enrichment,
+					Tags1: tags1, Tags2: tags2, Dist: dist,
 				})
-			} else {
-				edges = append(edges, TopologyEdge{
-					From: fromID, To: toID, OSMID: osmID,
-					Tags: tags, Enrichment: enrichment,
+
+				if !isOneway {
+					revGeomStart := uint32(len(edgeGeomCoords))
+					for j := len(fullGeom) - 1; j >= 0; j-- {
+						edgeGeomCoords = append(edgeGeomCoords, fullGeom[j])
+					}
+					edgeGeomOffset = append(edgeGeomOffset, revGeomStart)
+					edges = append(edges, CompactEdge{
+						From: toID, To: fromID, OSMID: osmID,
+						Tags1: tags1, Tags2: tags2, Dist: dist,
+					})
+				}
+			} else if fromID == toID && len(geomBuf) > 0 {
+				// Circular way: force midpoint as network node.
+				midIdx := lastNetIdx + (i-lastNetIdx)/2
+				midCoord := coords[midIdx]
+				midKey := NewCoordKey(midCoord.Lat, midCoord.Lon)
+				if _, ok := nodeIndex[midKey]; !ok {
+					assignNode(midCoord)
+				}
+				midID := nodeIndex[midKey]
+
+				// First half: [lastNetIdx..midIdx]
+				dist1 := edgeDistanceCm(coords[lastNetIdx : midIdx+1])
+				geom1 := make([]Coord, 0, midIdx-lastNetIdx+1)
+				geom1 = append(geom1, coords[lastNetIdx])
+				for k := lastNetIdx + 1; k < midIdx; k++ {
+					geom1 = append(geom1, coords[k])
+				}
+				geom1 = append(geom1, coords[midIdx])
+				gs1 := uint32(len(edgeGeomCoords))
+				edgeGeomCoords = append(edgeGeomCoords, geom1...)
+				edgeGeomOffset = append(edgeGeomOffset, gs1)
+				edges = append(edges, CompactEdge{
+					From: fromID, To: midID, OSMID: osmID,
+					Tags1: tags1, Tags2: tags2, Dist: dist1,
 				})
-				edges = append(edges, TopologyEdge{
-					From: toID, To: fromID, OSMID: osmID,
-					Tags: tags, Enrichment: enrichment,
+				if !isOneway {
+					rgs1 := uint32(len(edgeGeomCoords))
+					for j := len(geom1) - 1; j >= 0; j-- {
+						edgeGeomCoords = append(edgeGeomCoords, geom1[j])
+					}
+					edgeGeomOffset = append(edgeGeomOffset, rgs1)
+					edges = append(edges, CompactEdge{
+						From: midID, To: fromID, OSMID: osmID,
+						Tags1: tags1, Tags2: tags2, Dist: dist1,
+					})
+				}
+
+				// Second half: [midIdx..i]
+				dist2 := edgeDistanceCm(coords[midIdx : i+1])
+				geom2 := make([]Coord, 0, i-midIdx+1)
+				geom2 = append(geom2, coords[midIdx])
+				for k := midIdx + 1; k < i; k++ {
+					geom2 = append(geom2, coords[k])
+				}
+				geom2 = append(geom2, coords[i])
+				gs2 := uint32(len(edgeGeomCoords))
+				edgeGeomCoords = append(edgeGeomCoords, geom2...)
+				edgeGeomOffset = append(edgeGeomOffset, gs2)
+				edges = append(edges, CompactEdge{
+					From: midID, To: toID, OSMID: osmID,
+					Tags1: tags1, Tags2: tags2, Dist: dist2,
 				})
+				if !isOneway {
+					rgs2 := uint32(len(edgeGeomCoords))
+					for j := len(geom2) - 1; j >= 0; j-- {
+						edgeGeomCoords = append(edgeGeomCoords, geom2[j])
+					}
+					edgeGeomOffset = append(edgeGeomOffset, rgs2)
+					edges = append(edges, CompactEdge{
+						From: toID, To: midID, OSMID: osmID,
+						Tags1: tags1, Tags2: tags2, Dist: dist2,
+					})
+				}
 			}
+
+			geomBuf = geomBuf[:0]
+			lastNetIdx = i
 		}
 
-		loaded++
-		if loaded%500_000 == 0 && progressFn != nil {
-			progressFn(loaded)
+		pass2Count++
+		if pass2Count%500_000 == 0 && progressFn != nil {
+			progressFn(pass2Count)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
+	rows2.Close()
+	if err := rows2.Err(); err != nil {
+		return nil, fmt.Errorf("pass 2 rows: %w", err)
 	}
 
-	slog.Info("stream topology complete", "ways", loaded, "nodes", len(nodes), "edges", len(edges))
+	// Final sentinel for EdgeGeomOffset.
+	edgeGeomOffset = append(edgeGeomOffset, uint32(len(edgeGeomCoords)))
 
-	return &TopologyResult{
-		Nodes:     nodes,
-		Edges:     edges,
-		NodeIndex: nodeIndex,
-		NodeTags:  nodeTags,
-		NodeCount: len(nodes),
+	slog.Info("stream topology complete",
+		"ways", pass2Count,
+		"network_nodes", len(nodes),
+		"edges", len(edges),
+		"geom_points", len(edgeGeomCoords))
+
+	return &CompactTopologyResult{
+		Nodes:          nodes,
+		Edges:          edges,
+		NodeIndex:      nodeIndex,
+		NodeTags:       nodeTags,
+		NodeCount:      len(nodes),
+		EdgeGeomOffset: edgeGeomOffset,
+		EdgeGeomCoords: edgeGeomCoords,
 	}, nil
 }
 
@@ -392,6 +461,31 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 	}
 
 	return ways, nil
+}
+
+// edgeDistanceCm calculates total haversine distance along a coordinate
+// sequence, returning the result in centimeters as uint32.
+func edgeDistanceCm(coords []Coord) uint32 {
+	var total float64
+	for i := 1; i < len(coords); i++ {
+		total += haversineDistM(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
+	}
+	cm := uint32(total * 100)
+	if cm == 0 && total > 0 {
+		cm = 1
+	}
+	return cm
+}
+
+// haversineDistM returns the haversine distance between two points in meters.
+func haversineDistM(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6_371_000.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
 
 func parseLineStringWKT(wkt string) []Coord {
