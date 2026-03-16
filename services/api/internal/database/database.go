@@ -2588,10 +2588,8 @@ func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, erro
 func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
 	frostConditions := []byte(`{"operator":"AND","rules":[{"field":"min_temperature_c","op":"lte","value":0},{"field":"avg_temperature_c","op":"lte","value":0}]}`)
-	rundtourConditions := []byte(`{"operator":"AND","rules":[{"field":"is_round_trip","op":"eq","value":true}]}`)
 	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
 	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
-	rundtourDesc := "Automatisch bei Aktivitaeten die als Rundtour erkannt wurden"
 
 	// Custom auto-tags
 	seeds := []struct {
@@ -2601,7 +2599,6 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 	}{
 		{"Nacht", "#1E293B", "#E2E8F0", nachtConditions, nachtDesc},
 		{"Frost", "#38BDF8", "#0C4A6E", frostConditions, frostDesc},
-		{"Rundtour", "#10B981", "#FFFFFF", rundtourConditions, rundtourDesc},
 	}
 	for _, s := range seeds {
 		if _, err := db.Pool.Exec(ctx, `
@@ -2612,6 +2609,16 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 		); err != nil {
 			return fmt.Errorf("seed %s autotag: %w", s.name, err)
 		}
+	}
+
+	// Rundtour — trigger-managed (like E-Bike), NOT an autotag
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+		VALUES ($1, 'Rundtour', '#10B981', '#FFFFFF', true, false, 'Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)')
+		ON CONFLICT (user_id, name) DO UPDATE SET is_auto = false, conditions = NULL, condition_groups = NULL, conditions_logic = NULL`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("seed Rundtour tag: %w", err)
 	}
 
 	// Weather system tags
@@ -2714,9 +2721,10 @@ func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) err
 		// Determine if this is a known auto-tag
 		isAuto := false
 		category := "custom"
-		if tagName == "Nacht" || tagName == "Frost" || tagName == "Rundtour" {
+		if tagName == "Nacht" || tagName == "Frost" {
 			isAuto = true
 		}
+		// Rundtour is trigger-managed (not an autotag), so isAuto stays false
 		if tagName == "Sonnig" || tagName == "Bewölkt" || tagName == "Regen" ||
 			tagName == "Schnee" || tagName == "Nebel" || tagName == "Gewitter" {
 			isAuto = false // Weather tags are not marked as auto (system flag)
