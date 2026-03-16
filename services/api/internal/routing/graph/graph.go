@@ -1,7 +1,11 @@
 // Package graph implements an in-memory CSR routing graph for FITroute.
 package graph
 
-import "time"
+import (
+	"os"
+	"syscall"
+	"time"
+)
 
 // Graph is the immutable in-memory CSR routing graph.
 type Graph struct {
@@ -42,6 +46,11 @@ type Graph struct {
 	Version   uint32
 	BuildTime time.Time
 	BBox      [4]float64 // minLat, minLon, maxLat, maxLon
+
+	// mmap backing for cold sections. Cold-section slices (EdgeGeomLat etc.)
+	// point directly into mmapData. Read-only — must not be modified.
+	mmapData []byte   // entire file mmap'd (nil for heap-only graphs)
+	mmapFile *os.File // kept open for mmap lifetime
 }
 
 // SpatialGrid is a flat grid index for O(1) cell lookup.
@@ -105,4 +114,16 @@ func (g *Graph) OutDegree(i uint32) int {
 // Edges returns the target node indices for outgoing edges of node i.
 func (g *Graph) Edges(i uint32) []uint32 {
 	return g.Targets[g.Offsets[i]:g.Offsets[i+1]]
+}
+
+// closeMmap releases mmap resources. Called by GC finalizer, not directly.
+func (g *Graph) closeMmap() {
+	if g.mmapData != nil {
+		syscall.Munmap(g.mmapData)
+		g.mmapData = nil
+	}
+	if g.mmapFile != nil {
+		g.mmapFile.Close()
+		g.mmapFile = nil
+	}
 }
