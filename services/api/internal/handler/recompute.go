@@ -576,10 +576,23 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, 
 		autoTagNames[at.Name] = true
 	}
 
+	// Build set of system tag names to protect them from stripping
+	systemTagNames := make(map[string]bool)
+	for _, at := range autoTags {
+		if at.IsSystem {
+			systemTagNames[at.Name] = true
+		}
+	}
+
 	// Remove autotags that no longer match (only if assigned_by='auto')
 	currentTags := activity.Tags
 	var newTags []string
 	for _, tag := range currentTags {
+		// Never strip system tags (e.g. E-Bike) — they are managed by dedicated pipelines
+		if systemTagNames[tag] {
+			newTags = append(newTags, tag)
+			continue
+		}
 		if autoTagNames[tag] && !matchedSet[tag] {
 			// This is an autotag that no longer matches — remove it
 			continue
@@ -592,6 +605,13 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, 
 		found := slices.Contains(newTags, name)
 		if !found {
 			newTags = append(newTags, name)
+		}
+	}
+
+	// Re-apply E-Bike tag if activity.is_ebike is true
+	if activity.IsEbike {
+		if !slices.Contains(newTags, "E-Bike") {
+			newTags = append(newTags, "E-Bike")
 		}
 	}
 
