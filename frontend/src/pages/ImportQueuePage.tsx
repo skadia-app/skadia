@@ -60,7 +60,7 @@ function ActivitySearchModal({ onSelect, onClose }: ActivitySearchModalProps) {
             onChange={(e) => handleQueryChange(e.target.value)}
             className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600
                        bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                       focus:outline-none focus:ring-2 focus:ring-accent-500/50 focus:border-accent-500"
+                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/50 focus:border-accent-DEFAULT"
           />
         </div>
 

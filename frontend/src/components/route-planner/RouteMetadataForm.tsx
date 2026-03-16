@@ -139,7 +139,7 @@ function TagMultiSelect({
               />
               <span>{tag.name}</span>
               {selectedSet.has(tag.id) && (
-                <span className="ml-auto text-accent-500 text-xs">&#10003;</span>
+                <span className="ml-auto text-accent-DEFAULT text-xs">&#10003;</span>
               )}
             </button>
           ))}

@@ -317,7 +317,7 @@ function HistorySection() {
   const selectClass =
     'px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-700 ' +
     'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 ' +
-    'focus:outline-none focus:ring-2 focus:ring-accent-500/40'
+    'focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40'
 
   return (
     <section className="space-y-4">

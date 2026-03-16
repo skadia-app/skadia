@@ -130,7 +130,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onChange={e => setEditData(d => ({ ...d, name: e.target.value }))}
                   className="w-full px-2 py-1 text-sm rounded border border-neutral-300 dark:border-neutral-600
                              bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                             focus:outline-none focus:ring-1 focus:ring-accent-500"
+                             focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 />
               </div>
               <div>
@@ -140,7 +140,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onChange={e => setEditData(d => ({ ...d, type: e.target.value }))}
                   className="w-full px-2 py-1 text-sm rounded border border-neutral-300 dark:border-neutral-600
                              bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                             focus:outline-none focus:ring-1 focus:ring-accent-500"
+                             focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 >
                   {GEAR_TYPES.map(t => (
                     <option key={t.value} value={t.value}>{t.label}</option>
@@ -155,7 +155,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onChange={e => setEditData(d => ({ ...d, brand: e.target.value }))}
                   className="w-full px-2 py-1 text-sm rounded border border-neutral-300 dark:border-neutral-600
                              bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                             focus:outline-none focus:ring-1 focus:ring-accent-500"
+                             focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 />
               </div>
               <div className="col-span-2">
@@ -166,7 +166,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onChange={e => setEditData(d => ({ ...d, model: e.target.value }))}
                   className="w-full px-2 py-1 text-sm rounded border border-neutral-300 dark:border-neutral-600
                              bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                             focus:outline-none focus:ring-1 focus:ring-accent-500"
+                             focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 />
               </div>
             </div>
