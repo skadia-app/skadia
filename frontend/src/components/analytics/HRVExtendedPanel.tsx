@@ -184,7 +184,7 @@ export default function HRVExtendedPanel({ activityId }: Props) {
     queryFn: getCapabilities,
     staleTime: 30_000,
   })
-  const mlAvailable = capabilities?.ml_service !== false
+  const mlAvailable = capabilities?.ml_service === true
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'hrv-extended', activityId],

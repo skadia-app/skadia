@@ -22,7 +22,7 @@ const (
 // Algorithm:
 //  1. Load per-user thresholds from user_enrichment_settings.
 //  2. Load altitude + distance stream for the activity.
-//  3. Apply Savitzky-Golay (window=51, polyorder=3) to smooth altitude.
+//  3. Apply Savitzky-Golay (window=21, polyorder=3) to smooth altitude.
 //  4. Detect ascending segments and filter by elevation gain, length, gradient.
 //  5. DELETE existing activity_climbs + INSERT fresh results.
 func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityID string) error {
@@ -212,7 +212,7 @@ func classifyClimb(elevationGain, avgGradient float64) string {
 
 // sgFilter applies a Savitzky-Golay filter with arbitrary odd window and polynomial order.
 // It computes the center-point coefficient vector once and applies it with edge reflection.
-// This is the general implementation required for window=51, polyorder=3 used in ascents.
+// This is the general implementation required for window=21, polyorder=3 used in ascents.
 func sgFilter(data []float64, window, polyOrder int) []float64 {
 	n := len(data)
 	coeffs := sgCoefficients(window, polyOrder)

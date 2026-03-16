@@ -51,7 +51,7 @@ export default function TrainingClusters() {
     queryFn: getCapabilities,
     staleTime: 30_000,
   })
-  const mlAvailable = capabilities?.ml_service !== false
+  const mlAvailable = capabilities?.ml_service === true
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'insights', 'clusters', queryParams],

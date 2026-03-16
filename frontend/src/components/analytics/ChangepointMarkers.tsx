@@ -22,7 +22,7 @@ export function useChangepoints(metric: Props['metric'], days = 180): Changepoin
     queryFn: getCapabilities,
     staleTime: 30_000,
   })
-  const mlAvailable = capabilities?.ml_service !== false
+  const mlAvailable = capabilities?.ml_service === true
 
   const [data, setData] = useState<Changepoint[]>([])
   useEffect(() => {
