@@ -72,9 +72,11 @@ type CompactTopologyResult struct {
 	NodeCount int
 	// Edge geometry as int32 (lat/lon × 1e7) — half the memory of []Coord.
 	// Geometry for edge i: EdgeGeomLat[EdgeGeomOffset[i]:EdgeGeomOffset[i+1]]
-	EdgeGeomOffset []uint32
-	EdgeGeomLat    []int32
-	EdgeGeomLon    []int32
+	// If EdgeGeomReversed[i], read the geometry in reverse order.
+	EdgeGeomOffset   []uint32
+	EdgeGeomLat      []int32
+	EdgeGeomLon      []int32
+	EdgeGeomReversed []bool
 }
 
 // VertexDegree tracks how many ways reference each coordinate.

@@ -157,6 +157,7 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 	// Track original edge index → CSR position for geometry reorder
 	type geomRange struct {
 		start, end uint32
+		reversed   bool
 	}
 	geomByPos := make([]geomRange, edgeCount)
 
@@ -172,15 +173,23 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 
 		geomStart := topo.EdgeGeomOffset[i]
 		geomEnd := topo.EdgeGeomOffset[i+1]
-		geomByPos[pos] = geomRange{geomStart, geomEnd}
+		rev := len(topo.EdgeGeomReversed) > i && topo.EdgeGeomReversed[i]
+		geomByPos[pos] = geomRange{geomStart, geomEnd, rev}
 	}
 
-	// Reorder geometry into CSR edge order (topology already stores int32)
+	// Reorder geometry into CSR edge order.
+	// Reverse-flagged edges (reverseGeomFlag) share forward geometry — expand reversed here.
 	var allGeomLat, allGeomLon []int32
 	for i := uint32(0); i < edgeCount; i++ {
 		g.EdgeGeomOff[i] = uint32(len(allGeomLat))
 		gr := geomByPos[i]
-		if gr.end > gr.start {
+		if gr.reversed {
+			// Copy geometry in reverse order
+			for j := int(gr.end) - 1; j >= int(gr.start); j-- {
+				allGeomLat = append(allGeomLat, topo.EdgeGeomLat[j])
+				allGeomLon = append(allGeomLon, topo.EdgeGeomLon[j])
+			}
+		} else if gr.end > gr.start {
 			allGeomLat = append(allGeomLat, topo.EdgeGeomLat[gr.start:gr.end]...)
 			allGeomLon = append(allGeomLon, topo.EdgeGeomLon[gr.start:gr.end]...)
 		}

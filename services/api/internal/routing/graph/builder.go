@@ -233,6 +233,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	var edgeGeomOffset []uint32
 	var edgeGeomLat []int32 // int32 × 1e7 (half memory vs []Coord)
 	var edgeGeomLon []int32
+	var edgeGeomReversed []bool
 
 	// Small overflow map for circular-way midpoints (very few entries).
 	overflowNodes := make(map[CoordKey]uint32)
@@ -368,21 +369,18 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 					appendGeomInt32(gc)
 				}
 				appendGeomInt32(coords[i]) // end
-				geomEnd := uint32(len(edgeGeomLat))
 
 				edgeGeomOffset = append(edgeGeomOffset, geomStart)
+				edgeGeomReversed = append(edgeGeomReversed, false)
 				edges = append(edges, CompactEdge{
 					From: fromID, To: toID, OSMID: osmID,
 					Tags1: tags1, Tags2: tags2, Dist: dist,
 				})
 
 				if !isOneway {
-					revStart := uint32(len(edgeGeomLat))
-					for j := int(geomEnd) - 1; j >= int(geomStart); j-- {
-						edgeGeomLat = append(edgeGeomLat, edgeGeomLat[j])
-						edgeGeomLon = append(edgeGeomLon, edgeGeomLon[j])
-					}
-					edgeGeomOffset = append(edgeGeomOffset, revStart)
+					// Reverse edge shares forward geometry — CSR builder reverses during reorder.
+					edgeGeomOffset = append(edgeGeomOffset, geomStart)
+					edgeGeomReversed = append(edgeGeomReversed, true)
 					edges = append(edges, CompactEdge{
 						From: toID, To: fromID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist,
@@ -406,26 +404,19 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 					}
 					return start
 				}
-				appendRevGeom := func(start, end uint32) uint32 {
-					rs := uint32(len(edgeGeomLat))
-					for j := int(end) - 1; j >= int(start); j-- {
-						edgeGeomLat = append(edgeGeomLat, edgeGeomLat[j])
-						edgeGeomLon = append(edgeGeomLon, edgeGeomLon[j])
-					}
-					return rs
-				}
 
 				// First half
 				dist1 := edgeDistanceCm(coords[lastNetIdx : midIdx+1])
 				gs1 := appendGeomSlice(coords[lastNetIdx : midIdx+1])
-				ge1 := uint32(len(edgeGeomLat))
 				edgeGeomOffset = append(edgeGeomOffset, gs1)
+				edgeGeomReversed = append(edgeGeomReversed, false)
 				edges = append(edges, CompactEdge{
 					From: fromID, To: midID, OSMID: osmID,
 					Tags1: tags1, Tags2: tags2, Dist: dist1,
 				})
 				if !isOneway {
-					edgeGeomOffset = append(edgeGeomOffset, appendRevGeom(gs1, ge1))
+					edgeGeomOffset = append(edgeGeomOffset, gs1)
+					edgeGeomReversed = append(edgeGeomReversed, true)
 					edges = append(edges, CompactEdge{
 						From: midID, To: fromID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist1,
@@ -435,14 +426,15 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 				// Second half
 				dist2 := edgeDistanceCm(coords[midIdx : i+1])
 				gs2 := appendGeomSlice(coords[midIdx : i+1])
-				ge2 := uint32(len(edgeGeomLat))
 				edgeGeomOffset = append(edgeGeomOffset, gs2)
+				edgeGeomReversed = append(edgeGeomReversed, false)
 				edges = append(edges, CompactEdge{
 					From: midID, To: toID, OSMID: osmID,
 					Tags1: tags1, Tags2: tags2, Dist: dist2,
 				})
 				if !isOneway {
-					edgeGeomOffset = append(edgeGeomOffset, appendRevGeom(gs2, ge2))
+					edgeGeomOffset = append(edgeGeomOffset, gs2)
+					edgeGeomReversed = append(edgeGeomReversed, true)
 					edges = append(edges, CompactEdge{
 						From: toID, To: midID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist2,
@@ -475,13 +467,14 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		"overflow_nodes", len(overflowNodes))
 
 	return &CompactTopologyResult{
-		Nodes:          nodes,
-		Edges:          edges,
-		NodeTags:       nodeTags,
-		NodeCount:      len(nodes),
-		EdgeGeomOffset: edgeGeomOffset,
-		EdgeGeomLat:    edgeGeomLat,
-		EdgeGeomLon:    edgeGeomLon,
+		Nodes:            nodes,
+		Edges:            edges,
+		NodeTags:         nodeTags,
+		NodeCount:        len(nodes),
+		EdgeGeomOffset:   edgeGeomOffset,
+		EdgeGeomLat:      edgeGeomLat,
+		EdgeGeomLon:      edgeGeomLon,
+		EdgeGeomReversed: edgeGeomReversed,
 	}, nil
 }
 
