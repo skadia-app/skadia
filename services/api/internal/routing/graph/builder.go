@@ -100,30 +100,11 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	*topo = CompactTopologyResult{} // free nodes memory
 	report("build_csr", 100)
 
-	report("elevation_nodes", 0)
-	isBridge := make([]bool, g.NodeCount)
-	for ni := uint32(0); ni < g.NodeCount; ni++ {
-		for ei := g.Offsets[ni]; ei < g.Offsets[ni+1]; ei++ {
-			if DecodeBool(g.EdgeTags1[ei], 38) || DecodeBool(g.EdgeTags1[ei], 39) {
-				isBridge[ni] = true
-				isBridge[g.Targets[ei]] = true
-			}
-		}
-	}
-	elevations, err := SampleElevation(ctx, pool, g.NodeLat, g.NodeLon, isBridge,
-		func(done, total int) {
-			report("elevation_nodes", done*100/total)
-		})
-	if err != nil {
-		return nil, fmt.Errorf("sample elevation: %w", err)
-	}
-	copy(g.NodeEle, elevations)
+	// TODO: DEM elevation sampling is too slow for large graphs (25M nodes × 0.1ms = 40+ min).
+	// Needs bulk ST_Value approach or mmap'd DEM file. Skipped for now — routing works
+	// without elevation (flat cost, no hysteresis). Will be addressed in a follow-up.
+	slog.Info("skipping DEM elevation (too slow for large graphs)", "nodes", g.NodeCount, "geom_points", len(g.EdgeGeomLat))
 	report("elevation_nodes", 100)
-
-	report("elevation_edges", 0)
-	if err := SampleEdgeElevationProfiles(ctx, pool, g); err != nil {
-		slog.Warn("edge elevation profiles failed (non-fatal)", "error", err)
-	}
 	report("elevation_edges", 100)
 
 	report("prune_wcc", 0)
