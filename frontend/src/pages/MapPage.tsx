@@ -61,6 +61,7 @@ export interface MapFilterState {
   heatmapColor: string
   tagFilters: import('@/components/TagFilterInput').TagFilter[]
   gearFilters: import('@/components/GearFilterInput').GearFilter[]
+  isEbike: boolean | null  // null=neutral, true=only E-Bike, false=exclude E-Bike
 }
 
 interface MapOverlayState {
@@ -108,6 +109,7 @@ const defaultFilters: MapFilterState = {
   heatmapColor: '#F97316',
   tagFilters: [],
   gearFilters: [],
+  isEbike: null,
 }
 
 function loadColorConfig(): SportColorConfig {
@@ -188,6 +190,7 @@ function buildTileUrl(
   teleportThresholdM: number, // 0 = kein Filter
   samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
   userId?: string, // privacy: filter by current user
+  ebikeTagId?: string, // ID of the E-Bike system tag (for tristate filter)
 ): string {
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
   // (/tiles/...) nicht auflösen → immer absolute URL erzwingen.
@@ -247,10 +250,18 @@ function buildTileUrl(
   }
   const includeTags = (filters.tagFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
   const excludeTags = (filters.tagFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
+  // Merge E-Bike tristate filter into tag arrays
+  const effectiveIncludeTags = [...includeTags]
+  const effectiveExcludeTags = [...excludeTags]
+  if (filters.isEbike === true && ebikeTagId) {
+    effectiveIncludeTags.push(ebikeTagId)
+  } else if (filters.isEbike === false && ebikeTagId) {
+    effectiveExcludeTags.push(ebikeTagId)
+  }
   const includeGear = (filters.gearFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
   const excludeGear = (filters.gearFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
-  if (includeTags.length) params.set('include_tags', includeTags.join(','))
-  if (excludeTags.length) params.set('exclude_tags', excludeTags.join(','))
+  if (effectiveIncludeTags.length) params.set('include_tags', effectiveIncludeTags.join(','))
+  if (effectiveExcludeTags.length) params.set('exclude_tags', effectiveExcludeTags.join(','))
   if (includeGear.length) params.set('include_gear', includeGear.join(','))
   if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
 
@@ -700,13 +711,16 @@ export default function MapPage() {
   const { data: allTags = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
-    enabled: filters.showLocationTags || showIndoorAssign || !!selectedLocationTagId,
+    enabled: filters.showLocationTags || showIndoorAssign || !!selectedLocationTagId || filters.isEbike !== null,
   })
   const locationTags = useMemo(
     () => allTags.filter(t => t.lat != null && t.lng != null),
     [allTags]
   )
   locationTagsRef.current = locationTags
+
+  // E-Bike system tag — resolved by name for MVT tile URL building
+  const ebikeTag = allTags.find(t => t.name === 'E-Bike' && t.is_system)
 
   // Derive selected tag from fresh query data to avoid stale state
   const selectedLocationTag = selectedLocationTagId
@@ -750,6 +764,8 @@ export default function MapPage() {
   const samplingRef = useRef(samplingIntervalM)
   // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
+  const ebikeTagIdRef = useRef<string | undefined>(ebikeTag?.id)
+  useEffect(() => { ebikeTagIdRef.current = ebikeTag?.id }, [ebikeTag])
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => {
     viewModeRef.current = viewMode
@@ -878,11 +894,11 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       if (filters.sportTypes.size > 0) {
-        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
+        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, ebikeTag?.id)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isEbike, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, ebikeTag?.id])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
@@ -1986,7 +2002,7 @@ export default function MapPage() {
                   removeOverlayLayers(map)
                   removeTerraIncognitaLayers(map)
                   if (filtersRef.current.sportTypes.size > 0) {
-                    addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                    addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, ebikeTagIdRef.current)
                   }
                 }
                 setViewMode('tracks')
@@ -2006,7 +2022,7 @@ export default function MapPage() {
                   removeOverlayLayers(map)
                   removeTerraIncognitaLayers(map)
                   if (filtersRef.current.sportTypes.size > 0) {
-                    addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                    addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, ebikeTagIdRef.current)
                   }
                 }
                 setViewMode('heatmap')
@@ -2191,7 +2207,7 @@ export default function MapPage() {
               removeOverlayLayers(map)
               removeTerraIncognitaLayers(map)
               if (filtersRef.current.sportTypes.size > 0) {
-                addOverlayLayers(map, filtersRef.current, nextMode, teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                addOverlayLayers(map, filtersRef.current, nextMode, teleportRef.current, samplingRef.current, currentUserIdRef.current, ebikeTagIdRef.current)
               }
               setViewMode(nextMode)
             }}
@@ -3051,12 +3067,13 @@ function addOverlayLayers(
   teleportThresholdM: number,
   samplingIntervalM?: number,
   userId?: string,
+  ebikeTagId?: string,
 ) {
   // Layer und Source vollständig entfernen und neu aufbauen.
   // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
   removeOverlayLayers(map)
 
-  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)
+  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId, ebikeTagId)
 
   if (viewMode === 'tracks') {
     map.addSource(HEATMAP_SOURCE_ID, {
