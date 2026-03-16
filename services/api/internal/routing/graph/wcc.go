@@ -102,9 +102,10 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 	}
 
 	var newEdges []uint32
-	var newDist []uint16
+	var newDist []uint32
 	var newTags1, newTags2 []uint64
 	var newOSMIdx []uint32
+	var keptOldPositions []uint32 // original edge indices for geometry/elevation lookup
 	newOffsets := make([]uint32, keptCount+1)
 
 	for i := uint32(0); i < g.NodeCount; i++ {
@@ -124,9 +125,41 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 			newTags1 = append(newTags1, g.EdgeTags1[pos])
 			newTags2 = append(newTags2, g.EdgeTags2[pos])
 			newOSMIdx = append(newOSMIdx, g.EdgeOSMIdx[pos])
+			keptOldPositions = append(keptOldPositions, pos)
 		}
 		newOffsets[newNode+1] = uint32(len(newEdges))
 	}
+
+	// Rebuild geometry offsets (EdgeGeomOff/Lat/Lon)
+	var newGeomLat, newGeomLon []int32
+	newGeomOff := make([]uint32, len(newEdges)+1)
+	if len(g.EdgeGeomOff) > 0 {
+		for newIdx, oldIdx := range keptOldPositions {
+			newGeomOff[newIdx] = uint32(len(newGeomLat))
+			gStart := g.EdgeGeomOff[oldIdx]
+			gEnd := g.EdgeGeomOff[oldIdx+1]
+			if gEnd > gStart {
+				newGeomLat = append(newGeomLat, g.EdgeGeomLat[gStart:gEnd]...)
+				newGeomLon = append(newGeomLon, g.EdgeGeomLon[gStart:gEnd]...)
+			}
+		}
+	}
+	newGeomOff[len(newEdges)] = uint32(len(newGeomLat))
+
+	// Rebuild elevation offsets (EdgeElevOff/Prof)
+	var newElevProf []int32
+	newElevOff := make([]uint32, len(newEdges)+1)
+	if len(g.EdgeElevOff) > 0 && len(g.EdgeElevProf) > 0 {
+		for newIdx, oldIdx := range keptOldPositions {
+			newElevOff[newIdx] = uint32(len(newElevProf))
+			eStart := g.EdgeElevOff[oldIdx]
+			eEnd := g.EdgeElevOff[oldIdx+1]
+			if eEnd > eStart {
+				newElevProf = append(newElevProf, g.EdgeElevProf[eStart:eEnd]...)
+			}
+		}
+	}
+	newElevOff[len(newEdges)] = uint32(len(newElevProf))
 
 	newG.EdgeCount = uint32(len(newEdges))
 	newG.Offsets = newOffsets
@@ -136,6 +169,11 @@ func PruneWCC(g *Graph, minSize int) *Graph {
 	newG.EdgeTags2 = newTags2
 	newG.EdgeOSMIdx = newOSMIdx
 	newG.OSMIDPool = g.OSMIDPool
+	newG.EdgeGeomOff = newGeomOff
+	newG.EdgeGeomLat = newGeomLat
+	newG.EdgeGeomLon = newGeomLon
+	newG.EdgeElevOff = newElevOff
+	newG.EdgeElevProf = newElevProf
 
 	return newG
 }
