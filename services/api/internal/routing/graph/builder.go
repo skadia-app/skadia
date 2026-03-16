@@ -207,6 +207,11 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	slog.Info("pass 1 complete", "ways", pass1Count,
 		"endpoints", len(vd.endpoints), "interior_shared", len(vd.counts))
 
+	// Compact: merge endpoints + shared vertices into single set, free large maps.
+	// This reclaims ~4-5 GB of Go map overhead before Pass 2 allocates its own maps.
+	vd.Compact()
+	slog.Info("vertex degree compacted", "network_nodes", len(vd.networkNodes))
+
 	// === Pass 2: Build compact edges with immediate tag encoding ===
 	slog.Info("stream topology: pass 2 — building edges with TNE")
 

@@ -75,9 +75,13 @@ type CompactTopologyResult struct {
 }
 
 // VertexDegree tracks how many ways reference each coordinate.
+// After AddWay phase, call Compact() to free ~80% of memory before Pass 2.
 type VertexDegree struct {
+	// Phase 1 (building): populated by AddWay, freed by Compact()
 	counts    map[CoordKey]uint8
 	endpoints map[CoordKey]bool
+	// Phase 2 (querying): populated by Compact(), used by IsNetworkNode
+	networkNodes map[CoordKey]struct{}
 }
 
 // NewVertexDegree creates a new VertexDegree tracker.
@@ -104,8 +108,35 @@ func (vd *VertexDegree) AddWay(coords []Coord) {
 	}
 }
 
+// Compact merges endpoints + shared interior vertices into a single compact
+// networkNodes set, then frees the large building-phase maps.
+// This reduces memory from ~7 GB (two maps with ~74M entries × ~100 bytes)
+// to ~3 GB (one map with ~29M entries × ~100 bytes) for CH+LI.
+// Must be called between Pass 1 and Pass 2.
+func (vd *VertexDegree) Compact() {
+	// Merge: all endpoints + interior vertices with count >= 2
+	vd.networkNodes = make(map[CoordKey]struct{}, len(vd.endpoints))
+	for key := range vd.endpoints {
+		vd.networkNodes[key] = struct{}{}
+	}
+	for key, count := range vd.counts {
+		if count >= 2 {
+			vd.networkNodes[key] = struct{}{}
+		}
+	}
+	// Free building-phase maps (large: ~50M entries in counts, ~24M in endpoints)
+	vd.counts = nil
+	vd.endpoints = nil
+}
+
 // IsNetworkNode returns true if the coordinate should be a graph node.
+// Before Compact(): checks endpoints map + counts >= 2.
+// After Compact(): checks the compact networkNodes set.
 func (vd *VertexDegree) IsNetworkNode(key CoordKey) bool {
+	if vd.networkNodes != nil {
+		_, ok := vd.networkNodes[key]
+		return ok
+	}
 	if vd.endpoints[key] {
 		return true
 	}
