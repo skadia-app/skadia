@@ -188,8 +188,10 @@ func (w *Watcher) scanExisting() {
 		filePath := filepath.Join(w.dir, e.Name())
 		count++
 		w.processWg.Add(1)
-		w.processFile(filePath)
-		w.processWg.Done()
+		func() {
+			defer w.processWg.Done()
+			w.processFile(filePath)
+		}()
 	}
 	if count > 0 {
 		slog.Info("hotfolder: startup scan complete", "dir", w.dir, "files", count)
