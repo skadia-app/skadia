@@ -372,6 +372,27 @@ func TestRoute_CostCutting_GridRoute(t *testing.T) {
 	}
 }
 
+func TestNewRouter_SparseOnlyForLargeGraphs(t *testing.T) {
+	// Create a minimal graph exceeding sparseOnlyThreshold
+	g := &graph.Graph{
+		NodeCount: sparseOnlyThreshold + 1,
+		EdgeCount: 0,
+		Offsets:   make([]uint32, sparseOnlyThreshold+2),
+		NodeLat:   make([]int32, sparseOnlyThreshold+1),
+		NodeLon:   make([]int32, sparseOnlyThreshold+1),
+		NodeEle:   make([]int32, sparseOnlyThreshold+1),
+		NodeTags:  make([]uint8, sparseOnlyThreshold+1),
+	}
+	r := NewRouter(g, 3, 10)
+	// Pool should be empty — no hot states allocated
+	select {
+	case <-r.pool:
+		t.Error("expected empty pool for large graph, but got a state")
+	default:
+		// good — pool is empty
+	}
+}
+
 func TestRoute_SparseFallback_SameResult(t *testing.T) {
 	// Pool size 0 forces ALL requests through sparse-map path.
 	// Same triangle graph as TestRoute_Triangle_ShortestPath.

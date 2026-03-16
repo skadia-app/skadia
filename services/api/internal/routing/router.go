@@ -42,6 +42,10 @@ func (s *RouterState) advanceGeneration() {
 	}
 }
 
+// sparseOnlyThreshold: graphs with more nodes than this use sparse-only
+// routing (no pre-allocated flat arrays). Saves ~480 MB per hot-pool state.
+const sparseOnlyThreshold uint32 = 10_000_000
+
 // Router holds the immutable graph and a pool of RouterStates for concurrent queries.
 type Router struct {
 	Graph     *graph.Graph
@@ -58,9 +62,12 @@ func NewRouter(g *graph.Graph, poolSize int, maxSparse int) *Router {
 		pool:      make(chan *RouterState, poolSize),
 		sparseSem: make(chan struct{}, maxSparse),
 	}
-	for range poolSize {
-		r.pool <- newRouterState(g.NodeCount)
+	if g.NodeCount <= sparseOnlyThreshold {
+		for range poolSize {
+			r.pool <- newRouterState(g.NodeCount)
+		}
 	}
+	// When NodeCount > threshold: pool stays empty → all queries use sparse fallback
 	return r
 }
 
