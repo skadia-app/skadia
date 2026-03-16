@@ -28,16 +28,16 @@ import { WeatherSettings } from '@/components/WeatherSettings'
 
 // Stage-2 ML enrichment module configuration — backed by /settings/enrichment API.
 const STAGE2_MODULES = [
-  { key: 'peaks',       apiField: 'enable_peaks'       as const, label: 'Gipfel & Pässe',      description: 'Erkennt besuchte Gipfel und Bergsättel' },
-  { key: 'forests',     apiField: 'enable_forests'     as const, label: 'Wälder',              description: 'Erkennt durchquerte Waldgebiete' },
-  { key: 'water',       apiField: 'enable_water'       as const, label: 'Gewässer',             description: 'Erkennt Seen und Fließgewässer entlang der Route' },
-  { key: 'settlements', apiField: 'enable_settlements' as const, label: 'Ortschaften',          description: 'Erkennt durchquerte Siedlungen' },
-  { key: 'borders',     apiField: 'enable_borders'     as const, label: 'Grenzüberquerungen',  description: 'Erkennt überquerte Ländergrenzen' },
-  { key: 'stops',       apiField: 'enable_stops'       as const, label: 'Stopps & Einkehr',     description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)' },
-  { key: 'lifts',       apiField: 'enable_lifts'       as const, label: 'Lifte / Seilbahnen',  description: 'Erkennt Gondelbahnen und Sessellifte' },
-  { key: 'surfaces',    apiField: 'enable_surfaces'    as const, label: 'Untergrundtypen',      description: 'Erkennt Asphalt, Schotter, Trail etc.' },
-  { key: 'ascents',     apiField: 'enable_ascents'     as const, label: 'Anstiege',             description: 'Erkennt und klassifiziert Anstiege' },
-  { key: 'commute',     apiField: 'enable_commute'     as const, label: 'Pendelrouten',         description: 'Erkennt regelmäßig genutzte Routen' },
+  { key: 'peaks',       apiField: 'enable_peaks'       as const, label: 'Gipfel & Pässe',      description: 'Erkennt besuchte Gipfel und Bergsättel',                requiresML: false },
+  { key: 'forests',     apiField: 'enable_forests'     as const, label: 'Wälder',              description: 'Erkennt durchquerte Waldgebiete',                        requiresML: false },
+  { key: 'water',       apiField: 'enable_water'       as const, label: 'Gewässer',             description: 'Erkennt Seen und Fließgewässer entlang der Route',       requiresML: false },
+  { key: 'settlements', apiField: 'enable_settlements' as const, label: 'Ortschaften',          description: 'Erkennt durchquerte Siedlungen',                         requiresML: false },
+  { key: 'borders',     apiField: 'enable_borders'     as const, label: 'Grenzüberquerungen',  description: 'Erkennt überquerte Ländergrenzen',                        requiresML: false },
+  { key: 'stops',       apiField: 'enable_stops'       as const, label: 'Stopps & Einkehr',     description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)',    requiresML: false },
+  { key: 'lifts',       apiField: 'enable_lifts'       as const, label: 'Lifte / Seilbahnen',  description: 'Erkennt Gondelbahnen und Sessellifte',                    requiresML: true },
+  { key: 'surfaces',    apiField: 'enable_surfaces'    as const, label: 'Untergrundtypen',      description: 'Erkennt Asphalt, Schotter, Trail etc.',                  requiresML: false },
+  { key: 'ascents',     apiField: 'enable_ascents'     as const, label: 'Anstiege',             description: 'Erkennt und klassifiziert Anstiege',                     requiresML: false },
+  { key: 'commute',     apiField: 'enable_commute'     as const, label: 'Pendelrouten',         description: 'Erkennt regelmäßig genutzte Routen',                     requiresML: true },
 ] as const
 
 function Stage2EnrichmentSection() {
@@ -47,6 +47,11 @@ function Stage2EnrichmentSection() {
   const { data: settings, isLoading, isError } = useQuery({
     queryKey: ['enrichment-settings'],
     queryFn: fetchEnrichmentSettings,
+  })
+
+  const { data: capabilities } = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
   })
 
   const [pendingField, setPendingField] = useState<string | null>(null)
@@ -88,20 +93,24 @@ function Stage2EnrichmentSection() {
       )}
 
       <div className="space-y-2">
-        {STAGE2_MODULES.map(({ apiField, label, description }) => {
+        {STAGE2_MODULES.map(({ apiField, label, description, requiresML }) => {
           const enabled = settings ? (settings[apiField] !== false) : true
           const isThisPending = pendingField === apiField
+          const mlUnavailable = requiresML && capabilities !== undefined && !capabilities.ml_service
           return (
-            <div key={apiField} className="flex items-center justify-between gap-4 py-1">
+            <div key={apiField} className="flex items-start justify-between gap-4 py-1">
               <div className="min-w-0 flex-1">
                 <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
                 <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+                {mlUnavailable && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Benötigt ML-Service</p>
+                )}
               </div>
               <button
                 onClick={() => toggle(apiField)}
-                disabled={isLoading || isThisPending}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
+                disabled={isLoading || isThisPending || mlUnavailable}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-0.5"
+                style={{ backgroundColor: enabled && !mlUnavailable ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
                 role="switch"
                 aria-checked={enabled}
               >

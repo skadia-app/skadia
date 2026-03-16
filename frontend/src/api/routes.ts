@@ -61,6 +61,7 @@ export interface Capabilities {
   dem_correction: boolean
   isochrone: boolean
   route_suggestion: boolean
+  ml_service: boolean
 }
 
 export interface POIResult {
