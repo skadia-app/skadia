@@ -85,6 +85,35 @@ func TestHysteresis_GPSNoise_Absorbed(t *testing.T) {
 	}
 }
 
+func TestHysteresis_ProfileUpDownUp(t *testing.T) {
+	cfg := defaultHystCfg()
+	state := PathState{}
+
+	// Simulate a 2km edge: up 100m, flat, down 50m, flat, up 30m (net +80m, work 180m)
+	// Profile: [0, 1000, 1000, 500, 500, 800] (elevation in dm, 6 points)
+	// Segments: 5 segments of 400m each
+	elevProfile := []int32{0, 1000, 1000, 500, 500, 800}
+	segDist := []int32{400_000, 400_000, 400_000, 400_000, 400_000} // mm
+
+	newState, elevCost := propagateHysteresisProfile(state, elevProfile, segDist, cfg)
+
+	if elevCost == 0 {
+		t.Error("profile with 180m elevation work should have non-zero cost")
+	}
+
+	// Compare with single-delta (wrong) calculation
+	singleDelta := int32((800 - 0) * 100) // 80m in mm
+	singleDist := int32(2_000_000)         // 2km in mm
+	_, singleCost := propagateHysteresis(PathState{}, singleDelta, singleDist, cfg)
+
+	if elevCost <= singleCost {
+		t.Errorf("profile cost %f should be > single-delta cost %f (180m vs 80m work)",
+			elevCost, singleCost)
+	}
+
+	_ = newState
+}
+
 func TestElevationCorrection(t *testing.T) {
 	cfg := defaultHystCfg()
 	state := PathState{Ehbu: 7_000, Ehbd: 0} // 7m uphill buffer (7000 mm)

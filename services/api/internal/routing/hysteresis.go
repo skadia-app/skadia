@@ -51,6 +51,31 @@ func propagateHysteresis(parent PathState, deltaEleMilli int32,
 	return state, elevCost
 }
 
+// propagateHysteresisProfile processes elevation changes along an edge's
+// elevation profile. Each segment between consecutive profile points is
+// processed individually through the hysteresis buffer.
+// elevProfile: elevation in decimeters at each geometry point (int32 for >3276.7m support)
+// segDistMilli: distance in millimeters for each segment (len = len(elevProfile)-1)
+func propagateHysteresisProfile(parent PathState, elevProfile []int32,
+	segDistMilli []int32, cfg *CostConfig) (PathState, float32) {
+
+	if len(elevProfile) < 2 {
+		return parent, 0
+	}
+
+	state := parent
+	var totalElevCost float32
+
+	for i := 0; i < len(elevProfile)-1; i++ {
+		deltaEleMilli := (elevProfile[i+1] - elevProfile[i]) * 100 // dm → mm
+		var segCost float32
+		state, segCost = propagateHysteresis(state, deltaEleMilli, segDistMilli[i], cfg)
+		totalElevCost += segCost
+	}
+
+	return state, totalElevCost
+}
+
 // elevationCorrection estimates the latent cost stored in the hysteresis buffers.
 // Used for closed-set comparison: bestCost stores cost + elevationCorrection.
 //
