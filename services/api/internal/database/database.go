@@ -438,6 +438,11 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("is_indoor = $%d", idx))
 		args = append(args, *filters.IsIndoor)
 	}
+	if filters.IsEbike != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("is_ebike = $%d", idx))
+		args = append(args, *filters.IsEbike)
+	}
 	if filters.HasGPS != nil {
 		idx++
 		conds = append(conds, fmt.Sprintf("has_gps = $%d", idx))

@@ -269,6 +269,7 @@ type ActivityFilters struct {
 	DateFrom    string
 	DateTo      string
 	IsIndoor    *bool
+	IsEbike     *bool
 	HasGPS      *bool
 	GearID      string
 	Search      string
