@@ -154,10 +154,11 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 	cursor := make([]uint32, nodeCount)
 	copy(cursor, g.Offsets[:nodeCount])
 
-	type geomEntry struct {
-		coords []Coord
+	// Track original edge index → CSR position for geometry reorder
+	type geomRange struct {
+		start, end uint32
 	}
-	geomByPos := make([]geomEntry, edgeCount)
+	geomByPos := make([]geomRange, edgeCount)
 
 	for i, e := range topo.Edges {
 		pos := cursor[e.From]
@@ -171,17 +172,17 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 
 		geomStart := topo.EdgeGeomOffset[i]
 		geomEnd := topo.EdgeGeomOffset[i+1]
-		if geomEnd > geomStart {
-			geomByPos[pos].coords = topo.EdgeGeomCoords[geomStart:geomEnd]
-		}
+		geomByPos[pos] = geomRange{geomStart, geomEnd}
 	}
 
+	// Reorder geometry into CSR edge order (topology already stores int32)
 	var allGeomLat, allGeomLon []int32
 	for i := uint32(0); i < edgeCount; i++ {
 		g.EdgeGeomOff[i] = uint32(len(allGeomLat))
-		for _, c := range geomByPos[i].coords {
-			allGeomLat = append(allGeomLat, int32(math.Round(c.Lat*1e7)))
-			allGeomLon = append(allGeomLon, int32(math.Round(c.Lon*1e7)))
+		gr := geomByPos[i]
+		if gr.end > gr.start {
+			allGeomLat = append(allGeomLat, topo.EdgeGeomLat[gr.start:gr.end]...)
+			allGeomLon = append(allGeomLon, topo.EdgeGeomLon[gr.start:gr.end]...)
 		}
 	}
 	g.EdgeGeomOff[edgeCount] = uint32(len(allGeomLat))

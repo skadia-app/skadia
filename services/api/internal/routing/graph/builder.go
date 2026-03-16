@@ -218,23 +218,46 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	// === Pass 2: Build compact edges with immediate tag encoding ===
 	slog.Info("stream topology: pass 2 — building edges with TNE")
 
-	nodeIndex := make(map[CoordKey]uint32, len(vd.endpoints))
-	var nodes []Coord
-	var nodeTags []uint8
+	// Pre-build nodes from sorted network node keys (no map needed — saves ~2.5 GB).
+	// Node ID = index in sortedNodes (assigned by Compact/sort order).
+	numNodes := vd.NetworkNodeCount()
+	nodes := make([]Coord, numNodes)
+	for i, key := range vd.sortedNodes {
+		nodes[i] = Coord{
+			Lat: float64(key.Lat) / 1e7,
+			Lon: float64(key.Lon) / 1e7,
+		}
+	}
+	nodeTags := make([]uint8, numNodes)
 	var edges []CompactEdge
 	var edgeGeomOffset []uint32
-	var edgeGeomCoords []Coord
+	var edgeGeomLat []int32 // int32 × 1e7 (half memory vs []Coord)
+	var edgeGeomLon []int32
 
-	assignNode := func(c Coord) uint32 {
+	// Small overflow map for circular-way midpoints (very few entries).
+	overflowNodes := make(map[CoordKey]uint32)
+	assignOverflow := func(c Coord) uint32 {
 		key := NewCoordKey(c.Lat, c.Lon)
-		if id, ok := nodeIndex[key]; ok {
+		if id, ok := overflowNodes[key]; ok {
 			return id
 		}
 		id := uint32(len(nodes))
-		nodeIndex[key] = id
+		overflowNodes[key] = id
 		nodes = append(nodes, c)
 		nodeTags = append(nodeTags, BarrierNone)
 		return id
+	}
+
+	// lookupNode returns the node ID for a coordinate.
+	// First checks the sorted network nodes (binary search), then overflow.
+	lookupNode := func(key CoordKey) (uint32, bool) {
+		if id, ok := vd.SearchNodeID(key); ok {
+			return id, true
+		}
+		if id, ok := overflowNodes[key]; ok {
+			return id, true
+		}
+		return 0, false
 	}
 
 	rows2, err := pool.Query(ctx, waysQuery)
@@ -315,15 +338,8 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 
 		isOneway := oneway
 
-		// Assign network-node IDs (only for endpoints + intersections).
-		for _, c := range coords {
-			key := NewCoordKey(c.Lat, c.Lon)
-			if vd.IsNetworkNode(key) {
-				assignNode(c)
-			}
-		}
-
 		// Generate edges between consecutive network nodes.
+		// Node IDs are looked up via binary search (no map needed).
 		var geomBuf []Coord
 		lastNetIdx := 0
 
@@ -335,20 +351,24 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			}
 
 			fromKey := NewCoordKey(coords[lastNetIdx].Lat, coords[lastNetIdx].Lon)
-			toKey := key
-			fromID := nodeIndex[fromKey]
-			toID := nodeIndex[toKey]
+			fromID, _ := lookupNode(fromKey)
+			toID, _ := lookupNode(key)
 
 			if fromID != toID {
 				dist := edgeDistanceCm(coords[lastNetIdx : i+1])
 
-				fullGeom := make([]Coord, 0, len(geomBuf)+2)
-				fullGeom = append(fullGeom, coords[lastNetIdx])
-				fullGeom = append(fullGeom, geomBuf...)
-				fullGeom = append(fullGeom, coords[i])
-
-				geomStart := uint32(len(edgeGeomCoords))
-				edgeGeomCoords = append(edgeGeomCoords, fullGeom...)
+				// Append geometry as int32 (half memory vs Coord)
+				geomStart := uint32(len(edgeGeomLat))
+				appendGeomInt32 := func(c Coord) {
+					edgeGeomLat = append(edgeGeomLat, int32(math.Round(c.Lat*1e7)))
+					edgeGeomLon = append(edgeGeomLon, int32(math.Round(c.Lon*1e7)))
+				}
+				appendGeomInt32(coords[lastNetIdx]) // start
+				for _, gc := range geomBuf {
+					appendGeomInt32(gc)
+				}
+				appendGeomInt32(coords[i]) // end
+				geomEnd := uint32(len(edgeGeomLat))
 
 				edgeGeomOffset = append(edgeGeomOffset, geomStart)
 				edges = append(edges, CompactEdge{
@@ -357,11 +377,12 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 				})
 
 				if !isOneway {
-					revGeomStart := uint32(len(edgeGeomCoords))
-					for j := len(fullGeom) - 1; j >= 0; j-- {
-						edgeGeomCoords = append(edgeGeomCoords, fullGeom[j])
+					revStart := uint32(len(edgeGeomLat))
+					for j := int(geomEnd) - 1; j >= int(geomStart); j-- {
+						edgeGeomLat = append(edgeGeomLat, edgeGeomLat[j])
+						edgeGeomLon = append(edgeGeomLon, edgeGeomLon[j])
 					}
-					edgeGeomOffset = append(edgeGeomOffset, revGeomStart)
+					edgeGeomOffset = append(edgeGeomOffset, revStart)
 					edges = append(edges, CompactEdge{
 						From: toID, To: fromID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist,
@@ -372,59 +393,56 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 				midIdx := lastNetIdx + (i-lastNetIdx)/2
 				midCoord := coords[midIdx]
 				midKey := NewCoordKey(midCoord.Lat, midCoord.Lon)
-				if _, ok := nodeIndex[midKey]; !ok {
-					assignNode(midCoord)
+				midID, ok := lookupNode(midKey)
+				if !ok {
+					midID = assignOverflow(midCoord)
 				}
-				midID := nodeIndex[midKey]
 
-				// First half: [lastNetIdx..midIdx]
-				dist1 := edgeDistanceCm(coords[lastNetIdx : midIdx+1])
-				geom1 := make([]Coord, 0, midIdx-lastNetIdx+1)
-				geom1 = append(geom1, coords[lastNetIdx])
-				for k := lastNetIdx + 1; k < midIdx; k++ {
-					geom1 = append(geom1, coords[k])
+				appendGeomSlice := func(cs []Coord) uint32 {
+					start := uint32(len(edgeGeomLat))
+					for _, c := range cs {
+						edgeGeomLat = append(edgeGeomLat, int32(math.Round(c.Lat*1e7)))
+						edgeGeomLon = append(edgeGeomLon, int32(math.Round(c.Lon*1e7)))
+					}
+					return start
 				}
-				geom1 = append(geom1, coords[midIdx])
-				gs1 := uint32(len(edgeGeomCoords))
-				edgeGeomCoords = append(edgeGeomCoords, geom1...)
+				appendRevGeom := func(start, end uint32) uint32 {
+					rs := uint32(len(edgeGeomLat))
+					for j := int(end) - 1; j >= int(start); j-- {
+						edgeGeomLat = append(edgeGeomLat, edgeGeomLat[j])
+						edgeGeomLon = append(edgeGeomLon, edgeGeomLon[j])
+					}
+					return rs
+				}
+
+				// First half
+				dist1 := edgeDistanceCm(coords[lastNetIdx : midIdx+1])
+				gs1 := appendGeomSlice(coords[lastNetIdx : midIdx+1])
+				ge1 := uint32(len(edgeGeomLat))
 				edgeGeomOffset = append(edgeGeomOffset, gs1)
 				edges = append(edges, CompactEdge{
 					From: fromID, To: midID, OSMID: osmID,
 					Tags1: tags1, Tags2: tags2, Dist: dist1,
 				})
 				if !isOneway {
-					rgs1 := uint32(len(edgeGeomCoords))
-					for j := len(geom1) - 1; j >= 0; j-- {
-						edgeGeomCoords = append(edgeGeomCoords, geom1[j])
-					}
-					edgeGeomOffset = append(edgeGeomOffset, rgs1)
+					edgeGeomOffset = append(edgeGeomOffset, appendRevGeom(gs1, ge1))
 					edges = append(edges, CompactEdge{
 						From: midID, To: fromID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist1,
 					})
 				}
 
-				// Second half: [midIdx..i]
+				// Second half
 				dist2 := edgeDistanceCm(coords[midIdx : i+1])
-				geom2 := make([]Coord, 0, i-midIdx+1)
-				geom2 = append(geom2, coords[midIdx])
-				for k := midIdx + 1; k < i; k++ {
-					geom2 = append(geom2, coords[k])
-				}
-				geom2 = append(geom2, coords[i])
-				gs2 := uint32(len(edgeGeomCoords))
-				edgeGeomCoords = append(edgeGeomCoords, geom2...)
+				gs2 := appendGeomSlice(coords[midIdx : i+1])
+				ge2 := uint32(len(edgeGeomLat))
 				edgeGeomOffset = append(edgeGeomOffset, gs2)
 				edges = append(edges, CompactEdge{
 					From: midID, To: toID, OSMID: osmID,
 					Tags1: tags1, Tags2: tags2, Dist: dist2,
 				})
 				if !isOneway {
-					rgs2 := uint32(len(edgeGeomCoords))
-					for j := len(geom2) - 1; j >= 0; j-- {
-						edgeGeomCoords = append(edgeGeomCoords, geom2[j])
-					}
-					edgeGeomOffset = append(edgeGeomOffset, rgs2)
+					edgeGeomOffset = append(edgeGeomOffset, appendRevGeom(gs2, ge2))
 					edges = append(edges, CompactEdge{
 						From: toID, To: midID, OSMID: osmID,
 						Tags1: tags1, Tags2: tags2, Dist: dist2,
@@ -447,22 +465,23 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	}
 
 	// Final sentinel for EdgeGeomOffset.
-	edgeGeomOffset = append(edgeGeomOffset, uint32(len(edgeGeomCoords)))
+	edgeGeomOffset = append(edgeGeomOffset, uint32(len(edgeGeomLat)))
 
 	slog.Info("stream topology complete",
 		"ways", pass2Count,
 		"network_nodes", len(nodes),
 		"edges", len(edges),
-		"geom_points", len(edgeGeomCoords))
+		"geom_points", len(edgeGeomLat),
+		"overflow_nodes", len(overflowNodes))
 
 	return &CompactTopologyResult{
 		Nodes:          nodes,
 		Edges:          edges,
-		NodeIndex:      nodeIndex,
 		NodeTags:       nodeTags,
 		NodeCount:      len(nodes),
 		EdgeGeomOffset: edgeGeomOffset,
-		EdgeGeomCoords: edgeGeomCoords,
+		EdgeGeomLat:    edgeGeomLat,
+		EdgeGeomLon:    edgeGeomLon,
 	}, nil
 }
 

@@ -63,7 +63,8 @@ func TestBuildCSRCompact_Triangle(t *testing.T) {
 		NodeTags:       []uint8{0, 0, 0},
 		NodeCount:      3,
 		EdgeGeomOffset: []uint32{0, 0, 0, 0, 0},
-		EdgeGeomCoords: nil,
+		EdgeGeomLat:    nil,
+		EdgeGeomLon:    nil,
 	}
 	g := BuildCSRCompact(topo)
 	if g.NodeCount != 3 {

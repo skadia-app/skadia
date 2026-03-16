@@ -127,7 +127,8 @@ func TestSerializeDeserialize_V2_WithGeometry(t *testing.T) {
 		NodeTags:       []uint8{0, 0, 0},
 		NodeCount:      3,
 		EdgeGeomOffset: []uint32{0, 2, 4, 4},
-		EdgeGeomCoords: []Coord{{47.0, 11.0}, {47.0005, 11.0}, {47.001, 11.0}, {47.0005, 11.0}},
+		EdgeGeomLat:    []int32{470000000, 470005000, 470010000, 470005000},
+		EdgeGeomLon:    []int32{110000000, 110000000, 110000000, 110000000},
 	}
 	g := BuildCSRCompact(topo)
 	g.NodeEle = []int32{5000, 5200, 4800}

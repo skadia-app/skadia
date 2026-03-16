@@ -68,13 +68,13 @@ type CompactEdge struct {
 type CompactTopologyResult struct {
 	Nodes     []Coord
 	Edges     []CompactEdge
-	NodeIndex map[CoordKey]uint32
 	NodeTags  []uint8
 	NodeCount int
-	// Edge geometry: intermediate coordinates for each edge.
-	// EdgeGeom[EdgeGeomOffset[i]:EdgeGeomOffset[i+1]] gives the geometry for edge i.
+	// Edge geometry as int32 (lat/lon × 1e7) — half the memory of []Coord.
+	// Geometry for edge i: EdgeGeomLat[EdgeGeomOffset[i]:EdgeGeomOffset[i+1]]
 	EdgeGeomOffset []uint32
-	EdgeGeomCoords []Coord
+	EdgeGeomLat    []int32
+	EdgeGeomLon    []int32
 }
 
 // VertexDegree tracks how many ways reference each coordinate.
@@ -171,6 +171,25 @@ func compareCoordKey(a, b CoordKey) int {
 		return 1
 	}
 	return 0
+}
+
+// SearchNodeID returns the node ID for a network node key, or (0, false).
+// The node ID is the position in the sorted slice (assigned during Compact).
+func (vd *VertexDegree) SearchNodeID(key CoordKey) (uint32, bool) {
+	lo, hi := 0, len(vd.sortedNodes)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		cmp := compareCoordKey(vd.sortedNodes[mid], key)
+		if cmp == 0 {
+			return uint32(mid), true
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return 0, false
 }
 
 // searchCoordKey performs binary search in a sorted []CoordKey.
