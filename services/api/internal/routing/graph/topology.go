@@ -1,6 +1,9 @@
 package graph
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // Coord is a lat/lon pair as float64.
 type Coord struct {
@@ -75,13 +78,13 @@ type CompactTopologyResult struct {
 }
 
 // VertexDegree tracks how many ways reference each coordinate.
-// After AddWay phase, call Compact() to free ~80% of memory before Pass 2.
+// After AddWay phase, call Compact() to free ~95% of memory before Pass 2.
 type VertexDegree struct {
 	// Phase 1 (building): populated by AddWay, freed by Compact()
 	counts    map[CoordKey]uint8
 	endpoints map[CoordKey]bool
-	// Phase 2 (querying): populated by Compact(), used by IsNetworkNode
-	networkNodes map[CoordKey]struct{}
+	// Phase 2 (querying): sorted slice for binary search (~200 MB vs ~1.4 GB for map)
+	sortedNodes []CoordKey
 }
 
 // NewVertexDegree creates a new VertexDegree tracker.
@@ -108,39 +111,84 @@ func (vd *VertexDegree) AddWay(coords []Coord) {
 	}
 }
 
-// Compact merges endpoints + shared interior vertices into a single compact
-// networkNodes set, then frees the large building-phase maps.
-// This reduces memory from ~7 GB (two maps with ~74M entries × ~100 bytes)
-// to ~3 GB (one map with ~29M entries × ~100 bytes) for CH+LI.
+// Compact collects all network node keys into a sorted slice for O(log n)
+// binary-search lookups, then frees the large building-phase maps.
+// Memory: sorted []CoordKey = 25M × 8 bytes = ~200 MB
+// vs map[CoordKey]struct{} = 25M × ~56 bytes = ~1.4 GB
 // Must be called between Pass 1 and Pass 2.
 func (vd *VertexDegree) Compact() {
-	// Merge: all endpoints + interior vertices with count >= 2
-	vd.networkNodes = make(map[CoordKey]struct{}, len(vd.endpoints))
+	// Collect all network node keys
+	vd.sortedNodes = make([]CoordKey, 0, len(vd.endpoints)+len(vd.counts)/10)
 	for key := range vd.endpoints {
-		vd.networkNodes[key] = struct{}{}
+		vd.sortedNodes = append(vd.sortedNodes, key)
 	}
 	for key, count := range vd.counts {
 		if count >= 2 {
-			vd.networkNodes[key] = struct{}{}
+			vd.sortedNodes = append(vd.sortedNodes, key)
 		}
 	}
-	// Free building-phase maps (large: ~50M entries in counts, ~24M in endpoints)
+	// Free building-phase maps BEFORE sorting (so GC can reclaim during sort)
 	vd.counts = nil
 	vd.endpoints = nil
+	// Sort for binary search
+	sortCoordKeys(vd.sortedNodes)
+}
+
+// NetworkNodeCount returns the number of network nodes after Compact().
+func (vd *VertexDegree) NetworkNodeCount() int {
+	return len(vd.sortedNodes)
 }
 
 // IsNetworkNode returns true if the coordinate should be a graph node.
 // Before Compact(): checks endpoints map + counts >= 2.
-// After Compact(): checks the compact networkNodes set.
+// After Compact(): binary search in sorted slice.
 func (vd *VertexDegree) IsNetworkNode(key CoordKey) bool {
-	if vd.networkNodes != nil {
-		_, ok := vd.networkNodes[key]
-		return ok
+	if vd.sortedNodes != nil {
+		return searchCoordKey(vd.sortedNodes, key)
 	}
 	if vd.endpoints[key] {
 		return true
 	}
 	return vd.counts[key] >= 2
+}
+
+// sortCoordKeys sorts by Lat then Lon.
+func sortCoordKeys(s []CoordKey) {
+	slices.SortFunc(s, compareCoordKey)
+}
+
+func compareCoordKey(a, b CoordKey) int {
+	if a.Lat != b.Lat {
+		if a.Lat < b.Lat {
+			return -1
+		}
+		return 1
+	}
+	if a.Lon != b.Lon {
+		if a.Lon < b.Lon {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
+// searchCoordKey performs binary search in a sorted []CoordKey.
+func searchCoordKey(s []CoordKey, key CoordKey) bool {
+	lo, hi := 0, len(s)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		cmp := compareCoordKey(s[mid], key)
+		if cmp == 0 {
+			return true
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return false
 }
 
 // BuildTopology computes the graph topology from raw ways.
