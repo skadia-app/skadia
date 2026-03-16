@@ -854,49 +854,14 @@ func findNthCol(headerRow []string, colName string, n int) int {
 	return -1
 }
 
-// extractWeatherFields builds a map of weather fields from a Strava CSV row.
-// Strava stores weather as numeric codes and metric values.
+// extractWeatherFields previously populated flat weather_* columns from Strava CSV.
+// TODO(weather-improvements Task 6): migrate to InsertWeatherReadings via activity_weather table.
+// Flat columns have been removed from activities table (migration 000167).
 func extractWeatherFields(row []string, hdr map[string]int) map[string]any {
-	fields := make(map[string]any)
-
-	// Temperature in Celsius
-	if idx, ok := hdr["Wetter: Temperatur"]; ok {
-		if temp, ok2 := parseGermanFloat(colVal(row, idx)); ok2 && temp != 0 {
-			fields["weather_temp_c"] = temp
-		}
-	}
-
-	// Humidity: 0-1 fraction → convert to integer 0-100
-	if idx, ok := hdr["Luftfeuchtigkeit"]; ok {
-		if hum, ok2 := parseGermanFloat(colVal(row, idx)); ok2 && hum > 0 {
-			humidity := int(hum * 100)
-			if hum > 1 { // already 0-100
-				humidity = int(hum)
-			}
-			fields["weather_humidity"] = humidity
-		}
-	}
-
-	// Wind speed m/s
-	if idx, ok := hdr["Windgeschwindigkeit"]; ok {
-		if wind, ok2 := parseGermanFloat(colVal(row, idx)); ok2 && wind > 0 {
-			fields["weather_wind_speed_ms"] = wind
-		}
-	}
-
-	// Weather condition (Wetterlage) — Strava uses numeric codes
-	// We map them to descriptive strings
-	if idx, ok := hdr["Wetterlage"]; ok {
-		if condStr := colVal(row, idx); condStr != "" && condStr != "0" {
-			if cond, ok2 := parseGermanFloat(condStr); ok2 && cond != 0 {
-				if condLabel := mapStravaWeatherCondition(int(cond)); condLabel != "" {
-					fields["weather_condition"] = condLabel
-				}
-			}
-		}
-	}
-
-	return fields
+	// Strava weather data import is temporarily disabled pending migration to
+	// the new activity_weather table. Return empty map so no dead columns are written.
+	_, _ = row, hdr
+	return map[string]any{}
 }
 
 // mapStravaWeatherCondition maps Strava weather condition codes to descriptive strings.

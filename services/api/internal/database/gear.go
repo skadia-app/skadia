@@ -1083,8 +1083,6 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.avg_cadence, a.max_cadence,
 			a.avg_power_w, a.max_power_w, a.min_power_w, a.normalized_power_w, a.tss, a.trimp,
 			a.avg_temperature_c, a.min_temperature_c, a.max_temperature_c,
-			a.weather_temp_c, a.weather_temp_min_c, a.weather_temp_max_c,
-			a.weather_condition, a.weather_humidity, a.weather_wind_speed_ms, a.weather_wind_speed_max_ms,
 			a.start_city, a.start_state, a.start_country, a.start_country_code, a.end_city,
 			a.gear_id::text,
 			a.tags,
@@ -1117,10 +1115,6 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		avgCadence, maxCadence                                    *float64
 		avgPowerW, maxPowerW, minPowerW, normPowerW, tss, trimp   *float64
 		avgTempC, minTempC, maxTempC                              *float64
-		weatherTempC, weatherTempMinC, weatherTempMaxC            *float64
-		weatherCondition                                          *string
-		weatherHumidity                                           *int
-		weatherWindMS, weatherWindMaxMS                           *float64
 		startCity, startState, startCountry, startCountryCode     *string
 		endCity                                                   *string
 		gearID                                                    *string
@@ -1146,8 +1140,6 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&avgCadence, &maxCadence,
 		&avgPowerW, &maxPowerW, &minPowerW, &normPowerW, &tss, &trimp,
 		&avgTempC, &minTempC, &maxTempC,
-		&weatherTempC, &weatherTempMinC, &weatherTempMaxC,
-		&weatherCondition, &weatherHumidity, &weatherWindMS, &weatherWindMaxMS,
 		&startCity, &startState, &startCountry, &startCountryCode, &endCity,
 		&gearID, &tags,
 		&startLat, &startLon,
@@ -1230,13 +1222,6 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("avg_temperature_c", derefF(avgTempC))
 	setNN("min_temperature_c", derefF(minTempC))
 	setNN("max_temperature_c", derefF(maxTempC))
-	setNN("weather_temp_c", derefF(weatherTempC))
-	setNN("weather_temp_min_c", derefF(weatherTempMinC))
-	setNN("weather_temp_max_c", derefF(weatherTempMaxC))
-	setNN("weather_condition", derefStr(weatherCondition))
-	setNN("weather_humidity", derefInt(weatherHumidity))
-	setNN("weather_wind_speed_ms", derefF(weatherWindMS))
-	setNN("weather_wind_speed_max_ms", derefF(weatherWindMaxMS))
 	setNN("start_city", derefStr(startCity))
 	setNN("start_state", derefStr(startState))
 	setNN("start_country", derefStr(startCountry))

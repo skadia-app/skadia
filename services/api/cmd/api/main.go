@@ -333,6 +333,8 @@ func main() {
 			r.Put("/settings/enrichment", h.UpdateEnrichmentSettings)
 			r.Get("/settings/import", h.GetImportSettings)
 			r.Put("/settings/import", h.UpdateImportSettings)
+			r.Get("/settings/weather", h.GetWeatherSettings)
+			r.Patch("/settings/weather", h.UpdateWeatherSettings)
 
 			r.Get("/capabilities", h.GetCapabilities)
 

@@ -219,30 +219,10 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// Weather (historical, from Open-Meteo)
-	if data.StartLat != 0 && !data.StartedAt.IsZero() {
-		if weather, err := FetchWeather(ctx, data.StartLat, data.StartLng, data.StartedAt); err == nil {
-			fields["weather_temp_c"] = weather.TempC
-			fields["weather_condition"] = weather.Condition
-			fields["weather_humidity"] = weather.Humidity
-			fields["weather_wind_speed_ms"] = weather.WindSpeedMS
-			if len(weather.Tags) > 0 {
-				fields["weather_tags"] = weather.Tags
-
-				// Link weather tags to activity (assigned_by='auto')
-				tagIDs, err := db.GetTagIDsByNamesAndCategory(ctx, userID, "weather", weather.Tags)
-				if err == nil {
-					for _, tagID := range tagIDs {
-						db.LinkActivityTag(ctx, activityID, tagID, "auto")
-					}
-				} else {
-					slog.Debug("stage1: weather tag lookup failed (non-fatal)", "activity_id", activityID, "error", err)
-				}
-			}
-		} else {
-			slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
-		}
-	}
+	// TODO(weather-improvements Task 5/6): Weather is now fetched via the new
+	// weather engine into activity_weather table using InsertWeatherReadings.
+	// The old flat-column approach (weather_temp_c etc.) has been removed.
+	// Stage 1 no longer writes weather fields directly.
 
 	// Auto title
 	startCity, _ := fields["start_city"].(string)

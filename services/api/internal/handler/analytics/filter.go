@@ -282,24 +282,15 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 			idx++
 		}
 	}
-	if f.TempMin != nil {
-		conditions = append(conditions, "a.weather_temp_c >= $"+strconv.Itoa(idx))
-		args = append(args, *f.TempMin)
-		idx++
-	}
-	if f.TempMax != nil {
-		conditions = append(conditions, "a.weather_temp_c <= $"+strconv.Itoa(idx))
-		args = append(args, *f.TempMax)
-		idx++
-	}
+	// TODO(weather-improvements Task 8): TempMin/TempMax and WeatherCondition filters
+	// should query activity_weather table instead of removed flat columns.
+	// Temporarily disabled to avoid reference to dropped columns.
+	_ = f.TempMin
+	_ = f.TempMax
+	_ = f.WeatherCondition
 	if len(f.TimeOfDay) > 0 {
 		conditions = append(conditions, "a.time_of_day && $"+strconv.Itoa(idx))
 		args = append(args, f.TimeOfDay)
-		idx++
-	}
-	if f.WeatherCondition != nil {
-		conditions = append(conditions, "a.weather_condition ILIKE $"+strconv.Itoa(idx))
-		args = append(args, "%"+*f.WeatherCondition+"%")
 		idx++
 	}
 

@@ -194,11 +194,7 @@ type Activity struct {
 	StartState              *string    `json:"start_state,omitempty"`
 	StartCountry            *string    `json:"start_country,omitempty"`
 	StartCountryCode        *string    `json:"start_country_code,omitempty"`
-	WeatherTempC            *float64   `json:"weather_temp_c,omitempty"`
-	WeatherCondition        *string    `json:"weather_condition,omitempty"`
-	WeatherHumidity         *int       `json:"weather_humidity,omitempty"`
-	WeatherWindSpeedMS      *float64   `json:"weather_wind_speed_ms,omitempty"`
-	WeatherTags             []string   `json:"weather_tags,omitempty"`
+	WeatherReadings         []WeatherReading `json:"weather_readings,omitempty"`
 	IsRoundTrip             bool       `json:"is_round_trip"`
 	Intensity               *string    `json:"intensity,omitempty"`
 	TimeOfDay               []string   `json:"time_of_day,omitempty"`
@@ -1189,4 +1185,48 @@ type PowerCurveResponse struct {
 	Points   []PowerCurvePoint `json:"points"`
 	FtpW     *int              `json:"ftp_w,omitempty"`
 	WeightKg *float32          `json:"weight_kg,omitempty"`
+}
+
+// WeatherReading is one weather snapshot for an activity.
+// An activity has 0–2 readings stored in the activity_weather table.
+type WeatherReading struct {
+	ID              string    `json:"id"`
+	ReadingType     string    `json:"reading_type"` // single|start|summit|midpoint
+	Label           *string   `json:"label,omitempty"`
+	RecordedAt      time.Time `json:"recorded_at"`
+	Lat             *float64  `json:"lat,omitempty"`
+	Lng             *float64  `json:"lng,omitempty"`
+	ElevationM      *float64  `json:"elevation_m,omitempty"`
+	TempC           *float64  `json:"temp_c,omitempty"`
+	ApparentTempC   *float64  `json:"apparent_temp_c,omitempty"`
+	PrecipitationMM *float64  `json:"precipitation_mm,omitempty"`
+	WindSpeedMS     *float64  `json:"wind_speed_ms,omitempty"`
+	WindGustsMS     *float64  `json:"wind_gusts_ms,omitempty"`
+	Humidity        *int      `json:"humidity,omitempty"`
+	UVIndex         *float64  `json:"uv_index,omitempty"`
+	FreezingLevelM  *float64  `json:"freezing_level_m,omitempty"`
+	Condition       *string   `json:"condition,omitempty"`
+	Tags            []string  `json:"tags,omitempty"`
+	Model           *string   `json:"model,omitempty"`
+}
+
+// WeatherPrefs holds the user's configurable weather behaviour settings.
+type WeatherPrefs struct {
+	ReadingMode        string   `json:"reading_mode"`
+	MountainThresholdM int      `json:"mountain_threshold_m"`
+	LongDurationS      int      `json:"long_duration_s"`
+	DisplayFields      []string `json:"display_fields"`
+}
+
+// DefaultWeatherPrefs returns the application defaults (matches migration 000168 defaults).
+func DefaultWeatherPrefs() WeatherPrefs {
+	return WeatherPrefs{
+		ReadingMode:        "auto",
+		MountainThresholdM: 500,
+		LongDurationS:      14400,
+		DisplayFields: []string{
+			"temp_c", "apparent_temp_c", "precipitation_mm",
+			"wind_speed_ms", "humidity", "condition",
+		},
+	}
 }
