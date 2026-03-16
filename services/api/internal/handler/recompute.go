@@ -605,6 +605,14 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, 
 		}
 	}
 
+	// Re-apply Rundtour tag if activity.is_round_trip is true
+	// (Rundtour is now trigger-managed like E-Bike, not an autotag)
+	if activity.IsRoundTrip {
+		if !slices.Contains(newTags, "Rundtour") {
+			newTags = append(newTags, "Rundtour")
+		}
+	}
+
 	// Update the activity tags
 	fields := map[string]any{"tags": newTags}
 	return h.DB.UpdateEnrichmentFields(ctx, activityID, fields)
