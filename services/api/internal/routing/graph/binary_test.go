@@ -266,26 +266,31 @@ func TestDeserializeMmap_RoundTrip(t *testing.T) {
 		t.Errorf("EdgeElevOff len: got %d, want %d", len(g2.EdgeElevOff), len(g.EdgeElevOff))
 	}
 
-	// Cold sections.
-	if len(g2.EdgeGeomLat) != len(g.EdgeGeomLat) {
-		t.Fatalf("EdgeGeomLat len: got %d, want %d", len(g2.EdgeGeomLat), len(g.EdgeGeomLat))
+	// Cold sections are intentionally NOT loaded in DeserializeMmap to save RAM.
+	// Verify they are nil (skipped).
+	if g2.EdgeGeomLat != nil {
+		t.Errorf("EdgeGeomLat should be nil (cold section skipped)")
 	}
-	for i := range g.EdgeGeomLat {
-		if g2.EdgeGeomLat[i] != g.EdgeGeomLat[i] {
-			t.Errorf("EdgeGeomLat[%d]: got %d, want %d", i, g2.EdgeGeomLat[i], g.EdgeGeomLat[i])
-		}
+	if g2.EdgeGeomLon != nil {
+		t.Errorf("EdgeGeomLon should be nil (cold section skipped)")
 	}
-	if len(g2.EdgeGeomLon) != len(g.EdgeGeomLon) {
-		t.Fatalf("EdgeGeomLon len: got %d, want %d", len(g2.EdgeGeomLon), len(g.EdgeGeomLon))
+	if g2.OSMIDPool != nil {
+		t.Errorf("OSMIDPool should be nil (cold section skipped)")
 	}
-	for i := range g.EdgeGeomLon {
-		if g2.EdgeGeomLon[i] != g.EdgeGeomLon[i] {
-			t.Errorf("EdgeGeomLon[%d]: got %d, want %d", i, g2.EdgeGeomLon[i], g.EdgeGeomLon[i])
-		}
+	if g2.EdgeOSMIdx != nil {
+		t.Errorf("EdgeOSMIdx should be nil (cold section skipped)")
 	}
-	if len(g2.EdgeElevProf) != len(g.EdgeElevProf) {
-		t.Fatalf("EdgeElevProf len: got %d, want %d", len(g2.EdgeElevProf), len(g.EdgeElevProf))
+
+	// EdgeElevProf WAS in the file but should also be nil (skipped)
+	_ = g.EdgeElevProf // suppress unused
+	if g2.EdgeElevProf != nil {
+		t.Errorf("EdgeElevProf should be nil (cold section skipped)")
 	}
+	// Skip the per-element checks that follow since cold sections are nil.
+	// (keep the rest of the test for hot-section validation)
+	_ = g.EdgeGeomLat
+	_ = g.EdgeGeomLon
+	if false { // dead code — was cold section validation
 	for i := range g.EdgeElevProf {
 		if g2.EdgeElevProf[i] != g.EdgeElevProf[i] {
 			t.Errorf("EdgeElevProf[%d]: got %d, want %d", i, g2.EdgeElevProf[i], g.EdgeElevProf[i])
@@ -299,6 +304,7 @@ func TestDeserializeMmap_RoundTrip(t *testing.T) {
 			t.Errorf("EdgeOSMIdx[%d]: got %d, want %d", i, g2.EdgeOSMIdx[i], g.EdgeOSMIdx[i])
 		}
 	}
+	} // end if false
 }
 
 func TestCorruptedCRCDetected(t *testing.T) {
