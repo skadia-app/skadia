@@ -37,6 +37,7 @@ const STAGE2_MODULES = [
   { key: 'lifts',       apiField: 'enable_lifts'       as const, label: 'Lifte / Seilbahnen',  description: 'Erkennt Gondelbahnen und Sessellifte',                    requiresML: true },
   { key: 'surfaces',    apiField: 'enable_surfaces'    as const, label: 'Untergrundtypen',      description: 'Erkennt Asphalt, Schotter, Trail etc.',                  requiresML: false },
   { key: 'ascents',     apiField: 'enable_ascents'     as const, label: 'Anstiege',             description: 'Erkennt und klassifiziert Anstiege',                     requiresML: false },
+  { key: 'intervals',   apiField: 'enable_intervals'   as const, label: 'Intervalltraining',    description: 'Erkennt Trainingsintervalle automatisch',                 requiresML: false },
   { key: 'commute',     apiField: 'enable_commute'     as const, label: 'Pendelrouten',         description: 'Erkennt regelmäßig genutzte Routen',                     requiresML: true },
 ] as const
 
