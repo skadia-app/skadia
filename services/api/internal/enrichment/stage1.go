@@ -369,6 +369,14 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 	}
 
+	streamSettings := allStreamEnabled()
+	if enrichSettings != nil {
+		streamSettings = streamSettingsFromModel(enrichSettings)
+	}
+	if err := RunStreamEnrichment(ctx, db, userID, activityID, streamSettings); err != nil {
+		slog.Warn("stage1: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	}
+
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
 	if len(pub) > 0 && pub[0] != nil {
 		var enabledModules []string
@@ -381,12 +389,12 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		migratedToGo := map[string]bool{
 			"peaks": true, "settlements": true, "forests": true,
 			"water": true, "borders": true, "surfaces": true,
+			"stops": true, "ascents": true, "intervals": true,
 		}
 		if enabledModules == nil {
 			// nil means "all enabled" — expand to full list minus migrated ones
 			allModules := []string{
-				"lifts", "commute", "stops",
-				"intervals", "ascents", "embeddings",
+				"lifts", "commute", "embeddings",
 			}
 			enabledModules = allModules
 		} else {

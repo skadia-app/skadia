@@ -13,11 +13,8 @@ from db import get_pool
 from progress import publish_progress
 from enrichment import (
     enrich_commute,
-    enrich_stops,
-    enrich_ascents,
     compute_route_embedding,
     enrich_lifts,
-    enrich_intervals,
 )
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
 from analytics import (
@@ -70,13 +67,9 @@ HIGH_PRIORITY_STEPS = [
     ("commute", enrich_commute),
 ]
 
-NORMAL_PRIORITY_STEPS = [
-    ("stops", enrich_stops),
-    ("intervals", enrich_intervals),
-]
+NORMAL_PRIORITY_STEPS = []
 
 LOW_PRIORITY_STEPS = [
-    ("ascents", enrich_ascents),
     ("embeddings", compute_route_embedding),
 ]
 
