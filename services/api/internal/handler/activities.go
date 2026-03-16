@@ -117,7 +117,7 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 
-	activity, err := h.DB.GetActivity(r.Context(), id)
+	activity, err := h.DB.GetActivityWithWeather(r.Context(), id)
 	if err != nil {
 		slog.Error("get activity failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity", r.URL.Path)

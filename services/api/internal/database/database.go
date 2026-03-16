@@ -383,6 +383,20 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	return &a, nil
 }
 
+// GetActivityWithWeather returns an activity by ID, including its weather readings.
+func (db *DB) GetActivityWithWeather(ctx context.Context, id string) (*model.Activity, error) {
+	a, err := db.GetActivity(ctx, id)
+	if err != nil || a == nil {
+		return a, err
+	}
+	readings, err := db.GetWeatherReadings(ctx, id)
+	if err != nil {
+		return a, nil // best-effort: return activity without weather on error
+	}
+	a.WeatherReadings = readings
+	return a, nil
+}
+
 // allowedSortColumns maps allowed sort_by parameter values to SQL column names.
 var allowedSortColumns = map[string]string{
 	"started_at":       "started_at",

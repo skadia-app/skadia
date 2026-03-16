@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -46,7 +50,7 @@ func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tags)
 }
 
-// BackfillWeather fetches weather data for all activities missing it.
+// BackfillWeather fetches weather data for all activities missing it (background job).
 func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -54,22 +58,118 @@ func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activities, err := h.DB.ListActivitiesForBackfill(r.Context(), userID)
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "weather_backfill", nil, nil, 0)
 	if err != nil {
-		slog.Error("list activities for backfill failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	// TODO(weather-improvements Task 7): BackfillWeather rewritten to use
-	// GetActivitiesForWeatherBackfill + InsertWeatherReadings + new weather engine.
-	// For now, return a stub response.
-	_ = activities
-	writeJSON(w, http.StatusOK, map[string]any{
-		"processed": 0,
-		"errors":    0,
-		"message":   "weather backfill migrated to new engine (Task 7)",
-	})
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := h.runWeatherBackfill(ctx, userID, jobID); err != nil {
+			slog.Warn("weather backfill failed", "job_id", jobID, "error", err)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		}
+	}()
+}
+
+func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) error {
+	prefs, err := h.DB.GetWeatherPrefs(ctx, userID)
+	if err != nil {
+		prefs = model.DefaultWeatherPrefs()
+	}
+
+	candidates, err := h.DB.GetActivitiesForWeatherBackfill(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get candidates: %w", err)
+	}
+
+	_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
+	_ = h.DB.ResetBackgroundJobProgress(ctx, jobID, int64(len(candidates)))
+	var succeeded, failed int
+
+	for i, a := range candidates {
+		if ctx.Err() != nil {
+			break
+		}
+		reqs := h.buildWeatherRequestsForCandidate(ctx, a, prefs)
+		if len(reqs) == 0 {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+			continue
+		}
+		readings, fetchErr := enrichment.FetchWeatherReadings(ctx, reqs)
+		if fetchErr != nil {
+			slog.Warn("weather backfill fetch failed", "activity_id", a.ID, "error", fetchErr)
+			failed++
+		} else if insertErr := h.DB.InsertWeatherReadings(ctx, a.ID, readings); insertErr != nil {
+			slog.Warn("weather backfill insert failed", "activity_id", a.ID, "error", insertErr)
+			failed++
+		} else {
+			succeeded++
+		}
+		_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+	}
+
+	slog.Info("weather backfill complete", "job_id", jobID, "succeeded", succeeded, "failed", failed)
+	return h.DB.CompleteBackgroundJob(ctx, jobID, false)
+}
+
+func (h *Handler) buildWeatherRequestsForCandidate(
+	ctx context.Context,
+	a database.ActivityWeatherCandidate,
+	prefs model.WeatherPrefs,
+) []enrichment.WeatherRequest {
+	if !a.HasGPS {
+		return nil
+	}
+
+	var elapsed int
+	if a.ElapsedTimeS != nil {
+		elapsed = *a.ElapsedTimeS
+	}
+
+	var minAlt, maxAlt float64
+	if a.MinElevationM != nil {
+		minAlt = *a.MinElevationM
+	}
+	if a.MaxElevationM != nil {
+		maxAlt = *a.MaxElevationM
+	}
+
+	c := enrichment.DetermineWeatherCase(elapsed, minAlt, maxAlt, prefs)
+
+	var summitLat, summitLng *float64
+	var summitAlt float64
+	var summitAt *time.Time
+	var midLat, midLng, midMeanAlt float64
+	var midAt *time.Time
+
+	if c == enrichment.CaseMountain {
+		if slat, slng, salt, sat, ok := enrichment.SummitPoint(ctx, h.DB.Pool, a.ID); ok {
+			summitLat, summitLng = &slat, &slng
+			summitAlt = salt
+			summitAt = &sat
+		}
+	}
+	if c == enrichment.CaseMountain || c == enrichment.CaseLong {
+		if mlat, mlng, malt, mat, ok := enrichment.MidpointGPS(ctx, h.DB.Pool, a.ID); ok {
+			midLat, midLng, midMeanAlt = mlat, mlng, malt
+			midAt = &mat
+		}
+	}
+
+	return enrichment.BuildWeatherRequests(
+		a.StartLat, a.StartLng, a.StartedAt,
+		elapsed,
+		a.MinElevationM, a.MaxElevationM,
+		summitLat, summitLng, summitAlt,
+		midLat, midLng, midMeanAlt,
+		summitAt, midAt,
+		prefs,
+	)
 }
 
 // BackfillEnrichment re-runs stage1 enrichment for all activities.

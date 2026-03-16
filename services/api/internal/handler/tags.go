@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,9 +9,11 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -435,7 +438,80 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Location-Pin-Trigger: fetch weather for indoor activities that now have a location via this tag
+	activityIDs := req.ActivityIDs
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs); err != nil {
+			slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
+		}
+	}()
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// backfillWeatherForLocationTag fetches weather for indoor activities that have no weather yet,
+// using the tag's coordinates as the location.
+func (h *Handler) backfillWeatherForLocationTag(
+	ctx context.Context, userID, tagID string, activityIDs []string,
+) error {
+	// Read tag coordinates
+	var lat, lng *float64
+	err := h.DB.Pool.QueryRow(ctx,
+		`SELECT lat, lng FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&lat, &lng)
+	if err != nil || lat == nil || lng == nil {
+		return nil // not a location tag
+	}
+
+	// Find indoor activities without weather readings
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT a.id, a.started_at
+		FROM activities a
+		WHERE a.id = ANY($1)
+		  AND a.user_id = $2
+		  AND a.is_indoor = true
+		  AND NOT EXISTS (SELECT 1 FROM activity_weather aw WHERE aw.activity_id = a.id)`,
+		activityIDs, userID,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id        string
+		startedAt time.Time
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.startedAt); err == nil {
+			candidates = append(candidates, c)
+		}
+	}
+	rows.Close()
+
+	for _, c := range candidates {
+		req := enrichment.WeatherRequest{
+			ReadingType: "single",
+			Lat:         *lat,
+			Lng:         *lng,
+			ElevationM:  0,
+			At:          c.startedAt,
+		}
+		readings, err := enrichment.FetchWeatherReadings(ctx, []enrichment.WeatherRequest{req})
+		if err != nil {
+			slog.Warn("location pin weather fetch failed", "activity_id", c.id, "error", err)
+			continue
+		}
+		if err := h.DB.InsertWeatherReadings(ctx, c.id, readings); err != nil {
+			slog.Warn("location pin weather insert failed", "activity_id", c.id, "error", err)
+		}
+	}
+	return nil
 }
 
 // UnassignActivitiesFromTag removes a list of activities from a tag.

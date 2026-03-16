@@ -112,6 +112,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"dem_import":              "Höhenmodell importieren",
 		"apply_rules":             "Regeln anwenden",
 		"routing_graph_build":     "Routing-Graph erstellen",
+		"weather_backfill":        "Wetter-Backfill",
 	}
 	label := labels[jobType]
 	if label == "" {
