@@ -41,6 +41,7 @@ function activeFilterCount(filters: AnalyticsFilterState): number {
   if (filters.gearId) count++
   if (filters.isCommute) count++
   if (filters.isRace) count++
+  if (filters.isEbike !== null) count++
   if (filters.distMin || filters.distMax) count++
   if (filters.elevMin || filters.elevMax) count++
   if (filters.hrMin || filters.hrMax) count++
@@ -580,6 +581,30 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
         </div>
       </div>
 
+      {/* E-Bike tristate filter */}
+      <div>
+        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">E-Bike</div>
+        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+          {([
+            [null, 'Alle'],
+            [true, 'Nur'],
+            [false, 'Ohne'],
+          ] as [boolean | null, string][]).map(([val, label]) => (
+            <button
+              key={String(val)}
+              onClick={() => onFilterChange({ isEbike: val })}
+              className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
+                filters.isEbike === val
+                  ? 'bg-[var(--color-accent-DEFAULT)] text-white font-medium'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Sport Type Selector */}
       <div className="space-y-1.5">
         <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</div>
@@ -663,6 +688,7 @@ export default function AnalyticsPage() {
       hrMin: '', hrMax: '', powerMin: '', powerMax: '',
       includeTags: [], excludeTags: [],
       includeGear: [], excludeGear: [],
+      isEbike: null,
     })
   }
 
