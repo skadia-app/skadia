@@ -41,7 +41,7 @@ func Serialize(g *Graph, path string) error {
 
 	sections = append(sections, sectionData{SectionOffsets, uint32SliceToBytes(g.Offsets)})
 	sections = append(sections, sectionData{SectionTargets, uint32SliceToBytes(g.Targets)})
-	sections = append(sections, sectionData{SectionEdgeDist, uint16SliceToBytes(g.EdgeDist)})
+	sections = append(sections, sectionData{SectionEdgeDist, uint32SliceToBytes(g.EdgeDist)})
 	sections = append(sections, sectionData{SectionEdgeTags1, uint64SliceToBytes(g.EdgeTags1)})
 	sections = append(sections, sectionData{SectionEdgeTags2, uint64SliceToBytes(g.EdgeTags2)})
 	sections = append(sections, sectionData{SectionEdgeOSMIdx, uint32SliceToBytes(g.EdgeOSMIdx)})
@@ -51,6 +51,22 @@ func Serialize(g *Graph, path string) error {
 	sections = append(sections, sectionData{SectionNodeTags, g.NodeTags})
 	sections = append(sections, sectionData{SectionNodeEle, deltaEncodeElevation(g.NodeEle)})
 	sections = append(sections, sectionData{SectionSpatialGrid, encodeSpatialGrid(g.Grid)})
+
+	if len(g.EdgeGeomOff) > 0 {
+		sections = append(sections, sectionData{SectionEdgeGeomOff, uint32SliceToBytes(g.EdgeGeomOff)})
+	}
+	if len(g.EdgeGeomLat) > 0 {
+		sections = append(sections, sectionData{SectionEdgeGeomLat, int32SliceToBytes(g.EdgeGeomLat)})
+	}
+	if len(g.EdgeGeomLon) > 0 {
+		sections = append(sections, sectionData{SectionEdgeGeomLon, int32SliceToBytes(g.EdgeGeomLon)})
+	}
+	if len(g.EdgeElevOff) > 0 {
+		sections = append(sections, sectionData{SectionEdgeElevOff, uint32SliceToBytes(g.EdgeElevOff)})
+	}
+	if len(g.EdgeElevProf) > 0 {
+		sections = append(sections, sectionData{SectionEdgeElevProf, int32SliceToBytes(g.EdgeElevProf)})
+	}
 
 	sectionCnt := uint16(len(sections))
 	dirSize := int(sectionCnt) * 12
@@ -204,7 +220,7 @@ func Deserialize(path string) (*Graph, error) {
 		g.Targets = bytesToUint32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeDist); ok {
-		g.EdgeDist = bytesToUint16Slice(d)
+		g.EdgeDist = bytesToUint32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeTags1); ok {
 		g.EdgeTags1 = bytesToUint64Slice(d)
@@ -233,6 +249,21 @@ func Deserialize(path string) (*Graph, error) {
 	}
 	if d, ok := findSection(SectionSpatialGrid); ok {
 		g.Grid = decodeSpatialGrid(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomOff); ok {
+		g.EdgeGeomOff = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomLat); ok {
+		g.EdgeGeomLat = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomLon); ok {
+		g.EdgeGeomLon = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeElevOff); ok {
+		g.EdgeElevOff = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeElevProf); ok {
+		g.EdgeElevProf = bytesToInt32Slice(d)
 	}
 
 	return g, nil
