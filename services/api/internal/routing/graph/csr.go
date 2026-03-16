@@ -5,6 +5,9 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"runtime"
+	"runtime/debug"
+	"slices"
 )
 
 // BuildCSR converts a TopologyResult into a CSR graph.
@@ -119,13 +122,13 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	}
 	copy(g.NodeTags, nodeTags)
 
-	// === Read 1: Count edges and degrees ===
+	// === Read 1: Count edges/degrees + collect OSM IDs ===
 	r, err := NewEdgeFileReader(edgeTmpPath)
 	if err != nil {
 		return nil, err
 	}
 	degree := make([]uint32, nodeCount)
-	osmIDSet := make(map[int64]struct{})
+	var osmIDs []int64 // sorted+deduped after Read 1 → becomes OSMIDPool directly
 	var edgeCount uint32
 	var totalGeomPoints int
 
@@ -138,7 +141,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 			r.Close()
 			return nil, fmt.Errorf("CSR read 1: %w", rerr)
 		}
-		osmIDSet[osmID] = struct{}{}
+		osmIDs = append(osmIDs, osmID)
 		for _, seg := range segments {
 			degree[seg.FromID]++
 			edgeCount++
@@ -146,28 +149,31 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 			if !isOneway {
 				degree[seg.ToID]++
 				edgeCount++
-				totalGeomPoints += len(seg.GeomLat) // reverse gets same point count
+				totalGeomPoints += len(seg.GeomLat)
 			}
 		}
 	}
 
 	g.EdgeCount = edgeCount
-	slog.Info("CSR read 1 complete", "edges", edgeCount, "geom_points", totalGeomPoints)
 
-	// Build offsets
+	// Build offsets from degree counts, then free degree array
 	g.Offsets = make([]uint32, nodeCount+1)
 	for i := uint32(0); i < nodeCount; i++ {
 		g.Offsets[i+1] = g.Offsets[i] + degree[i]
 	}
+	degree = nil
 
-	// Build OSM ID pool
-	osmIDMap := make(map[int64]uint32, len(osmIDSet))
-	g.OSMIDPool = make([]int64, 0, len(osmIDSet))
-	for id := range osmIDSet {
-		osmIDMap[id] = uint32(len(g.OSMIDPool))
-		g.OSMIDPool = append(g.OSMIDPool, id)
-	}
-	osmIDSet = nil
+	// Build OSM ID pool as sorted slice (142 MB) instead of map (1.8 GB).
+	// Binary search during Read 2 for pool index.
+	slices.Sort(osmIDs)
+	osmIDs = slices.Compact(osmIDs)
+	g.OSMIDPool = osmIDs
+	slog.Info("CSR read 1 complete", "edges", edgeCount, "geom_points", totalGeomPoints,
+		"unique_osm_ids", len(osmIDs))
+
+	// Force GC to free Read 1 temporaries before allocating CSR arrays
+	runtime.GC()
+	debug.FreeOSMemory()
 
 	// Allocate edge arrays
 	g.Targets = make([]uint32, edgeCount)
@@ -177,7 +183,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	g.EdgeOSMIdx = make([]uint32, edgeCount)
 	g.EdgeGeomOff = make([]uint32, edgeCount+1)
 
-	// Pre-allocate geometry arrays
+	// Pre-allocate geometry arrays (known size from Read 1 — no growth)
 	allGeomLat := make([]int32, 0, totalGeomPoints)
 	allGeomLon := make([]int32, 0, totalGeomPoints)
 
@@ -189,7 +195,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	cursor := make([]uint32, nodeCount)
 	copy(cursor, g.Offsets[:nodeCount])
 
-	placeEdge := func(from, to, dist uint32, tags1, tags2 uint64, osmIdx uint32, geomLat, geomLon []int32) {
+	placeEdge := func(from, to, dist uint32, tags1, tags2 uint64, osmIdx uint32, geomLat, geomLon []int32, reversed bool) {
 		pos := cursor[from]
 		cursor[from]++
 		g.Targets[pos] = to
@@ -198,8 +204,15 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 		g.EdgeTags2[pos] = tags2
 		g.EdgeOSMIdx[pos] = osmIdx
 		g.EdgeGeomOff[pos] = uint32(len(allGeomLat))
-		allGeomLat = append(allGeomLat, geomLat...)
-		allGeomLon = append(allGeomLon, geomLon...)
+		if reversed {
+			for j := len(geomLat) - 1; j >= 0; j-- {
+				allGeomLat = append(allGeomLat, geomLat[j])
+				allGeomLon = append(allGeomLon, geomLon[j])
+			}
+		} else {
+			allGeomLat = append(allGeomLat, geomLat...)
+			allGeomLon = append(allGeomLon, geomLon...)
+		}
 	}
 
 	for {
@@ -211,19 +224,12 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 			r.Close()
 			return nil, fmt.Errorf("CSR read 2: %w", rerr)
 		}
-		osmIdx := osmIDMap[osmID]
+		// Binary search in sorted pool — O(log n), no map needed
+		osmIdx, _ := slices.BinarySearch(g.OSMIDPool, osmID)
 		for _, seg := range segments {
-			placeEdge(seg.FromID, seg.ToID, seg.Dist, tags1, tags2, osmIdx, seg.GeomLat, seg.GeomLon)
+			placeEdge(seg.FromID, seg.ToID, seg.Dist, tags1, tags2, uint32(osmIdx), seg.GeomLat, seg.GeomLon, false)
 			if !isOneway {
-				// Reverse edge — geometry in reverse order
-				n := len(seg.GeomLat)
-				revLat := make([]int32, n)
-				revLon := make([]int32, n)
-				for j := 0; j < n; j++ {
-					revLat[j] = seg.GeomLat[n-1-j]
-					revLon[j] = seg.GeomLon[n-1-j]
-				}
-				placeEdge(seg.ToID, seg.FromID, seg.Dist, tags1, tags2, osmIdx, revLat, revLon)
+				placeEdge(seg.ToID, seg.FromID, seg.Dist, tags1, tags2, uint32(osmIdx), seg.GeomLat, seg.GeomLon, true)
 			}
 		}
 	}
