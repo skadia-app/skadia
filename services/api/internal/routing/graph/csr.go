@@ -47,7 +47,7 @@ func BuildCSR(topo TopologyResult) *Graph {
 	}
 
 	g.Targets = make([]uint32, edgeCount)
-	g.EdgeDist = make([]uint16, edgeCount)
+	g.EdgeDist = make([]uint32, edgeCount)
 	g.EdgeTags1 = make([]uint64, edgeCount)
 	g.EdgeTags2 = make([]uint64, edgeCount)
 	g.EdgeOSMIdx = make([]uint32, edgeCount)
@@ -79,11 +79,119 @@ func BuildCSR(topo TopologyResult) *Graph {
 		fromLon := topo.Nodes[e.From].Lon
 		toLat := topo.Nodes[e.To].Lat
 		toLon := topo.Nodes[e.To].Lon
-		g.EdgeDist[pos] = equirectangularDistDm(fromLat, fromLon, toLat, toLon)
+		g.EdgeDist[pos] = uint32(equirectangularDistDm(fromLat, fromLon, toLat, toLon))
 	}
+
+	g.EdgeGeomOff = make([]uint32, edgeCount+1)
+	g.EdgeGeomLat = nil
+	g.EdgeGeomLon = nil
+	g.EdgeElevOff = make([]uint32, edgeCount+1)
+	g.EdgeElevProf = nil
 
 	g.BBox = computeBBox(topo.Nodes)
 
+	return g
+}
+
+// BuildCSRCompact converts a CompactTopologyResult into a CSR graph.
+// CompactEdge already has pre-encoded Tags1/Tags2 and pre-computed Dist in centimeters.
+// Panics if any edge references an out-of-range node index.
+func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
+	nodeCount := uint32(topo.NodeCount)
+	edgeCount := uint32(len(topo.Edges))
+
+	for i, e := range topo.Edges {
+		if e.From >= nodeCount || e.To >= nodeCount {
+			panic(fmt.Sprintf("BuildCSRCompact: edge %d out-of-range (from=%d, to=%d, nodeCount=%d)",
+				i, e.From, e.To, nodeCount))
+		}
+	}
+
+	g := &Graph{
+		NodeCount: nodeCount,
+		EdgeCount: edgeCount,
+		Version:   FormatVersion,
+	}
+
+	g.NodeLat = make([]int32, nodeCount)
+	g.NodeLon = make([]int32, nodeCount)
+	g.NodeEle = make([]int32, nodeCount)
+	g.NodeTags = make([]uint8, nodeCount)
+	for i, c := range topo.Nodes {
+		g.NodeLat[i] = int32(math.Round(c.Lat * 1e7))
+		g.NodeLon[i] = int32(math.Round(c.Lon * 1e7))
+	}
+	copy(g.NodeTags, topo.NodeTags)
+
+	degree := make([]uint32, nodeCount)
+	for _, e := range topo.Edges {
+		degree[e.From]++
+	}
+
+	g.Offsets = make([]uint32, nodeCount+1)
+	for i := uint32(0); i < nodeCount; i++ {
+		g.Offsets[i+1] = g.Offsets[i] + degree[i]
+	}
+
+	g.Targets = make([]uint32, edgeCount)
+	g.EdgeDist = make([]uint32, edgeCount)
+	g.EdgeTags1 = make([]uint64, edgeCount)
+	g.EdgeTags2 = make([]uint64, edgeCount)
+	g.EdgeOSMIdx = make([]uint32, edgeCount)
+	g.EdgeGeomOff = make([]uint32, edgeCount+1)
+
+	osmIDMap := make(map[int64]uint32)
+	for _, e := range topo.Edges {
+		if _, ok := osmIDMap[e.OSMID]; !ok {
+			osmIDMap[e.OSMID] = uint32(len(osmIDMap))
+		}
+	}
+	g.OSMIDPool = make([]int64, len(osmIDMap))
+	for id, idx := range osmIDMap {
+		g.OSMIDPool[idx] = id
+	}
+
+	cursor := make([]uint32, nodeCount)
+	copy(cursor, g.Offsets[:nodeCount])
+
+	type geomEntry struct {
+		coords []Coord
+	}
+	geomByPos := make([]geomEntry, edgeCount)
+
+	for i, e := range topo.Edges {
+		pos := cursor[e.From]
+		cursor[e.From]++
+
+		g.Targets[pos] = e.To
+		g.EdgeDist[pos] = e.Dist
+		g.EdgeTags1[pos] = e.Tags1
+		g.EdgeTags2[pos] = e.Tags2
+		g.EdgeOSMIdx[pos] = osmIDMap[e.OSMID]
+
+		geomStart := topo.EdgeGeomOffset[i]
+		geomEnd := topo.EdgeGeomOffset[i+1]
+		if geomEnd > geomStart {
+			geomByPos[pos].coords = topo.EdgeGeomCoords[geomStart:geomEnd]
+		}
+	}
+
+	var allGeomLat, allGeomLon []int32
+	for i := uint32(0); i < edgeCount; i++ {
+		g.EdgeGeomOff[i] = uint32(len(allGeomLat))
+		for _, c := range geomByPos[i].coords {
+			allGeomLat = append(allGeomLat, int32(math.Round(c.Lat*1e7)))
+			allGeomLon = append(allGeomLon, int32(math.Round(c.Lon*1e7)))
+		}
+	}
+	g.EdgeGeomOff[edgeCount] = uint32(len(allGeomLat))
+	g.EdgeGeomLat = allGeomLat
+	g.EdgeGeomLon = allGeomLon
+
+	g.EdgeElevOff = make([]uint32, edgeCount+1)
+	g.EdgeElevProf = nil
+
+	g.BBox = computeBBox(topo.Nodes)
 	return g
 }
 

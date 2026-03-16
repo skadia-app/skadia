@@ -51,6 +51,35 @@ func TestBuildCSRTriangle(t *testing.T) {
 	}
 }
 
+func TestBuildCSRCompact_Triangle(t *testing.T) {
+	topo := &CompactTopologyResult{
+		Nodes: []Coord{{47.0, 11.0}, {47.001, 11.0}, {47.0, 11.001}},
+		Edges: []CompactEdge{
+			{From: 0, To: 1, OSMID: 100, Tags1: EncodeOSMTags(&RawTags{Highway: "path"}), Dist: 11100},
+			{From: 1, To: 0, OSMID: 100, Tags1: EncodeOSMTags(&RawTags{Highway: "path"}), Dist: 11100},
+			{From: 1, To: 2, OSMID: 200, Tags1: EncodeOSMTags(&RawTags{Highway: "track"}), Dist: 11100},
+			{From: 2, To: 1, OSMID: 200, Tags1: EncodeOSMTags(&RawTags{Highway: "track"}), Dist: 11100},
+		},
+		NodeTags:       []uint8{0, 0, 0},
+		NodeCount:      3,
+		EdgeGeomOffset: []uint32{0, 0, 0, 0, 0},
+		EdgeGeomCoords: nil,
+	}
+	g := BuildCSRCompact(topo)
+	if g.NodeCount != 3 {
+		t.Errorf("NodeCount: got %d, want 3", g.NodeCount)
+	}
+	if g.EdgeCount != 4 {
+		t.Errorf("EdgeCount: got %d, want 4", g.EdgeCount)
+	}
+	if g.EdgeDist[0] != 11100 {
+		t.Errorf("EdgeDist[0]: got %d, want 11100 cm", g.EdgeDist[0])
+	}
+	if len(g.EdgeGeomOff) != 5 {
+		t.Errorf("EdgeGeomOff len: got %d, want 5", len(g.EdgeGeomOff))
+	}
+}
+
 func TestEquirectangularDist(t *testing.T) {
 	dm := equirectangularDistDm(47.0, 11.0, 47.001, 11.0)
 	meters := float64(dm) / 10.0
