@@ -171,6 +171,7 @@ const waysQuery = `
 // to uint64 — no string copies in CompactEdge (36 bytes vs ~300 bytes).
 // Intermediate vertices become edge geometry instead of graph nodes.
 func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
+	edgeTmpPath string,
 	progressFn func(loaded int64)) (*CompactTopologyResult, error) {
 
 	// === Pass 1: Degree counting (geometry only, no tags) ===
@@ -229,11 +230,16 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		}
 	}
 	nodeTags := make([]uint8, numNodes)
-	var edges []CompactEdge
-	var edgeGeomOffset []uint32
-	var edgeGeomLat []int32 // int32 × 1e7 (half memory vs []Coord)
-	var edgeGeomLon []int32
-	var edgeGeomReversed []bool
+
+	ew, err := NewEdgeFileWriter(edgeTmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("create edge writer: %w", err)
+	}
+	defer func() {
+		if ew != nil {
+			ew.CloseWithNodeCount(uint32(len(nodes)))
+		}
+	}()
 
 	// Small overflow map for circular-way midpoints (very few entries).
 	overflowNodes := make(map[CoordKey]uint32)
@@ -341,6 +347,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 
 		// Generate edges between consecutive network nodes.
 		// Node IDs are looked up via binary search (no map needed).
+		var waySegments []WaySegment
 		var geomBuf []Coord
 		lastNetIdx := 0
 
@@ -357,35 +364,12 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 
 			if fromID != toID {
 				dist := edgeDistanceCm(coords[lastNetIdx : i+1])
-
-				// Append geometry as int32 (half memory vs Coord)
-				geomStart := uint32(len(edgeGeomLat))
-				appendGeomInt32 := func(c Coord) {
-					edgeGeomLat = append(edgeGeomLat, int32(math.Round(c.Lat*1e7)))
-					edgeGeomLon = append(edgeGeomLon, int32(math.Round(c.Lon*1e7)))
+				seg := WaySegment{FromID: fromID, ToID: toID, Dist: dist}
+				for k := lastNetIdx; k <= i; k++ {
+					seg.GeomLat = append(seg.GeomLat, int32(math.Round(coords[k].Lat*1e7)))
+					seg.GeomLon = append(seg.GeomLon, int32(math.Round(coords[k].Lon*1e7)))
 				}
-				appendGeomInt32(coords[lastNetIdx]) // start
-				for _, gc := range geomBuf {
-					appendGeomInt32(gc)
-				}
-				appendGeomInt32(coords[i]) // end
-
-				edgeGeomOffset = append(edgeGeomOffset, geomStart)
-				edgeGeomReversed = append(edgeGeomReversed, false)
-				edges = append(edges, CompactEdge{
-					From: fromID, To: toID, OSMID: osmID,
-					Tags1: tags1, Tags2: tags2, Dist: dist,
-				})
-
-				if !isOneway {
-					// Reverse edge shares forward geometry — CSR builder reverses during reorder.
-					edgeGeomOffset = append(edgeGeomOffset, geomStart)
-					edgeGeomReversed = append(edgeGeomReversed, true)
-					edges = append(edges, CompactEdge{
-						From: toID, To: fromID, OSMID: osmID,
-						Tags1: tags1, Tags2: tags2, Dist: dist,
-					})
-				}
+				waySegments = append(waySegments, seg)
 			} else if fromID == toID && len(geomBuf) > 0 {
 				// Circular way: force midpoint as network node.
 				midIdx := lastNetIdx + (i-lastNetIdx)/2
@@ -396,54 +380,33 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 					midID = assignOverflow(midCoord)
 				}
 
-				appendGeomSlice := func(cs []Coord) uint32 {
-					start := uint32(len(edgeGeomLat))
-					for _, c := range cs {
-						edgeGeomLat = append(edgeGeomLat, int32(math.Round(c.Lat*1e7)))
-						edgeGeomLon = append(edgeGeomLon, int32(math.Round(c.Lon*1e7)))
-					}
-					return start
-				}
-
 				// First half
-				dist1 := edgeDistanceCm(coords[lastNetIdx : midIdx+1])
-				gs1 := appendGeomSlice(coords[lastNetIdx : midIdx+1])
-				edgeGeomOffset = append(edgeGeomOffset, gs1)
-				edgeGeomReversed = append(edgeGeomReversed, false)
-				edges = append(edges, CompactEdge{
-					From: fromID, To: midID, OSMID: osmID,
-					Tags1: tags1, Tags2: tags2, Dist: dist1,
-				})
-				if !isOneway {
-					edgeGeomOffset = append(edgeGeomOffset, gs1)
-					edgeGeomReversed = append(edgeGeomReversed, true)
-					edges = append(edges, CompactEdge{
-						From: midID, To: fromID, OSMID: osmID,
-						Tags1: tags1, Tags2: tags2, Dist: dist1,
-					})
+				seg1 := WaySegment{FromID: fromID, ToID: midID, Dist: edgeDistanceCm(coords[lastNetIdx : midIdx+1])}
+				for k := lastNetIdx; k <= midIdx; k++ {
+					seg1.GeomLat = append(seg1.GeomLat, int32(math.Round(coords[k].Lat*1e7)))
+					seg1.GeomLon = append(seg1.GeomLon, int32(math.Round(coords[k].Lon*1e7)))
 				}
+				waySegments = append(waySegments, seg1)
 
 				// Second half
-				dist2 := edgeDistanceCm(coords[midIdx : i+1])
-				gs2 := appendGeomSlice(coords[midIdx : i+1])
-				edgeGeomOffset = append(edgeGeomOffset, gs2)
-				edgeGeomReversed = append(edgeGeomReversed, false)
-				edges = append(edges, CompactEdge{
-					From: midID, To: toID, OSMID: osmID,
-					Tags1: tags1, Tags2: tags2, Dist: dist2,
-				})
-				if !isOneway {
-					edgeGeomOffset = append(edgeGeomOffset, gs2)
-					edgeGeomReversed = append(edgeGeomReversed, true)
-					edges = append(edges, CompactEdge{
-						From: toID, To: midID, OSMID: osmID,
-						Tags1: tags1, Tags2: tags2, Dist: dist2,
-					})
+				seg2 := WaySegment{FromID: midID, ToID: toID, Dist: edgeDistanceCm(coords[midIdx : i+1])}
+				for k := midIdx; k <= i; k++ {
+					seg2.GeomLat = append(seg2.GeomLat, int32(math.Round(coords[k].Lat*1e7)))
+					seg2.GeomLon = append(seg2.GeomLon, int32(math.Round(coords[k].Lon*1e7)))
 				}
+				waySegments = append(waySegments, seg2)
 			}
 
 			geomBuf = geomBuf[:0]
 			lastNetIdx = i
+		}
+
+		if len(waySegments) > 0 {
+			if err := ew.WriteWay(osmID, tags1, tags2, isOneway, waySegments); err != nil {
+				rows2.Close()
+				return nil, fmt.Errorf("write way: %w", err)
+			}
+			waySegments = waySegments[:0]
 		}
 
 		pass2Count++
@@ -456,25 +419,21 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		return nil, fmt.Errorf("pass 2 rows: %w", err)
 	}
 
-	// Final sentinel for EdgeGeomOffset.
-	edgeGeomOffset = append(edgeGeomOffset, uint32(len(edgeGeomLat)))
+	if err := ew.CloseWithNodeCount(uint32(len(nodes))); err != nil {
+		return nil, fmt.Errorf("close edge writer: %w", err)
+	}
+	ew = nil // prevent defer double-close
 
 	slog.Info("stream topology complete",
 		"ways", pass2Count,
 		"network_nodes", len(nodes),
-		"edges", len(edges),
-		"geom_points", len(edgeGeomLat),
+		"edge_file", edgeTmpPath,
 		"overflow_nodes", len(overflowNodes))
 
 	return &CompactTopologyResult{
-		Nodes:            nodes,
-		Edges:            edges,
-		NodeTags:         nodeTags,
-		NodeCount:        len(nodes),
-		EdgeGeomOffset:   edgeGeomOffset,
-		EdgeGeomLat:      edgeGeomLat,
-		EdgeGeomLon:      edgeGeomLon,
-		EdgeGeomReversed: edgeGeomReversed,
+		Nodes:     nodes,
+		NodeTags:  nodeTags,
+		NodeCount: len(nodes),
 	}, nil
 }
 
