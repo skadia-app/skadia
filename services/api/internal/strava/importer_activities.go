@@ -17,12 +17,10 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
@@ -97,6 +95,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			logFilename = colVal(row, hdr["Aktivitäts-ID"])
 		}
 		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, nil)
+		tracker.Processing(ctx)
 
 		// --- Parse Strava activity ID ---
 		stravaIDStr := colVal(row, hdr["Aktivitäts-ID"])
@@ -108,6 +107,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if err != nil {
 			slog.Warn("strava activities: cannot parse date", "date", dateStr, "error", err)
 			result.Skipped++
+			tracker.Skipped(ctx, "date_filtered", nil)
 			continue
 		}
 
@@ -396,8 +396,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Do not set FileFormat since we don't know it
 		}
 
-		tracker.Processing(ctx)
-
 		// Upload original file to Garage (must happen before PostProcess which writes the sidecar)
 		var s3Key string
 		if len(fileBytes) > 0 && params.Storage != nil {
@@ -411,193 +409,54 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-		// --- Use ImportService pipeline when available ---
-		if params.ImportService != nil {
-			importMeta := importer.ImportMetadata{
-				StravaActivityID: stravaID,
-				SourcePlatform:   "strava",
-				ConflictStrategy: params.Options.ConflictStrategy,
-			}
-			actResult, err := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, importMeta)
-			if err != nil {
-				slog.Warn("strava activities: ProcessActivity failed", "strava_id", stravaID, "error", err)
-				result.Errors = append(result.Errors, fmt.Sprintf("process strava_id=%d: %s", stravaID, err))
-				tracker.Error(ctx, err)
-				continue
-			}
-
-			if actResult.Status == "skipped" {
-				result.Skipped++
-				tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
-				continue
-			}
-			if actResult.Status == "enriched" {
-				result.Skipped++ // counts as "not newly created" for import stats
-				tracker.Completed(ctx, actResult.ActivityID)
-				continue
-			}
-
-			// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, sidecar, NATS…)
-			if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, filename); err != nil {
-				slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
-			}
-			tracker.Completed(ctx, actResult.ActivityID)
-
-			// Apply Strava-specific enrichment: activity name + weather from CSV
-			enrichFields := buildStravaEnrichFields(activityName, row, hdr)
-			if len(enrichFields) > 0 {
-				if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
-					slog.Warn("strava activities: update enrichment fields failed", "error", err)
-				}
-			}
-
-			// Create sport conflict queue entry if detected
-			if data.SportConflictPending {
-				if qErr := createSportConflictQueueEntry(ctx, params.DB, params.UserID,
-					actResult.ActivityID, sportType, fileSportType, format); qErr != nil {
-					slog.Warn("sport conflict: failed to create queue entry",
-						"activity", actResult.ActivityID, "error", qErr)
-				}
-			}
-
-			result.Imported++
-			continue
+		// --- ImportService pipeline ---
+		importMeta := importer.ImportMetadata{
+			StravaActivityID: stravaID,
+			SourcePlatform:   "strava",
+			ConflictStrategy: params.Options.ConflictStrategy,
 		}
-
-		// --- Legacy path (ImportService not wired): inline duplicate check + insert ---
-		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, 0, stravaID, 0)
-		if dupErr != nil {
-			slog.Warn("strava activities: duplicate check failed", "error", dupErr)
-			result.Errors = append(result.Errors, fmt.Sprintf("dedup strava_id=%d: %s", stravaID, dupErr))
-			tracker.Error(ctx, dupErr)
-			continue
-		}
-		if match != nil {
-			switch params.Options.ConflictStrategy {
-			case importer.StrategyReplaceAll:
-				_ = importer.ReplaceActivity(ctx, params.DB, match.ExistingActivityID, data)
-			case importer.StrategySkip:
-				// nothing
-			default: // enrich_missing
-				existing, getErr := params.DB.GetActivity(ctx, match.ExistingActivityID)
-				if getErr != nil {
-					slog.Warn("strava activities: cannot fetch existing activity for enrich", "id", match.ExistingActivityID, "error", getErr)
-				}
-				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, existing, data)
-			}
-			// Ensure strava_activity_id is set on the existing activity
-			if stravaID > 0 {
-				_ = params.DB.SetActivityStravaID(ctx, match.ExistingActivityID, stravaID)
-			}
-			result.Skipped++
-			tracker.Skipped(ctx, "duplicate", &match.ExistingActivityID)
-			continue
-		}
-
-		// --- Insert activity into DB ---
-		activity, err := params.DB.InsertActivity(ctx, params.UserID, data)
+		actResult, err := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, importMeta)
 		if err != nil {
-			slog.Warn("strava activities: insert failed", "strava_id", stravaID, "error", err)
-			result.Errors = append(result.Errors, fmt.Sprintf("insert strava_id=%d: %s", stravaID, err))
+			slog.Warn("strava activities: ProcessActivity failed", "strava_id", stravaID, "error", err)
+			result.Errors = append(result.Errors, fmt.Sprintf("process strava_id=%d: %s", stravaID, err))
 			tracker.Error(ctx, err)
 			continue
 		}
 
-		// Set strava_activity_id
-		if stravaID > 0 {
-			if err := params.DB.SetActivityStravaID(ctx, activity.ID, stravaID); err != nil {
-				slog.Warn("strava activities: set strava_activity_id failed", "error", err)
+		if actResult.Status == "skipped" {
+			result.Skipped++
+			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
+			continue
+		}
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			result.Skipped++ // counts as "not newly created" for import stats
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+
+		// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, sidecar, NATS…)
+		if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, filename); err != nil {
+			slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
+		}
+		tracker.Completed(ctx, actResult.ActivityID)
+
+		// Apply Strava-specific enrichment: activity name + weather from CSV
+		enrichFields := buildStravaEnrichFields(activityName, row, hdr)
+		if len(enrichFields) > 0 {
+			if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
+				slog.Warn("strava activities: update enrichment fields failed", "error", err)
 			}
 		}
 
 		// Create sport conflict queue entry if detected
 		if data.SportConflictPending {
 			if qErr := createSportConflictQueueEntry(ctx, params.DB, params.UserID,
-				activity.ID, sportType, fileSportType, format); qErr != nil {
+				actResult.ActivityID, sportType, fileSportType, format); qErr != nil {
 				slog.Warn("sport conflict: failed to create queue entry",
-					"activity", activity.ID, "error", qErr)
+					"activity", actResult.ActivityID, "error", qErr)
 			}
 		}
 
-		// Apply Strava-specific enrichment: title + weather from CSV
-		enrichFields := buildStravaEnrichFields(activityName, row, hdr)
-		if len(enrichFields) > 0 {
-			if err := params.DB.UpdateEnrichmentFields(ctx, activity.ID, enrichFields); err != nil {
-				slog.Warn("strava activities: update enrichment fields failed", "error", err)
-			}
-		}
-
-		// Update file info
-		if len(fileBytes) > 0 && params.Storage != nil {
-			metaKey := s3Key + ".meta"
-			bucket := "skadia-originals"
-			if err := params.DB.UpdateActivityFileInfo(ctx, activity.ID, bucket, s3Key, format, filename, metaKey); err != nil {
-				slog.Warn("strava activities: update file info failed", "error", err)
-			}
-			// Write .meta sidecar
-			metaObj := sidecar.GenerateMeta(activity.ID, data)
-			if metaBytes, err := metaObj.Marshal(); err == nil {
-				if err := params.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-					slog.Warn("strava activities: meta upload failed", "error", err)
-				}
-			}
-		}
-
-		// Insert streams, track, heatmap
-		if len(data.Streams) > 0 {
-			if err := params.DB.InsertStreams(ctx, activity.ID, data.Streams); err != nil {
-				slog.Warn("strava activities: insert streams failed", "error", err)
-			}
-		}
-		if len(data.TrackPoints) > 0 {
-			if err := params.DB.InsertTrack(ctx, activity.ID, data.TrackPoints); err != nil {
-				slog.Warn("strava activities: insert track failed", "error", err)
-			}
-			if len(data.TrackPoints) >= 2 {
-				var subTypePtr *string
-				if data.SubType != "" {
-					subTypePtr = &data.SubType
-				}
-				if err := params.DB.InsertHeatmapLine(ctx, params.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-					slog.Warn("strava activities: insert heatmap line failed", "error", err)
-				}
-				interval, _ := params.DB.GetUserHeatmapInterval(ctx, params.UserID)
-				if err := params.DB.InsertHeatmapPoints(ctx, params.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-					slog.Warn("strava activities: insert heatmap points failed", "error", err)
-				}
-			}
-		}
-
-		// Insert sensors, laps, splits, lengths
-		if len(data.Sensors) > 0 {
-			if err := params.DB.InsertSensors(ctx, activity.ID, data.Sensors); err != nil {
-				slog.Warn("strava activities: insert sensors failed", "error", err)
-			}
-		}
-		if len(data.Laps) > 0 {
-			if err := params.DB.InsertLaps(ctx, activity.ID, data.Laps); err != nil {
-				slog.Warn("strava activities: insert laps failed", "error", err)
-			}
-		}
-		if len(data.Splits) > 0 {
-			if err := params.DB.InsertSplits(ctx, activity.ID, data.Splits); err != nil {
-				slog.Warn("strava activities: insert splits failed", "error", err)
-			}
-		}
-		if len(data.Lengths) > 0 {
-			if err := params.DB.InsertLengths(ctx, activity.ID, data.Lengths); err != nil {
-				slog.Warn("strava activities: insert lengths failed", "error", err)
-			}
-		}
-
-		// Stage 1 enrichment (reverse geocode, auto-title, etc.)
-		// Skip weather fetch because we already have it from CSV.
-		// Events publisher is not available in the legacy path; pass nil (variadic).
-		if data.HasGPS && data.StartLat != 0 {
-			enrichment.RunStage1(ctx, params.DB, params.UserID, activity.ID, data)
-		}
-
-		tracker.Completed(ctx, activity.ID)
 		result.Imported++
 	}
 

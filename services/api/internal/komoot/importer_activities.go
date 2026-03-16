@@ -90,6 +90,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		// --- Import log tracking ---
 		logFilename := fmt.Sprintf("%d", tour.ID)
 		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, nil)
+		tracker.Processing(ctx)
 
 		// Date filter
 		if p.Options.DateFrom != nil && tour.Date.Before(*p.Options.DateFrom) {
@@ -174,8 +175,6 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data.OriginalName = tour.Name
 		}
 
-		tracker.Processing(ctx)
-
 		// Duplicate detection + insert via ImportService (handles Tier-0 via KomootTourID + Tier-1 hash/temporal)
 		actResult, processErr := p.ImportService.ProcessActivity(ctx, p.UserID, data, fileBytes,
 			importer.ImportMetadata{KomootTourID: tour.ID, SourcePlatform: "komoot", ConflictStrategy: p.Options.ConflictStrategy})
@@ -189,7 +188,12 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		// Always populate TourActivityMap — even for duplicates — so the PhotosImporter can look up the activity ID.
 		result.TourActivityMap[tour.ID] = actResult.ActivityID
 
-		if actResult.Status != "created" {
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			result.Skipped++ // stats: not newly created
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+		if actResult.Status == "skipped" {
 			result.Skipped++
 			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 			continue

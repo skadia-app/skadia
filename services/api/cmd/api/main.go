@@ -41,7 +41,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Database
 	db, err := database.New(ctx, cfg.DatabaseURL)
@@ -61,6 +62,24 @@ func main() {
 	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, 10*time.Minute); cleanErr == nil && cleaned > 0 {
 		slog.Info("import_log: cleaned stale processing entries", "count", cleaned)
 	}
+
+	// Periodic cleanup of stale import_log 'processing' entries (every 10 min).
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if n, err := db.CleanupStaleProcessing(ctx, 10*time.Minute); err != nil {
+					slog.Warn("import_log: periodic cleanup stale processing", "error", err)
+				} else if n > 0 {
+					slog.Info("import_log: periodic cleanup stale processing", "count", n)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).

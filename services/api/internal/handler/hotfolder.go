@@ -199,7 +199,11 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		tracker.Completed(ctx, result.ActivityID)
 	} else if result.Status == "skipped" {
 		// Duplicate — keep file in place so user notices
-		tracker.Skipped(ctx, "duplicate", nil)
+		var existingID *string
+		if result.ActivityID != "" {
+			existingID = &result.ActivityID
+		}
+		tracker.Skipped(ctx, "duplicate", existingID)
 	}
 
 	return nil

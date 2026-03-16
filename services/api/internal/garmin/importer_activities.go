@@ -218,96 +218,54 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			data.Source = "Garmin"
 		}
 
-		// Use ImportService when available (preferred path: unified dedup + post-processing)
-		if params.ImportService != nil {
-			// Compute file hash and set it on data before ProcessActivity (mirrors upload handler)
-			hashArr := sha256.Sum256(fileBytes)
-			hashStr := hex.EncodeToString(hashArr[:])
-			data.FileHash = hashStr
-			tracker.SetFileHash(ctx, hashStr)
+		// Compute file hash and set it on data before ProcessActivity (mirrors upload handler)
+		hashArr := sha256.Sum256(fileBytes)
+		hashStr := hex.EncodeToString(hashArr[:])
+		data.FileHash = hashStr
+		tracker.SetFileHash(ctx, hashStr)
 
-			meta := importer.ImportMetadata{
-				GarminActivityID: garminActivityID,
-				SourcePlatform:   "garmin",
-				ConflictStrategy: params.Options.ConflictStrategy,
-			}
-			actResult, processErr := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, meta)
-			if processErr != nil {
-				slog.Warn("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
-				result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", ref.fileName, processErr))
-				tracker.Error(ctx, processErr)
-				continue
-			}
+		meta := importer.ImportMetadata{
+			GarminActivityID: garminActivityID,
+			SourcePlatform:   "garmin",
+			ConflictStrategy: params.Options.ConflictStrategy,
+		}
+		actResult, processErr := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, meta)
+		if processErr != nil {
+			slog.Warn("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
+			result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", ref.fileName, processErr))
+			tracker.Error(ctx, processErr)
+			continue
+		}
 
-			if actResult.Status != "created" {
-				// Duplicate or enriched — count as skipped for import stats
-				result.Skipped++
-				tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
-				continue
-			}
-
-			// New activity inserted — upload to S3 then run post-processing
-			// (NATS events, Shadow FS, Segment matching, Lap detection, Heatmap, etc.)
-			s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-			contentType := "application/octet-stream"
-			if format == "gpx" || format == "tcx" {
-				contentType = "application/xml"
-			}
-			if params.Storage != nil {
-				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-					slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
-					// Continue — DB insert already done; post-processing still runs
-				}
-			}
-			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, ref.fileName); postErr != nil {
-				slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
-				// Non-fatal: activity is already stored
-			}
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			result.Skipped++ // counts as "not newly created" for import stats
 			tracker.Completed(ctx, actResult.ActivityID)
-			result.Imported++
 			continue
 		}
-
-		// Fallback path (no ImportService configured): legacy inline logic
-		match, dupErr := importer.CheckTier1(ctx, params.DB, params.UserID, fileBytes, data, garminActivityID, 0, 0)
-		if dupErr != nil {
-			slog.Warn("garmin activities: duplicate check failed", "error", dupErr)
-			result.Errors = append(result.Errors, fmt.Sprintf("dedup %s: %s", ref.fileName, dupErr))
-			tracker.Error(ctx, dupErr)
-			continue
-		}
-		if match != nil {
-			switch params.Options.ConflictStrategy {
-			case importer.StrategyReplaceAll:
-				_ = importer.ReplaceActivity(ctx, params.DB, match.ExistingActivityID, data)
-			case importer.StrategySkip:
-				// nothing
-			default: // enrich_missing
-				existing, getErr := params.DB.GetActivity(ctx, match.ExistingActivityID)
-				if getErr != nil {
-					slog.Warn("garmin activities: cannot fetch existing activity for enrich", "id", match.ExistingActivityID, "error", getErr)
-				}
-				_, _ = importer.EnrichActivity(ctx, params.DB, match.ExistingActivityID, existing, data)
-			}
-			if garminActivityID > 0 {
-				_ = params.DB.SetActivityGarminID(ctx, match.ExistingActivityID, garminActivityID)
-			}
+		if actResult.Status == "skipped" {
 			result.Skipped++
-			tracker.Skipped(ctx, "duplicate", &match.ExistingActivityID)
+			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 			continue
 		}
 
-		activity, insertErr := params.DB.InsertActivity(ctx, params.UserID, data)
-		if insertErr != nil {
-			slog.Warn("garmin activities: insert failed", "file", ref.fileName, "error", insertErr)
-			result.Errors = append(result.Errors, fmt.Sprintf("insert %s: %s", ref.fileName, insertErr))
-			tracker.Error(ctx, insertErr)
-			continue
+		// New activity inserted — upload to S3 then run post-processing
+		// (NATS events, Shadow FS, Segment matching, Lap detection, Heatmap, etc.)
+		s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+		contentType := "application/octet-stream"
+		if format == "gpx" || format == "tcx" {
+			contentType = "application/xml"
 		}
-		if garminActivityID > 0 {
-			_ = params.DB.SetActivityGarminID(ctx, activity.ID, garminActivityID)
+		if params.Storage != nil {
+			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+				slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
+				// Continue — DB insert already done; post-processing still runs
+			}
 		}
-		tracker.Completed(ctx, activity.ID)
+		if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, ref.fileName); postErr != nil {
+			slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
+			// Non-fatal: activity is already stored
+		}
+		tracker.Completed(ctx, actResult.ActivityID)
 		result.Imported++
 	}
 

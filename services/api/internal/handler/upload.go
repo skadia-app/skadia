@@ -114,10 +114,19 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(activities) > 1 {
+			// Import log for multisport FIT activity
+			msSz := int64(len(decompressed))
+			msTracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &msSz, nil)
+			msTracker.Processing(r.Context())
+			msTracker.SetFileHash(r.Context(), hashStr)
+
 			// S3 upload first (shared by all children)
 			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
-				slog.Warn("s3 upload for multisport failed", "error", uploadErr)
+				slog.Error("s3 upload for multisport failed", "error", uploadErr)
+				msTracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
+				writeError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
+				return
 			}
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
@@ -126,9 +135,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy},
 			)
 			if msErr != nil {
+				msTracker.Error(r.Context(), msErr)
 				writeError(w, http.StatusInternalServerError, "Import Error", msErr.Error(), r.URL.Path)
 				return
 			}
+
+			msTracker.Completed(r.Context(), msResult.ParentID)
 
 			// Return parent activity
 			parentAct, _ := h.DB.GetActivity(r.Context(), msResult.ParentID)
@@ -185,12 +197,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 		if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 			slog.Error("S3 upload failed", "error", uploadErr)
+			tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
 			writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 			return
 		}
 
 		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
 		if fitActivity == nil {
+			tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 			return
 		}
@@ -292,12 +306,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	contentType := "application/xml"
 	if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
 		slog.Error("S3 upload failed", "error", err)
+		tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", err))
 		writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 		return
 	}
 
 	gpxActivity, _ := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
 	if gpxActivity == nil {
+		tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 		return
 	}

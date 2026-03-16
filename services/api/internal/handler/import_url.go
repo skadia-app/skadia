@@ -33,6 +33,9 @@ type importBytesResult struct {
 	// Duplicate is true when the file was a duplicate and was handled per the
 	// user's conflict strategy. In this case Activity may be nil.
 	Duplicate bool
+	// Multisport is true when a multi-session FIT file was imported. In this
+	// case Activity holds the parent activity.
+	Multisport bool
 }
 
 // ImportFromURL importiert eine Aktivitätsdatei von einer externen URL.
@@ -128,6 +131,15 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if result.Multisport {
+		if result.Activity != nil {
+			writeJSON(w, http.StatusCreated, result.Activity)
+		} else {
+			writeJSON(w, http.StatusCreated, map[string]string{"status": "multisport_imported"})
+		}
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, model.UploadResponse{
 		Activity: result.Activity,
 		Warnings: result.Warnings,
@@ -159,6 +171,51 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return nil, &importError{importErrBadFormat, "unsupported file format (expected FIT, GPX, or TCX)"}
 	}
 
+	// Compute SHA256 hash on file bytes before any parsing
+	hash := sha256.Sum256(fileBytes)
+	hashStr := hex.EncodeToString(hash[:])
+
+	// Resolve user's conflict strategy for duplicate handling
+	var conflictStrategy importer.ConflictStrategy
+	if importSettings, settErr := h.DB.GetImportSettings(ctx, userID); settErr == nil && importSettings != nil {
+		conflictStrategy = importer.ConflictStrategy(importSettings.ConflictStrategy)
+	}
+
+	// For FIT files: try multi-session parsing first to detect multisport activities
+	if format == "fit" {
+		sessions, multiErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
+		if multiErr == nil && len(sessions) >= 2 {
+			msSz := int64(len(fileBytes))
+			msTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &msSz, nil)
+			msTracker.Processing(ctx)
+			msTracker.SetFileHash(ctx, hashStr)
+
+			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
+			if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+				slog.Error("import_url: S3 upload for multisport failed", "error", uploadErr)
+				msTracker.Error(ctx, fmt.Errorf("S3 upload: %w", uploadErr))
+				return nil, &importError{importErrStorage, "failed to store file"}
+			}
+
+			msResult, msErr := h.ImportService.ProcessMultisport(
+				ctx, userID, sessions, fileBytes, hashStr,
+				s3Key, format, filename,
+				importer.ImportMetadata{
+					SourcePlatform:   "url",
+					ConflictStrategy: conflictStrategy,
+				},
+			)
+			if msErr != nil {
+				msTracker.Error(ctx, fmt.Errorf("process multisport: %w", msErr))
+				return nil, &importError{importErrGeneral, fmt.Sprintf("process multisport: %s", msErr)}
+			}
+			msTracker.Completed(ctx, msResult.ParentID)
+
+			parentAct, _ := h.DB.GetActivity(ctx, msResult.ParentID)
+			return &importBytesResult{Activity: parentAct, Multisport: true}, nil
+		}
+	}
+
 	var (
 		actData *model.ActivityData
 		err     error
@@ -176,14 +233,17 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return nil, &importError{importErrParse, fmt.Sprintf("failed to parse %s file: %s", format, err)}
 	}
 
-	// Set file hash on data before processing
-	hash := sha256.Sum256(fileBytes)
-	hashStr := hex.EncodeToString(hash[:])
 	actData.FileHash = hashStr
 
 	if actData.SportType == "unknown" {
 		slog.Warn("import_url: sport type unknown", "filename", filename, "format", format)
 	}
+
+	// Import tracking
+	sz := int64(len(fileBytes))
+	tracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil)
+	tracker.Processing(ctx)
+	tracker.SetFileHash(ctx, hashStr)
 
 	// Time overlap check (informational warnings only)
 	var warnings []string
@@ -196,22 +256,25 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		}
 	}
 
-	// Resolve user's conflict strategy for duplicate handling
-	var conflictStrategy importer.ConflictStrategy
-	if importSettings, settErr := h.DB.GetImportSettings(ctx, userID); settErr == nil && importSettings != nil {
-		conflictStrategy = importer.ConflictStrategy(importSettings.ConflictStrategy)
-	}
-
 	// Delegate duplicate detection + insert to ImportService
 	result, processErr := h.ImportService.ProcessActivity(ctx, userID, actData, fileBytes, importer.ImportMetadata{SourcePlatform: "url", ConflictStrategy: conflictStrategy})
 	if processErr != nil {
 		slog.Error("import_url: process activity failed", "error", processErr)
+		tracker.Error(ctx, processErr)
 		return nil, &importError{importErrGeneral, "failed to process activity"}
 	}
 
-	// Duplicate handled (enriched / replaced / skipped) — no new activity
-	if result.Status != "created" {
-		slog.Info("import_url: duplicate handled", "status", result.Status, "id", result.ActivityID)
+	// enriched/replaced are successful operations — mark as completed
+	if result.Status == "enriched" || result.Status == "replaced" {
+		slog.Info("import_url: activity enriched/replaced", "status", result.Status, "id", result.ActivityID)
+		tracker.Completed(ctx, result.ActivityID)
+		return &importBytesResult{Duplicate: true}, nil
+	}
+
+	// skipped = true duplicate, no new activity
+	if result.Status == "skipped" {
+		slog.Info("import_url: duplicate skipped", "id", result.ActivityID)
+		tracker.Skipped(ctx, "duplicate", &result.ActivityID)
 		return &importBytesResult{Duplicate: true}, nil
 	}
 
@@ -223,6 +286,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 	}
 	if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
 		slog.Error("import_url: S3 upload failed", "error", uploadErr)
+		tracker.Error(ctx, uploadErr)
 		return nil, &importError{importErrStorage, "failed to store file"}
 	}
 
@@ -235,12 +299,15 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 	activity, getErr := h.DB.GetActivity(ctx, result.ActivityID)
 	if getErr != nil || activity == nil {
 		slog.Error("import_url: failed to fetch inserted activity", "id", result.ActivityID, "error", getErr)
+		tracker.Error(ctx, fmt.Errorf("failed to fetch inserted activity"))
 		return nil, &importError{importErrGeneral, "failed to fetch inserted activity"}
 	}
 
 	if postErr := h.ImportService.PostProcess(ctx, userID, result.ActivityID, actData, fileBytes, s3Key, format, filename); postErr != nil {
 		slog.Error("import_url: post-process failed", "id", result.ActivityID, "error", postErr)
 	}
+
+	tracker.Completed(ctx, result.ActivityID)
 
 	// Re-fetch full activity for response
 	full, err := h.DB.GetActivity(ctx, result.ActivityID)

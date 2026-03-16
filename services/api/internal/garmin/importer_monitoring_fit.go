@@ -75,18 +75,17 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 			ftype := readFITFileType(data)
 
+			// Skip activity FITs silently — ActivitiesImporter tracks them.
+			// All other non-monitoring types are also skipped without polluting import_log.
+			if ftype != fitFileTypeMonitorMain && ftype != fitFileTypeHRVNight {
+				continue
+			}
+
 			fileSize := int64(len(data))
 			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, nil)
 			tracker.Processing(ctx)
 			hashArr := sha256.Sum256(data)
 			tracker.SetFileHash(ctx, hex.EncodeToString(hashArr[:]))
-
-			// Activity files (type 4) are handled by ActivitiesImporter.
-			// All other non-monitoring types skip silently.
-			if ftype != fitFileTypeMonitorMain && ftype != fitFileTypeHRVNight {
-				tracker.Skipped(ctx, "not_monitoring_type", nil)
-				continue
-			}
 
 			// Delegate to ProcessMonitoringFIT — shared with hotfolder/upload paths.
 			if procErr := ProcessMonitoringFIT(ctx, params.DB, data, params.UserID); procErr != nil {

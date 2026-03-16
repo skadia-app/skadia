@@ -40,7 +40,7 @@ func (db *DB) InsertImportLog(ctx context.Context, entry model.ImportLogEntry) (
 
 // UpdateImportLogStatus updates the status and related fields of an import_log entry.
 func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, errorMsg *string, activityID *string, durationMs *int) error {
-	_, err := db.Pool.Exec(ctx, `
+	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log
 		SET status = $2, error_msg = $3, activity_id = $4, duration_ms = $5, updated_at = NOW()
 		WHERE id = $1`,
@@ -49,35 +49,53 @@ func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, erro
 	if err != nil {
 		return fmt.Errorf("update import log status: %w", err)
 	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("update import log status: row %s not found", id)
+	}
 	return nil
 }
 
 // UpdateImportLogFileHash writes a computed file hash back to the DB.
 func (db *DB) UpdateImportLogFileHash(ctx context.Context, id, fileHash string) error {
-	_, err := db.Pool.Exec(ctx, `
+	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log SET file_hash = $2, updated_at = NOW() WHERE id = $1`,
 		id, fileHash,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("update import log file_hash: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("update import log file_hash: row %s not found", id)
+	}
+	return nil
 }
 
 // UpdateImportLogSkipReason sets the skip_reason field of an import_log entry.
 func (db *DB) UpdateImportLogSkipReason(ctx context.Context, id, skipReason string) error {
-	_, err := db.Pool.Exec(ctx, `
+	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log SET skip_reason = $2, updated_at = NOW() WHERE id = $1`,
 		id, skipReason,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("update import log skip_reason: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("update import log skip_reason: row %s not found", id)
+	}
+	return nil
 }
 
 // UpdateImportLogMetadata sets the metadata field of an import_log entry.
 func (db *DB) UpdateImportLogMetadata(ctx context.Context, id string, metadata []byte) error {
-	_, err := db.Pool.Exec(ctx, `
+	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log SET metadata = $2, updated_at = NOW() WHERE id = $1`,
 		id, metadata,
 	)
 	if err != nil {
 		return fmt.Errorf("update import log metadata: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("update import log metadata: row %s not found", id)
 	}
 	return nil
 }
