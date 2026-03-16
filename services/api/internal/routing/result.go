@@ -180,7 +180,7 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 			ei := edges[i]
 			geomStart := g.EdgeGeomOff[ei]
 			geomEnd := g.EdgeGeomOff[ei+1]
-			if geomEnd > geomStart+2 { // at least one interior point
+			if g.EdgeGeomLat != nil && geomEnd > geomStart+2 { // at least one interior point
 				for gi := geomStart + 1; gi < geomEnd-1; gi++ {
 					lat := float64(g.EdgeGeomLat[gi]) / 1e7
 					lon := float64(g.EdgeGeomLon[gi]) / 1e7
@@ -210,7 +210,7 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 
 	// Build segments using expanded coordinate indices
 	var segments []RouteSegment
-	if len(edges) > 0 {
+	if len(edges) > 0 && g.EdgeOSMIdx != nil {
 		curOSMIdx := g.EdgeOSMIdx[edges[0]]
 		curTags := g.EdgeTags1[edges[0]]
 		segFromCoord := edgeCoordStart[0]
