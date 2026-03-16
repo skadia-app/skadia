@@ -105,6 +105,7 @@ func (s *Service) PostProcess(
 	// more accurate readings using actual stream data.
 	if enrichment.NeedsStreamRefinement(data.HasGPS, data.MinElevationM, data.MaxElevationM, data.ElapsedTimeS) {
 		capturedID := activityID
+		capturedUserID := userID
 		capturedData := data
 		go func() {
 			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -156,6 +157,18 @@ func (s *Service) PostProcess(
 			}
 			if err := s.DB.InsertWeatherReadings(ctx2, capturedID, readings); err != nil {
 				slog.Warn("stream weather refinement insert failed", "activity_id", capturedID, "error", err)
+			} else {
+				// Sync weather tags to activity_tags junction table
+				weatherPrefs, _ := s.DB.GetWeatherPrefs(ctx2, capturedUserID)
+				if weatherPrefs.AutoTags {
+					var allWeatherTags []string
+					for _, r := range readings {
+						allWeatherTags = append(allWeatherTags, r.Tags...)
+					}
+					if err := s.DB.SyncWeatherTagsToActivityTags(ctx2, capturedID, capturedUserID, allWeatherTags); err != nil {
+						slog.Warn("stream weather refinement: sync weather tags failed", "activity_id", capturedID, "error", err)
+					}
+				}
 			}
 		}()
 	}

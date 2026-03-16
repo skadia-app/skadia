@@ -1206,6 +1206,7 @@ type WeatherPrefs struct {
 	MountainThresholdM int      `json:"mountain_threshold_m"`
 	LongDurationS      int      `json:"long_duration_s"`
 	DisplayFields      []string `json:"display_fields"`
+	AutoTags           bool     `json:"auto_tags"`
 }
 
 // DefaultWeatherPrefs returns the application defaults (matches migration 000168 defaults).
@@ -1214,6 +1215,7 @@ func DefaultWeatherPrefs() WeatherPrefs {
 		ReadingMode:        "auto",
 		MountainThresholdM: 500,
 		LongDurationS:      14400,
+		AutoTags:           true,
 		DisplayFields: []string{
 			"temp_c", "apparent_temp_c", "precipitation_mm",
 			"wind_speed_ms", "humidity", "condition",

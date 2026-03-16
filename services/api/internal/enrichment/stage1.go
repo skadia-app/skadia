@@ -245,6 +245,18 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			if readings, err := FetchWeatherReadings(ctx, weatherReqs); err == nil {
 				if err := db.InsertWeatherReadings(ctx, activityID, readings); err != nil {
 					slog.Warn("stage1: weather insert failed (non-fatal)", "activity_id", activityID, "error", err)
+				} else {
+					// Sync weather tags to activity_tags junction table
+					prefs, _ := db.GetWeatherPrefs(ctx, userID)
+					if prefs.AutoTags {
+						var allWeatherTags []string
+						for _, r := range readings {
+							allWeatherTags = append(allWeatherTags, r.Tags...)
+						}
+						if err := db.SyncWeatherTagsToActivityTags(ctx, activityID, userID, allWeatherTags); err != nil {
+							slog.Warn("stage1: sync weather tags failed (non-fatal)", "activity_id", activityID, "error", err)
+						}
+					}
 				}
 			} else {
 				slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)

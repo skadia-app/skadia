@@ -516,6 +516,18 @@ func (h *Handler) backfillWeatherForLocationTag(
 		}
 		if err := h.DB.InsertWeatherReadings(ctx, c.id, readings); err != nil {
 			slog.Warn("location pin weather insert failed", "activity_id", c.id, "error", err)
+		} else {
+			// Sync weather tags to activity_tags junction table
+			weatherPrefs, _ := h.DB.GetWeatherPrefs(ctx, userID)
+			if weatherPrefs.AutoTags {
+				var allWeatherTags []string
+				for _, r := range readings {
+					allWeatherTags = append(allWeatherTags, r.Tags...)
+				}
+				if err := h.DB.SyncWeatherTagsToActivityTags(ctx, c.id, userID, allWeatherTags); err != nil {
+					slog.Warn("location pin weather: sync weather tags failed", "activity_id", c.id, "error", err)
+				}
+			}
 		}
 	}
 	return nil

@@ -108,6 +108,16 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 			slog.Warn("weather backfill insert failed", "activity_id", a.ID, "error", insertErr)
 			failed++
 		} else {
+			// Sync weather tags to activity_tags junction table
+			if prefs.AutoTags {
+				var allWeatherTags []string
+				for _, r := range readings {
+					allWeatherTags = append(allWeatherTags, r.Tags...)
+				}
+				if syncErr := h.DB.SyncWeatherTagsToActivityTags(ctx, a.ID, userID, allWeatherTags); syncErr != nil {
+					slog.Warn("weather backfill: sync weather tags failed", "activity_id", a.ID, "error", syncErr)
+				}
+			}
 			succeeded++
 		}
 		_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
