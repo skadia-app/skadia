@@ -35,6 +35,11 @@ func selectWeatherModel(lat, lng float64, date time.Time) (endpoint, modelID str
 	if !date.Before(iconD2Start) && isIconEUDomain(lat, lng) {
 		return forecastEndpoint, "dwd_icon_eu"
 	}
+	// D/A/CH before ICON-D2 availability: prefer ERA5-Land over global IFS.
+	// ERA5-Land has better spatial resolution for Alpine terrain than IFS HRES.
+	if date.Before(iconD2Start) && isIconD2Domain(lat, lng) {
+		return archiveEndpoint, "era5_land"
+	}
 	if !date.Before(ifsStart) {
 		return forecastEndpoint, "ecmwf_ifs_hres"
 	}
