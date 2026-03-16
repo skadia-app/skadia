@@ -11,6 +11,11 @@ import (
 
 const checkCancelEvery = 4096
 
+// maxExpansions limits the number of node expansions per pass to prevent
+// unbounded memory growth on large graphs without WCC pruning.
+// 2M expansions covers 200+ km routes on a 25M-node graph.
+const maxExpansions = 2_000_000
+
 // edgeSegmentDistances computes distances in millimeters between consecutive
 // geometry points for an edge.
 func edgeSegmentDistances(g *graph.Graph, ei uint32) []int32 {
@@ -66,6 +71,9 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 			}
 		}
 		expansions++
+		if expansions > maxExpansions {
+			return nil, 0, nil, fmt.Errorf("pass0: expansion limit reached (%d), route too long or graph disconnected", maxExpansions)
+		}
 
 		cur := state.frontier.Pop()
 
@@ -170,6 +178,9 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			}
 		}
 		expansions++
+		if expansions > maxExpansions {
+			return nil, fmt.Errorf("pass1: expansion limit reached (%d)", maxExpansions)
+		}
 
 		cur := state.frontier.Pop()
 
@@ -352,6 +363,9 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			}
 		}
 		expansions++
+		if expansions > maxExpansions {
+			return nil, 0, nil, fmt.Errorf("pass0Sparse: expansion limit reached (%d)", maxExpansions)
+		}
 
 		cur := state.frontier.Pop()
 
@@ -451,6 +465,9 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			}
 		}
 		expansions++
+		if expansions > maxExpansions {
+			return nil, fmt.Errorf("pass1Sparse: expansion limit reached (%d)", maxExpansions)
+		}
 
 		cur := state.frontier.Pop()
 
