@@ -428,7 +428,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 			if actResult.Status == "skipped" {
 				result.Skipped++
-				tracker.Skipped(ctx, "duplicate", nil)
+				tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 				continue
 			}
 			if actResult.Status == "enriched" {
@@ -490,7 +490,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				_ = params.DB.SetActivityStravaID(ctx, match.ExistingActivityID, stravaID)
 			}
 			result.Skipped++
-			tracker.Skipped(ctx, "duplicate", nil)
+			tracker.Skipped(ctx, "duplicate", &match.ExistingActivityID)
 			continue
 		}
 

@@ -61,13 +61,17 @@ func (t *ImportTracker) SetFileHash(ctx context.Context, hash string) {
 	}
 }
 
-// Completed marks the entry as completed with the given activity ID.
+// Completed marks the entry as completed. activityID may be empty (e.g. monitoring FITs).
 func (t *ImportTracker) Completed(ctx context.Context, activityID string) {
 	if t.logID == "" {
 		return
 	}
 	elapsed := int(time.Since(t.start).Milliseconds())
-	if err := t.db.UpdateImportLogStatus(ctx, t.logID, "completed", nil, &activityID, &elapsed); err != nil {
+	var actPtr *string
+	if activityID != "" {
+		actPtr = &activityID
+	}
+	if err := t.db.UpdateImportLogStatus(ctx, t.logID, "completed", nil, actPtr, &elapsed); err != nil {
 		slog.Warn("import_log: failed to set completed", "id", t.logID, "error", err)
 	}
 }
@@ -75,18 +79,24 @@ func (t *ImportTracker) Completed(ctx context.Context, activityID string) {
 // Skipped marks the entry as skipped. reason identifies why (e.g. "duplicate",
 // "date_filtered", "format_unsupported", "not_activity_type").
 // activityID may be nil; for duplicates pass the existing activity's ID.
+// status, skip_reason, activity_id and duration_ms are written in a single UPDATE.
 func (t *ImportTracker) Skipped(ctx context.Context, reason string, activityID *string) {
 	if t.logID == "" {
 		return
 	}
 	elapsed := int(time.Since(t.start).Milliseconds())
-	if err := t.db.UpdateImportLogStatus(ctx, t.logID, "skipped", nil, activityID, &elapsed); err != nil {
-		slog.Warn("import_log: failed to set skipped", "id", t.logID, "error", err)
-	}
+	var reasonPtr *string
 	if reason != "" {
-		if err := t.db.UpdateImportLogSkipReason(ctx, t.logID, reason); err != nil {
-			slog.Warn("import_log: failed to set skip_reason", "id", t.logID, "error", err)
-		}
+		reasonPtr = &reason
+	}
+	_, err := t.db.Pool.Exec(ctx, `
+		UPDATE import_log
+		SET status = 'skipped', activity_id = $2, skip_reason = $3, duration_ms = $4, updated_at = NOW()
+		WHERE id = $1`,
+		t.logID, activityID, reasonPtr, elapsed,
+	)
+	if err != nil {
+		slog.Warn("import_log: failed to set skipped", "id", t.logID, "error", err)
 	}
 }
 
