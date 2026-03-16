@@ -2,6 +2,7 @@ package graph
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
 )
 
@@ -51,22 +52,35 @@ func TestBuildCSRTriangle(t *testing.T) {
 	}
 }
 
-func TestBuildCSRCompact_Triangle(t *testing.T) {
-	topo := &CompactTopologyResult{
-		Nodes: []Coord{{47.0, 11.0}, {47.001, 11.0}, {47.0, 11.001}},
-		Edges: []CompactEdge{
-			{From: 0, To: 1, OSMID: 100, Tags1: EncodeOSMTags(&RawTags{Highway: "path"}), Dist: 11100},
-			{From: 1, To: 0, OSMID: 100, Tags1: EncodeOSMTags(&RawTags{Highway: "path"}), Dist: 11100},
-			{From: 1, To: 2, OSMID: 200, Tags1: EncodeOSMTags(&RawTags{Highway: "track"}), Dist: 11100},
-			{From: 2, To: 1, OSMID: 200, Tags1: EncodeOSMTags(&RawTags{Highway: "track"}), Dist: 11100},
-		},
-		NodeTags:       []uint8{0, 0, 0},
-		NodeCount:      3,
-		EdgeGeomOffset: []uint32{0, 0, 0, 0, 0},
-		EdgeGeomLat:    nil,
-		EdgeGeomLon:    nil,
+func TestBuildCSRFromFile_Triangle(t *testing.T) {
+	nodes := []Coord{{47.0, 11.0}, {47.001, 11.0}, {47.0, 11.001}}
+	nodeTags := []uint8{0, 0, 0}
+
+	tmpFile := filepath.Join(t.TempDir(), "edges.tmp")
+	ew, err := NewEdgeFileWriter(tmpFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	g := BuildCSRCompact(topo)
+	// Way 1: node 0 ↔ node 1 (bidirectional)
+	tags1a := EncodeOSMTags(&RawTags{Highway: "path"})
+	ew.WriteWay(100, tags1a, 0, false, []WaySegment{
+		{FromID: 0, ToID: 1, Dist: 11100,
+			GeomLat: []int32{470000000, 470010000},
+			GeomLon: []int32{110000000, 110000000}},
+	})
+	// Way 2: node 1 ↔ node 2 (bidirectional)
+	tags1b := EncodeOSMTags(&RawTags{Highway: "track"})
+	ew.WriteWay(200, tags1b, 0, false, []WaySegment{
+		{FromID: 1, ToID: 2, Dist: 11100,
+			GeomLat: []int32{470010000, 470000000},
+			GeomLon: []int32{110000000, 110010000}},
+	})
+	ew.CloseWithNodeCount(3)
+
+	g, err := BuildCSRFromFile(nodes, nodeTags, tmpFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if g.NodeCount != 3 {
 		t.Errorf("NodeCount: got %d, want 3", g.NodeCount)
 	}
