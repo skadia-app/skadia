@@ -25,8 +25,9 @@ for lat in $(seq 45 48); do
   for lon in $(seq 5 16); do
     lat_str=$(printf "N%02d_00" $lat)
     lon_str=$(printf "E%03d_00" $lon)
-    filename="Copernicus_DSM_COG_30_${lat_str}_${lon_str}_DEM.tif"
-    key="Copernicus_DSM_COG_30_${lat_str}_${lon_str}_DEM/${filename}"
+    # Resolution code is 10 (= 10 arc-seconds ≈ 30m), NOT 30
+    filename="Copernicus_DSM_COG_10_${lat_str}_${lon_str}_DEM.tif"
+    key="Copernicus_DSM_COG_10_${lat_str}_${lon_str}_DEM/${filename}"
     url="${BASE_URL}/${key}"
 
     if [ -f "$OUT_DIR/$filename" ]; then

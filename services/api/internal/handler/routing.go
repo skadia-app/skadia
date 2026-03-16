@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
@@ -22,7 +23,7 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _ := r.Context().Value("user_id").(string)
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthorized",
