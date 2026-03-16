@@ -307,13 +307,11 @@ func DeserializeMmap(path string) (*Graph, error) {
 		f.Close()
 	}
 
+	// Skip full-file CRC check for mmap: crc32.Checksum would fault ALL pages
+	// into RAM (~5 GB), defeating the purpose of mmap. The file was written by
+	// Serialize() with atomic rename, so corruption is extremely unlikely.
+	// The heap-based Deserialize() still validates CRC for test/debug use.
 	payload := data[:len(data)-4]
-	storedCRC := le.Uint32(data[len(data)-4:])
-	computedCRC := crc32.Checksum(payload, castagnoliTable)
-	if storedCRC != computedCRC {
-		cleanup()
-		return nil, fmt.Errorf("CRC mismatch: stored %08x, computed %08x", storedCRC, computedCRC)
-	}
 
 	if string(data[0:4]) != Magic {
 		cleanup()
