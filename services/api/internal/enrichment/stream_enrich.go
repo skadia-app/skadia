@@ -79,14 +79,3 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 	return nil
 }
 
-// enrichStreamAscents is a placeholder for climb/ascent detection.
-// TODO: implement Go port of ascents.py.
-func enrichStreamAscents(_ context.Context, _ *database.DB, _ string) error {
-	return nil
-}
-
-// enrichStreamIntervals is a placeholder for interval detection.
-// TODO: implement Go port of intervals.py.
-func enrichStreamIntervals(_ context.Context, _ *database.DB, _ string) error {
-	return nil
-}
