@@ -129,7 +129,7 @@ function TagMultiSelect({
               onClick={() => { toggle(tag.id); setSearch('') }}
               className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md transition-colors text-left cursor-pointer ${
                 selectedSet.has(tag.id)
-                  ? 'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300'
+                  ? 'bg-accent-100 dark:bg-accent-DEFAULT/15 text-accent-700 dark:text-accent-300'
                   : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200'
               }`}
             >

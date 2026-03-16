@@ -360,7 +360,7 @@ export default function RoutePlannerPanel({
               {/* Suggest route button */}
               <button
                 onClick={onSuggest}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-50 dark:hover:bg-accent-950/20 text-xs font-medium transition-colors cursor-pointer"
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-DEFAULT/10 text-xs font-medium transition-colors cursor-pointer"
               >
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />

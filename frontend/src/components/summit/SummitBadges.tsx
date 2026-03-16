@@ -92,7 +92,7 @@ export default function SummitBadges({ peaks }: SummitBadgesProps) {
                 key={ms.count}
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
                   achieved
-                    ? 'bg-accent-100 text-accent-600 dark:bg-accent-900/40 dark:text-accent-400'
+                    ? 'bg-accent-100 text-accent-600 dark:bg-accent-DEFAULT/25 dark:text-accent-400'
                     : 'bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-600'
                 }`}
               >

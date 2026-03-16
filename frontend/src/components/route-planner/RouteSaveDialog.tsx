@@ -176,7 +176,7 @@ export default function RouteSaveDialog({
               type="button"
               onClick={() => handleSave('save_as_new')}
               disabled={isPending || !isValid}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-accent-400 border border-accent-400 dark:border-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-accent-400 border border-accent-400 dark:border-accent-600 hover:bg-accent-100 dark:hover:bg-accent-DEFAULT/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {isPending && saveMode === 'save_as_new' ? (
                 <span className="flex items-center gap-2">

@@ -278,7 +278,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 onClick={() => setDatePickerOpen(!datePickerOpen)}
                 className={`mt-2 w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg border cursor-pointer transition-colors ${
                   datePickerOpen
-                    ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20 text-accent-DEFAULT'
+                    ? 'border-accent-DEFAULT bg-accent-100 dark:bg-accent-DEFAULT/15 text-accent-DEFAULT'
                     : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-neutral-300 dark:hover:border-neutral-600'
                 }`}
               >

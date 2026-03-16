@@ -214,7 +214,7 @@ function WaypointRow({
         'transition-all duration-150',
         isDragging ? 'opacity-40 scale-[0.98]' : '',
         isDragOver
-          ? 'bg-accent-100/60 dark:bg-accent-900/20 ring-1 ring-accent-DEFAULT/50'
+          ? 'bg-accent-100/60 dark:bg-accent-DEFAULT/15 ring-1 ring-accent-DEFAULT/50'
           : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50',
       ]
         .filter(Boolean)

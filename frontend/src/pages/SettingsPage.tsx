@@ -1259,7 +1259,7 @@ function LocalMapAndGeoSection() {
             </div>
           )}
           {/* Hint */}
-          <div className="flex items-start gap-2 rounded-lg bg-accent-100/40 dark:bg-accent-900/10 border border-accent-200/60 dark:border-accent-800/30 px-3 py-2.5">
+          <div className="flex items-start gap-2 rounded-lg bg-accent-100/40 dark:bg-accent-DEFAULT/10 border border-accent-200/60 dark:border-accent-800/30 px-3 py-2.5">
             <svg className="h-4 w-4 text-accent-DEFAULT mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
             </svg>

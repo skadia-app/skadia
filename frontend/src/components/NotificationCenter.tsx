@@ -166,7 +166,7 @@ export default function NotificationCenter() {
                   key={n.id}
                   className={cn(
                     'group px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0',
-                    !n.read && 'bg-accent-50 dark:bg-accent-950/20',
+                    !n.read && 'bg-accent-100 dark:bg-accent-DEFAULT/10',
                   )}
                 >
                   <div className="flex items-start gap-2">

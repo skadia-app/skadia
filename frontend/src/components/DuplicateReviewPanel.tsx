@@ -79,7 +79,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                   key={side.id}
                   className={`rounded-lg border p-3 text-sm space-y-1 ${
                     side.isRicher
-                      ? 'border-accent-DEFAULT/40 bg-accent-50 dark:bg-accent-900/10'
+                      ? 'border-accent-DEFAULT/40 bg-accent-100 dark:bg-accent-DEFAULT/10'
                       : 'border-neutral-200 dark:border-neutral-700'
                   }`}
                 >

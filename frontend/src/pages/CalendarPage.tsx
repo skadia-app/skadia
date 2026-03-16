@@ -657,7 +657,7 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
     <td
       className={`px-1 py-1.5 min-h-[80px] align-top border-r last:border-r-0 border-neutral-100 dark:border-neutral-800/50 ${
         today
-          ? 'bg-[color:var(--color-accent-100)]/20 dark:bg-[color:var(--color-accent-900)]/20'
+          ? 'bg-[color:var(--color-accent-100)]/20 dark:bg-accent-DEFAULT/15'
           : ''
       }`}
     >
