@@ -13,7 +13,7 @@ const (
 	ascentMinGradientPct  = 3.0   // default minimum average gradient (%)
 	ascentMinElevationM   = 20.0  // default minimum elevation gain (m)
 	ascentMinLengthM      = 100.0 // minimum segment length (m)
-	ascentSmoothingWindow = 51    // Savitzky-Golay window size (matches ascents.py)
+	ascentSmoothingWindow = 21    // Savitzky-Golay window size (reduced for Smart Recording)
 	ascentPolyOrder       = 3     // polynomial order for SG filter
 )
 
@@ -74,8 +74,8 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		return fmt.Errorf("ascents: stream rows: %w", err)
 	}
 
-	// 3. Need at least SMOOTHING_WINDOW points.
-	if len(altitudes) < ascentSmoothingWindow {
+	// 3. Need an absolute minimum of 7 points for poly-3 SG filter.
+	if len(altitudes) < 7 {
 		return nil
 	}
 
@@ -154,10 +154,6 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		maybeAdd(startIdx, len(smoothed)-1)
 	}
 
-	if len(ascents) == 0 {
-		return nil
-	}
-
 	// 5. Delete existing climbs + insert fresh results.
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_climbs WHERE activity_id = $1",
@@ -166,15 +162,21 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		return fmt.Errorf("ascents: delete existing climbs: %w", err)
 	}
 
+	if len(ascents) == 0 {
+		return nil
+	}
+
 	for idx, a := range ascents {
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO activity_climbs
 			    (activity_id, climb_number, start_distance_m, end_distance_m,
-			     length_m, elevation_gain_m, avg_gradient_pct, max_gradient_pct)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			     length_m, elevation_gain_m, avg_gradient_pct, max_gradient_pct,
+			     category)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, activityID, idx+1,
 			a.startDistM, a.endDistM, a.lengthM, a.elevationGain,
 			a.avgGradient, a.maxGradient,
+			classifyClimb(a.elevationGain, a.avgGradient),
 		); err != nil {
 			slog.Warn("ascents: insert climb failed",
 				"activity_id", activityID,
@@ -189,6 +191,23 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		"climbs", len(ascents),
 	)
 	return nil
+}
+
+// classifyClimb returns a standard cycling climb category (HC, 1–4) based on
+// elevation gain (meters) and average gradient (percent).
+func classifyClimb(elevationGain, avgGradient float64) string {
+	switch {
+	case elevationGain >= 1500 || (elevationGain >= 1000 && avgGradient >= 7):
+		return "HC"
+	case elevationGain >= 600 || (elevationGain >= 400 && avgGradient >= 7):
+		return "1"
+	case elevationGain >= 300 || (elevationGain >= 200 && avgGradient >= 7):
+		return "2"
+	case elevationGain >= 150 || (elevationGain >= 100 && avgGradient >= 7):
+		return "3"
+	default:
+		return "4"
+	}
 }
 
 // sgFilter applies a Savitzky-Golay filter with arbitrary odd window and polynomial order.

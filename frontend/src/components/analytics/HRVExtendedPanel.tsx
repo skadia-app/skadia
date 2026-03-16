@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
+import { getCapabilities } from '@/api/routes'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,13 @@ interface Props {
 export default function HRVExtendedPanel({ activityId }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('time')
 
+  const { data: capabilities } = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 30_000,
+  })
+  const mlAvailable = capabilities?.ml_service !== false
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'hrv-extended', activityId],
     queryFn: async () => {
@@ -194,7 +202,7 @@ export default function HRVExtendedPanel({ activityId }: Props) {
         }
       }
     },
-    enabled: !!activityId,
+    enabled: !!activityId && mlAvailable,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
@@ -205,7 +213,11 @@ export default function HRVExtendedPanel({ activityId }: Props) {
         Erweiterte HRV-Analyse
       </h3>
 
-      {!activityId ? (
+      {!mlAvailable ? (
+        <p className="text-sm text-neutral-400 text-center py-4">
+          Dieses Feature benötigt den ML-Service.
+        </p>
+      ) : !activityId ? (
         <p className="text-sm text-neutral-400 text-center py-4">Aktivität auswählen</p>
       ) : isLoading ? (
         <div className="space-y-2 animate-pulse">

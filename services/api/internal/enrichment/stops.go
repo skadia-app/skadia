@@ -29,10 +29,7 @@ var gastronomyTypes = map[string]bool{
 	"pub":        true,
 	"food_court": true,
 	// tourism
-	"alpine_hut":  true,
-	"guest_house": true,
-	"hostel":      true,
-	"hotel":       true,
+	"alpine_hut": true,
 	// shop
 	"kiosk":   true,
 	"bakery":  true,
@@ -103,21 +100,7 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 		return nil
 	}
 
-	// 3. Delete existing data.
-	if _, err := db.Pool.Exec(ctx,
-		"DELETE FROM activity_stops WHERE activity_id = $1",
-		activityID,
-	); err != nil {
-		return fmt.Errorf("stops: delete existing stops: %w", err)
-	}
-	if _, err := db.Pool.Exec(ctx,
-		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy'",
-		activityID,
-	); err != nil {
-		return fmt.Errorf("stops: delete existing gastronomy tags: %w", err)
-	}
-
-	// 4. Batch POI lookup via LATERAL.
+	// 3. Batch POI lookup via LATERAL (read-only, outside transaction).
 	// Build unnest-ready slices (1-based ordinality matches stops index + 1).
 	lats := make([]float64, len(stops))
 	lngs := make([]float64, len(stops))
@@ -145,7 +128,8 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 		LEFT JOIN LATERAL (
 			SELECT a.osm_id, a.name, a.subtype
 			FROM osm_pois a
-			WHERE ST_DWithin(s.geom::geography, a.geom::geography, $3)
+			WHERE a.geom && ST_Expand(s.geom, $3 / 111320.0)
+			  AND ST_DWithin(s.geom::geography, a.geom::geography, $3)
 			  AND a.category IN ('gastronomy', 'accommodation')
 			ORDER BY ST_Distance(s.geom::geography, a.geom::geography)
 			LIMIT 1
@@ -169,6 +153,26 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 		return fmt.Errorf("stops: poi rows: %w", err)
 	}
 
+	// 4. Wrap deletes + inserts in a transaction.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("stops: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM activity_stops WHERE activity_id = $1",
+		activityID,
+	); err != nil {
+		return fmt.Errorf("stops: delete existing stops: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy'",
+		activityID,
+	); err != nil {
+		return fmt.Errorf("stops: delete existing gastronomy tags: %w", err)
+	}
+
 	// 5 + 6. Insert stops and gastronomy geo tags.
 	gastronomyCount := 0
 	for i, stop := range stops {
@@ -187,7 +191,7 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 		}
 
 		// Insert into activity_stops.
-		if _, err := db.Pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_stops
 			    (activity_id, started_at, ended_at, duration_s,
 			     location, poi_type, poi_name, poi_osm_id)
@@ -213,7 +217,7 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 			metaBytes, _ := json.Marshal(map[string]string{"poi_type": *poiType})
 			durationMin := stop.DurationS / 60
 
-			if _, err := db.Pool.Exec(ctx, `
+			if _, err := tx.Exec(ctx, `
 				INSERT INTO activity_geo_tags
 				    (activity_id, category, name, osm_id, map_type,
 				     map_point_lat, map_point_lon, duration_min, meta)
@@ -231,6 +235,10 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 				gastronomyCount++
 			}
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("stops: commit tx: %w", err)
 	}
 
 	slog.Info("stops: enrichment complete",

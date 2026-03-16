@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	intervalMinActivityRows = 30  // minimum stream rows to attempt detection
-	intervalMinSegmentRows  = 30  // minimum rows per binary-split segment
-	intervalMaxDepth        = 10  // maximum recursion depth for binary split
+	intervalMinActivityS   = 600  // minimum activity duration in seconds (10 min)
+	intervalMinSegmentS    = 30   // minimum segment duration in seconds
+	intervalMaxDepth       = 10   // maximum recursion depth for binary split
 	intervalHardRatio       = 1.10
 	intervalModerateRatio   = 0.90
 	intervalEasyRatio       = 0.70
@@ -86,7 +86,11 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activit
 		return fmt.Errorf("intervals: stream rows: %w", err)
 	}
 
-	if len(pts) < intervalMinActivityRows {
+	if len(pts) < 2 {
+		return nil
+	}
+	durationS := pts[len(pts)-1].T.Sub(pts[0].T).Seconds()
+	if durationS < intervalMinActivityS {
 		return nil
 	}
 
@@ -199,8 +203,37 @@ func upsertIntervalTag(ctx context.Context, db *database.DB, activityID, userID 
 	return nil
 }
 
+// forwardBackfill fills null gaps in raw using forward-fill then backfill,
+// analogous to pandas ffill/bfill. isValid[i] indicates whether raw[i] was
+// a real measurement; false entries are overwritten with the nearest valid value.
+func forwardBackfill(raw []float64, isValid []bool) {
+	// forward fill
+	last := -1
+	for i := range raw {
+		if isValid[i] {
+			last = i
+		} else if last >= 0 {
+			raw[i] = raw[last]
+		}
+	}
+	// backfill leading nulls
+	first := -1
+	for i := range raw {
+		if isValid[i] {
+			first = i
+			break
+		}
+	}
+	if first > 0 {
+		for i := 0; i < first; i++ {
+			raw[i] = raw[first]
+		}
+	}
+}
+
 // extractSignal picks the best signal channel (power > HR > speed) and applies
-// rolling-mean smoothing.  Returns nil if no channel has >50 % non-null coverage.
+// forward-backfill for nulls then rolling-mean smoothing.
+// Returns nil if no channel has >50 % non-null coverage.
 func extractSignal(pts []intervalStream) []float64 {
 	n := len(pts)
 
@@ -214,11 +247,14 @@ func extractSignal(pts []intervalStream) []float64 {
 		}
 		if cnt > n/2 {
 			raw := make([]float64, n)
+			valid := make([]bool, n)
 			for i, p := range pts {
 				if p.PowerW != nil {
 					raw[i] = *p.PowerW
+					valid[i] = true
 				}
 			}
+			forwardBackfill(raw, valid)
 			return rollingMean(raw, intervalSmoothWindow)
 		}
 	}
@@ -233,11 +269,14 @@ func extractSignal(pts []intervalStream) []float64 {
 		}
 		if cnt > n/2 {
 			raw := make([]float64, n)
+			valid := make([]bool, n)
 			for i, p := range pts {
 				if p.HeartRate != nil {
 					raw[i] = float64(*p.HeartRate)
+					valid[i] = true
 				}
 			}
+			forwardBackfill(raw, valid)
 			return rollingMean(raw, intervalSmoothWindow)
 		}
 	}
@@ -252,11 +291,14 @@ func extractSignal(pts []intervalStream) []float64 {
 		}
 		if cnt > n/2 {
 			raw := make([]float64, n)
+			valid := make([]bool, n)
 			for i, p := range pts {
 				if p.SpeedMS != nil {
 					raw[i] = *p.SpeedMS
+					valid[i] = true
 				}
 			}
+			forwardBackfill(raw, valid)
 			return rollingMean(raw, intervalSmoothWindow)
 		}
 	}
@@ -325,7 +367,8 @@ func meanSlice(s []float64) float64 {
 // binarySplit recursively splits [left, right] at the index that maximises
 // variance reduction, mirroring _binary_split in intervals.py.
 func binarySplit(signal []float64, times []time.Time, left, right, depth int, out *[]intervalSegment) {
-	if right-left < intervalMinSegmentRows || depth > intervalMaxDepth {
+	segDur := times[right].Sub(times[left]).Seconds()
+	if segDur < intervalMinSegmentS || depth > intervalMaxDepth {
 		*out = append(*out, intervalSegment{
 			startIdx: left, endIdx: right,
 			startT: times[left], endT: times[right],
@@ -339,7 +382,13 @@ func binarySplit(signal []float64, times []time.Time, left, right, depth int, ou
 	bestIdx := -1
 	bestScore := -1.0
 
-	for i := left + intervalMinSegmentRows; i < right-intervalMinSegmentRows; i++ {
+	for i := left + 1; i < right; i++ {
+		if times[i].Sub(times[left]).Seconds() < intervalMinSegmentS {
+			continue
+		}
+		if times[right].Sub(times[i]).Seconds() < intervalMinSegmentS {
+			break
+		}
 		lSeg := signal[left:i]
 		rSeg := signal[i : right+1]
 		if len(lSeg) < 2 || len(rSeg) < 2 {
@@ -361,7 +410,7 @@ func binarySplit(signal []float64, times []time.Time, left, right, depth int, ou
 	}
 
 	binarySplit(signal, times, left, bestIdx, depth+1, out)
-	binarySplit(signal, times, bestIdx, right, depth+1, out)
+	binarySplit(signal, times, bestIdx+1, right, depth+1, out)
 }
 
 // sortSegments sorts segments by startIdx (insertion sort — typically few segments).

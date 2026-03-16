@@ -8,6 +8,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchInsightsClusters } from '@/api/analytics'
 import type { ActivityCluster } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { getCapabilities } from '@/api/routes'
 
 echarts.use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -45,6 +46,13 @@ export default function TrainingClusters() {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
+  const { data: capabilities } = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 30_000,
+  })
+  const mlAvailable = capabilities?.ml_service !== false
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'insights', 'clusters', queryParams],
     queryFn: async () => {
@@ -56,6 +64,7 @@ export default function TrainingClusters() {
     },
     staleTime: 5 * 60 * 1000,
     retry: 1,
+    enabled: mlAvailable,
   })
 
   useEffect(() => {
@@ -114,6 +123,17 @@ export default function TrainingClusters() {
     }
     chartRef.current.setOption(option, { notMerge: true })
   }, [data])
+
+  if (!mlAvailable) {
+    return (
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">Trainings-Cluster</h3>
+        <p className="text-sm text-neutral-400 text-center py-6">
+          Dieses Feature benötigt den ML-Service.
+        </p>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
