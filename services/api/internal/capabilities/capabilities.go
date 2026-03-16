@@ -20,6 +20,7 @@ type Capabilities struct {
 	DEMCorrection   bool `json:"dem_correction"`
 	Isochrone       bool `json:"isochrone"`
 	RouteSuggestion bool `json:"route_suggestion"`
+	MLService       bool `json:"ml_service"`
 }
 
 // Detect probes the database and BRouter to determine which features are
@@ -69,6 +70,9 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 
 	// Route suggestion requires full routing stack
 	caps.RouteSuggestion = caps.Routing && caps.DEMCorrection && caps.SurfaceEnrich
+
+	// ML Service availability (cached from background probe)
+	caps.MLService = MLServiceAvailable()
 
 	return caps
 }

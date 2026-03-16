@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -607,6 +608,9 @@ func main() {
 
 	// Resume interrupted background jobs from previous server process.
 	go h.ResumeInterruptedJobs(context.Background())
+
+	// Start ML Service health probe (updates cached availability every 30s).
+	capabilities.StartMLProbe(ctx, cfg.MLServiceURL)
 
 	// Start OSM update scheduler (checks every hour whether any region update is due).
 	h.StartOSMUpdateScheduler(ctx)
