@@ -82,11 +82,13 @@ function JobRow({ job }: { job: ActiveJob }) {
   const phaseLabel = isEnrichmentJob
     ? (job.phase === 'enrichment'  ? 'Phase 1/2 — Anreichern' :
        job.phase === 'splitting'   ? 'Phase 2/2 — Aufteilen' : null)
-    : (job.phase === 'download'    ? 'Phase 1/5 — Herunterladen' :
-       job.phase === 'import'      ? 'Phase 2/5 — Importieren' :
-       job.phase === 'index'       ? 'Phase 3/5 — Indizieren' :
-       job.phase === 'optimize'    ? 'Phase 4/5 — Optimieren' :
-       job.phase === 'topology'    ? 'Phase 5/5 — Topologie' : null)
+    : (job.phase === 'download'          ? 'Herunterladen' :
+       job.phase === 'filter'            ? 'Filtern' :
+       job.phase === 'import'            ? 'Importieren' :
+       job.phase === 'merge'             ? 'Zusammenführen' :
+       job.phase === 'analyze'           ? 'Analysieren' :
+       job.phase === 'brouter_segments'  ? 'BRouter-Segmente' :
+       job.phase?.startsWith('region_')  ? `Region ${job.phase.split('_')[1]}` : null)
 
   return (
     <div className="flex items-center gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">

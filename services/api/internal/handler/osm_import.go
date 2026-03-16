@@ -173,6 +173,20 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		}
 	}
 
+	// BRouter-Segmente herunterladen wenn angefordert
+	if req.BuildBRouter {
+		segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
+		if segmentsDir == "" {
+			segmentsDir = "/data/brouter/segments"
+		}
+		reporter.SetPhase("brouter_segments")
+		reporter.SetProgress(0)
+		slog.Info("osm import: downloading BRouter segments", "dir", segmentsDir)
+		downloaded, skipped, dlErrors := pipeline.DownloadBRouterSegments(ctx, regions, segmentsDir, reporter)
+		slog.Info("osm import: BRouter segments done",
+			"downloaded", downloaded, "skipped", skipped, "errors", dlErrors)
+	}
+
 	reporter.Complete()
 
 	// Enrichment NUR starten wenn ways importiert wurden

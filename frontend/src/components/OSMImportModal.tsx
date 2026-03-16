@@ -240,9 +240,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   className="accent-accent-DEFAULT"
                 />
                 <div>
-                  <span className="text-sm">BRouter-Segmente bauen</span>
+                  <span className="text-sm">BRouter-Segmente herunterladen</span>
                   <span className="text-xs text-neutral-400 block">
-                    Routing-Daten für Routenplaner (PBF aufbewahren)
+                    Routing-Daten (rd5) von brouter.de für ausgewählte Regionen
                   </span>
                 </div>
               </label>
