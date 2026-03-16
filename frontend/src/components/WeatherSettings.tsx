@@ -207,7 +207,7 @@ export function WeatherSettings() {
           onClick={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
             (localPrefs?.auto_tags ?? true)
-              ? 'bg-accent-500'
+              ? 'bg-accent-DEFAULT'
               : 'bg-neutral-300 dark:bg-neutral-600'
           }`}
         >
