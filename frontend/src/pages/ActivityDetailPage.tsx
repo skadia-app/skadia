@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode, type CSSProperties } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, type ExportFormat } from '@/api/activities'
 import { getHeatmapSettings, getWeatherSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
-import { fetchTags, createTag, unassignActivitiesFromTag } from '@/api/tags'
+import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
@@ -20,7 +20,6 @@ import {
   sportColor, showIndoorBadge,
 } from '@/lib/utils'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
-import EnrichmentTags from '@/components/EnrichmentTags'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
@@ -336,14 +335,9 @@ export default function ActivityDetailPage() {
       {/* Header */}
       <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} />
 
-      {/* Tags (user + enrichment) in one row */}
+      {/* Tags in one row */}
       <div className="flex flex-wrap items-center gap-2">
         <TagsBadges tags={activity.tags} activityId={activity.id} />
-        <EnrichmentTags
-          timeOfDay={activity.time_of_day}
-          isRoundTrip={activity.is_round_trip}
-          weatherTags={activity.weather_readings?.flatMap(r => r.tags ?? [])}
-        />
       </div>
 
       {/* Sunrise / Sunset */}
@@ -1541,20 +1535,37 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
   const popoverRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const colors = [
-    'bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-    'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-    'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  ]
-
   const { data: allTags } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
     staleTime: 60_000, // 1 min — avoids redundant refetches while staying on the page
   })
+
+  const fallbackColors = [
+    { bg: '#F97316', text: '#FFFFFF' }, // Orange
+    { bg: '#3B82F6', text: '#FFFFFF' }, // Blue
+    { bg: '#22C55E', text: '#FFFFFF' }, // Emerald
+    { bg: '#A855F7', text: '#FFFFFF' }, // Purple
+    { bg: '#F43F5E', text: '#FFFFFF' }, // Rose
+    { bg: '#06B6D4', text: '#FFFFFF' }, // Cyan
+  ]
+
+  function getTagStyle(tagName: string, index: number): CSSProperties {
+    const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagName.toLowerCase())
+    if (tagObj?.color) {
+      return {
+        backgroundColor: tagObj.color + '20', // ~12% opacity background
+        color: tagObj.text_color && tagObj.text_color !== '#FFFFFF'
+          ? tagObj.text_color
+          : tagObj.color,
+      }
+    }
+    const fb = fallbackColors[index % fallbackColors.length]
+    return {
+      backgroundColor: fb.bg + '20',
+      color: fb.bg,
+    }
+  }
 
   const removeMut = useMutation({
     mutationFn: async (tagToRemove: string) => {
@@ -1578,8 +1589,16 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
   })
 
   const addMut = useMutation({
-    mutationFn: (tagToAdd: string) =>
-      updateActivity(activityId, { tags: [...tags, tagToAdd] }),
+    mutationFn: async (tagToAdd: string) => {
+      const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagToAdd.toLowerCase())
+      if (tagObj?.id) {
+        // Existing tag → use proper API (clears removal records)
+        await assignActivitiesToTag(tagObj.id, [activityId])
+        return updateActivity(activityId, {})
+      }
+      // Orphan tag or edge case → direct TEXT[] update
+      return updateActivity(activityId, { tags: [...tags, tagToAdd] })
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(['activity', activityId], updated)
       setSearch('')
@@ -1682,7 +1701,8 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
       {tags.map((tag, i) => (
         <span
           key={tag}
-          className={`group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[i % colors.length]}`}
+          className="group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+          style={getTagStyle(tag, i)}
         >
           {tag}
           <button

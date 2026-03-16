@@ -43,6 +43,7 @@ export interface WeatherPrefs {
   mountain_threshold_m: number
   long_duration_s: number
   display_fields: string[]
+  auto_tags: boolean
 }
 
 export const WEATHER_DISPLAY_FIELD_OPTIONS: { key: string; label: string }[] = [
