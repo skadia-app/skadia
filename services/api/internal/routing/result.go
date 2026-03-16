@@ -156,45 +156,77 @@ func buildRetrackResult(g *graph.Graph, src, dst uint32,
 	slices.Reverse(path)
 	slices.Reverse(edges)
 
-	// Build coordinates and compute metrics
-	coords := make([]LatLonEle, len(path))
+	// Build coordinates and compute metrics — expand edge geometry
+	var coords []LatLonEle
 	var totalDist, ascent, descent float64
+	// coordIdx tracks the coordinate index for segment boundary mapping
+	// edgeCoordStart[i] = coordinate index where edge i starts (the network node before it)
+	edgeCoordStart := make([]int, len(edges))
 
 	for i, n := range path {
-		coords[i] = LatLonEle{
+		// Add the network node itself
+		coords = append(coords, LatLonEle{
 			Lat: float64(g.NodeLat[n]) / 1e7,
 			Lon: float64(g.NodeLon[n]) / 1e7,
 			Ele: float64(g.NodeEle[n]) / 10.0, // dm → m
-		}
-		if i > 0 {
-			totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon,
-				coords[i].Lat, coords[i].Lon)
-			dEle := coords[i].Ele - coords[i-1].Ele
-			if dEle > 0 {
-				ascent += dEle
-			} else {
-				descent -= dEle
+		})
+
+		// If not the last node, record edge start and expand edge geometry.
+		// Skip first and last geometry points — they are the start/end
+		// network nodes which are already added by the outer loop.
+		if i < len(edges) {
+			edgeCoordStart[i] = len(coords) - 1
+
+			ei := edges[i]
+			geomStart := g.EdgeGeomOff[ei]
+			geomEnd := g.EdgeGeomOff[ei+1]
+			if geomEnd > geomStart+2 { // at least one interior point
+				for gi := geomStart + 1; gi < geomEnd-1; gi++ {
+					lat := float64(g.EdgeGeomLat[gi]) / 1e7
+					lon := float64(g.EdgeGeomLon[gi]) / 1e7
+					var ele float64
+					profStart := g.EdgeElevOff[ei]
+					profIdx := gi - geomStart
+					if profStart+profIdx < g.EdgeElevOff[ei+1] {
+						ele = float64(g.EdgeElevProf[profStart+profIdx]) / 10.0
+					}
+					coords = append(coords, LatLonEle{Lat: lat, Lon: lon, Ele: ele})
+				}
 			}
 		}
 	}
 
-	// Build segments (group consecutive edges with same OSM way ID)
+	// Compute distance and elevation from expanded coords
+	for i := 1; i < len(coords); i++ {
+		totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon,
+			coords[i].Lat, coords[i].Lon)
+		dEle := coords[i].Ele - coords[i-1].Ele
+		if dEle > 0 {
+			ascent += dEle
+		} else {
+			descent -= dEle
+		}
+	}
+
+	// Build segments using expanded coordinate indices
 	var segments []RouteSegment
 	if len(edges) > 0 {
 		curOSMIdx := g.EdgeOSMIdx[edges[0]]
 		curTags := g.EdgeTags1[edges[0]]
-		segStart := 0
+		segFromCoord := edgeCoordStart[0]
 
 		for i := 1; i < len(edges); i++ {
 			osmIdx := g.EdgeOSMIdx[edges[i]]
 			if osmIdx != curOSMIdx {
-				segments = append(segments, makeSegment(g, segStart, i, curTags, curOSMIdx))
-				segStart = i
+				seg := makeSegment(g, segFromCoord, edgeCoordStart[i], curTags, curOSMIdx)
+				segments = append(segments, seg)
+				segFromCoord = edgeCoordStart[i]
 				curOSMIdx = osmIdx
 				curTags = g.EdgeTags1[edges[i]]
 			}
 		}
-		segments = append(segments, makeSegment(g, segStart, len(edges), curTags, curOSMIdx))
+		seg := makeSegment(g, segFromCoord, len(coords)-1, curTags, curOSMIdx)
+		segments = append(segments, seg)
 	}
 
 	return &RouteResult{

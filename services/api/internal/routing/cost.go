@@ -56,7 +56,7 @@ func DefaultTrekkingConfig() *CostConfig {
 // trekkingEdgeCost computes edge cost for trekking profile.
 // Cost = distance_meters * highway_factor * surface_factor.
 func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) float32 {
-	distM := float32(g.EdgeDist[edgeIdx]) / 10.0 // dm → m
+	distM := float32(g.EdgeDist[edgeIdx]) / 100.0 // cm → m
 	tags := g.EdgeTags1[edgeIdx]
 
 	hw := graph.DecodeHighway(tags)

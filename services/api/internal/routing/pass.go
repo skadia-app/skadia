@@ -11,6 +11,28 @@ import (
 
 const checkCancelEvery = 4096
 
+// edgeSegmentDistances computes distances in millimeters between consecutive
+// geometry points for an edge.
+func edgeSegmentDistances(g *graph.Graph, ei uint32) []int32 {
+	profStart := g.EdgeElevOff[ei]
+	profEnd := g.EdgeElevOff[ei+1]
+	nPoints := int(profEnd - profStart)
+	if nPoints < 2 {
+		return nil
+	}
+	geomStart := g.EdgeGeomOff[ei]
+	dists := make([]int32, nPoints-1)
+	for j := 0; j < nPoints-1; j++ {
+		lat1 := g.EdgeGeomLat[geomStart+uint32(j)]
+		lon1 := g.EdgeGeomLon[geomStart+uint32(j)]
+		lat2 := g.EdgeGeomLat[geomStart+uint32(j)+1]
+		lon2 := g.EdgeGeomLon[geomStart+uint32(j)+1]
+		distM := equirectDist(lat1, lon1, lat2, lon2)
+		dists[j] = int32(distM * 1000) // meters → millimeters
+	}
+	return dists
+}
+
 // pass0 runs an inadmissible A* (coefficient > 1) to find a fast upper bound.
 // Returns the cost-cutting track (node IDs along the found path) and maxTotalCost.
 func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
@@ -73,11 +95,19 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 			edgeCost := cfg.EdgeCost(g, ei)
 
-			// Unit conversion: dm → mm
-			deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
-			distMilli := int32(g.EdgeDist[ei]) * 100                           // dm → mm
-
-			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			var newState PathState
+			var elevCost float32
+			profStart := g.EdgeElevOff[ei]
+			profEnd := g.EdgeElevOff[ei+1]
+			if profEnd > profStart {
+				profile := g.EdgeElevProf[profStart:profEnd]
+				segDist := edgeSegmentDistances(g, ei)
+				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+			} else {
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
+				distMilli := int32(g.EdgeDist[ei]) * 10                            // cm → mm
+				newState, elevCost = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			}
 			newCost := cur.Cost + edgeCost + elevCost
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
@@ -181,10 +211,20 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			target := g.Targets[ei]
 
 			edgeCost := cfg.EdgeCost(g, ei)
-			deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
-			distMilli := int32(g.EdgeDist[ei]) * 100                           // dm → mm
 
-			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			var newState PathState
+			var elevCost float32
+			profStart := g.EdgeElevOff[ei]
+			profEnd := g.EdgeElevOff[ei+1]
+			if profEnd > profStart {
+				profile := g.EdgeElevProf[profStart:profEnd]
+				segDist := edgeSegmentDistances(g, ei)
+				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+			} else {
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
+				distMilli := int32(g.EdgeDist[ei]) * 10                            // cm → mm
+				newState, elevCost = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			}
 			newCost := cur.Cost + edgeCost + elevCost
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
@@ -337,10 +377,20 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			target := g.Targets[ei]
 
 			edgeCost := cfg.EdgeCost(g, ei)
-			deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
-			distMilli := int32(g.EdgeDist[ei]) * 100                           // dm → mm
 
-			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			var newState PathState
+			var elevCost float32
+			profStart := g.EdgeElevOff[ei]
+			profEnd := g.EdgeElevOff[ei+1]
+			if profEnd > profStart {
+				profile := g.EdgeElevProf[profStart:profEnd]
+				segDist := edgeSegmentDistances(g, ei)
+				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+			} else {
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
+				distMilli := int32(g.EdgeDist[ei]) * 10                            // cm → mm
+				newState, elevCost = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			}
 			newCost := cur.Cost + edgeCost + elevCost
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
@@ -439,10 +489,20 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			target := g.Targets[ei]
 
 			edgeCost := cfg.EdgeCost(g, ei)
-			deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
-			distMilli := int32(g.EdgeDist[ei]) * 100                           // dm → mm
 
-			newState, elevCost := propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			var newState PathState
+			var elevCost float32
+			profStart := g.EdgeElevOff[ei]
+			profEnd := g.EdgeElevOff[ei+1]
+			if profEnd > profStart {
+				profile := g.EdgeElevProf[profStart:profEnd]
+				segDist := edgeSegmentDistances(g, ei)
+				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+			} else {
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100 // dm → mm
+				distMilli := int32(g.EdgeDist[ei]) * 10                            // cm → mm
+				newState, elevCost = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+			}
 			newCost := cur.Cost + edgeCost + elevCost
 			effectiveCost := newCost + newState.elevationCorrection(cfg)
 
@@ -539,42 +599,74 @@ func retrackSparse(g *graph.Graph, state *SparseState, src, dst uint32, cost flo
 		edges[i], edges[j] = edges[j], edges[i]
 	}
 
-	// Build coordinates
-	coords := make([]LatLonEle, len(path))
+	// Build coordinates and compute metrics — expand edge geometry
+	var coords []LatLonEle
 	var totalDist, ascent, descent float64
+	// edgeCoordStart[i] = coordinate index where edge i starts (the network node before it)
+	edgeCoordStart := make([]int, len(edges))
+
 	for i, n := range path {
-		coords[i] = LatLonEle{
+		// Add the network node itself
+		coords = append(coords, LatLonEle{
 			Lat: float64(g.NodeLat[n]) / 1e7,
 			Lon: float64(g.NodeLon[n]) / 1e7,
 			Ele: float64(g.NodeEle[n]) / 10.0,
-		}
-		if i > 0 {
-			totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon,
-				coords[i].Lat, coords[i].Lon)
-			dEle := coords[i].Ele - coords[i-1].Ele
-			if dEle > 0 {
-				ascent += dEle
-			} else {
-				descent -= dEle
+		})
+
+		// If not the last node, record edge start and expand edge geometry
+		if i < len(edges) {
+			edgeCoordStart[i] = len(coords) - 1
+
+			ei := edges[i]
+			geomStart := g.EdgeGeomOff[ei]
+			geomEnd := g.EdgeGeomOff[ei+1]
+			if geomEnd > geomStart+2 { // at least one interior point
+				for gi := geomStart + 1; gi < geomEnd-1; gi++ {
+					lat := float64(g.EdgeGeomLat[gi]) / 1e7
+					lon := float64(g.EdgeGeomLon[gi]) / 1e7
+					var ele float64
+					profStart := g.EdgeElevOff[ei]
+					profIdx := gi - geomStart
+					if profStart+profIdx < g.EdgeElevOff[ei+1] {
+						ele = float64(g.EdgeElevProf[profStart+profIdx]) / 10.0
+					}
+					coords = append(coords, LatLonEle{Lat: lat, Lon: lon, Ele: ele})
+				}
 			}
 		}
 	}
 
+	// Compute distance and elevation from expanded coords
+	for i := 1; i < len(coords); i++ {
+		totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon,
+			coords[i].Lat, coords[i].Lon)
+		dEle := coords[i].Ele - coords[i-1].Ele
+		if dEle > 0 {
+			ascent += dEle
+		} else {
+			descent -= dEle
+		}
+	}
+
+	// Build segments using expanded coordinate indices
 	var segments []RouteSegment
 	if len(edges) > 0 {
 		curOSMIdx := g.EdgeOSMIdx[edges[0]]
 		curTags := g.EdgeTags1[edges[0]]
-		segStart := 0
+		segFromCoord := edgeCoordStart[0]
+
 		for i := 1; i < len(edges); i++ {
 			osmIdx := g.EdgeOSMIdx[edges[i]]
 			if osmIdx != curOSMIdx {
-				segments = append(segments, makeSegment(g, segStart, i, curTags, curOSMIdx))
-				segStart = i
+				seg := makeSegment(g, segFromCoord, edgeCoordStart[i], curTags, curOSMIdx)
+				segments = append(segments, seg)
+				segFromCoord = edgeCoordStart[i]
 				curOSMIdx = osmIdx
 				curTags = g.EdgeTags1[edges[i]]
 			}
 		}
-		segments = append(segments, makeSegment(g, segStart, len(edges), curTags, curOSMIdx))
+		seg := makeSegment(g, segFromCoord, len(coords)-1, curTags, curOSMIdx)
+		segments = append(segments, seg)
 	}
 
 	return &RouteResult{
