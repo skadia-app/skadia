@@ -35,6 +35,7 @@ type AnalyticsFilter struct {
 	HRMax            *int
 	PowerMin         *int
 	PowerMax         *int
+	IsEbike *bool // nil=neutral, true=only ebike, false=exclude ebike
 	// Tri-state tag filters
 	IncludeTags []uuid.UUID // activity must have ALL of these tags
 	ExcludeTags []uuid.UUID // activity must have NONE of these tags
@@ -84,6 +85,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	}
 	f.IsCommute = parseOptBool(q.Get("is_commute"))
 	f.IsRace = parseOptBool(q.Get("is_race"))
+	f.IsEbike = parseOptBool(q.Get("is_ebike"))
 	f.PaceMinSecKm = parseOptFloat(q.Get("pace_min")) // sec/km
 	f.PaceMaxSecKm = parseOptFloat(q.Get("pace_max")) // sec/km
 	if v := q.Get("country"); v != "" {
@@ -323,6 +325,11 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	if len(f.ExcludeGear) > 0 {
 		conditions = append(conditions, "(a.gear_id IS NULL OR a.gear_id != ALL($"+strconv.Itoa(idx)+"::uuid[]))")
 		args = append(args, f.ExcludeGear)
+		idx++
+	}
+	if f.IsEbike != nil {
+		conditions = append(conditions, "a.is_ebike = $"+strconv.Itoa(idx))
+		args = append(args, *f.IsEbike)
 		idx++
 	}
 
