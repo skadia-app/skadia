@@ -711,7 +711,7 @@ export default function MapPage() {
   const { data: allTags = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
-    enabled: filters.showLocationTags || showIndoorAssign || !!selectedLocationTagId || filters.isEbike !== null,
+    enabled: true,
   })
   const locationTags = useMemo(
     () => allTags.filter(t => t.lat != null && t.lng != null),
@@ -719,8 +719,8 @@ export default function MapPage() {
   )
   locationTagsRef.current = locationTags
 
-  // E-Bike system tag — resolved by name for MVT tile URL building
-  const ebikeTag = allTags.find(t => t.name === 'E-Bike' && t.is_system)
+  // E-Bike tag — resolved by name (includes non-system tags for users with pre-existing E-Bike tag)
+  const ebikeTag = allTags.find(t => t.name === 'E-Bike')
 
   // Derive selected tag from fresh query data to avoid stale state
   const selectedLocationTag = selectedLocationTagId
