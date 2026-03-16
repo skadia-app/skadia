@@ -971,7 +971,32 @@ func (p *Pipeline) ClearRegionData(ctx context.Context, regionID string) error {
 func clearRegionData(ctx context.Context, q querier, regionID string) error {
 	slog.Info("osm import: clearing region data", "region", regionID)
 
-	// Junction-Tables: Region-Ownership entfernen
+	// Step 1: Collect osm_ids that will be orphaned (region-exclusive ways/routes).
+	// Do this BEFORE deleting junction entries, so we know which IDs to target.
+	// A way is region-exclusive if it belongs ONLY to this region (no other region owns it).
+	// Using TEMP tables to avoid scanning the entire osm_ways/osm_routes tables later.
+	_, _ = q.Exec(ctx, `CREATE TEMP TABLE IF NOT EXISTS _clear_way_ids ON COMMIT DROP AS
+		SELECT wr.osm_id FROM osm_way_regions wr
+		WHERE wr.region_id = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM osm_way_regions wr2
+			WHERE wr2.osm_id = wr.osm_id AND wr2.region_id != $1
+		  )`, regionID)
+	_, _ = q.Exec(ctx, `CREATE TEMP TABLE IF NOT EXISTS _clear_route_ids ON COMMIT DROP AS
+		SELECT rr.osm_id FROM osm_route_regions rr
+		WHERE rr.region_id = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM osm_route_regions rr2
+			WHERE rr2.osm_id = rr.osm_id AND rr2.region_id != $1
+		  )`, regionID)
+
+	// Step 2: Delete route_way_members for routes that will be orphaned.
+	// Must happen BEFORE deleting the routes themselves, using the collected IDs.
+	// PK index (route_osm_id, way_osm_id) makes this fast.
+	_, _ = q.Exec(ctx, `DELETE FROM osm_route_way_members m
+		WHERE m.route_osm_id IN (SELECT osm_id FROM _clear_route_ids)`)
+
+	// Step 3: Junction-Tables: Region-Ownership entfernen
 	for _, jt := range []string{"osm_way_regions", "osm_route_regions"} {
 		if _, err := q.Exec(ctx,
 			fmt.Sprintf("DELETE FROM %s WHERE region_id = $1", jt), regionID); err != nil {
@@ -979,17 +1004,11 @@ func clearRegionData(ctx context.Context, q querier, regionID string) error {
 		}
 	}
 
-	// [M2] Verwaiste Ways/Routes löschen — NOT EXISTS statt NOT IN (performant auf großen Tabellen)
-	for _, stmt := range []string{
-		"DELETE FROM osm_ways w WHERE NOT EXISTS (SELECT 1 FROM osm_way_regions r WHERE r.osm_id = w.osm_id)",
-		"DELETE FROM osm_routes r WHERE NOT EXISTS (SELECT 1 FROM osm_route_regions rr WHERE rr.osm_id = r.osm_id)",
-	} {
-		if _, err := q.Exec(ctx, stmt); err != nil {
-			slog.Warn("osm import: orphan cleanup failed (non-fatal)", "error", err)
-		}
-	}
+	// Step 4: Delete orphaned ways/routes using the pre-collected IDs (not full table scan).
+	_, _ = q.Exec(ctx, `DELETE FROM osm_ways w WHERE w.osm_id IN (SELECT osm_id FROM _clear_way_ids)`)
+	_, _ = q.Exec(ctx, `DELETE FROM osm_routes r WHERE r.osm_id IN (SELECT osm_id FROM _clear_route_ids)`)
 
-	// Alle Tabellen mit source_region
+	// Step 5: Alle Tabellen mit source_region
 	for _, table := range []string{
 		"osm_pois", "osm_forests", "osm_boundaries", "osm_landuse",
 		"osm_railways", "osm_waterways", "osm_waters", "osm_glaciers",
@@ -1001,11 +1020,7 @@ func clearRegionData(ctx context.Context, q querier, regionID string) error {
 		}
 	}
 
-	// osm_route_way_members: stale Einträge entfernen (referenzierte Ways/Routes fehlen)
-	_, _ = q.Exec(ctx, `DELETE FROM osm_route_way_members m
-		WHERE NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)
-		   OR NOT EXISTS (SELECT 1 FROM osm_routes r WHERE r.osm_id = m.route_osm_id)`)
-
+	// Temp tables are dropped on commit (ON COMMIT DROP).
 	slog.Info("osm import: region data cleared", "region", regionID)
 	return nil
 }
@@ -1121,14 +1136,12 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 		slog.Warn("osm import: stale route_way_members cleanup failed", "error", err)
 	}
 
-	// No ON CONFLICT — osm2pgsql --create drops PK constraints from Lua tables.
+	// ON CONFLICT DO NOTHING — PK (route_osm_id, way_osm_id) handles dedup.
+	// Previous version used NOT EXISTS subquery which caused sequential scans.
 	_, err = q.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO public.osm_route_way_members (route_osm_id, way_osm_id, source)
 		SELECT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
-		WHERE NOT EXISTS (
-			SELECT 1 FROM public.osm_route_way_members p
-			WHERE p.route_osm_id = s.route_osm_id AND p.way_osm_id = s.way_osm_id
-		)
+		ON CONFLICT (route_osm_id, way_osm_id) DO NOTHING
 	`, stagingSchema))
 	if err != nil {
 		slog.Warn("osm import: route_way_members staging insert failed", "error", err)

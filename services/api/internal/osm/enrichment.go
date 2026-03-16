@@ -499,11 +499,17 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 		}
 	} else {
 		slog.Info("enrichment: using Lua-extracted route members", "count", luaCount)
-		// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering)
+		// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering).
+		// Uses LEFT JOIN instead of NOT EXISTS — PostgreSQL can hash-join which is
+		// faster than nested-loop NOT EXISTS on large tables.
 		tag, err := conn.Exec(ctx, `
 			DELETE FROM osm_route_way_members m
-			WHERE source = 'relation'
-			  AND NOT EXISTS (SELECT 1 FROM osm_ways w WHERE w.osm_id = m.way_osm_id)`)
+			USING (
+				SELECT m2.route_osm_id, m2.way_osm_id FROM osm_route_way_members m2
+				LEFT JOIN osm_ways w ON w.osm_id = m2.way_osm_id
+				WHERE m2.source = 'relation' AND w.osm_id IS NULL
+			) orphans
+			WHERE m.route_osm_id = orphans.route_osm_id AND m.way_osm_id = orphans.way_osm_id`)
 		if err != nil {
 			slog.Warn("enrichment: cleanup orphan route members failed", "error", err)
 		} else {
