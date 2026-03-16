@@ -11,7 +11,7 @@ func TestDefaultTrekkingCost(t *testing.T) {
 	// Use highway=path (enum 16) for a realistic test
 	tags := graph.EncodeOSMTags(&graph.RawTags{Highway: "path"})
 	g := &graph.Graph{
-		EdgeDist:  []uint16{1000}, // 100m in dm
+		EdgeDist:  []uint32{10000}, // 100m in cm
 		EdgeTags1: []uint64{tags},
 	}
 
@@ -43,7 +43,7 @@ func TestCostConfig_MotorwayBlocked(t *testing.T) {
 	// Encode highway=motorway (enum 1)
 	tags := graph.EncodeOSMTags(&graph.RawTags{Highway: "motorway"})
 	g := &graph.Graph{
-		EdgeDist:  []uint16{1000},
+		EdgeDist:  []uint32{10000},
 		EdgeTags1: []uint64{tags},
 	}
 

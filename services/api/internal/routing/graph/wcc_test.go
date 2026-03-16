@@ -12,7 +12,7 @@ func TestPruneWCCRemovesIsland(t *testing.T) {
 		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000, 120000000, 120000000},
 		NodeEle:   []int32{5000, 5100, 5200, 5300, 1000, 1100},
 		NodeTags:  []uint8{0, 0, 0, 0, 0, 0},
-		EdgeDist:  []uint16{100, 100, 100, 100, 100, 100, 100, 100},
+		EdgeDist:  []uint32{100, 100, 100, 100, 100, 100, 100, 100},
 		EdgeTags1: make([]uint64, 8),
 		EdgeTags2: make([]uint64, 8),
 		EdgeOSMIdx: []uint32{0, 0, 0, 0, 0, 0, 0, 0},
@@ -21,7 +21,7 @@ func TestPruneWCCRemovesIsland(t *testing.T) {
 	g.Offsets = []uint32{0, 2, 4, 6, 8, 9, 10}
 	g.Targets = []uint32{1, 2, 0, 3, 0, 3, 1, 2, 5, 4}
 	g.EdgeCount = 10
-	g.EdgeDist = make([]uint16, 10)
+	g.EdgeDist = make([]uint32, 10)
 	g.EdgeTags1 = make([]uint64, 10)
 	g.EdgeTags2 = make([]uint64, 10)
 	g.EdgeOSMIdx = make([]uint32, 10)
@@ -51,7 +51,7 @@ func TestPruneWCCKeepsLargeComponents(t *testing.T) {
 		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000, 110000000},
 		NodeEle:   []int32{5000, 5100, 5200, 5300, 5400},
 		NodeTags:  []uint8{0, 0, 0, 0, 0},
-		EdgeDist:  make([]uint16, 8),
+		EdgeDist:  make([]uint32, 8),
 		EdgeTags1: make([]uint64, 8),
 		EdgeTags2: make([]uint64, 8),
 		EdgeOSMIdx: make([]uint32, 8),
@@ -75,7 +75,7 @@ func TestPruneWCCOnewayConnectivity(t *testing.T) {
 		NodeLon:   []int32{110000000, 110000000, 110000000},
 		NodeEle:   []int32{5000, 5100, 5200},
 		NodeTags:  []uint8{0, 0, 0},
-		EdgeDist:  []uint16{100, 100},
+		EdgeDist:  []uint32{100, 100},
 		EdgeTags1: make([]uint64, 2),
 		EdgeTags2: make([]uint64, 2),
 		EdgeOSMIdx: []uint32{0, 0},

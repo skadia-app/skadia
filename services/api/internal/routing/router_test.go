@@ -13,7 +13,7 @@ import (
 
 // makeTestGraph creates a small CSR graph for testing.
 // nodes: slice of {lat, lon, ele_dm}
-// edges: slice of {from, to, dist_dm, highway_enum}
+// edges: slice of {from, to, dist_cm, highway_enum}
 func makeTestGraph(nodes [][3]float64, edges [][4]int) *graph.Graph {
 	nodeCount := uint32(len(nodes))
 	edgeCount := uint32(len(edges))
@@ -45,11 +45,13 @@ func makeTestGraph(nodes [][3]float64, edges [][4]int) *graph.Graph {
 	}
 
 	g.Targets = make([]uint32, edgeCount)
-	g.EdgeDist = make([]uint16, edgeCount)
+	g.EdgeDist = make([]uint32, edgeCount)
 	g.EdgeTags1 = make([]uint64, edgeCount)
 	g.EdgeTags2 = make([]uint64, edgeCount)
 	g.EdgeOSMIdx = make([]uint32, edgeCount)
 	g.OSMIDPool = []int64{12345} // single dummy OSM ID
+	g.EdgeGeomOff = make([]uint32, edgeCount+1)
+	g.EdgeElevOff = make([]uint32, edgeCount+1)
 
 	cursor := make([]uint32, nodeCount)
 	copy(cursor, g.Offsets[:nodeCount])
@@ -57,7 +59,7 @@ func makeTestGraph(nodes [][3]float64, edges [][4]int) *graph.Graph {
 		pos := cursor[e[0]]
 		cursor[e[0]]++
 		g.Targets[pos] = uint32(e[1])
-		g.EdgeDist[pos] = uint16(e[2])
+		g.EdgeDist[pos] = uint32(e[2])
 		// Encode highway enum
 		g.EdgeTags1[pos] = uint64(e[3])
 	}
@@ -96,9 +98,9 @@ func simpleCostConfig() *CostConfig {
 		Pass0Coefficient:   1.5,
 	}
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
-	// Simple cost: distance in meters
+	// Simple cost: distance in meters (EdgeDist is in cm)
 	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) float32 {
-		return float32(g.EdgeDist[edgeIdx]) / 10.0
+		return float32(g.EdgeDist[edgeIdx]) / 100.0
 	}
 	return cfg
 }
@@ -112,12 +114,12 @@ func TestRoute_Triangle_ShortestPath(t *testing.T) {
 		{47.002, 11.0, 5000},   // node 2
 	}
 	edges := [][4]int{
-		{0, 1, 1000, 16}, // 0→1, 100m, path
-		{0, 2, 5000, 16}, // 0→2, 500m, path
-		{1, 2, 1000, 16}, // 1→2, 100m, path
-		{1, 0, 1000, 16}, // reverse edges
-		{2, 0, 5000, 16},
-		{2, 1, 1000, 16},
+		{0, 1, 10000, 16}, // 0→1, 100m, path
+		{0, 2, 50000, 16}, // 0→2, 500m, path
+		{1, 2, 10000, 16}, // 1→2, 100m, path
+		{1, 0, 10000, 16}, // reverse edges
+		{2, 0, 50000, 16},
+		{2, 1, 10000, 16},
 	}
 
 	g := makeTestGraph(nodes, edges)
@@ -153,15 +155,15 @@ func TestRoute_Diamond_HysteresisChoice(t *testing.T) {
 		{47.01, 11.0, 5000},    // node 3, 500m
 	}
 	edges := [][4]int{
-		{0, 1, 8000, 16}, // 0→1, 800m flat
-		{0, 2, 3000, 16}, // 0→2, 300m steep up
-		{1, 3, 8000, 16}, // 1→3, 800m flat
-		{2, 3, 3000, 16}, // 2→3, 300m steep down
+		{0, 1, 80000, 16}, // 0→1, 800m flat
+		{0, 2, 30000, 16}, // 0→2, 300m steep up
+		{1, 3, 80000, 16}, // 1→3, 800m flat
+		{2, 3, 30000, 16}, // 2→3, 300m steep down
 		// Reverse
-		{1, 0, 8000, 16},
-		{2, 0, 3000, 16},
-		{3, 1, 8000, 16},
-		{3, 2, 3000, 16},
+		{1, 0, 80000, 16},
+		{2, 0, 30000, 16},
+		{3, 1, 80000, 16},
+		{3, 2, 30000, 16},
 	}
 
 	g := makeTestGraph(nodes, edges)
@@ -221,8 +223,8 @@ func TestRoute_ContextCancelled_ReturnsEarly(t *testing.T) {
 		{47.1, 11.1, 5000},
 	}
 	edges := [][4]int{
-		{0, 1, 10000, 16},
-		{1, 0, 10000, 16},
+		{0, 1, 100000, 16},
+		{1, 0, 100000, 16},
 	}
 
 	g := makeTestGraph(nodes, edges)
@@ -249,10 +251,10 @@ func TestRoute_ViaPoint_TwoLegs(t *testing.T) {
 		{47.01, 11.0, 5000},  // end
 	}
 	edges := [][4]int{
-		{0, 1, 5000, 16},
-		{1, 0, 5000, 16},
-		{1, 2, 5000, 16},
-		{2, 1, 5000, 16},
+		{0, 1, 50000, 16},
+		{1, 0, 50000, 16},
+		{1, 2, 50000, 16},
+		{2, 1, 50000, 16},
 	}
 
 	g := makeTestGraph(nodes, edges)
@@ -282,8 +284,8 @@ func TestRoute_GeoJSON_Output(t *testing.T) {
 		{47.01, 11.01, 5100},
 	}
 	edges := [][4]int{
-		{0, 1, 15000, 16}, // path
-		{1, 0, 15000, 16},
+		{0, 1, 150000, 16}, // path
+		{1, 0, 150000, 16},
 	}
 
 	g := makeTestGraph(nodes, edges)
@@ -331,12 +333,12 @@ func TestRoute_CostCutting_GridRoute(t *testing.T) {
 				for c := range 20 {
 					n := r*20 + c
 					if c < 19 {
-						edges = append(edges, [4]int{n, n + 1, 1000, 16})
-						edges = append(edges, [4]int{n + 1, n, 1000, 16})
+						edges = append(edges, [4]int{n, n + 1, 10000, 16})
+						edges = append(edges, [4]int{n + 1, n, 10000, 16})
 					}
 					if r < 19 {
-						edges = append(edges, [4]int{n, n + 20, 1000, 16})
-						edges = append(edges, [4]int{n + 20, n, 1000, 16})
+						edges = append(edges, [4]int{n, n + 20, 10000, 16})
+						edges = append(edges, [4]int{n + 20, n, 10000, 16})
 					}
 				}
 			}
@@ -379,8 +381,8 @@ func TestRoute_SparseFallback_SameResult(t *testing.T) {
 		{47.002, 11.0, 5000},
 	}
 	edges := [][4]int{
-		{0, 1, 1000, 16}, {0, 2, 5000, 16}, {1, 2, 1000, 16},
-		{1, 0, 1000, 16}, {2, 0, 5000, 16}, {2, 1, 1000, 16},
+		{0, 1, 10000, 16}, {0, 2, 50000, 16}, {1, 2, 10000, 16},
+		{1, 0, 10000, 16}, {2, 0, 50000, 16}, {2, 1, 10000, 16},
 	}
 	g := makeTestGraph(nodes, edges)
 	rSparse := NewRouter(g, 0, 5) // pool=0 → all sparse
