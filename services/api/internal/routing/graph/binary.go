@@ -7,7 +7,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 var le = binary.LittleEndian
@@ -267,6 +270,187 @@ func Deserialize(path string) (*Graph, error) {
 	}
 
 	return g, nil
+}
+
+// DeserializeMmap loads a graph from a binary file using mmap.
+// Hot sections (Offsets, Targets, EdgeDist, etc.) are copied to the Go heap.
+// Cold sections (EdgeGeomLat, EdgeGeomLon, EdgeElevProf, EdgeOSMIdx) are
+// zero-copy slices into the mmap'd region. The mmap is released by a GC
+// finalizer when the Graph is no longer referenced.
+func DeserializeMmap(path string) (*Graph, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	size := int(fi.Size())
+
+	if size < HeaderSize+4 {
+		f.Close()
+		return nil, fmt.Errorf("file too small: %d bytes", size)
+	}
+
+	data, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		f.Close()
+		return nil, fmt.Errorf("mmap %s: %w", path, err)
+	}
+
+	// cleanup helper for error paths
+	cleanup := func() {
+		syscall.Munmap(data)
+		f.Close()
+	}
+
+	payload := data[:len(data)-4]
+	storedCRC := le.Uint32(data[len(data)-4:])
+	computedCRC := crc32.Checksum(payload, castagnoliTable)
+	if storedCRC != computedCRC {
+		cleanup()
+		return nil, fmt.Errorf("CRC mismatch: stored %08x, computed %08x", storedCRC, computedCRC)
+	}
+
+	if string(data[0:4]) != Magic {
+		cleanup()
+		return nil, fmt.Errorf("invalid magic: %q", data[0:4])
+	}
+	version := le.Uint32(data[4:8])
+	if version != FormatVersion {
+		cleanup()
+		return nil, fmt.Errorf("unsupported version: %d (expected %d)", version, FormatVersion)
+	}
+
+	g := &Graph{
+		NodeCount: le.Uint32(data[8:12]),
+		EdgeCount: le.Uint32(data[12:16]),
+		Version:   version,
+		mmapData:  data,
+		mmapFile:  f,
+	}
+	poolSize := le.Uint32(data[16:20])
+	g.BBox[0] = math.Float64frombits(le.Uint64(data[20:28]))
+	g.BBox[1] = math.Float64frombits(le.Uint64(data[28:36]))
+	g.BBox[2] = math.Float64frombits(le.Uint64(data[36:44]))
+	g.BBox[3] = math.Float64frombits(le.Uint64(data[44:52]))
+	g.BuildTime = time.Unix(int64(le.Uint64(data[52:60])), 0)
+	sectionCnt := le.Uint16(data[60:62])
+
+	dirStart := HeaderSize
+	entries := make([]sectionEntry, sectionCnt)
+	for i := 0; i < int(sectionCnt); i++ {
+		off := dirStart + i*12
+		entries[i].Type = le.Uint16(data[off : off+2])
+		entries[i].Offset = uint64(data[off+2]) |
+			uint64(data[off+3])<<8 |
+			uint64(data[off+4])<<16 |
+			uint64(data[off+5])<<24 |
+			uint64(data[off+6])<<32 |
+			uint64(data[off+7])<<40
+		entries[i].Length = le.Uint32(data[off+8 : off+12])
+	}
+
+	findSection := func(typ uint16) ([]byte, bool) {
+		for _, e := range entries {
+			if e.Type == typ {
+				start := int(e.Offset)
+				end := start + int(e.Length)
+				if start < 0 || start > len(payload) || end < start || end > len(payload) {
+					return nil, false
+				}
+				return data[start:end], true
+			}
+		}
+		return nil, false
+	}
+
+	// Hot sections — copied to Go heap.
+	if d, ok := findSection(SectionOffsets); ok {
+		g.Offsets = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionTargets); ok {
+		g.Targets = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeDist); ok {
+		g.EdgeDist = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeTags1); ok {
+		g.EdgeTags1 = bytesToUint64Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeTags2); ok {
+		g.EdgeTags2 = bytesToUint64Slice(d)
+	}
+	if d, ok := findSection(SectionOSMIDPool); ok {
+		g.OSMIDPool = decodeOSMIDPool(d, poolSize)
+	}
+	if d, ok := findSection(SectionNodeLat); ok {
+		g.NodeLat = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionNodeLon); ok {
+		g.NodeLon = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionNodeTags); ok {
+		g.NodeTags = make([]uint8, len(d))
+		copy(g.NodeTags, d)
+	}
+	if d, ok := findSection(SectionNodeEle); ok {
+		g.NodeEle = deltaDecodeElevation(d, int(g.NodeCount))
+	}
+	if d, ok := findSection(SectionSpatialGrid); ok {
+		g.Grid = decodeSpatialGrid(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomOff); ok {
+		g.EdgeGeomOff = bytesToUint32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeElevOff); ok {
+		g.EdgeElevOff = bytesToUint32Slice(d)
+	}
+
+	// Cold sections — zero-copy slices into mmap'd region.
+	if d, ok := findSection(SectionEdgeGeomLat); ok {
+		g.EdgeGeomLat = mmapInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomLon); ok {
+		g.EdgeGeomLon = mmapInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeElevProf); ok {
+		g.EdgeElevProf = mmapInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeOSMIdx); ok {
+		g.EdgeOSMIdx = mmapUint32Slice(d)
+	}
+
+	runtime.SetFinalizer(g, (*Graph).closeMmap)
+
+	return g, nil
+}
+
+// mmapInt32Slice reinterprets a byte slice from the mmap region as []int32.
+// Falls back to heap copy if offset is not 4-byte aligned.
+func mmapInt32Slice(data []byte) []int32 {
+	if len(data) == 0 {
+		return nil
+	}
+	if uintptr(unsafe.Pointer(&data[0]))%4 != 0 {
+		return bytesToInt32Slice(data)
+	}
+	return unsafe.Slice((*int32)(unsafe.Pointer(&data[0])), len(data)/4)
+}
+
+// mmapUint32Slice reinterprets a byte slice from the mmap region as []uint32.
+// Falls back to heap copy if offset is not 4-byte aligned.
+func mmapUint32Slice(data []byte) []uint32 {
+	if len(data) == 0 {
+		return nil
+	}
+	if uintptr(unsafe.Pointer(&data[0]))%4 != 0 {
+		return bytesToUint32Slice(data)
+	}
+	return unsafe.Slice((*uint32)(unsafe.Pointer(&data[0])), len(data)/4)
 }
 
 // --- Delta encoding for elevation ---
