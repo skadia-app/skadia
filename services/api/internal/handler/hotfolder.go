@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
@@ -23,7 +22,6 @@ import (
 // UploadFromFile imports a single activity file from disk on behalf of userID.
 // This is used by the hotfolder watcher.
 func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) error {
-	start := time.Now()
 	filename := filepath.Base(filePath)
 
 	// 1. File size check via os.Stat before reading
@@ -46,82 +44,46 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		return fmt.Errorf("file too large: %d bytes (max %d)", fileSize, maxSize)
 	}
 
-	// 2. Insert import_log entry (status=pending)
-	logEntry := model.ImportLogEntry{
-		UserID:         userID,
-		SourcePlatform: "hotfolder",
-		Filename:       filename,
-		FileSizeBytes:  &fileSize,
-		Status:         "pending",
-	}
-	logID, logErr := h.DB.InsertImportLog(ctx, logEntry)
-	if logErr != nil {
-		slog.Warn("hotfolder: failed to record import start", "file", filename, "error", logErr)
-	}
+	// 2. Insert import_log entry (status=pending) + transition to processing
+	tracker := h.DB.NewImportTracker(ctx, userID, "hotfolder", filename, &fileSize, nil)
+	tracker.Processing(ctx)
 
-	// 3. Update to processing
-	if logID != "" {
-		if err := h.DB.UpdateImportLogStatus(ctx, logID, "processing", nil, nil, nil); err != nil {
-			slog.Warn("hotfolder: failed to update import status to processing", "id", logID, "error", err)
-		}
-	}
-
-	// updateLog is a helper to finalize the import_log entry
-	updateLog := func(status string, errMsg *string, activityID *string) {
-		if logID == "" {
-			return
-		}
-		elapsed := int(time.Since(start).Milliseconds())
-		if err := h.DB.UpdateImportLogStatus(ctx, logID, status, errMsg, activityID, &elapsed); err != nil {
-			slog.Warn("hotfolder: failed to finalize import log", "id", logID, "error", err)
-		}
-	}
-
-	// 4. Read file
+	// 3. Read file
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
-		msg := fmt.Sprintf("read file: %s", err)
-		updateLog("error", &msg, nil)
+		tracker.Error(ctx, fmt.Errorf("read file: %w", err))
 		return fmt.Errorf("read file: %w", err)
 	}
 
-	// 5. Detect format + decompress .gz if needed
+	// 4. Detect format + decompress .gz if needed
 	decompressed, format, err := detectFormatAndDecompress(fileBytes, filename, maxSize*10)
 	if err != nil {
-		msg := err.Error()
-		updateLog("error", &msg, nil)
+		tracker.Error(ctx, err)
 		return err
 	}
 
-	// 6. SHA256 hash (of decompressed bytes)
+	// 5. SHA256 hash (of decompressed bytes)
 	hashArr := sha256.Sum256(decompressed)
 	hashStr := hex.EncodeToString(hashArr[:])
+	tracker.SetFileHash(ctx, hashStr)
 
-	// 7. FIT file type routing — monitoring FITs go to health tables, not activity import
+	// 6. FIT file type routing — monitoring FITs go to health tables, not activity import
 	if format == "fit" {
 		ftype := garmin.ReadFITFileType(decompressed)
 		if ftype == 68 || ftype == 44 {
 			// Monitoring FIT — no S3 upload, parse directly to health tables
 			monErr := garmin.ProcessMonitoringFIT(ctx, h.DB, decompressed, userID)
 			if monErr != nil {
-				msg := fmt.Sprintf("process monitoring FIT (type %d): %s", ftype, monErr)
-				updateLog("error", &msg, nil)
+				tracker.Error(ctx, fmt.Errorf("process monitoring FIT (type %d): %s", ftype, monErr))
 				return monErr
 			}
 			// Update log with monitoring metadata
-			if logID != "" {
-				elapsed := int(time.Since(start).Milliseconds())
-				if err := h.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, nil, &elapsed); err != nil {
-					slog.Warn("hotfolder: failed to finalize monitoring FIT log", "id", logID, "error", err)
-				}
-				meta, _ := json.Marshal(map[string]any{
-					"fit_file_type": ftype,
-					"data_type":     "monitoring",
-				})
-				if err := h.DB.UpdateImportLogMetadata(ctx, logID, meta); err != nil {
-					slog.Warn("hotfolder: failed to set monitoring FIT metadata", "id", logID, "error", err)
-				}
-			}
+			tracker.Completed(ctx, "")
+			meta, _ := json.Marshal(map[string]any{
+				"fit_file_type": ftype,
+				"data_type":     "monitoring",
+			})
+			tracker.SetMetadata(ctx, meta)
 			// Delete source file
 			if removeErr := os.Remove(filePath); removeErr != nil {
 				slog.Warn("hotfolder: failed to delete monitoring FIT after import", "path", filePath, "error", removeErr)
@@ -134,7 +96,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		// ftype == 4 (activity) or unknown → continue to activity import
 	}
 
-	// 8. S3 upload (decompressed bytes, without .gz extension)
+	// 7. S3 upload (decompressed bytes, without .gz extension)
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
@@ -142,18 +104,17 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
 	if err := h.Storage.Upload(ctx, s3Key, decompressed, contentType); err != nil {
 		importErr := fmt.Errorf("S3 upload: %w", err)
-		msg := importErr.Error()
-		updateLog("error", &msg, nil)
+		tracker.Error(ctx, importErr)
 		return importErr
 	}
 
-	// 9. Get user's conflict strategy
+	// 8. Get user's conflict strategy
 	var conflictStrategy importer.ConflictStrategy
 	if importSettings, settErr := h.DB.GetImportSettings(ctx, userID); settErr == nil && importSettings != nil {
 		conflictStrategy = importer.ConflictStrategy(importSettings.ConflictStrategy)
 	}
 
-	// 10. For FIT files: try multi-session parsing
+	// 9. For FIT files: try multi-session parsing
 	if format == "fit" {
 		sessions, multiErr := fitimport.ParseMultiSessionFIT(decompressed, filename)
 		if multiErr == nil && len(sessions) >= 2 {
@@ -167,8 +128,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			)
 			if msErr != nil {
 				importErr := fmt.Errorf("process multisport: %w", msErr)
-				msg := importErr.Error()
-				updateLog("error", &msg, nil)
+				tracker.Error(ctx, importErr)
 				return importErr
 			}
 			slog.Info("hotfolder: multisport activity processed",
@@ -176,7 +136,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 				"children", len(msResult.Children),
 				"file", filename,
 			)
-			updateLog("completed", nil, &msResult.ParentID)
+			tracker.Completed(ctx, msResult.ParentID)
 			// Delete source file
 			if removeErr := os.Remove(filePath); removeErr != nil {
 				slog.Warn("hotfolder: failed to delete source file after multisport import", "path", filePath, "error", removeErr)
@@ -187,7 +147,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		}
 	}
 
-	// 11. Single-session parsing
+	// 10. Single-session parsing
 	var data *model.ActivityData
 	switch format {
 	case "fit":
@@ -199,22 +159,20 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	}
 	if err != nil {
 		importErr := fmt.Errorf("parse %s: %w", format, err)
-		msg := importErr.Error()
-		updateLog("error", &msg, nil)
+		tracker.Error(ctx, importErr)
 		return importErr
 	}
 
 	data.FileHash = hashStr
 
-	// 12. Run duplicate detection + DB insert via ImportService
+	// 11. Run duplicate detection + DB insert via ImportService
 	result, err := h.ImportService.ProcessActivity(ctx, userID, data, decompressed, importer.ImportMetadata{
 		SourcePlatform:   "hotfolder",
 		ConflictStrategy: conflictStrategy,
 	})
 	if err != nil {
 		importErr := fmt.Errorf("process activity: %w", err)
-		msg := importErr.Error()
-		updateLog("error", &msg, nil)
+		tracker.Error(ctx, importErr)
 		slog.Error("hotfolder: ProcessActivity failed", "file", filename, "error", err)
 		return importErr
 	}
@@ -227,7 +185,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		"file", filename,
 	)
 
-	// 13. PostProcess for created/enriched/replaced (NOT skipped)
+	// 12. PostProcess for created/enriched/replaced (NOT skipped)
 	if result.Status == "created" || result.Status == "enriched" || result.Status == "replaced" {
 		if err := h.ImportService.PostProcess(ctx, userID, result.ActivityID, data, decompressed, s3Key, format, filename); err != nil {
 			slog.Warn("hotfolder: PostProcess failed", "id", result.ActivityID, "file", filename, "error", err)
@@ -238,10 +196,10 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		} else {
 			slog.Info("hotfolder: source file deleted after import", "path", filePath)
 		}
-		updateLog("completed", nil, &result.ActivityID)
+		tracker.Completed(ctx, result.ActivityID)
 	} else if result.Status == "skipped" {
 		// Duplicate — keep file in place so user notices
-		updateLog("skipped", nil, nil)
+		tracker.Skipped(ctx, "duplicate", nil)
 	}
 
 	return nil

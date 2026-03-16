@@ -89,27 +89,17 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// --- Import log tracking ---
 		logFilename := fmt.Sprintf("%d", tour.ID)
-		logEntry := model.ImportLogEntry{
-			UserID:         p.UserID,
-			SourcePlatform: "komoot",
-			Filename:       logFilename,
-			Status:         "pending",
-		}
-		logID, _ := p.DB.InsertImportLog(ctx, logEntry)
+		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, nil)
 
 		// Date filter
 		if p.Options.DateFrom != nil && tour.Date.Before(*p.Options.DateFrom) {
 			result.Skipped++
-			if logID != "" {
-				_ = p.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "date_filtered", nil)
 			continue
 		}
 		if p.Options.DateTo != nil && tour.Date.After(*p.Options.DateTo) {
 			result.Skipped++
-			if logID != "" {
-				_ = p.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "date_filtered", nil)
 			continue
 		}
 
@@ -118,16 +108,14 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		if err != nil {
 			slog.Warn("komoot activities: download failed", "tour_id", tour.ID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("download tour %d: %s", tour.ID, err))
-			if logID != "" {
-				msg := err.Error()
-				_ = p.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-			}
+			tracker.Error(ctx, err)
 			continue
 		}
 
 		// Compute file hash for dedup
 		sum := sha256.Sum256(fileBytes)
 		hashStr := hex.EncodeToString(sum[:])
+		tracker.SetFileHash(ctx, hashStr)
 
 		// Parse file to get ActivityData
 		var data *model.ActivityData
@@ -186,9 +174,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data.OriginalName = tour.Name
 		}
 
-		if logID != "" {
-			_ = p.DB.UpdateImportLogStatus(ctx, logID, "processing", nil, nil, nil)
-		}
+		tracker.Processing(ctx)
 
 		// Duplicate detection + insert via ImportService (handles Tier-0 via KomootTourID + Tier-1 hash/temporal)
 		actResult, processErr := p.ImportService.ProcessActivity(ctx, p.UserID, data, fileBytes,
@@ -196,10 +182,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		if processErr != nil {
 			slog.Warn("komoot activities: process failed", "tour_id", tour.ID, "error", processErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("process tour %d: %s", tour.ID, processErr))
-			if logID != "" {
-				msg := processErr.Error()
-				_ = p.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-			}
+			tracker.Error(ctx, processErr)
 			continue
 		}
 
@@ -208,9 +191,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		if actResult.Status != "created" {
 			result.Skipped++
-			if logID != "" {
-				_ = p.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 			continue
 		}
 
@@ -239,9 +220,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			slog.Warn("komoot activities: PostProcess failed", "tour_id", tour.ID, "activity_id", activityID, "error", err)
 		}
 
-		if logID != "" {
-			_ = p.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &activityID, nil)
-		}
+		tracker.Completed(ctx, activityID)
 		result.Imported++
 	}
 

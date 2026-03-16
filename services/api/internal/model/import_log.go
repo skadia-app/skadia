@@ -17,6 +17,8 @@ type ImportLogEntry struct {
 	ErrorMsg       *string         `json:"error_msg,omitempty"`
 	DurationMs     *int            `json:"duration_ms,omitempty"`
 	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	BatchID        *string         `json:"batch_id,omitempty"`
+	SkipReason     *string         `json:"skip_reason,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }

@@ -73,39 +73,27 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 			ftype := readFITFileType(data)
 
-			// Import log entry for this file.
-			monLogEntry := model.ImportLogEntry{
-				UserID:         params.UserID,
-				SourcePlatform: "garmin",
-				Filename:       f.Name,
-				Status:         "pending",
-			}
-			monLogID, _ := params.DB.InsertImportLog(ctx, monLogEntry)
+			fileSize := int64(len(data))
+			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, nil)
+			tracker.Processing(ctx)
 
 			// Activity files (type 4) are handled by ActivitiesImporter.
 			// All other non-monitoring types skip silently.
 			if ftype != fitFileTypeMonitorMain && ftype != fitFileTypeHRVNight {
-				if monLogID != "" {
-					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "skipped", nil, nil, nil)
-				}
+				tracker.Skipped(ctx, "not_monitoring_type", nil)
 				continue
 			}
 
 			// Delegate to ProcessMonitoringFIT — shared with hotfolder/upload paths.
 			if procErr := ProcessMonitoringFIT(ctx, params.DB, data, params.UserID); procErr != nil {
 				slog.Warn("garmin monitoring fit: process failed", "file", f.Name, "error", procErr)
-				if monLogID != "" {
-					msg := procErr.Error()
-					_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "error", &msg, nil, nil)
-				}
+				tracker.Error(ctx, procErr)
 				fitErrors++
 				continue
 			}
 
 			imported++
-			if monLogID != "" {
-				_ = params.DB.UpdateImportLogStatus(ctx, monLogID, "completed", nil, nil, nil)
-			}
+			tracker.Completed(ctx, "")
 		}
 		zr.Close()
 	}

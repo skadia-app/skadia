@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
@@ -76,34 +75,18 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if format == "fit" {
 		ftype := garmin.ReadFITFileType(decompressed)
 		if ftype == 68 || ftype == 44 {
-			start := time.Now()
-			logID := ""
 			sz := int64(len(decompressed))
-			logEntry := model.ImportLogEntry{
-				UserID:         userID,
-				SourcePlatform: "upload",
-				Filename:       header.Filename,
-				FileSizeBytes:  &sz,
-				Status:         "processing",
-			}
-			if id, logErr := h.DB.InsertImportLog(r.Context(), logEntry); logErr == nil {
-				logID = id
-			}
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil)
+			tracker.Processing(r.Context())
+			tracker.SetFileHash(r.Context(), hashStr)
 			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, decompressed, userID)
-			if logID != "" {
-				elapsed := int(time.Since(start).Milliseconds())
-				if monErr != nil {
-					msg := monErr.Error()
-					h.DB.UpdateImportLogStatus(r.Context(), logID, "error", &msg, nil, &elapsed)
-				} else {
-					h.DB.UpdateImportLogStatus(r.Context(), logID, "completed", nil, nil, &elapsed)
-				}
-			}
 			if monErr != nil {
+				tracker.Error(r.Context(), monErr)
 				writeError(w, http.StatusUnprocessableEntity, "Process Error",
 					fmt.Sprintf("failed to process monitoring FIT: %s", monErr), r.URL.Path)
 				return
 			}
+			tracker.Completed(r.Context(), "")
 			writeJSON(w, http.StatusOK, map[string]any{
 				"status":    "completed",
 				"data_type": "monitoring",
@@ -176,37 +159,21 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Import log for single-session FIT activity
-		start := time.Now()
 		sz := int64(len(decompressed))
-		logEntry := model.ImportLogEntry{
-			UserID:         userID,
-			SourcePlatform: "upload",
-			Filename:       filename,
-			FileSizeBytes:  &sz,
-			Status:         "processing",
-		}
-		logID := ""
-		if id, logErr := h.DB.InsertImportLog(r.Context(), logEntry); logErr == nil {
-			logID = id
-		}
+		tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil)
+		tracker.Processing(r.Context())
+		tracker.SetFileHash(r.Context(), hashStr)
 
 		fitResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, decompressed, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 		if processErr != nil {
 			slog.Error("process activity failed", "error", processErr)
-			if logID != "" {
-				elapsed := int(time.Since(start).Milliseconds())
-				msg := processErr.Error()
-				h.DB.UpdateImportLogStatus(r.Context(), logID, "error", &msg, nil, &elapsed)
-			}
+			tracker.Error(r.Context(), processErr)
 			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 			return
 		}
 
 		if fitResult.Status == "skipped" {
-			if logID != "" {
-				elapsed := int(time.Since(start).Milliseconds())
-				h.DB.UpdateImportLogStatus(r.Context(), logID, "skipped", nil, nil, &elapsed)
-			}
+			tracker.Skipped(r.Context(), "duplicate", nil)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"status":      "duplicate",
 				"activity_id": fitResult.ActivityID,
@@ -230,16 +197,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 		h.postInsertActivity(r.Context(), userID, fitActivity, data, decompressed, s3Key, format, filename)
 
-		if logID != "" {
-			elapsed := int(time.Since(start).Milliseconds())
-			switch fitResult.Status {
-			case "skipped":
-				h.DB.UpdateImportLogStatus(r.Context(), logID, "skipped", nil, nil, &elapsed)
-			default:
-				actID := fitResult.ActivityID
-				h.DB.UpdateImportLogStatus(r.Context(), logID, "completed", nil, &actID, &elapsed)
-			}
-		}
+		tracker.Completed(r.Context(), fitResult.ActivityID)
 
 		switch fitResult.Status {
 		case "enriched", "replaced":
@@ -302,37 +260,21 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Import log for GPX/TCX activity
-	start := time.Now()
 	sz := int64(len(decompressed))
-	gpxLogEntry := model.ImportLogEntry{
-		UserID:         userID,
-		SourcePlatform: "upload",
-		Filename:       filename,
-		FileSizeBytes:  &sz,
-		Status:         "processing",
-	}
-	gpxLogID := ""
-	if id, logErr := h.DB.InsertImportLog(r.Context(), gpxLogEntry); logErr == nil {
-		gpxLogID = id
-	}
+	tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil)
+	tracker.Processing(r.Context())
+	tracker.SetFileHash(r.Context(), hashStr)
 
 	gpxResult, processErr := h.ImportService.ProcessActivity(r.Context(), userID, data, decompressed, importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy})
 	if processErr != nil {
 		slog.Error("process activity failed", "error", processErr)
-		if gpxLogID != "" {
-			elapsed := int(time.Since(start).Milliseconds())
-			msg := processErr.Error()
-			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "error", &msg, nil, &elapsed)
-		}
+		tracker.Error(r.Context(), processErr)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 		return
 	}
 
 	if gpxResult.Status == "skipped" {
-		if gpxLogID != "" {
-			elapsed := int(time.Since(start).Milliseconds())
-			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "skipped", nil, nil, &elapsed)
-		}
+		tracker.Skipped(r.Context(), "duplicate", nil)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":      "duplicate",
 			"activity_id": gpxResult.ActivityID,
@@ -362,16 +304,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	h.postInsertActivity(r.Context(), userID, gpxActivity, data, decompressed, s3Key, format, filename)
 
-	if gpxLogID != "" {
-		elapsed := int(time.Since(start).Milliseconds())
-		switch gpxResult.Status {
-		case "skipped":
-			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "skipped", nil, nil, &elapsed)
-		default:
-			actID := gpxResult.ActivityID
-			h.DB.UpdateImportLogStatus(r.Context(), gpxLogID, "completed", nil, &actID, &elapsed)
-		}
-	}
+	tracker.Completed(r.Context(), gpxResult.ActivityID)
 
 	if gpxResult.Status == "enriched" || gpxResult.Status == "replaced" {
 		writeJSON(w, http.StatusOK, map[string]any{

@@ -96,13 +96,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if logFilename == "" {
 			logFilename = colVal(row, hdr["Aktivitäts-ID"])
 		}
-		logEntry := model.ImportLogEntry{
-			UserID:         params.UserID,
-			SourcePlatform: "strava",
-			Filename:       logFilename,
-			Status:         "pending",
-		}
-		logID, _ := params.DB.InsertImportLog(ctx, logEntry)
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, nil)
 
 		// --- Parse Strava activity ID ---
 		stravaIDStr := colVal(row, hdr["Aktivitäts-ID"])
@@ -120,16 +114,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// --- Date filter ---
 		if params.Options.DateFrom != nil && startedAt.Before(*params.Options.DateFrom) {
 			result.Skipped++
-			if logID != "" {
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "date_filtered", nil)
 			continue
 		}
 		if params.Options.DateTo != nil && startedAt.After(*params.Options.DateTo) {
 			result.Skipped++
-			if logID != "" {
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "date_filtered", nil)
 			continue
 		}
 
@@ -323,15 +313,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					if msErr != nil {
 						slog.Warn("strava activities: ProcessMultisport failed", "strava_id", stravaID, "error", msErr)
 						result.Errors = append(result.Errors, fmt.Sprintf("multisport strava_id=%d: %s", stravaID, msErr))
-						if logID != "" {
-							msg := msErr.Error()
-							_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-						}
+						tracker.Error(ctx, msErr)
 					} else {
 						result.Imported++
-						if logID != "" {
-							_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, nil, nil)
-						}
+						tracker.Completed(ctx, "")
 					}
 					continue
 				}
@@ -396,6 +381,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Compute hash for storage key
 			hash := sha256.Sum256(fileBytes)
 			hashStr = hex.EncodeToString(hash[:])
+			tracker.SetFileHash(ctx, hashStr)
 			data.FileHash = hashStr
 			data.FileFormat = format
 		} else if filename != "" {
@@ -410,9 +396,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Do not set FileFormat since we don't know it
 		}
 
-		if logID != "" {
-			_ = params.DB.UpdateImportLogStatus(ctx, logID, "processing", nil, nil, nil)
-		}
+		tracker.Processing(ctx)
 
 		// Upload original file to Garage (must happen before PostProcess which writes the sidecar)
 		var s3Key string
@@ -438,25 +422,18 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if err != nil {
 				slog.Warn("strava activities: ProcessActivity failed", "strava_id", stravaID, "error", err)
 				result.Errors = append(result.Errors, fmt.Sprintf("process strava_id=%d: %s", stravaID, err))
-				if logID != "" {
-					msg := err.Error()
-					_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-				}
+				tracker.Error(ctx, err)
 				continue
 			}
 
 			if actResult.Status == "skipped" {
 				result.Skipped++
-				if logID != "" {
-					_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-				}
+				tracker.Skipped(ctx, "duplicate", nil)
 				continue
 			}
 			if actResult.Status == "enriched" {
 				result.Skipped++ // counts as "not newly created" for import stats
-				if logID != "" {
-					_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actResult.ActivityID, nil)
-				}
+				tracker.Completed(ctx, actResult.ActivityID)
 				continue
 			}
 
@@ -464,10 +441,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, filename); err != nil {
 				slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
 			}
-			if logID != "" {
-				actID := actResult.ActivityID
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actID, nil)
-			}
+			tracker.Completed(ctx, actResult.ActivityID)
 
 			// Apply Strava-specific enrichment: activity name + weather from CSV
 			enrichFields := buildStravaEnrichFields(activityName, row, hdr)
@@ -495,10 +469,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if dupErr != nil {
 			slog.Warn("strava activities: duplicate check failed", "error", dupErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("dedup strava_id=%d: %s", stravaID, dupErr))
-			if logID != "" {
-				msg := dupErr.Error()
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-			}
+			tracker.Error(ctx, dupErr)
 			continue
 		}
 		if match != nil {
@@ -519,9 +490,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				_ = params.DB.SetActivityStravaID(ctx, match.ExistingActivityID, stravaID)
 			}
 			result.Skipped++
-			if logID != "" {
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "skipped", nil, nil, nil)
-			}
+			tracker.Skipped(ctx, "duplicate", nil)
 			continue
 		}
 
@@ -530,10 +499,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if err != nil {
 			slog.Warn("strava activities: insert failed", "strava_id", stravaID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("insert strava_id=%d: %s", stravaID, err))
-			if logID != "" {
-				msg := err.Error()
-				_ = params.DB.UpdateImportLogStatus(ctx, logID, "error", &msg, nil, nil)
-			}
+			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -631,10 +597,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			enrichment.RunStage1(ctx, params.DB, params.UserID, activity.ID, data)
 		}
 
-		if logID != "" {
-			actID := activity.ID
-			_ = params.DB.UpdateImportLogStatus(ctx, logID, "completed", nil, &actID, nil)
-		}
+		tracker.Completed(ctx, activity.ID)
 		result.Imported++
 	}
 

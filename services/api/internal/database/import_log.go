@@ -16,8 +16,8 @@ func (db *DB) InsertImportLog(ctx context.Context, entry model.ImportLogEntry) (
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO import_log
 			(user_id, source_platform, filename, file_hash, file_size_bytes,
-			 status, activity_id, error_msg, duration_ms, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			 status, activity_id, error_msg, duration_ms, metadata, batch_id, skip_reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`,
 		entry.UserID,
 		entry.SourcePlatform,
@@ -29,6 +29,8 @@ func (db *DB) InsertImportLog(ctx context.Context, entry model.ImportLogEntry) (
 		entry.ErrorMsg,
 		entry.DurationMs,
 		entry.Metadata,
+		entry.BatchID,
+		entry.SkipReason,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert import log: %w", err)
@@ -48,6 +50,24 @@ func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, erro
 		return fmt.Errorf("update import log status: %w", err)
 	}
 	return nil
+}
+
+// UpdateImportLogFileHash writes a computed file hash back to the DB.
+func (db *DB) UpdateImportLogFileHash(ctx context.Context, id, fileHash string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE import_log SET file_hash = $2, updated_at = NOW() WHERE id = $1`,
+		id, fileHash,
+	)
+	return err
+}
+
+// UpdateImportLogSkipReason sets the skip_reason field of an import_log entry.
+func (db *DB) UpdateImportLogSkipReason(ctx context.Context, id, skipReason string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE import_log SET skip_reason = $2, updated_at = NOW() WHERE id = $1`,
+		id, skipReason,
+	)
+	return err
 }
 
 // UpdateImportLogMetadata sets the metadata field of an import_log entry.
@@ -96,7 +116,8 @@ func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []s
 	// Data query
 	dataSQL := fmt.Sprintf(`
 		SELECT id, user_id, source_platform, filename, file_hash, file_size_bytes,
-		       status, activity_id, error_msg, duration_ms, metadata, created_at, updated_at
+		       status, activity_id, error_msg, duration_ms, metadata,
+		       batch_id, skip_reason, created_at, updated_at
 		FROM import_log
 		%s
 		ORDER BY created_at DESC
@@ -127,6 +148,8 @@ func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []s
 			&entry.ErrorMsg,
 			&entry.DurationMs,
 			&metaBytes,
+			&entry.BatchID,
+			&entry.SkipReason,
 			&entry.CreatedAt,
 			&entry.UpdatedAt,
 		); err != nil {
