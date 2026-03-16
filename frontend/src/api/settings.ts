@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { UserProfile } from './types'
+import type { UserProfile, WeatherPrefs } from './types'
 
 export interface ShadowFSSettings {
   schema: string
@@ -71,4 +71,12 @@ export async function getUserProfile(): Promise<UserProfile> {
 
 export async function updateUserProfile(data: Partial<UserProfile>): Promise<UserProfile> {
   return apiClient<UserProfile>('/settings/profile', { method: 'PATCH', body: data })
+}
+
+export async function getWeatherSettings(): Promise<WeatherPrefs> {
+  return apiClient<WeatherPrefs>('/settings/weather')
+}
+
+export async function updateWeatherSettings(prefs: WeatherPrefs): Promise<WeatherPrefs> {
+  return apiClient<WeatherPrefs>('/settings/weather', { method: 'PATCH', body: prefs })
 }

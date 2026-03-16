@@ -17,6 +17,46 @@ export type Visibility = 'private' | 'bekannte' | 'instanz' | 'federation' | 'pu
 
 export type GearStatus = 'active' | 'stored' | 'retired'
 
+export interface WeatherReading {
+  id: string
+  reading_type: 'single' | 'start' | 'summit' | 'midpoint'
+  label?: string | null
+  recorded_at: string
+  lat?: number | null
+  lng?: number | null
+  elevation_m?: number | null
+  temp_c?: number | null
+  apparent_temp_c?: number | null
+  precipitation_mm?: number | null
+  wind_speed_ms?: number | null
+  wind_gusts_ms?: number | null
+  humidity?: number | null
+  uv_index?: number | null
+  freezing_level_m?: number | null
+  condition?: string | null
+  tags?: string[]
+  model?: string | null
+}
+
+export interface WeatherPrefs {
+  reading_mode: 'auto' | 'always_one' | 'always_two'
+  mountain_threshold_m: number
+  long_duration_s: number
+  display_fields: string[]
+}
+
+export const WEATHER_DISPLAY_FIELD_OPTIONS: { key: string; label: string }[] = [
+  { key: 'temp_c',           label: 'Temperatur' },
+  { key: 'apparent_temp_c',  label: 'Gefühlte Temperatur' },
+  { key: 'precipitation_mm', label: 'Niederschlag' },
+  { key: 'wind_speed_ms',    label: 'Windgeschwindigkeit' },
+  { key: 'wind_gusts_ms',    label: 'Windböen' },
+  { key: 'humidity',         label: 'Luftfeuchtigkeit' },
+  { key: 'uv_index',         label: 'UV-Index' },
+  { key: 'freezing_level_m', label: 'Schneefallgrenze' },
+  { key: 'condition',        label: 'Wetterlage (Text)' },
+]
+
 export interface Activity {
   id: string
   user_id: string
@@ -61,11 +101,7 @@ export interface Activity {
   start_state?: string | null
   start_country?: string | null
   start_country_code?: string | null
-  weather_temp_c?: number | null
-  weather_condition?: string | null
-  weather_humidity?: number | null
-  weather_wind_speed_ms?: number | null
-  weather_tags?: string[]
+  weather_readings?: WeatherReading[]
   is_round_trip?: boolean
   intensity?: string | null
   time_of_day?: string[] | null

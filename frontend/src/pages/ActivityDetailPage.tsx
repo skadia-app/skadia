@@ -6,7 +6,7 @@ import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, type ExportFormat } from '@/api/activities'
-import { getHeatmapSettings } from '@/api/settings'
+import { getHeatmapSettings, getWeatherSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
 import { fetchTags, createTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
@@ -76,6 +76,13 @@ export default function ActivityDetailPage() {
     queryFn: () => fetchActivity(id!),
     enabled: !!id,
   })
+
+  const { data: weatherPrefs } = useQuery({
+    queryKey: ['weatherSettings'],
+    queryFn: getWeatherSettings,
+    staleTime: Infinity,
+  })
+  const weatherDisplayFields = weatherPrefs?.display_fields
 
   const { data: streams } = useQuery({
     queryKey: ['activity-streams', id],
@@ -337,7 +344,7 @@ export default function ActivityDetailPage() {
         <EnrichmentTags
           timeOfDay={activity.time_of_day}
           isRoundTrip={activity.is_round_trip}
-          weatherTags={activity.weather_tags}
+          weatherTags={activity.weather_readings?.flatMap(r => r.tags ?? [])}
         />
       </div>
 
@@ -466,13 +473,10 @@ export default function ActivityDetailPage() {
       )}
 
       {/* Weather */}
-      {activity.weather_temp_c != null && (
-        <WeatherBadge
-          tempC={activity.weather_temp_c}
-          condition={activity.weather_condition}
-          humidity={activity.weather_humidity}
-          windSpeedMS={activity.weather_wind_speed_ms}
-        />
+      {activity.weather_readings && activity.weather_readings.length > 0 && (
+        <div className="mt-2">
+          <WeatherBadge readings={activity.weather_readings} displayFields={weatherDisplayFields} />
+        </div>
       )}
 
       {/* Geo Tags (nicht für Multisport-Parent — Enrichments werden oben in der Multisport-Sektion gezeigt) */}

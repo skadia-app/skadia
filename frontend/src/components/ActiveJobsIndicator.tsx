@@ -44,6 +44,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     dem_import:              'Höhenmodell importieren',
     apply_rules:             'Regeln anwenden',
     routing_graph_build:     'Routing-Graph erstellen',
+    weather_backfill:        'Wetter-Daten nachfüllen',
   }
 
   const label = job.job_type === 'segment_recompute'

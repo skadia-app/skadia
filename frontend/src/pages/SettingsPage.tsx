@@ -24,6 +24,7 @@ import SchemaEditor from '@/components/SchemaEditor'
 import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
+import { WeatherSettings } from '@/components/WeatherSettings'
 
 // Stage-2 ML enrichment module configuration — backed by /settings/enrichment API.
 const STAGE2_MODULES = [
@@ -617,6 +618,9 @@ export default function SettingsPage() {
       </section>
 
       <PhotoPreviewSection />
+
+      {/* Wetterdaten */}
+      <WeatherSettings />
 
       {/* Sportarten */}
       <SportSettingsSection />
