@@ -57,6 +57,7 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 				_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, step)
 			})
 		if err != nil {
+			slog.Error("routing graph build failed", "error", err, "job_id", jobID)
 			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
 		} else {
 			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)

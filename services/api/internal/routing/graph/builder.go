@@ -62,10 +62,14 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	}
 	slog.Info("ways to load", "count", totalWays)
 
-	// Determine temp file path
+	// Determine temp file path — ensure directory exists
 	var edgeTmpPath string
 	if outputPath != "" {
-		edgeTmpPath = filepath.Join(filepath.Dir(outputPath), "edges.tmp")
+		dir := filepath.Dir(outputPath)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		edgeTmpPath = filepath.Join(dir, "edges.tmp")
 	} else {
 		tmpFile, err := os.CreateTemp("", "fitroute-edges-*.tmp")
 		if err != nil {
