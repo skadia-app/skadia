@@ -29,15 +29,6 @@ func (h *Handler) GetInsightsReadiness(w http.ResponseWriter, r *http.Request) {
 	h.serveInsightsCache(w, r, "readiness")
 }
 
-// mlAnomalyEntry is the shape the ML service stores in the "anomalies" cache key.
-type mlAnomalyEntry struct {
-	Date         string  `json:"date"`
-	RmssdMs      float64 `json:"rmssd_ms"`
-	Zscore       float64 `json:"zscore"`
-	BaselineMean float64 `json:"baseline_mean"`
-	BaselineStd  float64 `json:"baseline_std"`
-}
-
 // apiWarning is the shape the frontend Warning type expects.
 type apiWarning struct {
 	Type        string  `json:"type"`
@@ -48,9 +39,17 @@ type apiWarning struct {
 	Explanation *string `json:"explanation"`
 }
 
-// GetInsightsWarnings reads the "anomalies" cache key written by the ML service
-// and transforms the HRV anomaly list into the Warning[] shape the frontend expects.
-// Returns 204 No Content when the ML service has not yet computed the data.
+// metricLabel maps internal metric names to human-readable German labels.
+var metricLabel = map[string]string{
+	"hrv_rmssd":  "HRV (RMSSD)",
+	"resting_hr": "Ruhepuls",
+	"sleep_score": "Schlafqualität",
+	"spo2":       "SpO₂",
+}
+
+// GetInsightsWarnings reads the "anomalies" cache key written by the Go analytics
+// package and transforms each AnomalyEntry into Warning[] entries for the frontend.
+// Returns 204 No Content when no data has been computed yet.
 func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -58,7 +57,6 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ML service writes anomalies under the "anomalies" key.
 	raw, err := h.DB.GetAnalyticsCache(r.Context(), userID, "anomalies")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -69,39 +67,62 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decode the list of HRV anomaly entries from the ML service.
-	var anomalies []mlAnomalyEntry
+	// Decode []AnomalyEntry written by analytics.DetectAnomalies.
+	type anomalyDetail struct {
+		Metric       string  `json:"metric"`
+		Value        float64 `json:"value"`
+		ZScore       float64 `json:"zscore"`
+		BaselineMean float64 `json:"baseline_mean"`
+		BaselineStd  float64 `json:"baseline_std"`
+	}
+	type anomalyEntry struct {
+		Date            string          `json:"date"`
+		Severity        string          `json:"severity"`
+		AffectedMetrics []string        `json:"affected_metrics"`
+		Details         []anomalyDetail `json:"details"`
+	}
+	var anomalies []anomalyEntry
 	if err := json.Unmarshal(raw, &anomalies); err != nil {
-		// Unexpected format — return empty list rather than an error.
 		writeJSON(w, http.StatusOK, []apiWarning{})
 		return
 	}
 
-	// Transform each HRV anomaly into a Warning for the frontend.
-	warnings := make([]apiWarning, 0, len(anomalies))
+	// Map Go analytics severity (low/medium/high) to frontend severity labels.
+	sevMap := map[string]string{
+		"low":    "info",
+		"medium": "warning",
+		"high":   "danger",
+	}
+
+	// One apiWarning per (day × metric) detail entry.
+	warnings := make([]apiWarning, 0)
 	for _, a := range anomalies {
-		zscore := a.Zscore
-		var severity string
-		switch {
-		case zscore < -3.0:
-			severity = "danger"
-		case zscore < -2.5:
-			severity = "warning"
-		default:
-			severity = "info"
+		frontendSev := sevMap[a.Severity]
+		if frontendSev == "" {
+			frontendSev = "info"
 		}
-		explanation := fmt.Sprintf(
-			"HRV am %s: %.0f ms (Baseline %.0f ± %.0f ms, Z-Score %.2f)",
-			a.Date, a.RmssdMs, a.BaselineMean, a.BaselineStd, a.Zscore,
-		)
-		warnings = append(warnings, apiWarning{
-			Type:        "hrv_anomaly",
-			Severity:    severity,
-			Message:     fmt.Sprintf("Ungewöhnlich niedrige HRV am %s (%.0f ms)", a.Date, a.RmssdMs),
-			Value:       a.RmssdMs,
-			Threshold:   a.BaselineMean + -2.0*a.BaselineStd,
-			Explanation: &explanation,
-		})
+		for _, d := range a.Details {
+			label := metricLabel[d.Metric]
+			if label == "" {
+				label = d.Metric
+			}
+			explanation := fmt.Sprintf(
+				"%s am %s: %.2f (Baseline %.2f ± %.2f, Z-Score %.2f)",
+				label, a.Date, d.Value, d.BaselineMean, d.BaselineStd, d.ZScore,
+			)
+			threshold := d.BaselineMean - 2.0*d.BaselineStd
+			if d.ZScore > 0 {
+				threshold = d.BaselineMean + 2.0*d.BaselineStd
+			}
+			warnings = append(warnings, apiWarning{
+				Type:        d.Metric + "_anomaly",
+				Severity:    frontendSev,
+				Message:     fmt.Sprintf("Anomalie: %s am %s", label, a.Date),
+				Value:       d.Value,
+				Threshold:   threshold,
+				Explanation: &explanation,
+			})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, warnings)

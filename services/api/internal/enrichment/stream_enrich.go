@@ -51,7 +51,7 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 	type module struct {
 		name    string
 		enabled bool
-		fn      func(context.Context, *database.DB, string) error
+		fn      func(context.Context, *database.DB, string, string) error
 	}
 	modules := []module{
 		{"stops", settings.EnableStops, enrichStreamStops},
@@ -67,7 +67,7 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 			)
 			continue
 		}
-		if err := m.fn(ctx, db, activityID); err != nil {
+		if err := m.fn(ctx, db, userID, activityID); err != nil {
 			slog.Warn("stream enrichment module failed",
 				"module", m.name,
 				"activity_id", activityID,

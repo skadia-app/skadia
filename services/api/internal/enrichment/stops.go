@@ -66,7 +66,7 @@ type detectedStop struct {
 //  5. DELETE existing activity_stops + gastronomy geo tags, then INSERT fresh results.
 //  6. If duration >= 600 s AND poi_type is a gastronomy type AND poi_name is set,
 //     also INSERT an activity_geo_tags row with category='gastronomy'.
-func enrichStreamStops(ctx context.Context, db *database.DB, activityID string) error {
+func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityID string) error {
 	// 1. Load stream rows.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT time, lat, lng, COALESCE(speed_ms, 0)

@@ -145,13 +145,14 @@ func ComputeCorrelations(ctx context.Context, db *database.DB, userID string) er
 	sort.Slice(allCorrelations, func(i, j int) bool {
 		return allCorrelations[i].AbsR > allCorrelations[j].AbsR
 	})
+	totalEvaluated := len(allCorrelations)
 	if len(allCorrelations) > topN {
 		allCorrelations = allCorrelations[:topN]
 	}
 
 	result := CorrelationsResult{
 		Correlations:        allCorrelations,
-		TotalPairsEvaluated: len(allCorrelations),
+		TotalPairsEvaluated: totalEvaluated,
 	}
 
 	data, err := json.Marshal(result)

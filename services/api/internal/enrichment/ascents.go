@@ -25,7 +25,7 @@ const (
 //  3. Apply Savitzky-Golay (window=51, polyorder=3) to smooth altitude.
 //  4. Detect ascending segments and filter by elevation gain, length, gradient.
 //  5. DELETE existing activity_climbs + INSERT fresh results.
-func enrichStreamAscents(ctx context.Context, db *database.DB, activityID string) error {
+func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityID string) error {
 	// 1. Load user thresholds.
 	minGradient := ascentMinGradientPct
 	minElevation := ascentMinElevationM
@@ -34,10 +34,8 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, activityID string
 	row := db.Pool.QueryRow(ctx, `
 		SELECT climb_min_gradient_pct, climb_min_elevation_m
 		FROM user_enrichment_settings
-		WHERE user_id = (
-			SELECT user_id FROM activities WHERE id = $1
-		)
-	`, activityID)
+		WHERE user_id = $1
+	`, userID)
 	if err := row.Scan(&gradPct, &elevM); err == nil {
 		if gradPct != nil {
 			minGradient = *gradPct

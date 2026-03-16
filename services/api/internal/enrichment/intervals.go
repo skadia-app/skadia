@@ -60,7 +60,7 @@ type classifiedSegment struct {
 //     the global mean.
 //  6. If ≥ 2 hard segments are found, write results to activity_intervals and
 //     apply the auto-tag "Intervalltraining".
-func enrichStreamIntervals(ctx context.Context, db *database.DB, activityID string) error {
+func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string) error {
 	// 1. Load stream.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT time, power_w, heart_rate, speed_ms, cadence
@@ -152,19 +152,9 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, activityID stri
 	}
 
 	// 6. Auto-tag "Intervalltraining".
-	// Resolve user_id from the activity so we can scope the tag.
-	var userID string
-	if err := db.Pool.QueryRow(ctx,
-		"SELECT user_id FROM activities WHERE id = $1",
-		activityID,
-	).Scan(&userID); err != nil {
-		slog.Warn("intervals: could not resolve user_id for auto-tag",
+	if err := upsertIntervalTag(ctx, db, activityID, userID); err != nil {
+		slog.Warn("intervals: auto-tag failed",
 			"activity_id", activityID, "error", err)
-	} else {
-		if err := upsertIntervalTag(ctx, db, activityID, userID); err != nil {
-			slog.Warn("intervals: auto-tag failed",
-				"activity_id", activityID, "error", err)
-		}
 	}
 
 	slog.Info("intervals: enrichment complete",
