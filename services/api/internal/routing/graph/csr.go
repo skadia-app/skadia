@@ -2,6 +2,8 @@ package graph
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"math"
 )
 
@@ -93,46 +95,81 @@ func BuildCSR(topo TopologyResult) *Graph {
 	return g
 }
 
-// BuildCSRCompact converts a CompactTopologyResult into a CSR graph.
-// CompactEdge already has pre-encoded Tags1/Tags2 and pre-computed Dist in centimeters.
-// Panics if any edge references an out-of-range node index.
-func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
-	nodeCount := uint32(topo.NodeCount)
-	edgeCount := uint32(len(topo.Edges))
-
-	for i, e := range topo.Edges {
-		if e.From >= nodeCount || e.To >= nodeCount {
-			panic(fmt.Sprintf("BuildCSRCompact: edge %d out-of-range (from=%d, to=%d, nodeCount=%d)",
-				i, e.From, e.To, nodeCount))
-		}
-	}
+// BuildCSRFromFile builds a CSR graph by reading edges from a temp file written
+// by EdgeFileWriter. Two sequential passes over the file:
+//
+// Pass 1: Count edges per node (degree) + collect OSM IDs + count total geometry points.
+// Pass 2: Place edges in CSR arrays using cursor approach.
+func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Graph, error) {
+	nodeCount := uint32(len(nodes))
 
 	g := &Graph{
 		NodeCount: nodeCount,
-		EdgeCount: edgeCount,
 		Version:   FormatVersion,
 	}
 
+	// Copy node data
 	g.NodeLat = make([]int32, nodeCount)
 	g.NodeLon = make([]int32, nodeCount)
 	g.NodeEle = make([]int32, nodeCount)
 	g.NodeTags = make([]uint8, nodeCount)
-	for i, c := range topo.Nodes {
+	for i, c := range nodes {
 		g.NodeLat[i] = int32(math.Round(c.Lat * 1e7))
 		g.NodeLon[i] = int32(math.Round(c.Lon * 1e7))
 	}
-	copy(g.NodeTags, topo.NodeTags)
+	copy(g.NodeTags, nodeTags)
 
+	// === Read 1: Count edges and degrees ===
+	r, err := NewEdgeFileReader(edgeTmpPath)
+	if err != nil {
+		return nil, err
+	}
 	degree := make([]uint32, nodeCount)
-	for _, e := range topo.Edges {
-		degree[e.From]++
+	osmIDSet := make(map[int64]struct{})
+	var edgeCount uint32
+	var totalGeomPoints int
+
+	for {
+		osmID, _, _, isOneway, segments, rerr := r.ReadWay()
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			r.Close()
+			return nil, fmt.Errorf("CSR read 1: %w", rerr)
+		}
+		osmIDSet[osmID] = struct{}{}
+		for _, seg := range segments {
+			degree[seg.FromID]++
+			edgeCount++
+			totalGeomPoints += len(seg.GeomLat)
+			if !isOneway {
+				degree[seg.ToID]++
+				edgeCount++
+				totalGeomPoints += len(seg.GeomLat) // reverse gets same point count
+			}
+		}
 	}
 
+	g.EdgeCount = edgeCount
+	slog.Info("CSR read 1 complete", "edges", edgeCount, "geom_points", totalGeomPoints)
+
+	// Build offsets
 	g.Offsets = make([]uint32, nodeCount+1)
 	for i := uint32(0); i < nodeCount; i++ {
 		g.Offsets[i+1] = g.Offsets[i] + degree[i]
 	}
 
+	// Build OSM ID pool
+	osmIDMap := make(map[int64]uint32, len(osmIDSet))
+	g.OSMIDPool = make([]int64, 0, len(osmIDSet))
+	for id := range osmIDSet {
+		osmIDMap[id] = uint32(len(g.OSMIDPool))
+		g.OSMIDPool = append(g.OSMIDPool, id)
+	}
+	osmIDSet = nil
+
+	// Allocate edge arrays
 	g.Targets = make([]uint32, edgeCount)
 	g.EdgeDist = make([]uint32, edgeCount)
 	g.EdgeTags1 = make([]uint64, edgeCount)
@@ -140,60 +177,58 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 	g.EdgeOSMIdx = make([]uint32, edgeCount)
 	g.EdgeGeomOff = make([]uint32, edgeCount+1)
 
-	osmIDMap := make(map[int64]uint32)
-	for _, e := range topo.Edges {
-		if _, ok := osmIDMap[e.OSMID]; !ok {
-			osmIDMap[e.OSMID] = uint32(len(osmIDMap))
-		}
-	}
-	g.OSMIDPool = make([]int64, len(osmIDMap))
-	for id, idx := range osmIDMap {
-		g.OSMIDPool[idx] = id
-	}
+	// Pre-allocate geometry arrays
+	allGeomLat := make([]int32, 0, totalGeomPoints)
+	allGeomLon := make([]int32, 0, totalGeomPoints)
 
+	// === Read 2: Place edges in CSR order ===
+	if err := r.Reset(); err != nil {
+		r.Close()
+		return nil, err
+	}
 	cursor := make([]uint32, nodeCount)
 	copy(cursor, g.Offsets[:nodeCount])
 
-	// Track original edge index → CSR position for geometry reorder
-	type geomRange struct {
-		start, end uint32
-		reversed   bool
-	}
-	geomByPos := make([]geomRange, edgeCount)
-
-	for i, e := range topo.Edges {
-		pos := cursor[e.From]
-		cursor[e.From]++
-
-		g.Targets[pos] = e.To
-		g.EdgeDist[pos] = e.Dist
-		g.EdgeTags1[pos] = e.Tags1
-		g.EdgeTags2[pos] = e.Tags2
-		g.EdgeOSMIdx[pos] = osmIDMap[e.OSMID]
-
-		geomStart := topo.EdgeGeomOffset[i]
-		geomEnd := topo.EdgeGeomOffset[i+1]
-		rev := len(topo.EdgeGeomReversed) > i && topo.EdgeGeomReversed[i]
-		geomByPos[pos] = geomRange{geomStart, geomEnd, rev}
+	placeEdge := func(from, to, dist uint32, tags1, tags2 uint64, osmIdx uint32, geomLat, geomLon []int32) {
+		pos := cursor[from]
+		cursor[from]++
+		g.Targets[pos] = to
+		g.EdgeDist[pos] = dist
+		g.EdgeTags1[pos] = tags1
+		g.EdgeTags2[pos] = tags2
+		g.EdgeOSMIdx[pos] = osmIdx
+		g.EdgeGeomOff[pos] = uint32(len(allGeomLat))
+		allGeomLat = append(allGeomLat, geomLat...)
+		allGeomLon = append(allGeomLon, geomLon...)
 	}
 
-	// Reorder geometry into CSR edge order.
-	// Reverse-flagged edges (reverseGeomFlag) share forward geometry — expand reversed here.
-	var allGeomLat, allGeomLon []int32
-	for i := uint32(0); i < edgeCount; i++ {
-		g.EdgeGeomOff[i] = uint32(len(allGeomLat))
-		gr := geomByPos[i]
-		if gr.reversed {
-			// Copy geometry in reverse order
-			for j := int(gr.end) - 1; j >= int(gr.start); j-- {
-				allGeomLat = append(allGeomLat, topo.EdgeGeomLat[j])
-				allGeomLon = append(allGeomLon, topo.EdgeGeomLon[j])
+	for {
+		osmID, tags1, tags2, isOneway, segments, rerr := r.ReadWay()
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			r.Close()
+			return nil, fmt.Errorf("CSR read 2: %w", rerr)
+		}
+		osmIdx := osmIDMap[osmID]
+		for _, seg := range segments {
+			placeEdge(seg.FromID, seg.ToID, seg.Dist, tags1, tags2, osmIdx, seg.GeomLat, seg.GeomLon)
+			if !isOneway {
+				// Reverse edge — geometry in reverse order
+				n := len(seg.GeomLat)
+				revLat := make([]int32, n)
+				revLon := make([]int32, n)
+				for j := 0; j < n; j++ {
+					revLat[j] = seg.GeomLat[n-1-j]
+					revLon[j] = seg.GeomLon[n-1-j]
+				}
+				placeEdge(seg.ToID, seg.FromID, seg.Dist, tags1, tags2, osmIdx, revLat, revLon)
 			}
-		} else if gr.end > gr.start {
-			allGeomLat = append(allGeomLat, topo.EdgeGeomLat[gr.start:gr.end]...)
-			allGeomLon = append(allGeomLon, topo.EdgeGeomLon[gr.start:gr.end]...)
 		}
 	}
+	r.Close()
+
 	g.EdgeGeomOff[edgeCount] = uint32(len(allGeomLat))
 	g.EdgeGeomLat = allGeomLat
 	g.EdgeGeomLon = allGeomLon
@@ -201,8 +236,9 @@ func BuildCSRCompact(topo *CompactTopologyResult) *Graph {
 	g.EdgeElevOff = make([]uint32, edgeCount+1)
 	g.EdgeElevProf = nil
 
-	g.BBox = computeBBox(topo.Nodes)
-	return g
+	g.BBox = computeBBox(nodes)
+	slog.Info("CSR build complete", "nodes", nodeCount, "edges", edgeCount, "geom_points", len(allGeomLat))
+	return g, nil
 }
 
 // equirectangularDistDm calculates flat-earth distance in decimeters.

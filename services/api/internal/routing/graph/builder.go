@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -42,6 +44,8 @@ func BuildFromWays(ways []RawWay, elevations []int32) *Graph {
 
 // Build constructs the complete graph from PostGIS data.
 // Uses cursor-based streaming to avoid loading all ways into memory at once.
+// Edges are written to a temp file by StreamTopology, then read back by
+// BuildCSRFromFile in two passes (degree counting + CSR placement).
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	progressFn func(step string, pct int)) (*Graph, error) {
 
@@ -58,8 +62,22 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	}
 	slog.Info("ways to load", "count", totalWays)
 
+	// Determine temp file path
+	var edgeTmpPath string
+	if outputPath != "" {
+		edgeTmpPath = filepath.Join(filepath.Dir(outputPath), "edges.tmp")
+	} else {
+		tmpFile, err := os.CreateTemp("", "fitroute-edges-*.tmp")
+		if err != nil {
+			return nil, fmt.Errorf("create temp: %w", err)
+		}
+		edgeTmpPath = tmpFile.Name()
+		tmpFile.Close()
+	}
+	defer os.Remove(edgeTmpPath)
+
 	report("load_topology", 0)
-	topo, err := StreamTopology(ctx, pool, totalWays, func(loaded int64) {
+	topo, err := StreamTopology(ctx, pool, totalWays, edgeTmpPath, func(loaded int64) {
 		if totalWays > 0 {
 			report("load_topology", int(loaded*100/totalWays))
 		}
@@ -67,15 +85,18 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	if err != nil {
 		return nil, fmt.Errorf("stream topology: %w", err)
 	}
-	slog.Info("topology built", "nodes", topo.NodeCount, "edges", len(topo.Edges))
+	slog.Info("topology built", "nodes", topo.NodeCount)
 	report("load_topology", 100)
 
 	report("build_csr", 0)
-	g := BuildCSRCompact(topo)
+	g, err := BuildCSRFromFile(topo.Nodes, topo.NodeTags, edgeTmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("build CSR: %w", err)
+	}
+	*topo = CompactTopologyResult{} // free nodes memory
 	report("build_csr", 100)
 
 	report("elevation_nodes", 0)
-	// Detect bridge/tunnel from encoded tags — O(E) scan
 	isBridge := make([]bool, g.NodeCount)
 	for ni := uint32(0); ni < g.NodeCount; ni++ {
 		for ei := g.Offsets[ni]; ei < g.Offsets[ni+1]; ei++ {
@@ -100,8 +121,6 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 		slog.Warn("edge elevation profiles failed (non-fatal)", "error", err)
 	}
 	report("elevation_edges", 100)
-
-	*topo = CompactTopologyResult{} // free topology memory
 
 	report("prune_wcc", 0)
 	beforeNodes := g.NodeCount
