@@ -145,7 +145,13 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			COALESCE(is_hikeroute, false),
 			COALESCE(cycleroute_network, ''),
 			COALESCE(hikeroute_network, ''),
-			COALESCE(landuse_class, 0)
+			COALESCE(landuse_class, 0),
+			COALESCE(mtb_scale_uphill, ''),
+			COALESCE(via_ferrata_scale, ''),
+			COALESCE(trail_visibility, ''),
+			COALESCE(width, ''),
+			COALESCE(incline, ''),
+			COALESCE(sidewalk, '')
 		FROM osm_ways
 		WHERE highway IS NOT NULL
 		  AND highway != 'construction'
@@ -172,6 +178,8 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		var isCycleroute, isHikeroute bool
 		var cyclerouteNetwork, hikerouteNetwork string
 		var landuseClass int
+		var mtbScaleUphill, viaFerrataScale, trailVisibility string
+		var width, incline, sidewalk string
 
 		err := rows.Scan(
 			&w.OSMID, &geomWKT,
@@ -186,6 +194,8 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			&isCycleroute, &isHikeroute,
 			&cyclerouteNetwork, &hikerouteNetwork,
 			&landuseClass,
+			&mtbScaleUphill, &viaFerrataScale, &trailVisibility,
+			&width, &incline, &sidewalk,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan way: %w", err)
@@ -206,7 +216,13 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			TrafficClass: trafficClass, ProtectedArea: protectedArea,
 			IsCycleroute: isCycleroute, IsHikeroute: isHikeroute,
 			CyclerouteNetwork: cyclerouteNetwork, HikerouteNetwork: hikerouteNetwork,
-			LanduseClass: landuseClass,
+			LanduseClass:      landuseClass,
+			MtbScaleUphill:    mtbScaleUphill,
+			ViaFerrataScale:   viaFerrataScale,
+			TrailVisibility:   trailVisibility,
+			Width:             width,
+			Incline:           incline,
+			Sidewalk:          sidewalk,
 		}
 		w.Coords = parseLineStringWKT(geomWKT)
 		if w.Coords == nil && geomWKT != "" {

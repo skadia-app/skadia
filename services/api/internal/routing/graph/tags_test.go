@@ -111,6 +111,104 @@ func TestNullEnrichmentDefaultsToZero(t *testing.T) {
 	}
 }
 
+func TestEncodeEnrichmentNewFields(t *testing.T) {
+	tags := RawEnrichment{
+		MtbScaleUphill:  "3",
+		ViaFerrataScale: "K4",
+		TrailVisibility: "bad",
+		Width:           "2.5",
+		Incline:         "15%",
+		Sidewalk:        "both",
+	}
+	encoded := EncodeEnrichmentTags(&tags)
+
+	if got := DecodeField(encoded, 29, 3); got != uint64(mtbScaleUphillEnum["3"]) {
+		t.Errorf("mtb_scale_uphill: got %d, want %d", got, mtbScaleUphillEnum["3"])
+	}
+	if got := DecodeField(encoded, 32, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
+		t.Errorf("via_ferrata_scale: got %d, want %d", got, viaFerrataScaleEnum["K4"])
+	}
+	if got := DecodeField(encoded, 35, 3); got != uint64(trailVisibilityEnum["bad"]) {
+		t.Errorf("trail_visibility: got %d, want %d", got, trailVisibilityEnum["bad"])
+	}
+	if got := DecodeField(encoded, 38, 8); got != 25 { // 2.5m = 25dm
+		t.Errorf("width: got %d, want 25", got)
+	}
+	if got := DecodeField(encoded, 46, 8); got != 143 { // 15% + 128 = 143
+		t.Errorf("incline: got %d, want 143", got)
+	}
+	if got := DecodeField(encoded, 54, 3); got != uint64(sidewalkEnum["both"]) {
+		t.Errorf("sidewalk: got %d, want %d", got, sidewalkEnum["both"])
+	}
+}
+
+func TestParseWidth(t *testing.T) {
+	tests := []struct {
+		input string
+		want  uint8
+	}{
+		{"2.5", 25},
+		{"3", 30},
+		{"0.8 m", 8},
+		{"1.2m", 12},
+		{"", 0},
+		{"narrow", 0},
+		{"30", 255}, // clamped
+	}
+	for _, tt := range tests {
+		got := ParseWidth(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseWidth(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseIncline(t *testing.T) {
+	tests := []struct {
+		input string
+		want  uint8
+	}{
+		{"15%", 143},
+		{"-10%", 118},
+		{"0%", 128},
+		{"up", 138},
+		{"down", 118},
+		{"steep", 148},
+		{"", 0},
+		{"unknown", 0},
+		{"5", 133},     // bare number treated as percent
+		{"-30%", 98},
+	}
+	for _, tt := range tests {
+		got := ParseIncline(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseIncline(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestNewFieldsDoNotAffectOldFields(t *testing.T) {
+	// Verify new fields in bits 29-56 don't corrupt old fields in bits 0-28.
+	old := RawEnrichment{
+		ForestPct: 75, NoiseScore: 30, TrafficClass: 2,
+		ProtectedArea: 1, IsCycleroute: true, LanduseClass: 4,
+	}
+	combined := RawEnrichment{
+		ForestPct: 75, NoiseScore: 30, TrafficClass: 2,
+		ProtectedArea: 1, IsCycleroute: true, LanduseClass: 4,
+		MtbScaleUphill: "5", ViaFerrataScale: "K6",
+		TrailVisibility: "no", Width: "3.0", Incline: "-20%", Sidewalk: "left",
+	}
+	oldEnc := EncodeEnrichmentTags(&old)
+	combEnc := EncodeEnrichmentTags(&combined)
+
+	// Lower 29 bits must be identical.
+	mask := uint64((1 << 29) - 1)
+	if oldEnc&mask != combEnc&mask {
+		t.Errorf("new fields corrupted old bits: old=%064b combined=%064b", oldEnc, combEnc)
+	}
+}
+
 func TestEncodeDecodeAllFields(t *testing.T) {
 	tags := RawTags{
 		Highway: "track", Surface: "gravel", Tracktype: "grade3",

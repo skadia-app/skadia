@@ -1,34 +1,46 @@
 package graph
 
+import (
+	"math"
+	"strconv"
+	"strings"
+)
+
 // RawTags holds OSM tag strings as loaded from PostGIS before bit-packing.
 type RawTags struct {
-	Highway       string
-	Surface       string
-	Tracktype     string
-	SacScale      string
-	MtbScale      string
-	Smoothness    string
-	Access        string
-	Bicycle       string
-	Foot          string
-	Horse         string
-	Cycleway      string
-	CyclewayLeft  string
-	CyclewayRight string
-	CyclewayBoth  string
-	Maxspeed      string
-	Lanes         int
-	Oneway        bool
-	OnewayBicycle bool
-	Bridge        bool
-	Tunnel        bool
-	Ford          bool
-	Lit           bool
-	Segregated    bool
-	BicycleRoad   bool
+	Highway          string
+	Surface          string
+	Tracktype        string
+	SacScale         string
+	MtbScale         string
+	MtbScaleUphill   string
+	ViaFerrataScale  string
+	TrailVisibility  string
+	Smoothness       string
+	Access           string
+	Bicycle          string
+	Foot             string
+	Horse            string
+	Cycleway         string
+	CyclewayLeft     string
+	CyclewayRight    string
+	CyclewayBoth     string
+	Maxspeed         string
+	Width            string
+	Incline          string
+	Sidewalk         string
+	Lanes            int
+	Oneway           bool
+	OnewayBicycle    bool
+	Bridge           bool
+	Tunnel           bool
+	Ford             bool
+	Lit              bool
+	Segregated       bool
+	BicycleRoad      bool
 }
 
-// RawEnrichment holds enrichment values from PostGIS nullable columns.
+// RawEnrichment holds enrichment values and extra OSM tags from PostGIS.
 // Zero values represent NULL/unknown.
 type RawEnrichment struct {
 	ForestPct         int
@@ -40,6 +52,12 @@ type RawEnrichment struct {
 	CyclerouteNetwork string
 	HikerouteNetwork  string
 	LanduseClass      int
+	MtbScaleUphill    string
+	ViaFerrataScale   string
+	TrailVisibility   string
+	Width             string
+	Incline           string
+	Sidewalk          string
 }
 
 var highwayEnum = map[string]uint8{
@@ -75,6 +93,23 @@ var sacScaleEnum = map[string]uint8{
 
 var mtbScaleEnum = map[string]uint8{
 	"0": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6,
+}
+
+var mtbScaleUphillEnum = map[string]uint8{
+	"0": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6,
+}
+
+var viaFerrataScaleEnum = map[string]uint8{
+	"K1": 1, "K2": 2, "K3": 3, "K4": 4, "K5": 5, "K6": 6,
+}
+
+var trailVisibilityEnum = map[string]uint8{
+	"excellent": 1, "good": 2, "intermediate": 3,
+	"bad": 4, "horrible": 5, "no": 6,
+}
+
+var sidewalkEnum = map[string]uint8{
+	"yes": 1, "both": 2, "left": 3, "right": 4, "no": 5,
 }
 
 var smoothnessEnum = map[string]uint8{
@@ -176,14 +211,26 @@ func encodeCyclewaySide(t *RawTags) uint8 {
 	}
 }
 
-// EncodeEnrichmentTags packs RawEnrichment into the second uint64.
+// EncodeEnrichmentTags packs RawEnrichment and extra OSM tags into the second uint64.
 //
-// Bit layout (see spec section 4.4):
+// Bit layout:
 //
-//	Bits 0-6: forest_pct (7), 7-13: noise_score (7), 14-15: traffic_class (2),
-//	16-17: protected_area (2), 18: is_cycleroute, 19: is_hikeroute,
-//	20-22: cycleroute_network (3), 23-25: hikeroute_network (3),
-//	26-28: landuse_class (3), 29-63: reserve
+//	Bits  0- 6: forest_pct (7)
+//	Bits  7-13: noise_score (7)
+//	Bits 14-15: traffic_class (2)
+//	Bits 16-17: protected_area (2)
+//	Bit  18:    is_cycleroute
+//	Bit  19:    is_hikeroute
+//	Bits 20-22: cycleroute_network (3)
+//	Bits 23-25: hikeroute_network (3)
+//	Bits 26-28: landuse_class (3)
+//	Bits 29-31: mtb_scale_uphill (3)
+//	Bits 32-34: via_ferrata_scale (3)
+//	Bits 35-37: trail_visibility (3)
+//	Bits 38-45: width_dm (8)
+//	Bits 46-53: incline_offset (8)   — value+128 so 0%=128
+//	Bits 54-56: sidewalk (3)
+//	Bits 57-63: reserve (7)
 func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 	var v uint64
 	v |= uint64(clamp(e.ForestPct, 0, 100))
@@ -199,6 +246,12 @@ func EncodeEnrichmentTags(e *RawEnrichment) uint64 {
 	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 20
 	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 23
 	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 26
+	v |= uint64(mtbScaleUphillEnum[e.MtbScaleUphill]) << 29
+	v |= uint64(viaFerrataScaleEnum[e.ViaFerrataScale]) << 32
+	v |= uint64(trailVisibilityEnum[e.TrailVisibility]) << 35
+	v |= uint64(ParseWidth(e.Width)) << 38
+	v |= uint64(ParseIncline(e.Incline)) << 46
+	v |= uint64(sidewalkEnum[e.Sidewalk]) << 54
 	return v
 }
 
@@ -238,6 +291,10 @@ var surfaceNames = reverseMap(surfaceEnum)
 var tracktypeNames = reverseMap(tracktypeEnum)
 var sacScaleNames = reverseMap(sacScaleEnum)
 var mtbScaleNames = reverseMap(mtbScaleEnum)
+var mtbScaleUphillNames = reverseMap(mtbScaleUphillEnum)
+var viaFerrataScaleNames = reverseMap(viaFerrataScaleEnum)
+var trailVisibilityNames = reverseMap(trailVisibilityEnum)
+var sidewalkNames = reverseMap(sidewalkEnum)
 
 func reverseMap(m map[string]uint8) map[uint8]string {
 	r := make(map[uint8]string, len(m))
@@ -261,3 +318,67 @@ func SacScaleName(v uint8) string { return sacScaleNames[v] }
 
 // MtbScaleName returns the string name for an mtb_scale enum value.
 func MtbScaleName(v uint8) string { return mtbScaleNames[v] }
+
+// MtbScaleUphillName returns the string name for an mtb_scale_uphill enum value.
+func MtbScaleUphillName(v uint8) string { return mtbScaleUphillNames[v] }
+
+// ViaFerrataScaleName returns the string name for a via_ferrata_scale enum value.
+func ViaFerrataScaleName(v uint8) string { return viaFerrataScaleNames[v] }
+
+// TrailVisibilityName returns the string name for a trail_visibility enum value.
+func TrailVisibilityName(v uint8) string { return trailVisibilityNames[v] }
+
+// SidewalkName returns the string name for a sidewalk enum value.
+func SidewalkName(v uint8) string { return sidewalkNames[v] }
+
+// ParseWidth converts an OSM width string (e.g. "2.5", "3", "0.8 m") to uint8 decimeters.
+// Returns 0 for empty/unparseable values. Clamps to 255.
+func ParseWidth(s string) uint8 {
+	if s == "" {
+		return 0
+	}
+	s = strings.TrimSuffix(s, " m")
+	s = strings.TrimSuffix(s, "m")
+	s = strings.TrimSpace(s)
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		return 0
+	}
+	dm := int(math.Round(f * 10))
+	if dm > 255 {
+		dm = 255
+	}
+	return uint8(dm)
+}
+
+// ParseIncline converts an OSM incline string to uint8 with offset 128 (= 0%).
+// "15%" → 143, "-10%" → 118, "up" → 138 (+10%), "down" → 118 (-10%).
+// Returns 0 for empty/unparseable values (0 = unknown, distinct from 128 = 0%).
+func ParseIncline(s string) uint8 {
+	if s == "" {
+		return 0
+	}
+	switch s {
+	case "up":
+		return 128 + 10
+	case "down":
+		return 128 - 10
+	case "steep":
+		return 128 + 20
+	}
+	s = strings.TrimSuffix(s, "%")
+	s = strings.TrimSuffix(s, "°") // some use degrees, treat as percent approximation
+	s = strings.TrimSpace(s)
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	v := int(math.Round(f)) + 128
+	if v < 0 {
+		v = 0
+	}
+	if v > 255 {
+		v = 255
+	}
+	return uint8(v)
+}
