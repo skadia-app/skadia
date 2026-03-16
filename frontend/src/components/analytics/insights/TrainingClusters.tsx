@@ -145,6 +145,7 @@ export default function TrainingClusters() {
   }
 
   if (isError || !data || !Array.isArray(data) || data.length === 0) {
+    const noCache = !isError && (data === null || (Array.isArray(data) && data.length === 0))
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">Trainings-Cluster</h3>
@@ -155,8 +156,8 @@ export default function TrainingClusters() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
           </svg>
-          <span>Keine Cluster-Daten verfügbar</span>
-          <span className="text-xs text-center">(Mindestens 10 Aktivitäten benötigt)</span>
+          <span>{noCache ? 'Noch nicht berechnet' : 'Keine Cluster-Daten verfügbar'}</span>
+          <span className="text-xs text-center">{noCache ? 'Daten werden beim nächsten Refresh analysiert.' : '(Mindestens 10 Aktivitäten benötigt)'}</span>
         </div>
       </div>
     )

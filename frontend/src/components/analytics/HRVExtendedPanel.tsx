@@ -230,7 +230,9 @@ export default function HRVExtendedPanel({ activityId }: Props) {
         </div>
       ) : isError || !data ? (
         <p className="text-sm text-neutral-400 text-center py-4">
-          Keine erweiterten HRV-Daten verfügbar
+          {!isError && !data
+            ? 'Noch nicht berechnet. Daten werden beim nächsten Refresh analysiert.'
+            : 'Keine erweiterten HRV-Daten verfügbar'}
         </p>
       ) : (
         <>
