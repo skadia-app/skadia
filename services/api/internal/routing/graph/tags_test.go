@@ -128,6 +128,12 @@ func TestEncodeEdgeTags2_ExtendedOSM(t *testing.T) {
 	if got := DecodeField(encoded, 32, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
 		t.Errorf("via_ferrata_scale: got %d, want %d", got, viaFerrataScaleEnum["K4"])
 	}
+	// Lowercase via_ferrata_scale must also work
+	tagsLower := RawTags{ViaFerrataScale: "k4"}
+	encodedLower := EncodeEdgeTags2(&tagsLower, &RawEnrichment{})
+	if got := DecodeField(encodedLower, 32, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
+		t.Errorf("via_ferrata_scale lowercase k4: got %d, want %d", got, viaFerrataScaleEnum["K4"])
+	}
 	if got := DecodeField(encoded, 35, 3); got != uint64(trailVisibilityEnum["bad"]) {
 		t.Errorf("trail_visibility: got %d, want %d", got, trailVisibilityEnum["bad"])
 	}
@@ -151,7 +157,12 @@ func TestParseWidth(t *testing.T) {
 		{"3", 30},
 		{"0.8 m", 8},
 		{"1.2m", 12},
+		{"2,5", 25},  // European comma-decimal
+		{"1,8 m", 18}, // European comma with unit
 		{"", 0},
+		{"5'", 15},    // 5 feet ≈ 1.524m → 15dm
+		{"6ft", 18},   // 6 feet ≈ 1.829m → 18dm
+		{"10 ft", 30}, // 10 feet ≈ 3.048m → 30dm
 		{"narrow", 0},
 		{"30", 255}, // clamped
 	}
@@ -174,10 +185,15 @@ func TestParseIncline(t *testing.T) {
 		{"up", 138},
 		{"down", 118},
 		{"steep", 148},
+		{"-steep", 108},
+		{"flat", 128},
 		{"", 0},
 		{"unknown", 0},
-		{"5", 133},     // bare number treated as percent
+		{"5", 133},      // bare number treated as percent
 		{"-30%", 98},
+		{"45°", 228},    // tan(45°)*100 = 100% → 128+100=228
+		{"10°", 146},    // tan(10°)*100 ≈ 17.6% → 128+18=146
+		{"-15°", 101},   // tan(-15°)*100 ≈ -26.8% → 128-27=101
 	}
 	for _, tt := range tests {
 		got := ParseIncline(tt.input)

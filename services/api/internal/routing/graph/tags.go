@@ -95,6 +95,7 @@ var mtbScaleUphillEnum = map[string]uint8{
 
 var viaFerrataScaleEnum = map[string]uint8{
 	"K1": 1, "K2": 2, "K3": 3, "K4": 4, "K5": 5, "K6": 6,
+	"k1": 1, "k2": 2, "k3": 3, "k4": 4, "k5": 5, "k6": 6,
 }
 
 var trailVisibilityEnum = map[string]uint8{
@@ -339,9 +340,27 @@ func ParseWidth(s string) uint8 {
 	if s == "" {
 		return 0
 	}
+	// Feet/inches: "5'" or "6'6\"" or "5 ft"
+	if strings.HasSuffix(s, "'") || strings.HasSuffix(s, "ft") {
+		s = strings.TrimSuffix(s, "'")
+		s = strings.TrimSuffix(s, " ft")
+		s = strings.TrimSuffix(s, "ft")
+		s = strings.TrimSpace(s)
+		s = strings.Replace(s, ",", ".", 1)
+		if ft, err := strconv.ParseFloat(s, 64); err == nil && ft > 0 {
+			meters := ft * 0.3048
+			dm := int(math.Round(meters * 10))
+			if dm > 255 {
+				dm = 255
+			}
+			return uint8(dm)
+		}
+		return 0
+	}
 	s = strings.TrimSuffix(s, " m")
 	s = strings.TrimSuffix(s, "m")
 	s = strings.TrimSpace(s)
+	s = strings.Replace(s, ",", ".", 1) // European comma-decimal notation
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil || f <= 0 {
 		return 0
@@ -367,9 +386,29 @@ func ParseIncline(s string) uint8 {
 		return 128 - 10
 	case "steep":
 		return 128 + 20
+	case "-steep":
+		return 128 - 20
+	case "flat":
+		return 128
+	}
+	// Degrees → percent conversion: tan(deg * pi/180) * 100
+	if strings.HasSuffix(s, "°") {
+		degStr := strings.TrimSuffix(s, "°")
+		degStr = strings.TrimSpace(degStr)
+		if deg, err := strconv.ParseFloat(degStr, 64); err == nil {
+			pct := math.Tan(deg*math.Pi/180) * 100
+			v := int(math.Round(pct)) + 128
+			if v < 0 {
+				v = 0
+			}
+			if v > 255 {
+				v = 255
+			}
+			return uint8(v)
+		}
+		return 0
 	}
 	s = strings.TrimSuffix(s, "%")
-	s = strings.TrimSuffix(s, "°") // some use degrees, treat as percent approximation
 	s = strings.TrimSpace(s)
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
