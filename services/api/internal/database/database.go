@@ -2694,6 +2694,17 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 		}
 	}
 
+	// E-Bike system tag (no conditions — synced via DB trigger with is_ebike column).
+	// is_auto=false prevents reprocessTags from stripping it as an "unmatched auto-tag".
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_ebike)')
+		ON CONFLICT (user_id, name) DO NOTHING`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("seed E-Bike tag: %w", err)
+	}
+
 	// First: Migrate existing tags from activities.tags TEXT[] to tags table
 	// This ensures all previously used tags appear in the Tags overview
 	if err := db.migrateExistingTagsToTable(ctx, userID); err != nil {
