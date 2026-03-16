@@ -10,15 +10,24 @@ type Graph struct {
 	Targets []uint32 // len = EdgeCount
 
 	// Edge data (parallel to Targets).
-	EdgeDist  []uint16 // distance in decimeters (max 6553.5m)
-	EdgeTags1 []uint64 // OSM tags bit-packed (first uint64)
-	EdgeTags2 []uint64 // enrichment tags bit-packed (second uint64)
+	EdgeDist      []uint32 // distance in centimeters (was uint16 decimeters)
+	EdgeTags1     []uint64 // OSM tags bit-packed (first uint64)
+	EdgeTags2     []uint64 // enrichment tags bit-packed (second uint64)
+	EdgeOSMIdx    []uint32
+	OSMIDPool     []int64
 
-	// Reverse mapping: EdgeOSMIdx[i] indexes into OSMIDPool.
-	EdgeOSMIdx []uint32
-	OSMIDPool  []int64
+	// Edge geometry: intermediate coordinates (transfer nodes).
+	// Geometry for edge i: EdgeGeomLat[EdgeGeomOff[i]:EdgeGeomOff[i+1]]
+	EdgeGeomOff []uint32 // len = EdgeCount + 1
+	EdgeGeomLat []int32  // latitude × 1e7
+	EdgeGeomLon []int32  // longitude × 1e7
 
-	// Node data.
+	// Edge elevation profile: DEM elevation at each geometry point.
+	// Profile for edge i: EdgeElevProf[EdgeElevOff[i]:EdgeElevOff[i+1]]
+	EdgeElevOff  []uint32 // len = EdgeCount + 1
+	EdgeElevProf []int32  // elevation in decimeters (int32: supports >3276.7m)
+
+	// Node data (Morton-sorted).
 	NodeLat  []int32 // latitude × 1e7 (fixed-point, ~1cm precision)
 	NodeLon  []int32 // longitude × 1e7
 	NodeEle  []int32 // elevation in decimeters (0.1m, worldwide range)
@@ -61,7 +70,7 @@ const (
 // Binary format constants.
 const (
 	Magic         = "FRGR"
-	FormatVersion uint32 = 1
+	FormatVersion uint32 = 2 // v2: uint32 EdgeDist, edge geometry, elevation profiles
 	HeaderSize    int    = 64
 	EleChunkSize  uint32 = 65536
 )
@@ -70,7 +79,7 @@ const (
 const (
 	SectionOffsets     uint16 = 1
 	SectionTargets     uint16 = 2
-	SectionEdgeDist    uint16 = 3
+	SectionEdgeDist    uint16 = 3  // now uint32 centimeters (was uint16 decimeters)
 	SectionEdgeTags1   uint16 = 4
 	SectionEdgeTags2   uint16 = 5
 	SectionEdgeOSMIdx  uint16 = 6
@@ -80,7 +89,12 @@ const (
 	SectionNodeTags    uint16 = 10
 	SectionNodeEle     uint16 = 11
 	SectionSpatialGrid uint16 = 12
-	// 13+ reserved for Phase 3b (Reverse-CSR, etc.)
+	// v2 sections
+	SectionEdgeGeomOff  uint16 = 13
+	SectionEdgeGeomLat  uint16 = 14
+	SectionEdgeGeomLon  uint16 = 15
+	SectionEdgeElevOff  uint16 = 16
+	SectionEdgeElevProf uint16 = 17
 )
 
 // OutDegree returns the number of outgoing edges for node i.
