@@ -990,11 +990,13 @@ func clearRegionData(ctx context.Context, q querier, regionID string) error {
 			WHERE rr2.osm_id = rr.osm_id AND rr2.region_id != $1
 		  )`, regionID)
 
-	// Step 2: Delete route_way_members for routes that will be orphaned.
-	// Must happen BEFORE deleting the routes themselves, using the collected IDs.
-	// PK index (route_osm_id, way_osm_id) makes this fast.
+	// Step 2: Delete route_way_members for orphaned routes AND orphaned ways.
+	// Must happen BEFORE deleting the routes/ways themselves, using the collected IDs.
+	// Two targeted deletes using pre-collected temp tables — no full table scan.
 	_, _ = q.Exec(ctx, `DELETE FROM osm_route_way_members m
 		WHERE m.route_osm_id IN (SELECT osm_id FROM _clear_route_ids)`)
+	_, _ = q.Exec(ctx, `DELETE FROM osm_route_way_members m
+		WHERE m.way_osm_id IN (SELECT osm_id FROM _clear_way_ids)`)
 
 	// Step 3: Junction-Tables: Region-Ownership entfernen
 	for _, jt := range []string{"osm_way_regions", "osm_route_regions"} {
