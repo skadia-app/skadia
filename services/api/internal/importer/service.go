@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -92,6 +93,10 @@ func (s *Service) PostProcess(
 	// 1. Stage 1 Enrichment (synchronous, ~50ms)
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events)
+		// Apply automation rules after enrichment
+		if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
+			_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
+		}
 	}
 
 	// 2a. Insert streams

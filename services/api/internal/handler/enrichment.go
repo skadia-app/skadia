@@ -197,6 +197,9 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch rules once for all activities in this backfill.
+	allRules, _ := h.DB.ListRules(r.Context(), userID)
+
 	var processed int
 	for _, a := range activities {
 		if a.Lat == 0 || a.Lng == 0 {
@@ -217,6 +220,8 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events)
+		// Apply automation rules after enrichment
+		_ = h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules)
 		processed++
 	}
 
