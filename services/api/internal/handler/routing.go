@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
@@ -404,5 +406,108 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		"status":   "started",
 		"job_id":   jobID,
 		"tile_dir": tileDir,
+	})
+}
+
+// BuildBRouterSegments builds BRouter rd5 segment files from local PBF data.
+// This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
+// POST /admin/routing/build-brouter-segments
+func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": "unauthorized",
+		})
+		return
+	}
+
+	var req struct {
+		Regions []string `json:"regions"` // optional — if empty, uses all regions that have PBF files
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// No body is fine — build from all available PBFs
+		req.Regions = nil
+	}
+
+	// Resolve regions
+	var regions []osmregions.Region
+	if len(req.Regions) > 0 {
+		for _, id := range req.Regions {
+			reg, ok := osmregions.RegionByID(id)
+			if !ok {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": "unknown region: " + id,
+				})
+				return
+			}
+			regions = append(regions, reg)
+		}
+	} else {
+		// Auto-detect: find all regions that have PBF files on disk
+		osmDataDir := os.Getenv("OSM_DATA_DIR")
+		if osmDataDir == "" {
+			osmDataDir = "/data/osm"
+		}
+		for _, reg := range osmregions.Regions {
+			pbfPath := filepath.Join(osmDataDir, reg.ID+"-latest.osm.pbf")
+			if info, err := os.Stat(pbfPath); err == nil && info.Size() > 0 {
+				regions = append(regions, reg)
+			}
+		}
+	}
+
+	if len(regions) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "no PBF files found for any region",
+		})
+		return
+	}
+
+	var labels []string
+	for _, reg := range regions {
+		labels = append(labels, reg.Label)
+	}
+
+	entityName := "BRouter Segments: " + strings.Join(labels, ", ")
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
+		"brouter_segment_build", nil, &entityName, 100)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": "failed to create job",
+		})
+		return
+	}
+
+	bgCtx := context.Background()
+	go func() {
+		osmDataDir := os.Getenv("OSM_DATA_DIR")
+		if osmDataDir == "" {
+			osmDataDir = "/data/osm"
+		}
+		segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
+		if segmentsDir == "" {
+			segmentsDir = "/data/brouter/segments"
+		}
+
+		pipeline := &osmregions.Pipeline{
+			Pool:    h.DB.Pool,
+			DataDir: osmDataDir,
+			DBURL:   os.Getenv("DATABASE_URL"),
+		}
+		reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+		if err := pipeline.BuildBRouterSegments(bgCtx, regions, osmDataDir, segmentsDir, reporter); err != nil {
+			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+		} else {
+			slog.Info("BRouter segment build completed", "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+		}
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":   "started",
+		"job_id":   jobID,
+		"regions":  labels,
 	})
 }
