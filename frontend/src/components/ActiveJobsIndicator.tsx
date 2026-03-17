@@ -45,6 +45,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     apply_rules:             'Regeln anwenden',
     routing_graph_build:     'Routing-Graph erstellen',
     weather_backfill:        'Wetter-Daten nachfüllen',
+    tile_build:              'Routing-Tiles erstellen',
   }
 
   const label = job.job_type === 'segment_recompute'
@@ -66,7 +67,11 @@ function JobRow({ job }: { job: ActiveJob }) {
         ? `${job.progress_current} / ${job.progress_total} Fotos indexiert`
         : job.job_type === 'phash_backfill'
         ? `${job.progress_current} / ${job.progress_total} Fotos analysiert`
-        : `${job.progress_current} / ${job.progress_total} Aktivitäten`
+        : job.job_type === 'tile_build'
+        ? `${job.progress_current} / ${job.progress_total} Tiles`
+        : job.job_type === 'activity_recompute_all' || job.job_type === 'activity_recompute'
+        ? `${job.progress_current} / ${job.progress_total} Aktivitäten`
+        : `${Math.round((job.progress_current / job.progress_total) * 100)}%`
       : (job.job_type === 'garmin_import' || job.job_type === 'strava_import') && job.status === 'running' && job.progress_total > 0
       ? `${job.progress_current} / ${job.progress_total} Kategorien`
       : job.job_type === 'komoot_import' && job.status === 'running' && job.progress_total > 0
