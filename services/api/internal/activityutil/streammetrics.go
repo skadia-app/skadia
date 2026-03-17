@@ -11,10 +11,10 @@ const speedGapMaxSeconds = 300.0 // 5 min — don't derive speed across larger g
 const recordingGapThreshold = 300.0 // 5 min — same as speed gap and CalcMovingTime
 
 // DefaultSpeedSmoothingWindow is the number of points on each side for the
-// median filter applied to speed values. A window of 3 means 7-point median
-// (3 before + current + 3 after). At 1 Hz recording, this is a 7-second window.
+// median filter applied to speed values. A window of 2 means 5-point median
+// (2 before + current + 2 after). At 1 Hz recording, this is a 5-second window.
 // Median eliminates outliers completely (unlike mean which only reduces them).
-const DefaultSpeedSmoothingWindow = 3
+const DefaultSpeedSmoothingWindow = 2
 
 // FillMissingDistanceAndSpeed fills nil DistanceM and SpeedMS values by
 // deriving them from GPS coordinates and timestamps. Points that already

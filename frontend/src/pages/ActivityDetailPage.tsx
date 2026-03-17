@@ -757,7 +757,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
   const [smoothing, setSmoothing] = useState<'idle' | 'smoothing' | 'resetting'>('idle')
   const [smoothPopover, setSmoothPopover] = useState(false)
-  const [smoothWindow, setSmoothWindow] = useState(3)
+  const [smoothWindow, setSmoothWindow] = useState(5)
   const smoothRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!smoothPopover) return
@@ -1055,12 +1055,12 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400">
                   <span>Leicht</span>
-                  <span className="font-medium text-neutral-700 dark:text-neutral-200">{smoothWindow * 2 + 1}s Fenster</span>
+                  <span className="font-medium text-neutral-700 dark:text-neutral-200">{smoothWindow}s Fenster</span>
                   <span>Stark</span>
                 </div>
                 <input
                   type="range"
-                  min={1} max={3} step={1}
+                  min={3} max={7} step={1}
                   value={smoothWindow}
                   onChange={e => setSmoothWindow(Number(e.target.value))}
                   className="w-full accent-accent-DEFAULT"
@@ -1082,7 +1082,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                       await reprocessActivity(activity.id, ['speed_smooth'], smoothWindow)
                       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                      addToast({ type: 'success', title: `Geglättet (${smoothWindow * 2 + 1}s Fenster)` })
+                      addToast({ type: 'success', title: `Geglättet (${smoothWindow}s Fenster)` })
                     } catch {
                       addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
                     } finally {
