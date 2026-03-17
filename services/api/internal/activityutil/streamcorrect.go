@@ -1,5 +1,11 @@
 package activityutil
 
+import (
+	"sort"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
+)
+
 // CorrectionConfig holds all tunable parameters for GPS stream correction.
 // Every threshold is exposed so future training-data-based optimization
 // can adjust them without code changes.
@@ -63,4 +69,193 @@ type CorrectionReport struct {
 	SkippedConsec    int               // skipped because consecutive > max
 	SkippedIsolation int               // skipped because isolation too low
 	Points           []PointCorrection // per-point detail (only for candidates)
+}
+
+// candidate holds intermediate data for a flagged point during GPS correction.
+type candidate struct {
+	index     int
+	detour    float64
+	isolation float64
+	distM     float64
+}
+
+// CorrectGPSOutliers detects and interpolates isolated GPS spikes in a stream.
+// It modifies points in-place: corrected points get their original coordinates
+// stored in RawLat/RawLng and their position replaced by the midpoint of their
+// neighbors. SpeedMS and DistanceM are cleared for corrected points (to be
+// recomputed by FillMissingDistanceAndSpeed afterwards).
+//
+// The algorithm uses four passes:
+//  1. Compute detour scores for all interior points with GPS.
+//  2. Identify candidates exceeding MinDetourScore and MinDistanceM.
+//  3. Filter by isolation ratio and consecutive-spike limit.
+//  4. Apply interpolation in deterministic index order.
+func CorrectGPSOutliers(points []model.StreamPoint, cfg CorrectionConfig) ([]model.StreamPoint, CorrectionReport) {
+	report := CorrectionReport{TotalPoints: len(points)}
+
+	if len(points) < cfg.MinPointsRequired {
+		return points, report
+	}
+
+	n := len(points)
+
+	// ── Pass 1: Compute detour scores ───────────────────────────────────
+	scores := make([]float64, n)
+	for i := 1; i < n-1; i++ {
+		if points[i].Lat == nil || points[i].Lng == nil {
+			continue
+		}
+		if points[i-1].Lat == nil || points[i-1].Lng == nil {
+			continue
+		}
+		if points[i+1].Lat == nil || points[i+1].Lng == nil {
+			continue
+		}
+		dPrev := HaversineMeters(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
+		dNext := HaversineMeters(*points[i].Lat, *points[i].Lng, *points[i+1].Lat, *points[i+1].Lng)
+		dSkip := HaversineMeters(*points[i-1].Lat, *points[i-1].Lng, *points[i+1].Lat, *points[i+1].Lng)
+		if dSkip < 0.1 {
+			dSkip = 0.1
+		}
+		scores[i] = (dPrev + dNext) / dSkip
+	}
+
+	// ── Pass 2: Identify candidates ─────────────────────────────────────
+	var candidates []candidate
+	for i := 1; i < n-1; i++ {
+		if scores[i] < cfg.MinDetourScore {
+			continue
+		}
+		if points[i].Lat == nil || points[i].Lng == nil {
+			continue
+		}
+		if points[i-1].Lat == nil || points[i-1].Lng == nil {
+			continue
+		}
+		if points[i+1].Lat == nil || points[i+1].Lng == nil {
+			continue
+		}
+		dPrev := HaversineMeters(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
+		dNext := HaversineMeters(*points[i].Lat, *points[i].Lng, *points[i+1].Lat, *points[i+1].Lng)
+		maxDist := dPrev
+		if dNext > maxDist {
+			maxDist = dNext
+		}
+		if maxDist < cfg.MinDistanceM {
+			continue
+		}
+		// Compute isolation: ratio of this point's detour to max neighbor detour.
+		neighborMax := scores[i-1]
+		if scores[i+1] > neighborMax {
+			neighborMax = scores[i+1]
+		}
+		if neighborMax < 0.1 {
+			neighborMax = 0.1
+		}
+		iso := scores[i] / neighborMax
+
+		candidates = append(candidates, candidate{
+			index:     i,
+			detour:    scores[i],
+			isolation: iso,
+			distM:     maxDist,
+		})
+	}
+
+	report.CandidateCount = len(candidates)
+
+	// ── Pass 3: Filter by isolation and consecutive-spike limit ─────────
+	toCorrect := make(map[int]candidate, len(candidates))
+	for _, c := range candidates {
+		if c.isolation < cfg.MinIsolation {
+			report.SkippedIsolation++
+			report.Points = append(report.Points, PointCorrection{
+				Index:       c.index,
+				DetourScore: c.detour,
+				Isolation:   c.isolation,
+				DistanceM:   c.distM,
+				Corrected:   false,
+				OriginalLat: *points[c.index].Lat,
+				OriginalLng: *points[c.index].Lng,
+			})
+			continue
+		}
+		toCorrect[c.index] = c
+	}
+
+	// Find consecutive runs and remove those exceeding MaxConsecutiveSpikes.
+	if len(toCorrect) > 0 {
+		indices := make([]int, 0, len(toCorrect))
+		for idx := range toCorrect {
+			indices = append(indices, idx)
+		}
+		sort.Ints(indices)
+
+		// Identify runs of consecutive indices.
+		runStart := 0
+		for i := 1; i <= len(indices); i++ {
+			if i < len(indices) && indices[i] == indices[i-1]+1 {
+				continue
+			}
+			// End of run: indices[runStart..i-1]
+			runLen := i - runStart
+			if runLen > cfg.MaxConsecutiveSpikes {
+				for j := runStart; j < i; j++ {
+					c := toCorrect[indices[j]]
+					report.SkippedConsec++
+					report.Points = append(report.Points, PointCorrection{
+						Index:       c.index,
+						DetourScore: c.detour,
+						Isolation:   c.isolation,
+						DistanceM:   c.distM,
+						Corrected:   false,
+						OriginalLat: *points[c.index].Lat,
+						OriginalLng: *points[c.index].Lng,
+					})
+					delete(toCorrect, indices[j])
+				}
+			}
+			runStart = i
+		}
+	}
+
+	// ── Pass 4: Apply corrections in deterministic order ────────────────
+	corrIndices := make([]int, 0, len(toCorrect))
+	for idx := range toCorrect {
+		corrIndices = append(corrIndices, idx)
+	}
+	sort.Ints(corrIndices)
+
+	for _, idx := range corrIndices {
+		c := toCorrect[idx]
+
+		// Store original coordinates.
+		origLat := *points[idx].Lat
+		origLng := *points[idx].Lng
+		points[idx].RawLat = &origLat
+		points[idx].RawLng = &origLng
+
+		// Interpolate position as midpoint of neighbors.
+		midLat := (*points[idx-1].Lat + *points[idx+1].Lat) / 2
+		midLng := (*points[idx-1].Lng + *points[idx+1].Lng) / 2
+		points[idx].Lat = &midLat
+		points[idx].Lng = &midLng
+
+		// Clear derived fields — FillMissingDistanceAndSpeed will recompute.
+		points[idx].SpeedMS = nil
+		points[idx].DistanceM = nil
+
+		report.CorrectedCount++
+		report.Points = append(report.Points, PointCorrection{
+			Index:       c.index,
+			DetourScore: c.detour,
+			Isolation:   c.isolation,
+			DistanceM:   c.distM,
+			Corrected:   true,
+			OriginalLat: origLat,
+			OriginalLng: origLng,
+		})
+	}
+
+	return points, report
 }

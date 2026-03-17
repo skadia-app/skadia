@@ -104,6 +104,11 @@ type StreamPoint struct {
 	VerticalOscillationMm *int16   // vertical_oscillation, Scale: 10 → mm
 	StanceTimePercent     *float32 // stance_time_percent, Scale: 100 → %
 	LeftRightBalance      *int16   // left_right_balance masked value (0–100)
+
+	// GPS correction: original coordinates before spike interpolation.
+	// Non-nil only for corrected points. Enables raw/corrected toggle.
+	RawLat *float64
+	RawLng *float64
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.
