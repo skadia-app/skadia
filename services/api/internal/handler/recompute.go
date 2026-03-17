@@ -485,14 +485,12 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events)
-		// Apply automation rules after enrichment
-		allRules, _ := h.DB.ListRules(ctx, userID)
-		_ = h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
 	}
 
-	// 8b. Tags-only reprocess: re-evaluate autotags without full enrichment.
-	if doTags && !allScope {
-		if err := h.reprocessTags(ctx, activityID, userID, data); err != nil {
+	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).
+	// On full recompute: always run. On tags-only: run if !allScope.
+	if allScope || (doTags && !allScope) {
+		if err := h.reprocessTags(ctx, activityID, userID); err != nil {
 			slog.Error("reprocess: tags update failed", "id", activityID, "error", err)
 		}
 	}
@@ -582,7 +580,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 }
 
 // reprocessTags re-evaluates automation rules for an activity using the shared helper.
-func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, data *model.ActivityData) error {
+func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) error {
 	allRules, err := h.DB.ListRules(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("list rules: %w", err)
