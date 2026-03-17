@@ -326,60 +326,133 @@ func (tr *TileRouter) expandBorderNode(
 	}
 }
 
-// retrackCrossTile walks the parent chain from dst back to src, collecting
-// network-node coordinates. This is a STUB: it does not expand edge geometry.
+// retrackCrossTile walks the parent chain from dst back to src, loading tiles
+// on demand to expand edge geometry and elevation profiles.
 func (tr *TileRouter) retrackCrossTile(state *CrossTileState,
 	srcGID, dstGID uint64) *RouteResult {
 
-	// Walk parent chain.
-	var chain []uint64
+	// Walk parent chain backwards: dst → ... → src.
+	type chainEntry struct {
+		gid       uint64
+		edgeIdx   uint32 // edge that LED TO this node (invalid for src)
+		edgeTile  uint32 // tile containing the edge
+	}
+	var chain []chainEntry
+
 	cur := dstGID
 	maxIter := len(state.nodes) + 1
 	for cur != srcGID && maxIter > 0 {
-		chain = append(chain, cur)
 		ns, ok := state.nodes[cur]
 		if !ok {
 			break
 		}
+		chain = append(chain, chainEntry{
+			gid:      cur,
+			edgeIdx:  ns.ParentEdge,
+			edgeTile: ns.ParentEdgeTile,
+		})
 		cur = ns.ParentNode
 		maxIter--
 	}
-	chain = append(chain, srcGID)
+	// Append src (no incoming edge).
+	chain = append(chain, chainEntry{gid: srcGID})
 
 	// Reverse to src→dst order.
 	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
 		chain[i], chain[j] = chain[j], chain[i]
 	}
 
-	// Build coordinates and compute metrics.
-	coords := make([]LatLonEle, 0, len(chain))
+	// Build coordinates with edge geometry expansion.
+	var coords []LatLonEle
 	var totalDist, ascent, descent float64
+	var segments []RouteSegment
 
-	for _, gid := range chain {
-		tileID, localNode := SplitGlobalNodeID(gid)
+	for i, entry := range chain {
+		tileID, localNode := SplitGlobalNodeID(entry.gid)
 		g, err := tr.getTile(tileID)
-		if err != nil {
+		if err != nil || localNode >= g.NodeCount {
 			continue
 		}
-		if localNode >= g.NodeCount {
-			continue
-		}
-		c := LatLonEle{
+
+		// Add the network node coordinate.
+		nodeCoord := LatLonEle{
 			Lat: float64(g.NodeLat[localNode]) / 1e7,
 			Lon: float64(g.NodeLon[localNode]) / 1e7,
 			Ele: float64(g.NodeEle[localNode]) / 10.0,
 		}
-		if len(coords) > 0 {
-			prev := coords[len(coords)-1]
-			totalDist += haversineDist(prev.Lat, prev.Lon, c.Lat, c.Lon)
-			dEle := c.Ele - prev.Ele
-			if dEle > 0 {
-				ascent += dEle
-			} else {
-				descent -= dEle
+		coords = append(coords, nodeCoord)
+
+		// Expand edge geometry for the NEXT edge (which leads to chain[i+1]).
+		if i < len(chain)-1 {
+			// Capture segment start index BEFORE interior geometry expansion.
+			segStartIdx := len(coords) - 1
+
+			nextEntry := chain[i+1]
+			edgeTile := nextEntry.edgeTile
+			edgeIdx := nextEntry.edgeIdx
+
+			eg, err := tr.getTile(edgeTile)
+			if err != nil {
+				continue
+			}
+
+			// Expand interior geometry points (skip first/last = network nodes).
+			if eg.EdgeGeomLat != nil && edgeIdx < eg.EdgeCount {
+				geomStart := eg.EdgeGeomOff[edgeIdx]
+				geomEnd := eg.EdgeGeomOff[edgeIdx+1]
+				if geomEnd > geomStart+2 { // at least one interior point
+					for gi := geomStart + 1; gi < geomEnd-1; gi++ {
+						lat := float64(eg.EdgeGeomLat[gi]) / 1e7
+						lon := float64(eg.EdgeGeomLon[gi]) / 1e7
+						var ele float64
+						profStart := eg.EdgeElevOff[edgeIdx]
+						profIdx := gi - geomStart
+						if profStart+profIdx < eg.EdgeElevOff[edgeIdx+1] {
+							ele = float64(eg.EdgeElevProf[profStart+profIdx]) / 10.0
+						}
+						coords = append(coords, LatLonEle{Lat: lat, Lon: lon, Ele: ele})
+					}
+				}
+			}
+
+			// Build segment info.
+			if eg.EdgeOSMIdx != nil && edgeIdx < eg.EdgeCount {
+				osmIdx := eg.EdgeOSMIdx[edgeIdx]
+				var osmID int64
+				if int(osmIdx) < len(eg.OSMIDPool) {
+					osmID = eg.OSMIDPool[osmIdx]
+				}
+				tags := eg.EdgeTags1[edgeIdx]
+				segments = append(segments, RouteSegment{
+					FromIdx:  segStartIdx,
+					ToIdx:    segStartIdx, // updated later
+					Highway:  graph.HighwayName(graph.DecodeHighway(tags)),
+					Surface:  graph.SurfaceName(graph.DecodeSurface(tags)),
+					OsmWayID: osmID,
+				})
 			}
 		}
-		coords = append(coords, c)
+	}
+
+	// Fix segment ToIdx.
+	for i := range segments {
+		if i < len(segments)-1 {
+			segments[i].ToIdx = segments[i+1].FromIdx
+		} else {
+			segments[i].ToIdx = len(coords) - 1
+		}
+	}
+
+	// Compute distance and elevation from expanded coords.
+	for i := 1; i < len(coords); i++ {
+		totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon,
+			coords[i].Lat, coords[i].Lon)
+		dEle := coords[i].Ele - coords[i-1].Ele
+		if dEle > 0 {
+			ascent += dEle
+		} else {
+			descent -= dEle
+		}
 	}
 
 	return &RouteResult{
@@ -387,6 +460,7 @@ func (tr *TileRouter) retrackCrossTile(state *CrossTileState,
 		DistanceM:   totalDist,
 		AscentM:     ascent,
 		DescentM:    descent,
+		Segments:    segments,
 	}
 }
 
