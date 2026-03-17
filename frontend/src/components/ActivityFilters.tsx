@@ -158,7 +158,6 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.sportTypes.size > 0 && !visibleKeys.every(k => f.sportTypes.has(k))) n++
     if (f.dateFrom) n++
     if (f.dateTo) n++
-    if (f.isIndoor !== null) n++
     if (f.hasGPS !== null) n++
     if (f.isEbike !== null) n++
     if (f.gearId) n++
@@ -245,9 +244,6 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   }
   if (filters.dateTo) {
     chips.push({ label: `Bis ${filters.dateTo}`, onRemove: () => onChange({ ...filters, dateTo: '' }) })
-  }
-  if (filters.isIndoor !== null) {
-    chips.push({ label: filters.isIndoor ? 'Indoor' : 'Outdoor', onRemove: () => onChange({ ...filters, isIndoor: null }) })
   }
   if (filters.hasGPS !== null) {
     chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
@@ -401,30 +397,8 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
-            {/* Indoor / GPS / E-Bike */}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Indoor</div>
-                <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-                  {([
-                    [null, 'Alle'],
-                    [true, 'Ja'],
-                    [false, 'Nein'],
-                  ] as [boolean | null, string][]).map(([val, label]) => (
-                    <button
-                      key={String(val)}
-                      onClick={() => onChange({ ...filters, isIndoor: val })}
-                      className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                        filters.isIndoor === val
-                          ? 'bg-accent-DEFAULT text-white font-medium'
-                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* GPS / E-Bike */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">GPS</div>
                 <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
