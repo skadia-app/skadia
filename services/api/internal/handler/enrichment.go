@@ -82,22 +82,30 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 		prefs = model.DefaultWeatherPrefs()
 	}
 
-	candidates, err := h.DB.GetActivitiesForWeatherBackfill(ctx, userID)
+	gpsCandidates, err := h.DB.GetActivitiesForWeatherBackfill(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get candidates: %w", err)
+		return fmt.Errorf("get GPS candidates: %w", err)
 	}
 
-	_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, 0)
-	_ = h.DB.ResetBackgroundJobProgress(ctx, jobID, int64(len(candidates)))
-	var succeeded, failed int
+	indoorCandidates, err := h.DB.GetIndoorActivitiesWithLocationTags(ctx, userID)
+	if err != nil {
+		slog.Warn("weather backfill: get indoor candidates failed, skipping", "error", err)
+		indoorCandidates = nil
+	}
 
-	for i, a := range candidates {
+	total := len(gpsCandidates) + len(indoorCandidates)
+	_ = h.DB.ResetBackgroundJobProgress(ctx, jobID, int64(total))
+	var succeeded, failed, idx int
+
+	// Phase 1: Activities with GPS track
+	for _, a := range gpsCandidates {
 		if ctx.Err() != nil {
 			break
 		}
 		reqs := h.buildWeatherRequestsForCandidate(ctx, a, prefs)
+		idx++
 		if len(reqs) == 0 {
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(idx))
 			continue
 		}
 		readings, fetchErr := enrichment.FetchWeatherReadings(ctx, reqs)
@@ -108,7 +116,6 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 			slog.Warn("weather backfill insert failed", "activity_id", a.ID, "error", insertErr)
 			failed++
 		} else {
-			// Sync weather tags to activity_tags junction table
 			if prefs.AutoTags {
 				var allWeatherTags []string
 				for _, r := range readings {
@@ -120,7 +127,41 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 			}
 			succeeded++
 		}
-		_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+		_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(idx))
+	}
+
+	// Phase 2: Indoor activities with location tags (no GPS track, but coordinates via tag)
+	for _, a := range indoorCandidates {
+		if ctx.Err() != nil {
+			break
+		}
+		req := enrichment.WeatherRequest{
+			ReadingType: "single",
+			Lat:         a.Lat,
+			Lng:         a.Lng,
+			At:          a.StartedAt,
+		}
+		idx++
+		readings, fetchErr := enrichment.FetchWeatherReadings(ctx, []enrichment.WeatherRequest{req})
+		if fetchErr != nil {
+			slog.Warn("weather backfill (indoor) fetch failed", "activity_id", a.ID, "error", fetchErr)
+			failed++
+		} else if insertErr := h.DB.InsertWeatherReadings(ctx, a.ID, readings); insertErr != nil {
+			slog.Warn("weather backfill (indoor) insert failed", "activity_id", a.ID, "error", insertErr)
+			failed++
+		} else {
+			if prefs.AutoTags {
+				var allWeatherTags []string
+				for _, r := range readings {
+					allWeatherTags = append(allWeatherTags, r.Tags...)
+				}
+				if syncErr := h.DB.SyncWeatherTagsToActivityTags(ctx, a.ID, userID, allWeatherTags); syncErr != nil {
+					slog.Warn("weather backfill (indoor) sync tags failed", "activity_id", a.ID, "error", syncErr)
+				}
+			}
+			succeeded++
+		}
+		_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(idx))
 	}
 
 	slog.Info("weather backfill complete", "job_id", jobID, "succeeded", succeeded, "failed", failed)

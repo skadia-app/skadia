@@ -221,6 +221,49 @@ func (db *DB) GetActivitiesForWeatherBackfill(ctx context.Context, userID string
 	return result, rows.Err()
 }
 
+// IndoorActivityWithLocation holds data for indoor activities that have a location tag.
+type IndoorActivityWithLocation struct {
+	ID        string
+	StartedAt time.Time
+	Lat       float64
+	Lng       float64
+}
+
+// GetIndoorActivitiesWithLocationTags returns indoor activities (has_gps=false) that
+// have at least one location tag (with coordinates) but no weather readings yet.
+// Used by the weather backfill to cover indoor activities.
+func (db *DB) GetIndoorActivitiesWithLocationTags(ctx context.Context, userID string) ([]IndoorActivityWithLocation, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, started_at, lat, lng
+		FROM (
+			SELECT DISTINCT ON (a.id) a.id, a.started_at, t.lat, t.lng
+			FROM activities a
+			JOIN activity_tags at2 ON at2.activity_id = a.id
+			JOIN tags t ON t.id = at2.tag_id
+			WHERE a.user_id = $1
+			  AND a.has_gps = false
+			  AND t.lat IS NOT NULL
+			  AND t.lng IS NOT NULL
+			  AND NOT EXISTS (SELECT 1 FROM activity_weather aw WHERE aw.activity_id = a.id)
+			ORDER BY a.id
+		) sub
+		ORDER BY started_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get indoor activities with location tags: %w", err)
+	}
+	defer rows.Close()
+
+	var result []IndoorActivityWithLocation
+	for rows.Next() {
+		var c IndoorActivityWithLocation
+		if err := rows.Scan(&c.ID, &c.StartedAt, &c.Lat, &c.Lng); err != nil {
+			return nil, err
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
+
 // GetWeatherPrefs returns the weather preferences for a user.
 func (db *DB) GetWeatherPrefs(ctx context.Context, userID string) (model.WeatherPrefs, error) {
 	var p model.WeatherPrefs
