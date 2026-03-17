@@ -665,7 +665,7 @@ type Tag struct {
 	IsAuto          bool            `json:"is_auto"`
 	Conditions      json.RawMessage `json:"conditions,omitempty"`
 	ConditionGroups json.RawMessage `json:"condition_groups,omitempty"`
-	ConditionsLogic string          `json:"conditions_logic,omitempty"`
+	ConditionsLogic *string         `json:"conditions_logic,omitempty"`
 	Description     *string         `json:"description,omitempty"`
 	ActivityCount   int             `json:"activity_count"`
 	CreatedAt       time.Time       `json:"created_at"`
