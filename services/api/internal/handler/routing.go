@@ -402,8 +402,11 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	const tileCacheBytes = 2_500_000_000
 
 	go func() {
+		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
+		workers := 2
 		var tilesBuilt int64
 		err := h.GraphManager.RebuildTiles(bgCtx, h.DB.Pool, tileDir, tileCacheBytes,
+			hgtDirs, workers,
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
 					// pct holds total tile count during discovery phase.

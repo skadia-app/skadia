@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
 // BuildFromWays constructs a complete graph from raw ways and pre-computed elevations.
@@ -60,7 +62,7 @@ func bboxWhereClause(bbox *[4]float64) string {
 // BuildCSRFromFile in two passes (degree counting + CSR placement).
 // If bbox is non-nil, only ways intersecting the bounding box are included.
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
-	bbox *[4]float64,
+	bbox *[4]float64, demReader dem.Reader,
 	progressFn func(step string, pct int)) (*Graph, error) {
 
 	report := func(step string, pct int) {
@@ -123,27 +125,24 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	*topo = CompactTopologyResult{} // free nodes memory
 	report("build_csr", 100)
 
-	// DEM elevation: sample node elevations and edge elevation profiles.
-	report("elevation_nodes", 0)
-	nodeEle, err := SampleElevation(ctx, pool, g.NodeLat, g.NodeLon,
-		make([]bool, g.NodeCount), // TODO: bridge detection from edge flags
-		func(done, total int) {
-			if total > 0 {
-				report("elevation_nodes", done*100/total)
-			}
-		})
-	if err != nil {
-		slog.Warn("DEM elevation sampling failed, continuing without elevation",
-			"nodes", g.NodeCount, "error", err)
-	} else {
-		// Direct assignment (not copy) — nodeEle length matches g.NodeCount.
-		g.NodeEle = nodeEle[:g.NodeCount]
+	// DEM elevation: sample from dem.Reader (HGT mmap, no PostGIS).
+	if demReader != nil {
+		report("elevation_nodes", 0)
+		g.NodeEle = SampleElevationFromReader(demReader, g.NodeLat, g.NodeLon,
+			func(done, total int) {
+				if total > 0 {
+					report("elevation_nodes", done*100/total)
+				}
+			})
 		report("elevation_nodes", 100)
 
 		report("elevation_edges", 0)
-		if err := SampleEdgeElevationProfiles(ctx, pool, g); err != nil {
-			slog.Warn("edge elevation profiling failed", "error", err)
-		}
+		SampleEdgeElevationProfilesFromReader(demReader, g)
+		report("elevation_edges", 100)
+	} else {
+		slog.Info("no DEM reader provided, skipping elevation",
+			"nodes", g.NodeCount)
+		report("elevation_nodes", 100)
 		report("elevation_edges", 100)
 	}
 
