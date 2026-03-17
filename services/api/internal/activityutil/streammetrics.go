@@ -10,6 +10,11 @@ const speedGapMaxSeconds = 300.0 // 5 min — don't derive speed across larger g
 
 const recordingGapThreshold = 300.0 // 5 min — same as speed gap and CalcMovingTime
 
+// DefaultSpeedSmoothingWindow is the number of points on each side for the
+// moving average applied to speed values. A window of 2 means 5-point average
+// (2 before + current + 2 after). At 1 Hz recording, this is a 5-second window.
+const DefaultSpeedSmoothingWindow = 2
+
 // FillMissingDistanceAndSpeed fills nil DistanceM and SpeedMS values by
 // deriving them from GPS coordinates and timestamps. Points that already
 // have values are preserved — the cumulative distance counter seamlessly
@@ -92,6 +97,70 @@ func FillMissingDistanceAndSpeed(points []model.StreamPoint) []model.StreamPoint
 		}
 		spd := d / dt
 		points[i].SpeedMS = &spd
+	}
+
+	return points
+}
+
+// SmoothSpeed applies a centered moving average to the SpeedMS field.
+// The window parameter is the number of points on each side (total window
+// = 2*window + 1). Points without speed, at the edges, or across time gaps
+// > 5 min are left unchanged.
+//
+// This uses a median-filter approach
+// for suppressing GPS speed noise without altering positions or distances.
+func SmoothSpeed(points []model.StreamPoint, window int) []model.StreamPoint {
+	if window <= 0 || len(points) < 3 {
+		return points
+	}
+
+	// Collect original speed values (nil-safe).
+	n := len(points)
+	raw := make([]float64, n)
+	valid := make([]bool, n)
+	for i, p := range points {
+		if p.SpeedMS != nil {
+			raw[i] = *p.SpeedMS
+			valid[i] = true
+		}
+	}
+
+	for i := range points {
+		if !valid[i] {
+			continue
+		}
+
+		sum := raw[i]
+		count := 1
+
+		// Expand window in both directions, stop at edges or time gaps.
+		for j := 1; j <= window; j++ {
+			// Left neighbor
+			if li := i - j; li >= 0 && valid[li] {
+				dt := points[i-j+1].Time.Sub(points[li].Time).Seconds()
+				if dt > 0 && dt < speedGapMaxSeconds {
+					sum += raw[li]
+					count++
+				} else {
+					break // gap — stop expanding left
+				}
+			}
+		}
+		for j := 1; j <= window; j++ {
+			// Right neighbor
+			if ri := i + j; ri < n && valid[ri] {
+				dt := points[ri].Time.Sub(points[ri-1].Time).Seconds()
+				if dt > 0 && dt < speedGapMaxSeconds {
+					sum += raw[ri]
+					count++
+				} else {
+					break // gap — stop expanding right
+				}
+			}
+		}
+
+		avg := sum / float64(count)
+		points[i].SpeedMS = &avg
 	}
 
 	return points
