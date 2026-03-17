@@ -52,9 +52,6 @@ type Graph struct {
 	BuildTime time.Time
 	BBox      [4]float64 // minLat, minLon, maxLat, maxLon
 
-	// Border node data for cross-tile routing (tiled graph engine).
-	IsBorder    []bool           // len = NodeCount; true for nodes near tile edges
-	BorderIndex *BorderNodeIndex // sorted by CoordKey for O(log n) cross-tile lookup
 
 	// Lazy I/O for cold sections. The backing file is kept open;
 	// cold section data (geometry, elevation profiles, OSM IDs) is read

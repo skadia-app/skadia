@@ -75,7 +75,10 @@ function Stage2EnrichmentSection() {
     if (!settings || pendingField !== null) return
     const current = settings[apiField] !== false
     setPendingField(apiField)
-    mutation.mutate({ [apiField]: !current })
+    // BUGFIX: Always send the full settings object merged with the change.
+    // Sending only a partial patch causes the backend PUT to zero out all
+    // bool fields that are absent — because Go decodes missing booleans as false.
+    mutation.mutate({ ...settings, [apiField]: !current })
   }
 
   return (
