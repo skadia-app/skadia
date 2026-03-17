@@ -2759,7 +2759,7 @@ func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) err
 		if tagName == "Nacht" || tagName == "Frost" {
 			isAuto = true
 		}
-		// Rundtour is trigger-managed (not an autotag), so isAuto stays false
+		// Rundtour is rule-managed (system rule round_trip), so isAuto stays false
 		if tagName == "Sonnig" || tagName == "Bewölkt" || tagName == "Regen" ||
 			tagName == "Schnee" || tagName == "Nebel" || tagName == "Gewitter" {
 			isAuto = false // Weather tags are not marked as auto (system flag)
