@@ -239,7 +239,9 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 		for _, seg := range segments {
 			placeEdge(seg.FromID, seg.ToID, seg.Dist, tags1, tags2, uint32(osmIdx), seg.GeomLat, seg.GeomLon, false)
 			if !isOneway {
-				placeEdge(seg.ToID, seg.FromID, seg.Dist, tags1, tags2, uint32(osmIdx), seg.GeomLat, seg.GeomLon, true)
+				// Mark the reverse edge with bit 61 so cost functions can
+				// distinguish forward vs. reverse direction (e.g. incline sign).
+				placeEdge(seg.ToID, seg.FromID, seg.Dist, tags1|(1<<61), tags2, uint32(osmIdx), seg.GeomLat, seg.GeomLon, true)
 			}
 		}
 	}
