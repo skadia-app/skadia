@@ -144,16 +144,10 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		From   [2]float64   `json:"from"`   // [lat, lon]
-		To     [2]float64   `json:"to"`     // [lat, lon]
-		Via    [][2]float64 `json:"via"`    // optional [[lat, lon], ...]
-		Config *struct {
-			UphillCostFactor   *float32 `json:"uphill_cost_factor"`
-			DownhillCostFactor *float32 `json:"downhill_cost_factor"`
-			Pass0Coefficient   *float32 `json:"pass0_coefficient"`
-			ElevPenaltyBuffer  *float32 `json:"elev_penalty_buffer"`
-			ElevMaxBuffer      *float32 `json:"elev_max_buffer"`
-		} `json:"config"`
+		From   [2]float64            `json:"from"`   // [lat, lon]
+		To     [2]float64            `json:"to"`     // [lat, lon]
+		Via    [][2]float64          `json:"via"`    // optional [[lat, lon], ...]
+		Config *routing.ProfileConfig `json:"config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -188,60 +182,37 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cfg := routing.DefaultTrekkingConfig()
-	if req.Config != nil {
-		if req.Config.UphillCostFactor != nil {
-			if *req.Config.UphillCostFactor < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "uphill_cost_factor must be >= 0",
-				})
-				return
-			}
-			cfg.UphillCostFactor = *req.Config.UphillCostFactor
-		}
-		if req.Config.DownhillCostFactor != nil {
-			if *req.Config.DownhillCostFactor < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "downhill_cost_factor must be >= 0",
-				})
-				return
-			}
-			cfg.DownhillCostFactor = *req.Config.DownhillCostFactor
-		}
-		if req.Config.Pass0Coefficient != nil {
-			if *req.Config.Pass0Coefficient <= 0 || *req.Config.Pass0Coefficient > 10 {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "pass0_coefficient must be in (0, 10]",
-				})
-				return
-			}
-			cfg.Pass0Coefficient = *req.Config.Pass0Coefficient
-		}
-		if req.Config.ElevPenaltyBuffer != nil {
-			if *req.Config.ElevPenaltyBuffer < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "elev_penalty_buffer must be >= 0",
-				})
-				return
-			}
-			cfg.ElevPenaltyBuffer = *req.Config.ElevPenaltyBuffer
-		}
-		if req.Config.ElevMaxBuffer != nil {
-			if *req.Config.ElevMaxBuffer < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": "elev_max_buffer must be >= 0",
-				})
-				return
-			}
-			cfg.ElevMaxBuffer = *req.Config.ElevMaxBuffer
-		}
-		if cfg.ElevPenaltyBuffer > cfg.ElevMaxBuffer {
+	var cfg *routing.CostConfig
+	if req.Config != nil && req.Config.Profile != "" {
+		var err error
+		cfg, err = routing.BuildCostConfig(*req.Config)
+		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "elev_penalty_buffer must be <= elev_max_buffer",
+				"error": err.Error(),
 			})
 			return
 		}
-		cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
+	} else if req.Config != nil {
+		// Legacy mode: no profile name, apply individual overrides to default.
+		cfg = routing.DefaultCostConfig()
+		if req.Config.UphillCost != nil {
+			cfg.UphillCost = *req.Config.UphillCost
+		}
+		if req.Config.DownhillCost != nil {
+			cfg.DownhillCost = *req.Config.DownhillCost
+		}
+		if req.Config.Pass0Coefficient != nil {
+			cfg.Pass0Coefficient = *req.Config.Pass0Coefficient
+		}
+		if req.Config.ElevPenaltyBuffer != nil {
+			cfg.ElevPenaltyBuffer = *req.Config.ElevPenaltyBuffer
+		}
+		if req.Config.ElevMaxBuffer != nil {
+			cfg.ElevMaxBuffer = *req.Config.ElevMaxBuffer
+		}
+		cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
+	} else {
+		cfg = routing.DefaultCostConfig()
 	}
 
 	timeout := 30 * time.Second
