@@ -639,6 +639,13 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "Not Found", errMsg, r.URL.Path)
 			return
 		}
+		if errMsg == "source_is_system" || errMsg == "source_has_rule" {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status": "conflict",
+				"reason": errMsg,
+			})
+			return
+		}
 		slog.Error("merge tag failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge tags", r.URL.Path)
 		return
