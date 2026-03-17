@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -579,83 +578,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	return nil
 }
 
-// reprocessTags re-evaluates autotag rules for an activity.
-// It removes autotags that no longer match and adds newly matching ones,
-// while preserving manually assigned tags.
+// reprocessTags re-evaluates automation rules for an activity using the shared helper.
 func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string, data *model.ActivityData) error {
-	// Load current activity for enrichment context
-	activity, err := h.DB.GetActivity(ctx, activityID)
-	if err != nil || activity == nil {
-		return fmt.Errorf("load activity for tag reprocess: %w", err)
-	}
-
-	// Build enrichment context from stored activity data
-	enrichCtx := &enrichment.EnrichmentContext{
-		IsRoundTrip: activity.IsRoundTrip,
-	}
-	if activity.StartCity != nil {
-		enrichCtx.StartCity = *activity.StartCity
-	}
-	if activity.StartCountry != nil {
-		enrichCtx.StartCountry = *activity.StartCountry
-	}
-	enrichCtx.TimeOfDay = activity.TimeOfDay
-
-	// Evaluate autotags
-	matchedNames := enrichment.EvaluateAutoTags(ctx, h.DB, userID, data, enrichCtx)
-	matchedSet := make(map[string]bool, len(matchedNames))
-	for _, name := range matchedNames {
-		matchedSet[name] = true
-	}
-
-	// Get all autotag definitions
-	autoTags, err := h.DB.GetAutoTags(ctx, userID)
+	allRules, err := h.DB.ListRules(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get auto tags: %w", err)
+		return fmt.Errorf("list rules: %w", err)
 	}
-	autoTagNames := make(map[string]bool, len(autoTags))
-	for _, at := range autoTags {
-		autoTagNames[at.Name] = true
-	}
-
-	// Remove autotags that no longer match (only if assigned_by='auto').
-	// Note: system tags (is_auto=false, e.g. E-Bike) are not returned by GetAutoTags and
-	// therefore never appear in autoTagNames — the strip condition below never fires for them.
-	// They are additionally re-applied at the end of this function.
-	currentTags := activity.Tags
-	var newTags []string
-	for _, tag := range currentTags {
-		if autoTagNames[tag] && !matchedSet[tag] {
-			// This is an autotag that no longer matches — remove it
-			continue
-		}
-		newTags = append(newTags, tag)
-	}
-
-	// Add newly matched autotags
-	for _, name := range matchedNames {
-		found := slices.Contains(newTags, name)
-		if !found {
-			newTags = append(newTags, name)
-		}
-	}
-
-	// Re-apply E-Bike tag if activity.is_ebike is true
-	if activity.IsEbike {
-		if !slices.Contains(newTags, "E-Bike") {
-			newTags = append(newTags, "E-Bike")
-		}
-	}
-
-	// Re-apply Rundtour tag if activity.is_round_trip is true
-	// (Rundtour is now trigger-managed like E-Bike, not an autotag)
-	if activity.IsRoundTrip {
-		if !slices.Contains(newTags, "Rundtour") {
-			newTags = append(newTags, "Rundtour")
-		}
-	}
-
-	// Update the activity tags
-	fields := map[string]any{"tags": newTags}
-	return h.DB.UpdateEnrichmentFields(ctx, activityID, fields)
+	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
 }
