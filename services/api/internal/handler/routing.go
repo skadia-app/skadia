@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -404,17 +405,19 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
 		workers := 2
-		var tilesBuilt int64
+		var tilesBuilt atomic.Int64
+		var lastReportedTile atomic.Uint32
 		err := h.GraphManager.RebuildTiles(bgCtx, h.DB.Pool, tileDir, tileCacheBytes,
 			hgtDirs, workers,
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
-					// pct holds total tile count during discovery phase.
 					_ = h.DB.UpdateBackgroundJobTotal(bgCtx, jobID, int64(pct))
 				} else if pct == 100 {
-					// Tile completed.
-					tilesBuilt++
-					_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, tilesBuilt)
+					// Only count once per tile (multiple steps report pct=100).
+					if lastReportedTile.Swap(tileID) != tileID {
+						n := tilesBuilt.Add(1)
+						_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, n)
+					}
 				}
 			})
 		if err != nil {
