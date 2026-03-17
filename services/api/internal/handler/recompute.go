@@ -119,11 +119,12 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse optional smooth_window (1-5, default 3).
+	// Parse optional smooth_window as total window size in seconds (3-7, default 5).
+	// Internally SmoothSpeed uses half-window (points on each side).
 	smoothWindow := activityutil.DefaultSpeedSmoothingWindow
 	if w := r.URL.Query().Get("smooth_window"); w != "" {
-		if wn, err := strconv.Atoi(w); err == nil && wn >= 1 && wn <= 5 {
-			smoothWindow = wn
+		if wn, err := strconv.Atoi(w); err == nil && wn >= 3 && wn <= 7 {
+			smoothWindow = wn / 2 // convert total window to half-radius
 		}
 	}
 

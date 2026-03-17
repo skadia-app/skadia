@@ -157,15 +157,8 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 			var elevCost float32
 			profStart := g.EdgeElevOff[ei]
 			profEnd := g.EdgeElevOff[ei+1]
-			if profEnd > profStart {
-				nPts := profEnd - profStart
-				if expansions <= 10 && nPts > 100 {
-					slog.Warn("pass0 large edge profile",
-						"expansion", expansions, "edge", ei, "target", target,
-						"elev_pts", nPts,
-						"geom_pts", g.EdgeGeomOff[ei+1]-g.EdgeGeomOff[ei],
-						"dist_cm", g.EdgeDist[ei])
-				}
+			// Guard: skip corrupt/pathological profiles (>5000 points ≈ 50km edge at 10m resolution)
+			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
 				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
@@ -288,7 +281,8 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			var elevCost float32
 			profStart := g.EdgeElevOff[ei]
 			profEnd := g.EdgeElevOff[ei+1]
-			if profEnd > profStart {
+			// Guard: skip corrupt/pathological profiles (>5000 points)
+			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
 				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
@@ -457,7 +451,7 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			var elevCost float32
 			profStart := g.EdgeElevOff[ei]
 			profEnd := g.EdgeElevOff[ei+1]
-			if profEnd > profStart {
+			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
 				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
@@ -572,7 +566,7 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			var elevCost float32
 			profStart := g.EdgeElevOff[ei]
 			profEnd := g.EdgeElevOff[ei+1]
-			if profEnd > profStart {
+			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
 				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
