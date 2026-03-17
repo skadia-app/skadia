@@ -238,9 +238,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		data.AvgHeartRate = totalHR / float64(hrCount)
 	}
 
-	var corrReport activityutil.CorrectionReport
-	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig(), data.SportType)
-	data.GPSCorrectionCount = corrReport.CorrectedCount
+	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
 	data.IsIndoor = !data.HasGPS

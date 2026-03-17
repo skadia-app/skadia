@@ -150,7 +150,6 @@ export default function ActivityDetailPage() {
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
-  const [showRawGPS, setShowRawGPS] = useState(false)
   const multisportMapRef = useRef<MultisportMapHandle>(null)
 
   // Per-activity module visibility (persisted in localStorage)
@@ -278,19 +277,6 @@ export default function ActivityDetailPage() {
 
     return { merged, splitMarkers }
   }, [childStreams, childActivities])
-
-  // GPS-Koordinaten für die Karte — raw oder korrigiert je nach Toggle
-  const trackCoordsForMap = useMemo(() => {
-    if (!streams) return null
-    return streams
-      .filter(s => s.lat != null && s.lng != null)
-      .map(s => {
-        if (showRawGPS && s.raw_lat != null && s.raw_lng != null) {
-          return [s.raw_lng, s.raw_lat] as [number, number]
-        }
-        return [s.lng!, s.lat!] as [number, number]
-      })
-  }, [streams, showRawGPS])
 
   // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
   const { data: allTagsForLocation = [] } = useQuery({
@@ -513,10 +499,6 @@ export default function ActivityDetailPage() {
           locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
             ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
             : undefined}
-          showRawGPS={showRawGPS}
-          gpsCorrectionsCount={activity.gps_corrections_count ?? 0}
-          onToggleRawGPS={() => setShowRawGPS(v => !v)}
-          trackCoordsOverride={trackCoordsForMap}
         />
       )}
 
@@ -1798,7 +1780,7 @@ function splitAtGaps(coords: [number, number][], thresholdM: number): [number, n
   return segments.length > 0 ? segments : [coords]
 }
 
-function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin, showRawGPS, gpsCorrectionsCount, onToggleRawGPS, trackCoordsOverride }: {
+function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: {
   activityId?: string
   streams: StreamPoint[]
   hoverIndex: number | null
@@ -1809,10 +1791,6 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
   geoTags?: GeoTag[]
   stops?: ActivityStop[]
   locationPin?: { lat: number; lng: number; name: string; color: string }
-  showRawGPS?: boolean
-  gpsCorrectionsCount?: number
-  onToggleRawGPS?: () => void
-  trackCoordsOverride?: [number, number][] | null
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -1843,12 +1821,10 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
     staleTime: Infinity,
   })
 
-  // Build GeoJSON from stream lat/lng — use pre-computed override (raw/corrected toggle) when provided
-  const coordinates: [number, number][] = trackCoordsOverride != null
-    ? trackCoordsOverride
-    : streams
-        .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
-        .map(s => [s.lng, s.lat] as [number, number])
+  // Build GeoJSON from stream lat/lng
+  const coordinates = streams
+    .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+    .map(s => [s.lng, s.lat] as [number, number])
 
   const hasTrack = coordinates.length >= 2
 
@@ -2278,7 +2254,7 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
   return (
     <div className="relative rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div ref={mapContainerRef} className="h-[400px] w-full" />
-      <div className="absolute top-3 left-3 z-10 flex gap-2 flex-wrap items-start">
+      <div className="absolute top-3 left-3 z-10 flex gap-2">
         {/* Maximize */}
         <button
           onClick={onMaximize}
@@ -2299,16 +2275,6 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
             </svg>
-          </button>
-        )}
-        {/* GPS raw/corrected toggle — only shown when corrections exist */}
-        {(gpsCorrectionsCount ?? 0) > 0 && onToggleRawGPS && (
-          <button
-            onClick={onToggleRawGPS}
-            className="text-xs px-2 py-1 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md cursor-pointer transition-colors text-neutral-600 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100 h-8 flex items-center"
-            title={`${gpsCorrectionsCount} GPS-Punkte korrigiert`}
-          >
-            {showRawGPS ? 'GPS: Rohdaten' : 'GPS: Korrigiert'}
           </button>
         )}
       </div>

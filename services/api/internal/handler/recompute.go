@@ -351,15 +351,6 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
 			return fmt.Errorf("insert streams: %w", err)
 		}
-		// Update GPS corrections count (correction already ran in parser).
-		if _, err := h.DB.Pool.Exec(ctx,
-			`UPDATE activities SET gps_corrections_count = $1 WHERE id = $2`,
-			data.GPSCorrectionCount, activityID); err != nil {
-			slog.Error("reprocess: update gps corrections count failed", "id", activityID, "error", err)
-		}
-		if data.GPSCorrectionCount > 0 {
-			slog.Info("reprocess: GPS corrections applied", "activity_id", activityID, "corrected", data.GPSCorrectionCount)
-		}
 		if len(data.RRIntervals) > 0 {
 			if err := h.DB.InsertRRIntervals(ctx, activityID, data.RRIntervals); err != nil {
 				slog.Error("reprocess: insert rr intervals failed", "id", activityID, "error", err)
