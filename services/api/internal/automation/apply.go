@@ -23,6 +23,12 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		return err
 	}
 
+	// NOTE: No transaction wrapping individual ApplyRuleChange calls.
+	// ApplyRuleChange and IncrementRuleApplied use db.Pool directly,
+	// and refactoring them to accept pgx.Tx would touch 10+ call sites.
+	// Inconsistency risk is low: each ApplyRuleChange is idempotent
+	// (ON CONFLICT DO NOTHING for add_tag, simple UPDATE for fields).
+	// A future refactor could introduce a querier interface.
 	for _, rule := range allRules {
 		if !rule.IsActive {
 			continue
