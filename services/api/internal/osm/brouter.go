@@ -3,196 +3,219 @@ package osm
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"math"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
-const brouterSegmentsBaseURL = "https://brouter.de/brouter/segments4"
+// BuildBRouterSegments builds rd5 segment files from local PBF data using
+// BRouter's mapcreator classes (OsmFastCutter, PosUnifier, WayLinker).
+// This replaces the previous approach of downloading pre-built segments
+// from brouter.de which broke due to URL structure changes.
+//
+// The build mirrors the upstream create-routing-data.sh script from
+// ghcr.io/mjaschen/brouter-routingdata-builder but runs Java directly
+// inside the API container.
+func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
+	osmDataDir, segmentsDir string, reporter ProgressReporter) error {
 
-// BRouterTile represents a 5x5 degree tile in BRouter's naming convention.
-// Example: E005N45.rd5 covers lon 5..10, lat 45..50.
-type BRouterTile struct {
-	LonStart int // Western edge in degrees (can be negative for W tiles)
-	LatStart int // Southern edge in degrees (can be negative for S tiles)
-}
-
-// Filename returns the BRouter rd5 filename for this tile.
-// Convention: E/W prefix + 3-digit abs(lon) + N/S prefix + 2-digit abs(lat)
-func (t BRouterTile) Filename() string {
-	var lonPrefix string
-	lonAbs := t.LonStart
-	if lonAbs >= 0 {
-		lonPrefix = "E"
-	} else {
-		lonPrefix = "W"
-		lonAbs = -lonAbs
+	// 1. Find PBF files for the imported regions (unfiltered *-latest.osm.pbf)
+	pbfFiles, err := findRegionPBFs(osmDataDir, regions)
+	if err != nil {
+		return fmt.Errorf("find PBF files: %w", err)
 	}
-	var latPrefix string
-	latAbs := t.LatStart
-	if latAbs >= 0 {
-		latPrefix = "N"
-	} else {
-		latPrefix = "S"
-		latAbs = -latAbs
+	if len(pbfFiles) == 0 {
+		return fmt.Errorf("no PBF files found in %s for %d regions", osmDataDir, len(regions))
 	}
-	return fmt.Sprintf("%s%03d%s%02d.rd5", lonPrefix, lonAbs, latPrefix, latAbs)
-}
+	slog.Info("brouter: found PBF files for segment build", "count", len(pbfFiles), "files", pbfFiles)
 
-// URL returns the full download URL for this tile.
-func (t BRouterTile) URL() string {
-	return brouterSegmentsBaseURL + "/" + t.Filename()
-}
+	// 2. Merge PBFs with osmium if multiple, otherwise use directly
+	planetPBF, needsCleanup, err := mergePBFs(ctx, osmDataDir, pbfFiles)
+	if err != nil {
+		return fmt.Errorf("merge PBFs: %w", err)
+	}
+	if needsCleanup {
+		defer os.Remove(planetPBF)
+	}
 
-// floorTo5 rounds down to the nearest multiple of 5.
-func floorTo5(v float64) int {
-	return int(math.Floor(v/5)) * 5
-}
+	// 3. Create working directories
+	tmpBase := filepath.Join(segmentsDir, "brouter-tmp")
+	if err := os.MkdirAll(segmentsDir, 0o755); err != nil {
+		return fmt.Errorf("create segments dir: %w", err)
+	}
+	if err := os.MkdirAll(tmpBase, 0o755); err != nil {
+		return fmt.Errorf("create tmp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpBase)
 
-// ComputeBRouterTiles returns the set of BRouter 5x5-degree tiles that cover
-// the bounding boxes of the given regions. Duplicates are removed.
-func ComputeBRouterTiles(regions []Region) []BRouterTile {
-	seen := make(map[BRouterTile]bool)
-	var tiles []BRouterTile
+	for _, sub := range []string{"nodetiles", "waytiles", "waytiles55", "nodes55", "unodes55"} {
+		if err := os.MkdirAll(filepath.Join(tmpBase, sub), 0o755); err != nil {
+			return fmt.Errorf("create %s dir: %w", sub, err)
+		}
+	}
 
-	for _, reg := range regions {
-		// Skip regions without bbox (should not happen, but be safe)
-		if reg.MinLon == 0 && reg.MaxLon == 0 && reg.MinLat == 0 && reg.MaxLat == 0 {
-			continue
+	// 4. BRouter paths (installed in Dockerfile via COPY --from)
+	const (
+		jar        = "/brouter/brouter.jar"
+		lookups    = "/brouter/lookups.dat"
+		allBrf     = "/brouter/all.brf"
+		trekkingBrf = "/brouter/trekking.brf"
+		softBrf    = "/brouter/softaccess.brf"
+	)
+
+	// DEM directories — BRouter accepts HGT files; we pass all available
+	// resolution tiers. PosUnifier takes two args: srtm1 and srtm3 dirs.
+	// We use our highest-res DEM as "srtm1" and GLO-30 as "srtm3" fallback.
+	srtm1Dir := "/data/dem/sonny-05"
+	srtm3Dir := "/data/dem/glo30"
+
+	// Ensure DEM dirs exist (may be empty if user hasn't downloaded DEM yet)
+	os.MkdirAll(srtm1Dir, 0o755)
+	os.MkdirAll(srtm3Dir, 0o755)
+
+	// Java memory settings — 2 GB is reasonable for regional extracts
+	javaOpts := strings.Split(os.Getenv("BROUTER_JAVA_OPTS"), " ")
+	if len(javaOpts) == 1 && javaOpts[0] == "" {
+		javaOpts = []string{"-Xmx2048m", "-Xms2048m", "-Xmn256m"}
+	}
+
+	// 5. Run the three BRouter mapcreator steps
+	type step struct {
+		name string
+		args []string
+	}
+
+	steps := []step{
+		{
+			name: "OsmFastCutter",
+			args: append(javaOpts,
+				"-cp", jar,
+				"-DavoidMapPolling=true",
+				"-Ddeletetmpfiles=false",
+				"-DuseDenseMaps=true",
+				"btools.mapcreator.OsmFastCutter",
+				lookups,
+				filepath.Join(tmpBase, "nodetiles"),
+				filepath.Join(tmpBase, "waytiles"),
+				filepath.Join(tmpBase, "nodes55"),
+				filepath.Join(tmpBase, "waytiles55"),
+				filepath.Join(tmpBase, "bordernids.dat"),
+				filepath.Join(tmpBase, "relations.dat"),
+				filepath.Join(tmpBase, "restrictions.dat"),
+				allBrf,
+				trekkingBrf,
+				softBrf,
+				planetPBF,
+			),
+		},
+		{
+			name: "PosUnifier",
+			args: append(javaOpts,
+				"-cp", jar,
+				"-Ddeletetmpfiles=true",
+				"-DuseDenseMaps=true",
+				"btools.mapcreator.PosUnifier",
+				filepath.Join(tmpBase, "nodes55"),
+				filepath.Join(tmpBase, "unodes55"),
+				filepath.Join(tmpBase, "bordernids.dat"),
+				filepath.Join(tmpBase, "bordernodes.dat"),
+				srtm1Dir,
+				srtm3Dir,
+			),
+		},
+		{
+			name: "WayLinker",
+			args: append(javaOpts,
+				"-cp", jar,
+				"-DuseDenseMaps=true",
+				"-DskipEncodingCheck=true",
+				"btools.mapcreator.WayLinker",
+				filepath.Join(tmpBase, "unodes55"),
+				filepath.Join(tmpBase, "waytiles55"),
+				filepath.Join(tmpBase, "bordernodes.dat"),
+				filepath.Join(tmpBase, "restrictions.dat"),
+				lookups,
+				allBrf,
+				segmentsDir,
+				"rd5",
+			),
+		},
+	}
+
+	for i, s := range steps {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 
-		lonStart := floorTo5(reg.MinLon)
-		lonEnd := floorTo5(reg.MaxLon)
-		latStart := floorTo5(reg.MinLat)
-		latEnd := floorTo5(reg.MaxLat)
+		reporter.SetPhase(fmt.Sprintf("brouter_%s", s.name))
+		reporter.SetProgress(int64(i * 100 / len(steps)))
+		slog.Info("brouter: running step", "step", s.name, "index", i+1, "total", len(steps))
 
-		for lon := lonStart; lon <= lonEnd; lon += 5 {
-			for lat := latStart; lat <= latEnd; lat += 5 {
-				tile := BRouterTile{LonStart: lon, LatStart: lat}
-				if !seen[tile] {
-					seen[tile] = true
-					tiles = append(tiles, tile)
-				}
+		cmd := exec.CommandContext(ctx, "java", s.args...)
+		cmd.Dir = tmpBase
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("brouter %s failed: %w", s.name, err)
+		}
+
+		slog.Info("brouter: step complete", "step", s.name)
+	}
+
+	reporter.SetProgress(100)
+	slog.Info("brouter: segment build complete", "segments_dir", segmentsDir)
+	return nil
+}
+
+// findRegionPBFs locates the unfiltered *-latest.osm.pbf files for each region.
+// It matches by region ID embedded in the filename (e.g., "switzerland-latest.osm.pbf").
+func findRegionPBFs(osmDataDir string, regions []Region) ([]string, error) {
+	var pbfFiles []string
+	seen := make(map[string]bool)
+
+	for _, reg := range regions {
+		// Region IDs look like "europe/switzerland" — we want "switzerland"
+		parts := strings.Split(reg.ID, "/")
+		baseName := parts[len(parts)-1]
+
+		// Look for unfiltered PBF: <region>-latest.osm.pbf
+		pattern := filepath.Join(osmDataDir, baseName+"-latest.osm.pbf")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("glob %s: %w", pattern, err)
+		}
+
+		for _, m := range matches {
+			if !seen[m] {
+				seen[m] = true
+				pbfFiles = append(pbfFiles, m)
 			}
 		}
 	}
 
-	// Sort for deterministic output
-	sort.Slice(tiles, func(i, j int) bool {
-		if tiles[i].LonStart != tiles[j].LonStart {
-			return tiles[i].LonStart < tiles[j].LonStart
-		}
-		return tiles[i].LatStart < tiles[j].LatStart
-	})
-
-	return tiles
+	return pbfFiles, nil
 }
 
-// DownloadBRouterSegments downloads pre-built rd5 segment files from brouter.de
-// for the given regions. Already existing files are skipped. Non-fatal: individual
-// tile failures are logged but don't abort the process (ocean tiles don't exist).
-// Returns (downloaded count, skipped count, error count).
-func (p *Pipeline) DownloadBRouterSegments(ctx context.Context, regions []Region, segmentsDir string, reporter ProgressReporter) (int, int, int) {
-	tiles := ComputeBRouterTiles(regions)
-	if len(tiles) == 0 {
-		slog.Warn("brouter: no tiles computed for regions (missing bbox data)")
-		return 0, 0, 0
+// mergePBFs merges multiple PBF files into one using osmium merge.
+// Returns the path to the merged file, whether it needs cleanup, and any error.
+// If only one file is provided, it is returned directly without merging.
+func mergePBFs(ctx context.Context, osmDataDir string, pbfFiles []string) (string, bool, error) {
+	if len(pbfFiles) == 1 {
+		return pbfFiles[0], false, nil
 	}
 
-	if err := os.MkdirAll(segmentsDir, 0755); err != nil {
-		slog.Error("brouter: failed to create segments dir", "dir", segmentsDir, "error", err)
-		return 0, 0, 0
+	merged := filepath.Join(osmDataDir, "brouter-merged.osm.pbf")
+	args := append([]string{"merge", "-o", merged, "--overwrite"}, pbfFiles...)
+
+	slog.Info("brouter: merging PBF files", "count", len(pbfFiles), "output", merged)
+	cmd := exec.CommandContext(ctx, "osmium", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", false, fmt.Errorf("osmium merge: %w", err)
 	}
 
-	var tileNames []string
-	for _, t := range tiles {
-		tileNames = append(tileNames, t.Filename())
-	}
-	slog.Info("brouter: downloading segments", "count", len(tiles), "tiles", strings.Join(tileNames, ", "), "dir", segmentsDir)
-
-	downloaded, skipped, errors := 0, 0, 0
-
-	for i, tile := range tiles {
-		if ctx.Err() != nil {
-			slog.Warn("brouter: download cancelled")
-			break
-		}
-
-		reporter.SetProgress(int64(i))
-		destPath := filepath.Join(segmentsDir, tile.Filename())
-
-		// Skip if already exists and has nonzero size
-		if info, err := os.Stat(destPath); err == nil && info.Size() > 0 {
-			slog.Debug("brouter: segment already exists", "file", tile.Filename(), "size", info.Size())
-			skipped++
-			continue
-		}
-
-		if err := downloadBRouterTile(ctx, tile, destPath); err != nil {
-			slog.Warn("brouter: tile download failed (non-fatal, may be ocean tile)",
-				"tile", tile.Filename(), "error", err)
-			errors++
-			// Remove partial download
-			os.Remove(destPath)
-			continue
-		}
-
-		downloaded++
-	}
-
-	reporter.SetProgress(int64(len(tiles)))
-	slog.Info("brouter: segment download complete",
-		"downloaded", downloaded, "skipped", skipped, "errors", errors)
-
-	return downloaded, skipped, errors
-}
-
-// downloadBRouterTile downloads a single rd5 tile from brouter.de.
-func downloadBRouterTile(ctx context.Context, tile BRouterTile, destPath string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tile.URL(), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("not found (ocean/empty tile)")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	// Write to temp file then rename for atomicity
-	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-
-	n, err := io.Copy(f, resp.Body)
-	if closeErr := f.Close(); closeErr != nil && err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("write: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename: %w", err)
-	}
-
-	slog.Info("brouter: downloaded segment", "file", tile.Filename(), "size_mb", n/1024/1024)
-	return nil
+	return merged, true, nil
 }

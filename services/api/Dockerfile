@@ -19,8 +19,15 @@ FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates tzdata osm2pgsql postgis poppler-utils ffmpeg \
-    osmium-tool \
+    osmium-tool default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# BRouter mapcreator assets for building rd5 segments from PBF files
+COPY --from=ghcr.io/mjaschen/brouter-routingdata-builder /brouter/brouter.jar /brouter/brouter.jar
+COPY --from=ghcr.io/mjaschen/brouter-routingdata-builder /brouter/lookups.dat /brouter/lookups.dat
+COPY --from=ghcr.io/mjaschen/brouter-routingdata-builder /brouter/all.brf /brouter/all.brf
+COPY --from=ghcr.io/mjaschen/brouter-routingdata-builder /brouter/trekking.brf /brouter/trekking.brf
+COPY --from=ghcr.io/mjaschen/brouter-routingdata-builder /brouter/softaccess.brf /brouter/softaccess.brf
 
 COPY --from=builder /api /api
 
