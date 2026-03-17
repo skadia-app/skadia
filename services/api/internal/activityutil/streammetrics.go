@@ -11,9 +11,10 @@ const speedGapMaxSeconds = 300.0 // 5 min — don't derive speed across larger g
 const recordingGapThreshold = 300.0 // 5 min — same as speed gap and CalcMovingTime
 
 // DefaultSpeedSmoothingWindow is the number of points on each side for the
-// moving average applied to speed values. A window of 2 means 5-point average
-// (2 before + current + 2 after). At 1 Hz recording, this is a 5-second window.
-const DefaultSpeedSmoothingWindow = 2
+// median filter applied to speed values. A window of 3 means 7-point median
+// (3 before + current + 3 after). At 1 Hz recording, this is a 7-second window.
+// Median eliminates outliers completely (unlike mean which only reduces them).
+const DefaultSpeedSmoothingWindow = 3
 
 // FillMissingDistanceAndSpeed fills nil DistanceM and SpeedMS values by
 // deriving them from GPS coordinates and timestamps. Points that already
@@ -102,19 +103,18 @@ func FillMissingDistanceAndSpeed(points []model.StreamPoint) []model.StreamPoint
 	return points
 }
 
-// SmoothSpeed applies a centered moving average to the SpeedMS field.
+// SmoothSpeed applies a centered median filter to the SpeedMS field.
 // The window parameter is the number of points on each side (total window
 // = 2*window + 1). Points without speed, at the edges, or across time gaps
 // > 5 min are left unchanged.
 //
-// This uses a median-filter approach
-// for suppressing GPS speed noise without altering positions or distances.
+// Median filter completely eliminates outlier spikes (unlike a moving average
+// which only reduces them). Median of [20, 20, 120, 20, 20] = 20, not 40.
 func SmoothSpeed(points []model.StreamPoint, window int) []model.StreamPoint {
 	if window <= 0 || len(points) < 3 {
 		return points
 	}
 
-	// Collect original speed values (nil-safe).
 	n := len(points)
 	raw := make([]float64, n)
 	valid := make([]bool, n)
@@ -130,40 +130,55 @@ func SmoothSpeed(points []model.StreamPoint, window int) []model.StreamPoint {
 			continue
 		}
 
-		sum := raw[i]
-		count := 1
+		// Collect values in the window, respecting time gaps.
+		vals := make([]float64, 0, 2*window+1)
+		vals = append(vals, raw[i])
 
-		// Expand window in both directions, stop at edges or time gaps.
 		for j := 1; j <= window; j++ {
-			// Left neighbor
 			if li := i - j; li >= 0 && valid[li] {
 				dt := points[i-j+1].Time.Sub(points[li].Time).Seconds()
 				if dt > 0 && dt < speedGapMaxSeconds {
-					sum += raw[li]
-					count++
+					vals = append(vals, raw[li])
 				} else {
-					break // gap — stop expanding left
+					break
 				}
 			}
 		}
 		for j := 1; j <= window; j++ {
-			// Right neighbor
 			if ri := i + j; ri < n && valid[ri] {
 				dt := points[ri].Time.Sub(points[ri-1].Time).Seconds()
 				if dt > 0 && dt < speedGapMaxSeconds {
-					sum += raw[ri]
-					count++
+					vals = append(vals, raw[ri])
 				} else {
-					break // gap — stop expanding right
+					break
 				}
 			}
 		}
 
-		avg := sum / float64(count)
-		points[i].SpeedMS = &avg
+		// Compute median via partial sort (selection).
+		med := median(vals)
+		points[i].SpeedMS = &med
 	}
 
 	return points
+}
+
+// median returns the median of a float64 slice. Modifies the slice in place.
+func median(vals []float64) float64 {
+	n := len(vals)
+	if n == 0 {
+		return 0
+	}
+	// Insertion sort — vals is small (≤ 2*window+1 ≈ 7).
+	for i := 1; i < n; i++ {
+		for j := i; j > 0 && vals[j] < vals[j-1]; j-- {
+			vals[j], vals[j-1] = vals[j-1], vals[j]
+		}
+	}
+	if n%2 == 1 {
+		return vals[n/2]
+	}
+	return (vals[n/2-1] + vals[n/2]) / 2
 }
 
 // FixDistanceResets detects distance counter resets (common in GOTOES-merged
