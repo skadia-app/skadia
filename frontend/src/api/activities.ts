@@ -87,9 +87,12 @@ export async function updateActivity(id: string, data: Partial<Pick<Activity, 't
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
-export async function reprocessActivity(id: string, scope?: string[]): Promise<Activity | { job_id: string }> {
-  const params = scope?.length ? '?' + scope.map(s => `scope=${s}`).join('&') : ''
-  return apiClient<Activity | { job_id: string }>(`/activities/${id}/recompute${params}`, { method: 'POST' })
+export async function reprocessActivity(id: string, scope?: string[], smoothWindow?: number): Promise<Activity | { job_id: string }> {
+  const parts: string[] = []
+  if (scope?.length) parts.push(...scope.map(s => `scope=${s}`))
+  if (smoothWindow != null) parts.push(`smooth_window=${smoothWindow}`)
+  const qs = parts.length ? '?' + parts.join('&') : ''
+  return apiClient<Activity | { job_id: string }>(`/activities/${id}/recompute${qs}`, { method: 'POST' })
 }
 
 export interface ReprocessFilter {
