@@ -24,7 +24,6 @@ export const REPROCESS_SCOPES = [
   ['segments',     'Segmente & Runden'],
   ['sport_type',   'Sportart'],
   ['tags',         'Tags'],
-  ['speed_smooth', 'Geschwindigkeit glätten'],
 ] as const
 
 type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0] | GeoScopeKey
