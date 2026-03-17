@@ -64,6 +64,9 @@ export default function SegmentEditorModal({
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // Ref to always expose the latest trackPoints to stale-closure callbacks (map init useEffect)
+  const trackPointsRef = useRef(trackPoints)
+  useEffect(() => { trackPointsRef.current = trackPoints }, [trackPoints])
   const [heatmapVisible, setHeatmapVisible] = useState(false)
   const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
   const [phase, setPhase] = useState<EditorPhase>('edit')
@@ -168,9 +171,10 @@ export default function SegmentEditorModal({
 
   // Hilfsfunktion: Track-Line + Richtungspfeile hinzufügen (auch nach Style-Wechsel aufrufbar)
   function addTrackLayerToMap(m: maplibregl.Map) {
-    if (!trackPoints || trackPoints.length < 2) return
+    const pts = trackPointsRef.current
+    if (!pts || pts.length < 2) return
     if (m.getSource('activity-track')) return
-    const coords = trackPoints.map(p => [p.lng, p.lat])
+    const coords = pts.map(p => [p.lng, p.lat])
     m.addSource('activity-track', {
       type: 'geojson',
       data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } as GeoJSON.Feature,
@@ -204,12 +208,13 @@ export default function SegmentEditorModal({
   function registerArrowAndTrack(m: maplibregl.Map) {
     const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M8 0 L16 8 L8 16 L8 10 L0 10 L0 6 L8 6 Z" fill="#fff" stroke="#333" stroke-width="1"/></svg>`
     const img = new Image(16, 16)
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
+    // Assign onload/onerror BEFORE setting src to avoid race on data: URLs
     img.onload = () => {
       if (!m.hasImage('arrow')) m.addImage('arrow', img)
       addTrackLayerToMap(m)
     }
     img.onerror = () => addTrackLayerToMap(m)
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
   }
 
   // Map Init
@@ -223,17 +228,20 @@ export default function SegmentEditorModal({
     })
     mapRef.current = map
 
-    if (trackPoints && trackPoints.length > 0) {
-      const lngs = trackPoints.map(p => p.lng)
-      const lats = trackPoints.map(p => p.lat)
-      const bounds: maplibregl.LngLatBoundsLike = [
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)],
-      ]
-      map.on('load', () => map.fitBounds(bounds, { padding: 40 }))
-    }
-
-    map.on('load', () => registerArrowAndTrack(map))
+    map.on('load', () => {
+      // Read from ref so we always use the current trackPoints, not a stale closure value
+      const pts = trackPointsRef.current
+      if (pts && pts.length > 0) {
+        const lngs = pts.map(p => p.lng)
+        const lats = pts.map(p => p.lat)
+        const bounds: maplibregl.LngLatBoundsLike = [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ]
+        map.fitBounds(bounds, { padding: 40 })
+      }
+      registerArrowAndTrack(map)
+    })
 
     return () => { map.remove(); mapRef.current = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

@@ -54,7 +54,7 @@ func TestTileRouter_SingleTile(t *testing.T) {
 	cache := NewTileCache(2_500_000_000)
 	cache.Put(tileID, g)
 
-	tr := NewTileRouter(cache)
+	tr := newTileRouterFromCache(cache)
 
 	ctx := context.Background()
 	cfg := DefaultTrekkingConfig()
@@ -113,7 +113,7 @@ func TestCrossTileRoute_TwoTiles(t *testing.T) {
 	cache.Put(tileA, gA)
 	cache.Put(tileB, gB)
 
-	tr := NewTileRouter(cache)
+	tr := newTileRouterFromCache(cache)
 
 	ctx := context.Background()
 	cfg := DefaultTrekkingConfig()

@@ -14,13 +14,25 @@ import (
 // Single-tile routes delegate to the existing Router.
 // Cross-tile routes use a sparse A* with BorderNode expansion.
 type TileRouter struct {
-	cache                *TileCache
+	mgr                  *TileManager // on-demand tile loading (nil in tests)
+	cache                *TileCache   // direct cache access (used in tests without TileManager)
 	maxExpansionsPerTile uint32
 	sparseSem            chan struct{}
 }
 
-// NewTileRouter creates a TileRouter backed by the given TileCache.
-func NewTileRouter(cache *TileCache) *TileRouter {
+// NewTileRouter creates a TileRouter backed by a TileManager for on-demand loading.
+func NewTileRouter(mgr *TileManager) *TileRouter {
+	return &TileRouter{
+		mgr:                  mgr,
+		cache:                mgr.cache,
+		maxExpansionsPerTile: 500_000,
+		sparseSem:            make(chan struct{}, 10),
+	}
+}
+
+// newTileRouterFromCache creates a TileRouter backed only by a cache (no disk loading).
+// Used in tests where tiles are pre-populated in memory.
+func newTileRouterFromCache(cache *TileCache) *TileRouter {
 	return &TileRouter{
 		cache:                cache,
 		maxExpansionsPerTile: 500_000,
@@ -41,8 +53,13 @@ func (tr *TileRouter) Route(ctx context.Context, req RouteRequest,
 	return tr.routeCrossTile(ctx, startTileID, endTileID, req, cfg)
 }
 
-// getTile loads a tile from cache. Returns an error if not cached.
+// getTile loads a tile via TileManager (on-demand from disk) or falls back to
+// direct cache lookup (for tests without TileManager).
 func (tr *TileRouter) getTile(tileID uint32) (*graph.Graph, error) {
+	if tr.mgr != nil {
+		return tr.mgr.GetTile(tileID)
+	}
+	// Test-only path: direct cache access.
 	g, ok := tr.cache.Get(tileID)
 	if !ok {
 		return nil, fmt.Errorf("tile %d not in cache", tileID)
@@ -282,9 +299,9 @@ func (tr *TileRouter) expandBorderNode(
 	neighborGID := MakeGlobalNodeID(neighborTileID, neighborLocalID)
 	tns := state.getOrCreate(neighborGID)
 
-	correctedCost := newCost + hyState.elevationCorrection(cfg)
-	if correctedCost < tns.BestCost {
-		tns.BestCost = correctedCost
+	// newCost already includes elevationCorrection from the caller — do NOT apply again.
+	if newCost < tns.BestCost {
+		tns.BestCost = newCost
 		tns.ParentNode = parentGID
 		tns.ParentEdge = edgeIdx
 
@@ -296,7 +313,7 @@ func (tr *TileRouter) expandBorderNode(
 
 		state.frontier.Push(CrossFrontierEntry{
 			GlobalNodeID: neighborGID,
-			Cost:         correctedCost,
+			Cost:         newCost,
 			AirDist:      airDist,
 			State:        hyState,
 			TileID:       neighborTileID,

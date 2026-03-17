@@ -283,12 +283,8 @@ export default function EnrichmentSettingsPage() {
         </div>
 
         {weatherMut.isSuccess && (
-          <p className={`text-sm ${weatherMut.data.errors > 0 ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-            Wetter-Backfill abgeschlossen: {weatherMut.data.processed} verarbeitet
-            {weatherMut.data.errors > 0 ? `, ${weatherMut.data.errors} Fehler` : ''}.
-            {weatherMut.data.errors > 0 && weatherMut.data.error_details && (
-              <span className="block mt-0.5 text-xs text-rose-400">{weatherMut.data.error_details}</span>
-            )}
+          <p className="text-sm text-emerald-600 dark:text-emerald-400">
+            Wetter-Backfill gestartet — läuft im Hintergrund. Fortschritt im Job-Indikator oben sichtbar.
           </p>
         )}
         {weatherMut.isError && (

@@ -22,8 +22,28 @@ type cacheEntry struct {
 	sizeBytes int64
 }
 
+// estimateGraphBytes returns a rough byte estimate for a loaded graph's arrays.
+// Used by the LRU cache to enforce its RAM budget.
 func estimateGraphBytes(g *graph.Graph) int64 {
-	return int64(g.NodeCount)*2 + int64(g.EdgeCount)
+	n := int64(g.NodeCount)
+	e := int64(g.EdgeCount)
+	// Hot-path arrays: Offsets(4*(n+1)) + Targets(4e) + EdgeDist(4e)
+	//   + EdgeTags1(8e) + EdgeTags2(8e) + EdgeOSMIdx(4e)
+	//   + NodeLat(4n) + NodeLon(4n) + NodeEle(4n) + NodeTags(1n)
+	//   + EdgeGeomOff(4e) + EdgeElevOff(4e)
+	est := (n+1)*4 + e*(4+4+8+8+4+4+4) // 36 bytes/edge + offsets
+	est += n * (4 + 4 + 4 + 1)           // 13 bytes/node
+	// SpatialGrid: ~8 bytes/node (cell index + node list overhead)
+	est += n * 8
+	// IsBorder: 1 byte/node when present
+	if g.IsBorder != nil {
+		est += n
+	}
+	// BorderNodeIndex: 12 bytes/entry
+	if g.BorderIndex != nil {
+		est += int64(len(g.BorderIndex.Entries)) * 12
+	}
+	return est
 }
 
 func NewTileCache(maxBytes int64) *TileCache {

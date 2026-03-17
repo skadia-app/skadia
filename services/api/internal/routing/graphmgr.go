@@ -121,7 +121,7 @@ func (m *GraphManager) InitTileMode(tileDir string, cacheSize int64) (bool, erro
 		return false, nil
 	}
 	m.tileMgr = mgr
-	m.tileRouter = NewTileRouter(mgr.cache)
+	m.tileRouter = NewTileRouter(mgr)
 	slog.Info("tile mode initialized",
 		"tiles", mgr.TileCount(),
 		"cache_bytes", cacheSize,
