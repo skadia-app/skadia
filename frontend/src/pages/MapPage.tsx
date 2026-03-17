@@ -2068,7 +2068,7 @@ export default function MapPage() {
         <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
           {/* Route Planner toggle button */}
           {(() => {
-            const plannerAvailable = (planner.capabilities?.routing ?? false) && (planner.capabilities?.offline_map ?? false)
+            const plannerAvailable = planner.capabilities?.routing ?? false
             return (
           <button
             onClick={() => {
