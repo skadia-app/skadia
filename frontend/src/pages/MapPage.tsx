@@ -513,6 +513,7 @@ export default function MapPage() {
   // Location Tags
   const locationTagMarkersRef = useRef<maplibregl.Marker[]>([])
   const snapMarkerRef = useRef<{ marker: maplibregl.Marker; el: HTMLElement } | null>(null)
+  const snapClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [selectedLocationTagId, setSelectedLocationTagId] = useState<string | null>(null)
   const [tagActivitiesLoading, setTagActivitiesLoading] = useState(false)
   const [tagActivities, setTagActivities] = useState<TagActivity[]>([])
@@ -1258,13 +1259,29 @@ export default function MapPage() {
         e.preventDefault()
         e.stopPropagation()
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
-        // Snap-Animation beibehalten
-        inner.style.transition = 'scale 0.15s ease'
-        inner.style.scale = '1.35'
+        // Debounce-Timer canceln (verhindert Flicker wenn Cursor zwischen Canvas und Marker wechselt)
+        if (snapClearTimerRef.current) { clearTimeout(snapClearTimerRef.current); snapClearTimerRef.current = null }
+        if (!snapMarkerRef.current || snapMarkerRef.current.el !== el) {
+          if (snapMarkerRef.current) {
+            const prev = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+            if (prev) { prev.style.scale = ''; prev.style.transition = '' }
+          }
+          inner.style.transition = 'scale 0.15s ease'
+          inner.style.scale = '1.35'
+          snapMarkerRef.current = { marker, el }
+        }
       })
-      el.addEventListener('dragleave', () => {
-        inner.style.scale = ''
-        inner.style.transition = ''
+      el.addEventListener('dragleave', (e) => {
+        // Nur debounced clearen — canvas-dragover könnte gleich folgen
+        if (snapClearTimerRef.current) clearTimeout(snapClearTimerRef.current)
+        snapClearTimerRef.current = setTimeout(() => {
+          if (snapMarkerRef.current?.el === el) {
+            inner.style.scale = ''
+            inner.style.transition = ''
+            snapMarkerRef.current = null
+          }
+          snapClearTimerRef.current = null
+        }, 120)
       })
       el.addEventListener('drop', async (e) => {
         e.preventDefault()
@@ -1412,6 +1429,35 @@ export default function MapPage() {
 
     const canvas = map.getCanvas()
 
+    function clearSnapNow() {
+      if (snapClearTimerRef.current) { clearTimeout(snapClearTimerRef.current); snapClearTimerRef.current = null }
+      if (snapMarkerRef.current) {
+        const innerEl = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+        if (innerEl) { innerEl.style.scale = ''; innerEl.style.transition = '' }
+        snapMarkerRef.current = null
+      }
+    }
+
+    function scheduleSnapClear() {
+      if (snapClearTimerRef.current) clearTimeout(snapClearTimerRef.current)
+      snapClearTimerRef.current = setTimeout(clearSnapNow, 120)
+    }
+
+    function applySnap(markerEntry: maplibregl.Marker, markerEl: HTMLElement) {
+      if (snapClearTimerRef.current) { clearTimeout(snapClearTimerRef.current); snapClearTimerRef.current = null }
+      // Clear old snap if different marker
+      if (snapMarkerRef.current && snapMarkerRef.current.el !== markerEl) {
+        const prevInner = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
+        if (prevInner) { prevInner.style.scale = ''; prevInner.style.transition = '' }
+        snapMarkerRef.current = null
+      }
+      if (!snapMarkerRef.current) {
+        const innerEl = markerEl.firstElementChild as HTMLElement | null
+        if (innerEl) { innerEl.style.transition = 'scale 0.15s ease'; innerEl.style.scale = '1.35' }
+        snapMarkerRef.current = { marker: markerEntry, el: markerEl }
+      }
+    }
+
     function onCanvasDragOver(e: DragEvent) {
       if (!e.dataTransfer?.types.includes('application/skadia-activities')) return
       e.preventDefault()
@@ -1424,46 +1470,25 @@ export default function MapPage() {
       if (!lngLat) return
 
       const nearby = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
-
       const markerEntry = nearby
         ? locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearby.id) ?? null
         : null
-      const markerEl = markerEntry ? markerEntry.getElement() : null
 
-      // Clear previous snap
-      if (snapMarkerRef.current && snapMarkerRef.current.el !== markerEl) {
-        const prevInner = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
-        if (prevInner) { prevInner.style.scale = ''; prevInner.style.transition = '' }
-        snapMarkerRef.current = null
-      }
-
-      // Apply snap to new target (scale inner child, not el — preserves MapLibre translate)
-      if (markerEl && !snapMarkerRef.current) {
-        const innerEl = markerEl.firstElementChild as HTMLElement | null
-        if (innerEl) {
-          innerEl.style.transition = 'scale 0.15s ease'
-          innerEl.style.scale = '1.35'
-        }
-        snapMarkerRef.current = { marker: markerEntry!, el: markerEl }
+      if (markerEntry) {
+        applySnap(markerEntry, markerEntry.getElement())
+      } else if (!nearby) {
+        scheduleSnapClear()
       }
     }
 
     function onCanvasDragLeave() {
-      if (snapMarkerRef.current) {
-        const innerEl = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
-        if (innerEl) { innerEl.style.scale = ''; innerEl.style.transition = '' }
-        snapMarkerRef.current = null
-      }
+      scheduleSnapClear()
     }
 
     async function onCanvasDrop(e: DragEvent) {
       e.preventDefault()
       // Clear magnetic snap visual
-      if (snapMarkerRef.current) {
-        const prevInner = snapMarkerRef.current.el.firstElementChild as HTMLElement | null
-        if (prevInner) { prevInner.style.scale = ''; prevInner.style.transition = '' }
-        snapMarkerRef.current = null
-      }
+      clearSnapNow()
       const raw = e.dataTransfer?.getData('application/skadia-activities')
       if (!raw) return
       let activityIDs: string[]
