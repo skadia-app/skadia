@@ -7,13 +7,21 @@ type PathState struct {
 	Ehbd int32 // downhill buffer in millimeters
 }
 
+// HysteresisResult holds the output of a hysteresis propagation step.
+type HysteresisResult struct {
+	State      PathState
+	ElevCost   float32
+	UpWeight   float32 // 0-1: fraction of edge that is uphill-penalized
+	DownWeight float32 // 0-1: fraction of edge that is downhill-penalized
+}
+
 // propagateHysteresis updates hysteresis buffers and returns elevation cost.
 // deltaEleMilli: elevation change in millimeters (positive = uphill).
 // distMilli: edge distance in millimeters.
 // Unit choice: millimeters (not micrometers) to avoid int32 overflow.
 // Max EdgeDist 65535 dm * 100 = 6,553,500 mm — fits int32.
 func propagateHysteresis(parent PathState, deltaEleMilli int32,
-	distMilli int32, cfg *CostConfig) (PathState, float32) {
+	distMilli int32, cfg *CostConfig) HysteresisResult {
 
 	state := parent
 
@@ -36,19 +44,71 @@ func propagateHysteresis(parent PathState, deltaEleMilli int32,
 		state.Ehbu = maxBuf
 	}
 
-	// Cost activation
+	// Cost activation with ElevBufferReduce support
 	var elevCost float32
+	var upWeight, downWeight float32
 	penBuf := int32(cfg.ElevPenaltyBuffer * 1e3)
+
 	if state.Ehbd > penBuf {
-		excess := float32(state.Ehbd-penBuf) / 1e3
-		elevCost += excess * cfg.DownhillCostFactor
+		excess := float32(state.Ehbd - penBuf)
+		reduce, w := computeReduce(excess, float32(distMilli), cfg.ElevBufferReduce, float32(state.Ehbd-maxBuf))
+		downWeight = w
+		elevCost += (reduce / 1e3) * cfg.DownhillCost
+		state.Ehbd -= int32(reduce)
+		// Re-clamp after reduce (should not go below penBuf, but safety)
+		if state.Ehbd < penBuf {
+			state.Ehbd = penBuf
+		}
 	}
 	if state.Ehbu > penBuf {
-		excess := float32(state.Ehbu-penBuf) / 1e3
-		elevCost += excess * cfg.UphillCostFactor
+		excess := float32(state.Ehbu - penBuf)
+		reduce, w := computeReduce(excess, float32(distMilli), cfg.ElevBufferReduce, float32(state.Ehbu-maxBuf))
+		upWeight = w
+		elevCost += (reduce / 1e3) * cfg.UphillCost
+		state.Ehbu -= int32(reduce)
+		// Re-clamp after reduce
+		if state.Ehbu < penBuf {
+			state.Ehbu = penBuf
+		}
 	}
 
-	return state, elevCost
+	return HysteresisResult{
+		State:      state,
+		ElevCost:   elevCost,
+		UpWeight:   upWeight,
+		DownWeight: downWeight,
+	}
+}
+
+// computeReduce implements the BRouter StdPath ElevBufferReduce pattern.
+// excess: buffer above PenaltyBuffer in mm.
+// distMilli: edge distance in mm.
+// elevBufferReduce: decay rate (mm drain per mm distance). 0 = legacy mode.
+// overMax: buffer above MaxBuffer in mm (negative means within bounds).
+// Returns (reduce_mm, weight). reduce is clamped so buffer stays at or below MaxBuffer.
+func computeReduce(excess, distMilli, elevBufferReduce, overMax float32) (float32, float32) {
+	if elevBufferReduce == 0 {
+		// Legacy mode: no decay — excess is reduced fully (weight = 1.0)
+		return excess, 1.0
+	}
+
+	reduce := distMilli * elevBufferReduce
+	var weight float32
+
+	if reduce > excess {
+		// Partial activation: only drain what's available
+		weight = excess / reduce
+		reduce = excess
+	} else {
+		weight = 1.0
+	}
+
+	// Clamp: reduce must not be less than overMax (buffer must not stay above MaxBuffer)
+	if overMax > 0 && reduce < overMax {
+		reduce = overMax
+	}
+
+	return reduce, weight
 }
 
 // propagateHysteresisProfile processes elevation changes along an edge's
@@ -57,23 +117,42 @@ func propagateHysteresis(parent PathState, deltaEleMilli int32,
 // elevProfile: elevation in decimeters at each geometry point (int32 for >3276.7m support)
 // segDistMilli: distance in millimeters for each segment (len = len(elevProfile)-1)
 func propagateHysteresisProfile(parent PathState, elevProfile []int32,
-	segDistMilli []int32, cfg *CostConfig) (PathState, float32) {
+	segDistMilli []int32, cfg *CostConfig) HysteresisResult {
 
 	if len(elevProfile) < 2 {
-		return parent, 0
+		return HysteresisResult{State: parent}
 	}
 
 	state := parent
 	var totalElevCost float32
+	var totalUpW, totalDownW, totalDist float32
 
-	for i := 0; i < len(elevProfile)-1; i++ {
+	for i := range len(elevProfile) - 1 {
 		deltaEleMilli := (elevProfile[i+1] - elevProfile[i]) * 100 // dm → mm
-		var segCost float32
-		state, segCost = propagateHysteresis(state, deltaEleMilli, segDistMilli[i], cfg)
-		totalElevCost += segCost
+		segDist := float32(segDistMilli[i])
+
+		res := propagateHysteresis(state, deltaEleMilli, segDistMilli[i], cfg)
+		state = res.State
+		totalElevCost += res.ElevCost
+
+		// Distance-weighted average for UpWeight/DownWeight
+		totalUpW += res.UpWeight * segDist
+		totalDownW += res.DownWeight * segDist
+		totalDist += segDist
 	}
 
-	return state, totalElevCost
+	var upWeight, downWeight float32
+	if totalDist > 0 {
+		upWeight = totalUpW / totalDist
+		downWeight = totalDownW / totalDist
+	}
+
+	return HysteresisResult{
+		State:      state,
+		ElevCost:   totalElevCost,
+		UpWeight:   upWeight,
+		DownWeight: downWeight,
+	}
 }
 
 // elevationCorrection estimates the latent cost stored in the hysteresis buffers.
@@ -87,11 +166,10 @@ func propagateHysteresisProfile(parent PathState, elevProfile []int32,
 func (s PathState) elevationCorrection(cfg *CostConfig) float32 {
 	var correction float32
 	if s.Ehbu > 0 {
-		correction += float32(s.Ehbu) / 1e3 * cfg.UphillCostFactor
+		correction += float32(s.Ehbu) / 1e3 * cfg.UphillCost
 	}
 	if s.Ehbd > 0 {
-		correction += float32(s.Ehbd) / 1e3 * cfg.DownhillCostFactor
+		correction += float32(s.Ehbd) / 1e3 * cfg.DownhillCost
 	}
 	return correction
 }
-

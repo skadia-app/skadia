@@ -16,20 +16,20 @@ func TestDefaultTrekkingCost(t *testing.T) {
 	}
 
 	cfg := DefaultTrekkingConfig()
-	cost := cfg.EdgeCost(g, 0)
-	if cost <= 0 {
-		t.Errorf("trekking cost should be positive, got %f", cost)
+	ecf := cfg.EdgeCost(g, 0)
+	// path costfactor = 1.0 (highway) * 1.0 (unknown surface) = 1.0
+	if ecf.Flat <= 0 {
+		t.Errorf("trekking costfactor should be positive, got %f", ecf.Flat)
 	}
-	// path cost = 100m * 1.0 (highway) * 1.0 (unknown surface) = 100
-	if cost < 50 || cost > 200 {
-		t.Errorf("trekking cost for path should be ~100, got %f", cost)
+	if ecf.Flat < 0.5 || ecf.Flat > 2.0 {
+		t.Errorf("trekking costfactor for path should be ~1.0, got %f", ecf.Flat)
 	}
 }
 
 func TestDefaultTrekkingConfig_MaxLatentCost(t *testing.T) {
 	cfg := DefaultTrekkingConfig()
-	// MaxLatentCost = ElevMaxBuffer * max(UphillCostFactor, DownhillCostFactor)
-	expected := cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
+	// MaxLatentCost = ElevMaxBuffer * max(UphillCost, DownhillCost)
+	expected := cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	if math.Abs(float64(cfg.MaxLatentCost-expected)) > 0.01 {
 		t.Errorf("MaxLatentCost should be %f, got %f", expected, cfg.MaxLatentCost)
 	}
@@ -48,9 +48,23 @@ func TestCostConfig_MotorwayBlocked(t *testing.T) {
 	}
 
 	cfg := DefaultTrekkingConfig()
-	cost := cfg.EdgeCost(g, 0)
-	// Motorway should have very high cost (effectively blocked)
-	if cost < 100000 {
-		t.Errorf("motorway should have very high cost for trekking, got %f", cost)
+	ecf := cfg.EdgeCost(g, 0)
+	// Motorway should be blocked (costfactor >= costBlocked)
+	if ecf.Flat < costBlocked {
+		t.Errorf("motorway should be blocked (Flat >= %f), got %f", costBlocked, ecf.Flat)
+	}
+}
+
+func TestEdgeCostFactors_BlockedCheck(t *testing.T) {
+	ecf := EdgeCostFactors{Flat: costBlocked}
+	if ecf.Flat < costBlocked {
+		t.Error("blocked edge should have Flat >= costBlocked")
+	}
+}
+
+func TestEdgeCostFactors_WayClass(t *testing.T) {
+	ecf := EdgeCostFactors{Flat: 1.0, WayClass: 1}
+	if ecf.WayClass != 1 {
+		t.Errorf("WayClass should be 1, got %d", ecf.WayClass)
 	}
 }

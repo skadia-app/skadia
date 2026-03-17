@@ -6,17 +6,30 @@ import (
 
 const costBlocked float32 = 10_000 // effectively impassable
 
+// EdgeCostFactors are pure costfactor multipliers (NOT pre-multiplied by distance).
+// The A*-Loop computes: distM * interpolated_costfactor.
+// Blocked edges: Flat >= costBlocked (10000).
+type EdgeCostFactors struct {
+	Flat     float32 // costfactor for flat terrain
+	Up       float32 // uphillcostfactor (0 = use Flat)
+	Down     float32 // downhillcostfactor (0 = use Flat)
+	WayClass uint8   // 0=normal, 1=ferry, 2=mainroad — for initialcost tracking
+}
+
 // CostConfig holds the routing cost configuration.
 // EdgeCost is a closure — Phase 4 creates it from SportProfile.
 type CostConfig struct {
 	// Elevation Hysteresis
-	UphillCostFactor   float32
-	DownhillCostFactor float32
-	UphillCutoff       float32
-	DownhillCutoff     float32
-	ElevPenaltyBuffer  float32 // meters
-	ElevMaxBuffer      float32 // meters
-	ElevBufferReduce   float32 // reserved for Phase 4: buffer decay rate per meter of flat terrain
+	UphillCost        float32
+	DownhillCost      float32
+	UphillCutoff      float32
+	DownhillCutoff    float32
+	ElevPenaltyBuffer float32 // meters
+	ElevMaxBuffer     float32 // meters
+	ElevBufferReduce  float32 // buffer decay rate: mm drain per mm distance (BRouter elevationbufferreduce * 0.01)
+
+	// Turn cost (cost per turn, applied in A* loop)
+	TurnCost float32
 
 	// A* control
 	Pass0Coefficient float32
@@ -25,7 +38,7 @@ type CostConfig struct {
 	MaxLatentCost float32
 
 	// Edge cost function (closure-based for Phase 4 access to config)
-	EdgeCost func(g *graph.Graph, edgeIdx uint32) float32
+	EdgeCost func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors
 }
 
 // RouteRequest defines start/destination for a routing query.
@@ -39,24 +52,23 @@ type RouteRequest struct {
 // DefaultTrekkingConfig returns a CostConfig for trekking/hiking.
 func DefaultTrekkingConfig() *CostConfig {
 	cfg := &CostConfig{
-		UphillCostFactor:   1.0,
-		DownhillCostFactor: 0.0,
-		UphillCutoff:       0,
-		DownhillCutoff:     0,
-		ElevPenaltyBuffer:  5.0,
-		ElevMaxBuffer:      10.0,
-		ElevBufferReduce:   0.0,
-		Pass0Coefficient:   1.5,
+		UphillCost:        1.0,
+		DownhillCost:      0.0,
+		UphillCutoff:      0,
+		DownhillCutoff:    0,
+		ElevPenaltyBuffer: 5.0,
+		ElevMaxBuffer:     10.0,
+		ElevBufferReduce:  0.0,
+		Pass0Coefficient:  1.5,
 	}
-	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
+	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	cfg.EdgeCost = trekkingEdgeCost
 	return cfg
 }
 
-// trekkingEdgeCost computes edge cost for trekking profile.
-// Cost = distance_meters * highway_factor * surface_factor.
-func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) float32 {
-	distM := float32(g.EdgeDist[edgeIdx]) / 100.0 // cm → m
+// trekkingEdgeCost computes edge cost factors for trekking profile.
+// Returns costfactors (NOT pre-multiplied by distance).
+func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
 	tags := g.EdgeTags1[edgeIdx]
 
 	hw := graph.DecodeHighway(tags)
@@ -65,16 +77,16 @@ func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) float32 {
 
 	// Block unknown (0), motorways/trunks (1-4) and no-access
 	if hw <= 4 {
-		return distM * costBlocked
+		return EdgeCostFactors{Flat: costBlocked}
 	}
 	if access == 2 { // no
-		return distM * costBlocked
+		return EdgeCostFactors{Flat: costBlocked}
 	}
 
 	hwFactor := highwayCostFactor(hw)
 	sfFactor := surfaceCostFactor(sf)
 
-	return distM * hwFactor * sfFactor
+	return EdgeCostFactors{Flat: hwFactor * sfFactor}
 }
 
 // highwayCostFactor returns the cost multiplier for a highway type (lower = preferred).
