@@ -170,7 +170,7 @@ func TestDeriveGPSMetrics_MeringScenario(t *testing.T) {
 		})
 	}
 
-	got := deriveGPSMetrics(activityutil.FixDistanceResets(points))
+	got := activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(points))
 
 	// Every GPS point should now have distance
 	nullCount := 0
