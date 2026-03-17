@@ -48,6 +48,7 @@ export interface Tag {
   description: string
   is_system: boolean
   is_auto: boolean
+  has_automation?: boolean
   // New group-based structure (preferred). Falls back to flat conditions + conditions_logic.
   condition_groups?: TagConditionGroup[] | null
   // Legacy flat structure (still supported by API):
