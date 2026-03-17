@@ -202,25 +202,24 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	var processed int
 	for _, a := range activities {
-		if a.Lat == 0 || a.Lng == 0 {
-			continue
+		// Stage 1 enrichment only for GPS activities
+		if a.Lat != 0 && a.Lng != 0 {
+			data := &model.ActivityData{
+				StartLat:     a.Lat,
+				StartLng:     a.Lng,
+				EndLat:       a.EndLat,
+				EndLng:       a.EndLng,
+				StartedAt:    a.StartedAt,
+				EndedAt:      a.EndedAt,
+				SportType:    a.SportType,
+				AvgHeartRate: a.AvgHR,
+				MaxHeartRate: a.MaxHR,
+				HasGPS:       true,
+			}
+			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events)
 		}
 
-		data := &model.ActivityData{
-			StartLat:     a.Lat,
-			StartLng:     a.Lng,
-			EndLat:       a.EndLat,
-			EndLng:       a.EndLng,
-			StartedAt:    a.StartedAt,
-			EndedAt:      a.EndedAt,
-			SportType:    a.SportType,
-			AvgHeartRate: a.AvgHR,
-			MaxHeartRate: a.MaxHR,
-			HasGPS:       true,
-		}
-
-		enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events)
-		// Apply automation rules after enrichment
+		// Apply automation rules for all activities — Frost/Nacht don't need GPS
 		_ = h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules)
 		processed++
 	}
