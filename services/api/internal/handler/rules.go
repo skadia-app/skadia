@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
@@ -146,80 +146,21 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	// All heavy processing happens in a goroutine; we return 202 immediately.
 	go func() {
 		ctx := context.Background()
-		applied := 0
-		affected := 0
 		failed := false
 
 		for i, activityID := range activityIDs {
-			actMap, err := h.DB.GetActivityAsMap(ctx, activityID)
-			if err != nil || actMap == nil {
-				continue
+			if err := h.ApplyRulesToActivity(ctx, activityID, userID, activeRules); err != nil {
+				slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
 			}
 
-			activityChanged := false
-			for _, rule := range activeRules {
-				var actions []rules.Action
-				if err := json.Unmarshal(rule.Actions, &actions); err != nil {
-					continue
-				}
-
-				// Use condition_groups if present, fallback to legacy conditions.
-				matched := false
-				if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
-					var groups []rules.ConditionGroup
-					if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
-						matched = rules.EvaluateGroups(groups, actMap)
-					}
-				} else if len(rule.Conditions) > 0 {
-					var conditions []rules.Condition
-					if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
-						matched = rules.Evaluate(conditions, actMap)
-					}
-				}
-
-				if !matched {
-					continue
-				}
-
-				ruleChanged := false
-				changes := rules.Apply(actions)
-				for _, change := range changes {
-					val := change.Value
-					if change.Field == "set_name_template" {
-						if tmpl, ok := val.(string); ok {
-							val = resolveNameTemplate(tmpl, actMap)
-						}
-					}
-					if err := h.DB.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {
-						slog.Warn("apply rule change failed",
-							"activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
-						continue
-					}
-					ruleChanged = true
-					activityChanged = true
-				}
-
-				if ruleChanged {
-					if err := h.DB.IncrementRuleApplied(ctx, rule.ID); err != nil {
-						slog.Warn("increment rule applied failed", "rule_id", rule.ID, "error", err)
-					}
-					applied++
-				}
-			}
-
-			if activityChanged {
-				affected++
-			}
-
-			// Update progress every 10 activities or at the very end.
 			if jobID != "" && (i%10 == 0 || i == len(activityIDs)-1) {
 				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-					slog.Warn("apply rules: update progress failed", "job_id", jobID, "error", err)
+					slog.Warn("apply rules: update progress", "job_id", jobID, "error", err)
 				}
 			}
 		}
 
-		slog.Info("apply rules: done", "user_id", userID, "applied", applied, "affected", affected)
+		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs))
 
 		if jobID != "" {
 			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed); err != nil {
@@ -232,6 +173,12 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		"status": "apply rules started",
 		"job_id": jobID,
 	})
+}
+
+// ApplyRulesToActivity is a thin wrapper around automation.ApplyRulesToActivity
+// for use in handler contexts.
+func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule) error {
+	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules)
 }
 
 func (h *Handler) MigrateTagConditions(w http.ResponseWriter, r *http.Request) {
