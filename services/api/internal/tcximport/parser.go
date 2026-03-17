@@ -208,6 +208,14 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		data.EndedAt = streams[len(streams)-1].Time
 	}
 
+	// For merged TCX files with multi-hour gaps, cap ElapsedTimeS to recording time.
+	if len(streams) >= 2 {
+		recordingTime := activityutil.CalcRecordingTime(streams)
+		if recordingTime > 0 && recordingTime < data.ElapsedTimeS {
+			data.ElapsedTimeS = recordingTime
+		}
+	}
+
 	// TCX laps provide TotalTimeSeconds which already excludes pauses recorded
 	// by the device. Use stream-based calculation when speed or GPS data is
 	// available to additionally filter stop-and-go situations the device did
