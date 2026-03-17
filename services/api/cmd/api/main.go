@@ -192,7 +192,7 @@ func main() {
 	graphMgr := &routing.GraphManager{}
 	h.GraphManager = graphMgr
 	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
-	if tileMode, err := graphMgr.InitTileMode(tileDir, 2_500_000_000); err != nil {
+	if tileMode, err := graphMgr.InitTileMode(tileDir, 1_000_000_000); err != nil {
 		slog.Warn("tile mode init failed", "error", err)
 	} else if tileMode {
 		slog.Info("routing: tile mode active")
