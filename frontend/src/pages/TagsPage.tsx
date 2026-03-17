@@ -10,6 +10,7 @@ import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ColorPicker from '@/components/ColorPicker'
+import { useModal } from '@/lib/modal'
 
 // ---------------------------------------------------------------------------
 // Colour palette
@@ -593,10 +594,11 @@ export default function TagsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   })
 
+  const { openModal } = useModal()
+
   // --- Merge state ---
   const [mergeSourceId, setMergeSourceId] = useState<string>('')
   const [mergeTargetId, setMergeTargetId] = useState<string>('')
-  const [mergeError, setMergeError] = useState<string | null>(null)
   const [mergeSuccess, setMergeSuccess] = useState<string | null>(null)
 
   const { data: tags, isLoading } = useQuery({
@@ -614,12 +616,13 @@ export default function TagsPage() {
       mergeTags(targetId, sourceId),
     onSuccess: (result) => {
       if (result && 'status' in result && result.status === 'conflict') {
-        setMergeError(
-          result.reason === 'source_is_system'
+        openModal({
+          title: 'Fusion nicht möglich',
+          message: result.reason === 'source_is_system'
             ? 'System-Tags können nicht als Quell-Tag fusioniert werden.'
-            : 'Dieser Tag wird von einer Automatisierungsregel referenziert. Entferne oder ändere zuerst die Regel.'
-        )
-        setMergeSuccess(null)
+            : 'Dieser Tag wird von einer Automatisierungsregel referenziert. Entferne oder ändere zuerst die Regel.',
+          buttons: [{ label: 'OK', variant: 'default', onClick: () => {} }],
+        })
         return
       }
       const survivingTag = result as Tag
@@ -627,11 +630,14 @@ export default function TagsPage() {
       setMergeSuccess(`Tags fusioniert. "${survivingTag.name}" bleibt bestehen.`)
       setMergeSourceId('')
       setMergeTargetId('')
-      setMergeError(null)
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
-      setMergeError(`Fehler: ${msg}`)
+      openModal({
+        title: 'Fusion fehlgeschlagen',
+        message: `Fehler: ${msg}`,
+        buttons: [{ label: 'OK', variant: 'default', onClick: () => {} }],
+      })
       setMergeSuccess(null)
     },
   })
@@ -871,7 +877,7 @@ export default function TagsPage() {
               </label>
               <select
                 value={mergeSourceId}
-                onChange={e => { setMergeSourceId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
+                onChange={e => { setMergeSourceId(e.target.value); setMergeSuccess(null) }}
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Quell-Tag wählen —</option>
@@ -889,7 +895,7 @@ export default function TagsPage() {
               </label>
               <select
                 value={mergeTargetId}
-                onChange={e => { setMergeTargetId(e.target.value); setMergeError(null); setMergeSuccess(null) }}
+                onChange={e => { setMergeTargetId(e.target.value); setMergeSuccess(null) }}
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               >
                 <option value="">— Ziel-Tag wählen —</option>
@@ -917,9 +923,6 @@ export default function TagsPage() {
             )
           })()}
 
-          {mergeError && (
-            <p className="text-sm text-rose-500">{mergeError}</p>
-          )}
           {mergeSuccess && (
             <p className="text-sm text-emerald-600 dark:text-emerald-400">{mergeSuccess}</p>
           )}
@@ -927,7 +930,6 @@ export default function TagsPage() {
           <button
             onClick={() => {
               if (!mergeSourceId || !mergeTargetId) return
-              setMergeError(null)
               setMergeSuccess(null)
               mergeMut.mutate({ targetId: mergeTargetId, sourceId: mergeSourceId })
             }}
