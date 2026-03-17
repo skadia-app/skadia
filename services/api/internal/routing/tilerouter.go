@@ -85,7 +85,7 @@ func (tr *TileRouter) routeSingleTile(ctx context.Context, tileID uint32,
 		return nil, ctx.Err()
 	}
 
-	r := NewRouter(g, 0, 1)
+	r := NewRouter(g, 1, 1) // poolSize=1: flat-array hot-pool for tiles ≤10M nodes
 	return r.Route(ctx, req, cfg)
 }
 
