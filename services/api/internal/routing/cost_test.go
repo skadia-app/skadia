@@ -33,9 +33,10 @@ func TestDefaultTrekkingConfig_MaxLatentCost(t *testing.T) {
 	if math.Abs(float64(cfg.MaxLatentCost-expected)) > 0.01 {
 		t.Errorf("MaxLatentCost should be %f, got %f", expected, cfg.MaxLatentCost)
 	}
-	// Fixed-value assertion (not derived from same formula)
-	if math.Abs(float64(cfg.MaxLatentCost)-10.0) > 0.001 {
-		t.Errorf("MaxLatentCost should be 10.0 for default trekking config, got %f", cfg.MaxLatentCost)
+	// Trekking profile: UphillCost=0, DownhillCost=60, ElevMaxBuffer=10
+	// → MaxLatentCost = 10 * 60 = 600
+	if math.Abs(float64(cfg.MaxLatentCost)-600.0) > 0.001 {
+		t.Errorf("MaxLatentCost should be 600.0 for default trekking config, got %f", cfg.MaxLatentCost)
 	}
 }
 
