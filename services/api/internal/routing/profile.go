@@ -59,9 +59,9 @@ func ptrBool(v bool) *bool     { return &v }
 
 var builtinProfiles = map[string]ProfileConfig{
 	"trekking": {
-		Profile:           "trekking",
-		UphillCost:        ptr32(0),
-		DownhillCost:      ptr32(60),
+		Profile:            "trekking",
+		UphillCost:         ptr32(0),
+		DownhillCost:       ptr32(60),
 		UphillCutoffPct:   ptr32(1.5),
 		DownhillCutoffPct: ptr32(1.5),
 		ElevPenaltyBuffer: ptr32(5),
@@ -71,7 +71,7 @@ var builtinProfiles = map[string]ProfileConfig{
 		AllowFerries:      ptrBool(true),
 		CyclerouteBoost:   ptr32(0.6),
 		TurnCost:          ptr32(90),
-		Pass0Coefficient:  ptr32(1.5),
+		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
 	},
 	"hiking": {
 		Profile:           "hiking",
@@ -91,7 +91,7 @@ var builtinProfiles = map[string]ProfileConfig{
 		ProtectedBonus:    ptr32(0.3),
 		HikerouteBoost:    ptr32(0.2),
 		TurnCost:          ptr32(0),
-		Pass0Coefficient:  ptr32(1.5),
+		Pass0Coefficient:  ptr32(2.5), // higher: elevation costs inflate pass0 budget
 	},
 	"mtb": {
 		Profile:           "mtb",
@@ -128,7 +128,7 @@ var builtinProfiles = map[string]ProfileConfig{
 		TrafficPenalty:    ptr32(0.5),
 		CyclerouteBoost:   ptr32(0.3),
 		TurnCost:          ptr32(65),
-		Pass0Coefficient:  ptr32(1.5),
+		Pass0Coefficient:  ptr32(3.0), // higher: uphillcost=80 inflates pass0 budget
 	},
 	"road": {
 		Profile:           "road",
@@ -142,7 +142,7 @@ var builtinProfiles = map[string]ProfileConfig{
 		AllowSteps:        ptrBool(false),
 		TrafficPenalty:    ptr32(0.1),
 		TurnCost:          ptr32(90),
-		Pass0Coefficient:  ptr32(1.5),
+		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
 	},
 }
 
@@ -438,19 +438,27 @@ func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) 
 
 			if forestWeight > 0 {
 				forestPct := graph.DecodeForestPct(tags2)
-				forestAdd = (1.0 - float32(forestPct)/100.0) * forestWeight // klass 0 → +1.0, klass 100 → +0.0
+				if forestPct > 0 { // 0 = no data (don't penalize unknown)
+					forestAdd = (1.0 - float32(forestPct)/100.0) * forestWeight // 1% → +1.0, 100% → +0.0
+				}
 			}
 			if noiseWeight > 0 {
 				noiseScore := graph.DecodeNoiseScore(tags2)
-				noiseAdd = float32(noiseScore) / 100.0 * noiseWeight * 2.0 // max +2.0
+				if noiseScore > 0 { // 0 = no data
+					noiseAdd = float32(noiseScore) / 100.0 * noiseWeight * 2.0 // max +2.0
+				}
 			}
 			if trafficWeight > 0 {
 				trafficClass := graph.DecodeTrafficClass(tags2)
-				trafficAdd = float32(trafficClass) / 3.0 * trafficWeight // max +1.0
+				if trafficClass > 0 { // 0 = no data
+					trafficAdd = float32(trafficClass) / 3.0 * trafficWeight // max +1.0
+				}
 			}
 			if protectedWeight > 0 {
 				protectedArea := graph.DecodeProtectedArea(tags2)
-				protectedSub = float32(protectedArea) / 3.0 * protectedWeight * 0.5 // max -0.5
+				if protectedArea > 0 { // 0 = no data
+					protectedSub = float32(protectedArea) / 3.0 * protectedWeight * 0.5 // max -0.5
+				}
 			}
 
 			// Cycleroute boost (LERP towards 1.0)
