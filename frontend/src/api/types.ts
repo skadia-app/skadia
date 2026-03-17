@@ -482,6 +482,8 @@ export interface AutomationRule {
   condition_groups?: RuleConditionGroup[] | null
   actions: RuleAction[]
   times_applied: number
+  is_system: boolean
+  system_type: string | null
   created_at: string
 }
 
