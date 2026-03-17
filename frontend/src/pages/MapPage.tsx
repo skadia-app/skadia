@@ -1458,25 +1458,38 @@ export default function MapPage() {
       }
     }
 
+    // Pixel-Radius für Snap (zoomstufenunabhängig)
+    const SNAP_PX = 60
+
+    function findNearbyMarkerByPixel(cursorX: number, cursorY: number): maplibregl.Marker | null {
+      const map = mapRef.current
+      if (!map) return null
+      let nearest: maplibregl.Marker | null = null
+      let nearestDist = Infinity
+      for (const m of locationTagMarkersRef.current) {
+        const tagId = m.getElement().dataset.tagId
+        const tag = locationTagsRef.current.find(t => t.id === tagId)
+        if (!tag?.lat || !tag?.lng) continue
+        const px = map.project([tag.lng, tag.lat])
+        const d = Math.hypot(px.x - cursorX, px.y - cursorY)
+        if (d < SNAP_PX && d < nearestDist) { nearest = m; nearestDist = d }
+      }
+      return nearest
+    }
+
     function onCanvasDragOver(e: DragEvent) {
       if (!e.dataTransfer?.types.includes('application/skadia-activities')) return
       e.preventDefault()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 
-      // Magnetic snap visual feedback
       const rect = canvas.getBoundingClientRect()
-      const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
-      const lngLat = mapRef.current?.unproject(point)
-      if (!lngLat) return
+      const cursorX = e.clientX - rect.left
+      const cursorY = e.clientY - rect.top
 
-      const nearby = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
-      const markerEntry = nearby
-        ? locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearby.id) ?? null
-        : null
-
+      const markerEntry = findNearbyMarkerByPixel(cursorX, cursorY)
       if (markerEntry) {
         applySnap(markerEntry, markerEntry.getElement())
-      } else if (!nearby) {
+      } else {
         scheduleSnapClear()
       }
     }
@@ -1494,39 +1507,37 @@ export default function MapPage() {
       let activityIDs: string[]
       try { activityIDs = JSON.parse(raw) } catch { return }
       const rect = canvas.getBoundingClientRect()
-      const point: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
-      const lngLat = mapRef.current?.unproject(point)
-      if (!lngLat) return
+      const cursorX = e.clientX - rect.left
+      const cursorY = e.clientY - rect.top
 
-      // Magnetische Pins: nächster Location-Tag innerhalb 100 m → direkt zuweisen
-      const nearbyTag = findNearbyLocationTag(lngLat.lat, lngLat.lng, locationTagsRef.current, 100)
-      if (nearbyTag) {
+      // Pixel-basierte Snap-Prüfung (zoomstufenunabhängig)
+      const nearbyMarker = findNearbyMarkerByPixel(cursorX, cursorY)
+      if (nearbyMarker) {
+        const tagId = nearbyMarker.getElement().dataset.tagId!
         try {
-          await assignActivitiesToTag(nearbyTag.id, activityIDs)
+          await assignActivitiesToTag(tagId, activityIDs)
           queryClient.invalidateQueries({ queryKey: ['activities'] })
           queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
           queryClient.invalidateQueries({ queryKey: ['tags'] })
-          syncTagLocation(nearbyTag.id).catch(() => {})
-          // Popup-Aktivitätsliste neu laden, falls der Pin gerade geöffnet ist
+          syncTagLocation(tagId).catch(() => {})
           setTagActivitiesVersion(v => v + 1)
         } catch (err) {
           console.error('assignActivitiesToTag fehlgeschlagen:', err)
         }
         setShowIndoorAssign(false)
         // Pulse animation on successful drop
-        const targetMarker = locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearbyTag.id)
-        if (targetMarker) {
-          const el = targetMarker.getElement()
-          const innerEl = el.firstElementChild as HTMLElement | null
-          if (innerEl) {
-            innerEl.style.transition = 'scale 0.15s ease'
-            innerEl.style.scale = '1.5'
-            setTimeout(() => { innerEl.style.scale = '1.0' }, 150)
-            setTimeout(() => { innerEl.style.transition = ''; innerEl.style.scale = '' }, 400)
-          }
+        const markerEl = nearbyMarker.getElement()
+        const innerEl = markerEl.firstElementChild as HTMLElement | null
+        if (innerEl) {
+          innerEl.style.transition = 'scale 0.15s ease'
+          innerEl.style.scale = '1.5'
+          setTimeout(() => { innerEl.style.scale = '1.0' }, 150)
+          setTimeout(() => { innerEl.style.transition = ''; innerEl.style.scale = '' }, 400)
         }
       } else {
         // Kein naher Pin → neuen Standort anlegen
+        const lngLat = mapRef.current?.unproject([cursorX, cursorY])
+        if (!lngLat) return
         setShowIndoorAssign(false)
         setNewLocationPick({ name: '', color: '#f97316', activityIDs, dropLngLat: { lng: lngLat.lng, lat: lngLat.lat } })
       }
