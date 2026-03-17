@@ -5,7 +5,6 @@ import (
 
 	"github.com/muktihari/fit/profile/mesgdef"
 
-	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -111,5 +110,5 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 		streams = append(streams, sp)
 	}
 
-	return activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(streams))
+	return streams
 }

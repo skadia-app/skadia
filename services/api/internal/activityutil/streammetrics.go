@@ -142,6 +142,19 @@ func CalcRecordingTime(points []model.StreamPoint) int {
 	return int(totalSeconds)
 }
 
+// CorrectAndFillStreams runs the full stream processing pipeline:
+//  1. FixDistanceResets (counter reset repair)
+//  2. CorrectGPSOutliers (spatial spike detection + interpolation)
+//  3. FillMissingDistanceAndSpeed (derive from corrected GPS)
+//
+// The cfg parameter allows overriding defaults for testing/tuning.
+func CorrectAndFillStreams(points []model.StreamPoint, cfg CorrectionConfig) ([]model.StreamPoint, CorrectionReport) {
+	points = FixDistanceResets(points)
+	points, report := CorrectGPSOutliers(points, cfg)
+	points = FillMissingDistanceAndSpeed(points)
+	return points, report
+}
+
 // HaversineMeters returns the great-circle distance in metres between two
 // WGS-84 coordinate pairs.
 func HaversineMeters(lat1, lng1, lat2, lng2 float64) float64 {

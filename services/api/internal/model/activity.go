@@ -72,6 +72,8 @@ type ActivityData struct {
 	EndLat               float64
 	EndLng               float64
 
+	GPSCorrectionCount int // number of GPS points corrected by spatial outlier detection
+
 	Streams     []StreamPoint
 	RRIntervals []uint16 // R-R intervals in ms (from FIT HRV messages)
 	Sensors     []SensorRecord
