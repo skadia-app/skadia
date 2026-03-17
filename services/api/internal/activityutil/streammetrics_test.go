@@ -1,6 +1,7 @@
 package activityutil
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -260,7 +261,7 @@ func TestFixDistanceResets_Shared_TwoLapReset(t *testing.T) {
 		if got[i].DistanceM == nil {
 			t.Fatalf("point %d: DistanceM is nil, want %f", i, w)
 		}
-		if absF(*got[i].DistanceM-w) > 0.01 {
+		if math.Abs(*got[i].DistanceM-w) > 0.01 {
 			t.Errorf("point %d: got %f, want %f", i, *got[i].DistanceM, w)
 		}
 	}
@@ -282,7 +283,7 @@ func TestFixDistanceResets_Shared_NilDistances(t *testing.T) {
 	if got[2].DistanceM == nil {
 		t.Fatal("point 2: DistanceM is nil")
 	}
-	if absF(*got[2].DistanceM-200.5) > 0.01 {
+	if math.Abs(*got[2].DistanceM-200.5) > 0.01 {
 		t.Errorf("point 2: got %f, want 200.5", *got[2].DistanceM)
 	}
 }
@@ -296,10 +297,10 @@ func TestFixDistanceResets_Shared_SmallDrop(t *testing.T) {
 		{Time: now.Add(2 * time.Second), DistanceM: fptr(600.0)},
 	}
 	got := FixDistanceResets(points)
-	if absF(*got[1].DistanceM-498.0) > 0.01 {
+	if math.Abs(*got[1].DistanceM-498.0) > 0.01 {
 		t.Errorf("point 1: got %f, want 498.0", *got[1].DistanceM)
 	}
-	if absF(*got[2].DistanceM-600.0) > 0.01 {
+	if math.Abs(*got[2].DistanceM-600.0) > 0.01 {
 		t.Errorf("point 2: got %f, want 600.0", *got[2].DistanceM)
 	}
 }
@@ -321,7 +322,7 @@ func TestFixDistanceResets_Shared_ThreeSegments(t *testing.T) {
 		if got[i].DistanceM == nil {
 			t.Fatalf("point %d: DistanceM is nil, want %f", i, w)
 		}
-		if absF(*got[i].DistanceM-w) > 0.01 {
+		if math.Abs(*got[i].DistanceM-w) > 0.01 {
 			t.Errorf("point %d: got %f, want %f", i, *got[i].DistanceM, w)
 		}
 	}
@@ -393,9 +394,3 @@ func TestCalcRecordingTime_TooFew(t *testing.T) {
 	}
 }
 
-func absF(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
