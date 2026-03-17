@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -19,7 +20,7 @@ func TestFixDistanceResets_SingleLap(t *testing.T) {
 		{Time: now.Add(2 * time.Second), DistanceM: new(500.0)},
 		{Time: now.Add(3 * time.Second), DistanceM: new(800.0)},
 	}
-	got := fixDistanceResets(points)
+	got := activityutil.FixDistanceResets(points)
 	want := []float64{0.0, 200.0, 500.0, 800.0}
 	for i, w := range want {
 		if got[i].DistanceM == nil {
@@ -42,7 +43,7 @@ func TestFixDistanceResets_TwoLapReset(t *testing.T) {
 		{Time: now.Add(3 * time.Second), DistanceM: new(300.0)},
 		{Time: now.Add(4 * time.Second), DistanceM: new(700.0)},
 	}
-	got := fixDistanceResets(points)
+	got := activityutil.FixDistanceResets(points)
 	// Nach Reset: offset=500, also: 0.12+500=500.12, 300+500=800, 700+500=1200
 	want := []float64{200.0, 500.0, 500.12, 800.0, 1200.0}
 	for i, w := range want {
@@ -68,7 +69,7 @@ func TestFixDistanceResets_NilDistances(t *testing.T) {
 		{Time: now.Add(2 * time.Second), DistanceM: new(0.5)}, // Reset nach 200m
 		{Time: now.Add(3 * time.Second), DistanceM: new(300.0)},
 	}
-	got := fixDistanceResets(points)
+	got := activityutil.FixDistanceResets(points)
 	if got[1].DistanceM != nil {
 		t.Error("point 1: DistanceM should remain nil")
 	}
@@ -89,7 +90,7 @@ func TestFixDistanceResets_SmallDrop(t *testing.T) {
 		{Time: now.Add(1 * time.Second), DistanceM: new(498.0)}, // 2m zurück, kein Reset
 		{Time: now.Add(2 * time.Second), DistanceM: new(600.0)},
 	}
-	got := fixDistanceResets(points)
+	got := activityutil.FixDistanceResets(points)
 	// Kein Offset — 498 < 500 aber < 100m Differenz
 	if absF(*got[1].DistanceM-498.0) > 0.01 {
 		t.Errorf("point 1: got %f, want 498.0 (small drop should not trigger reset)", *got[1].DistanceM)
@@ -117,7 +118,7 @@ func TestFixDistanceResets_ThreeSegments(t *testing.T) {
 		{Time: now.Add(4 * time.Second), DistanceM: new(0.2)},
 		{Time: now.Add(5 * time.Second), DistanceM: new(300.0)},
 	}
-	got := fixDistanceResets(points)
+	got := activityutil.FixDistanceResets(points)
 	// Segment 1: 0→500 (no offset)
 	// After Reset 1: 0.1+500=500.1, 400+500=900
 	// After Reset 2: 0.2+900=900.2, 300+900=1200
@@ -137,4 +138,70 @@ func absF(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// TestDeriveGPSMetrics_MeringScenario — 82 points, 0 with distance,
+// 3 clusters separated by multi-hour gaps. Should derive distance for all GPS points.
+func TestDeriveGPSMetrics_MeringScenario(t *testing.T) {
+	base := time.Date(2014, 6, 21, 14, 19, 22, 0, time.UTC)
+	lat, lng := 48.35, 10.90
+
+	// Simulate 3 clusters: 30min, 10h gap, 15min, 5h gap, 37min
+	var points []model.StreamPoint
+	// Cluster 1: 30 points over 30min
+	for i := 0; i < 30; i++ {
+		points = append(points, model.StreamPoint{
+			Time: base.Add(time.Duration(i) * time.Minute),
+			Lat:  fptr(lat + float64(i)*0.001),
+			Lng:  fptr(lng),
+		})
+	}
+	// 10.4h gap
+	gap1 := base.Add(10*time.Hour + 24*time.Minute)
+	for i := 0; i < 15; i++ {
+		points = append(points, model.StreamPoint{
+			Time: gap1.Add(time.Duration(i) * time.Minute),
+			Lat:  fptr(lat + 0.03 + float64(i)*0.001),
+			Lng:  fptr(lng + 0.01),
+		})
+	}
+	// 5.1h gap
+	gap2 := gap1.Add(5*time.Hour + 6*time.Minute)
+	for i := 0; i < 37; i++ {
+		points = append(points, model.StreamPoint{
+			Time: gap2.Add(time.Duration(i) * time.Minute),
+			Lat:  fptr(lat + 0.05 + float64(i)*0.001),
+			Lng:  fptr(lng + 0.02),
+		})
+	}
+
+	got := deriveGPSMetrics(activityutil.FixDistanceResets(points))
+
+	// Every GPS point should now have distance
+	nullCount := 0
+	for _, p := range got {
+		if p.Lat != nil && p.DistanceM == nil {
+			nullCount++
+		}
+	}
+	if nullCount > 0 {
+		t.Errorf("%d GPS points still have nil distance", nullCount)
+	}
+
+	// Distance should be monotonically increasing
+	var prev float64
+	for i, p := range got {
+		if p.DistanceM == nil {
+			continue
+		}
+		if *p.DistanceM < prev {
+			t.Errorf("point %d: distance decreased from %f to %f", i, prev, *p.DistanceM)
+		}
+		prev = *p.DistanceM
+	}
+
+	// Total distance should be reasonable (not 0, not millions)
+	if prev < 1000 || prev > 100000 {
+		t.Errorf("total distance %f seems unreasonable", prev)
+	}
 }

@@ -162,9 +162,9 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 			dist := totalDistance
 			sp.DistanceM = &dist
 
-			// Speed
+			// Speed — don't derive across gaps > 5min (pauses or session boundaries)
 			dt := t.Sub(prevTime).Seconds()
-			if dt > 0 {
+			if dt > 0 && dt <= 300 {
 				spd := d / dt
 				sp.SpeedMS = &spd
 				if spd > maxSpeed {
@@ -189,6 +189,14 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.EndedAt = lastTime
 	elapsed := int(lastTime.Sub(firstTime).Seconds())
 	data.ElapsedTimeS = elapsed
+
+	// For merged GPX files with multi-hour gaps, cap ElapsedTimeS to recording time.
+	if len(streams) >= 2 {
+		recordingTime := activityutil.CalcRecordingTime(streams)
+		if recordingTime > 0 && recordingTime < data.ElapsedTimeS {
+			data.ElapsedTimeS = recordingTime
+		}
+	}
 
 	// GPX files have speed values computed from position deltas above (sp.SpeedMS).
 	// Use the stream-based moving time; fall back to elapsed time if no
