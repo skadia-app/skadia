@@ -156,18 +156,12 @@ func CorrectAndFillStreams(points []model.StreamPoint, cfg CorrectionConfig, spo
 	points, report := CorrectGPSOutliers(points, cfg)
 
 	// Speed plausibility pass (gradient-aware, sport-specific).
-	// Run iteratively: correcting a spike changes the speed of its neighbors
-	// (because FillMissing will recompute from new positions). Run up to 5
-	// passes until no more corrections are found.
+	// Moves displaced points closer to their predecessors along the bearing,
+	// capping distance to maxAllowed * dt. Single pass is sufficient because
+	// each point is corrected independently relative to its predecessor.
 	speedCfg := DefaultSpeedCorrectionConfig()
-	for pass := 0; pass < 5; pass++ {
-		var speedReport SpeedCorrectionReport
-		points, speedReport = CorrectSpeedOutliers(points, sportType, speedCfg)
-		report.CorrectedCount += speedReport.CorrectedCount
-		if speedReport.CorrectedCount == 0 {
-			break
-		}
-	}
+	points, speedReport := CorrectSpeedOutliers(points, sportType, speedCfg)
+	report.CorrectedCount += speedReport.CorrectedCount
 
 	points = FillMissingDistanceAndSpeed(points)
 	return points, report

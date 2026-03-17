@@ -203,23 +203,41 @@ func CorrectSpeedOutliers(points []model.StreamPoint, sportType string, cfg Spee
 			delete(corrSet, idx+1)
 		}
 
-		// Store original coordinates — only if not already set by spatial filter.
-		if points[idx].RawLat == nil {
-			origLat := *points[idx].Lat
-			origLng := *points[idx].Lng
-			points[idx].RawLat = &origLat
-			points[idx].RawLng = &origLng
+		// For speed outliers (unlike spatial spikes), the position lies on the
+		// correct trajectory but is too far from the previous point. Midpoint
+		// interpolation doesn't help because the neighbors are also displaced.
+		// Instead: move the point closer to the previous point along the bearing,
+		// capping the distance to maxAllowed * dt.
+		prevLat := *points[idx-1].Lat
+		prevLng := *points[idx-1].Lng
+		currLat := *points[idx].Lat
+		currLng := *points[idx].Lng
+
+		dt := points[idx].Time.Sub(points[idx-1].Time).Seconds()
+		if dt <= 0 {
+			dt = 1
 		}
+		dist := HaversineMeters(prevLat, prevLng, currLat, currLng)
+		maxDist := info.maxAllowed * dt // max plausible distance in this interval
 
-		// Interpolate position as midpoint of neighbors.
-		midLat := (*points[idx-1].Lat + *points[idx+1].Lat) / 2
-		midLng := (*points[idx-1].Lng + *points[idx+1].Lng) / 2
-		points[idx].Lat = &midLat
-		points[idx].Lng = &midLng
+		if dist > maxDist && dist > 0 {
+			// Store original coordinates — only if not already set by spatial filter.
+			if points[idx].RawLat == nil {
+				points[idx].RawLat = &currLat
+				points[idx].RawLng = &currLng
+			}
 
-		// Clear derived fields — FillMissingDistanceAndSpeed will recompute.
-		points[idx].SpeedMS = nil
-		points[idx].DistanceM = nil
+			// Move point along the bearing from prev to curr, but cap at maxDist.
+			ratio := maxDist / dist
+			newLat := prevLat + (currLat-prevLat)*ratio
+			newLng := prevLng + (currLng-prevLng)*ratio
+			points[idx].Lat = &newLat
+			points[idx].Lng = &newLng
+
+			// Clear derived fields — FillMissingDistanceAndSpeed will recompute.
+			points[idx].SpeedMS = nil
+			points[idx].DistanceM = nil
+		}
 
 		report.CorrectedCount++
 		report.Points = append(report.Points, SpeedPointCorrection{
