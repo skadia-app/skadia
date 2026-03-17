@@ -50,20 +50,9 @@ type RouteRequest struct {
 }
 
 // DefaultTrekkingConfig returns a CostConfig for trekking/hiking.
+// Deprecated: Use DefaultCostConfig() or BuildCostConfig() instead.
 func DefaultTrekkingConfig() *CostConfig {
-	cfg := &CostConfig{
-		UphillCost:        1.0,
-		DownhillCost:      0.0,
-		UphillCutoff:      0,
-		DownhillCutoff:    0,
-		ElevPenaltyBuffer: 5.0,
-		ElevMaxBuffer:     10.0,
-		ElevBufferReduce:  0.0,
-		Pass0Coefficient:  1.5,
-	}
-	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
-	cfg.EdgeCost = trekkingEdgeCost
-	return cfg
+	return DefaultCostConfig()
 }
 
 // trekkingEdgeCost computes edge cost factors for trekking profile.
