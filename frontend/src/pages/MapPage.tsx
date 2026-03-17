@@ -926,7 +926,7 @@ export default function MapPage() {
   // ── Custom Map Marker-Layer ──────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
 
     // Entferne alte Marker-Layer
     if (map.getLayer('custom-markers-labels')) map.removeLayer('custom-markers-labels')
@@ -1473,7 +1473,7 @@ export default function MapPage() {
   // ── Segment Layer ──────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
 
     // Cleanup old segment layers
     if (map.getLayer('segment-direction-arrows')) map.removeLayer('segment-direction-arrows')
@@ -1686,7 +1686,7 @@ export default function MapPage() {
   // ── Gipfel-Layer ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
     const peakTileUrl = currentUserId
       ? `${martinBase}/peaks/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
@@ -1765,7 +1765,7 @@ export default function MapPage() {
   // ── Gewässer-Layer ────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
 
     if (overlayState.showWaters) {
@@ -1801,7 +1801,7 @@ export default function MapPage() {
   // ── Wald-Layer ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
     const forestTileUrl = currentUserId
       ? `${martinBase}/forests/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
@@ -1845,7 +1845,7 @@ export default function MapPage() {
   // ── Besuchte Einkehr-Layer ────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
 
     if (overlayState.showVisitedPois && visitedPoisGeoJSON) {
       if (map.getSource('visited-pois-source')) {
@@ -1875,7 +1875,7 @@ export default function MapPage() {
   // ── POIs-Layer (Martin MVT) ───────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || styleVersion === 0) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
 
     if (overlayState.showAmenities) {

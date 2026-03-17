@@ -210,6 +210,9 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 			target := g.Targets[ei]
 
 			edgeCost := cfg.EdgeCost(g, ei)
+			// Skip blocked edges. EdgeCost returns distM * costBlocked (=10_000)
+			// for impassable highways, so a 100m blocked edge costs 1M.
+			// Threshold costBlocked*100 = 1M catches all blocked edges ≥100m.
 			if edgeCost >= costBlocked*100 {
 				continue
 			}
@@ -234,6 +237,7 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 				tns.BestCost = correctedCost
 				tns.ParentNode = gid
 				tns.ParentEdge = ei
+				tns.ParentEdgeTile = curTileID
 
 				targetAirDist := float32(equirectDistM(targetLat, targetLon, dstLat, dstLon)) * cfg.Pass0Coefficient
 				pathStates[targetGID] = newHyState
@@ -304,6 +308,7 @@ func (tr *TileRouter) expandBorderNode(
 		tns.BestCost = newCost
 		tns.ParentNode = parentGID
 		tns.ParentEdge = edgeIdx
+		tns.ParentEdgeTile = srcTileID // edge belongs to source tile, not neighbor
 
 		nLat := float64(neighborGraph.NodeLat[neighborLocalID]) / 1e7
 		nLon := float64(neighborGraph.NodeLon[neighborLocalID]) / 1e7

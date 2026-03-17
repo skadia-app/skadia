@@ -2,9 +2,10 @@ package routing
 
 // crossNodeState holds per-node state in the cross-tile A*.
 type crossNodeState struct {
-	BestCost   float32
-	ParentNode uint64
-	ParentEdge uint32
+	BestCost      float32
+	ParentNode    uint64
+	ParentEdge    uint32
+	ParentEdgeTile uint32 // tile that owns ParentEdge (may differ from parent's tile at border crossings)
 }
 
 // CrossTileState holds the sparse working state for cross-tile A*.

@@ -107,3 +107,13 @@ func (c *TileCache) UsedBytes() int64 {
 	defer c.mu.RUnlock()
 	return c.usedBytes
 }
+
+// Clear evicts all tiles from the cache. In-flight users of *graph.Graph
+// pointers are safe — Go GC keeps the objects alive until unreferenced.
+func (c *TileCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = make(map[uint32]*list.Element)
+	c.order.Init()
+	c.usedBytes = 0
+}

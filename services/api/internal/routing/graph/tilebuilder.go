@@ -37,7 +37,10 @@ func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 		return nil, fmt.Errorf("build tile %d: %w", tileID, err)
 	}
 
-	const borderDist = 0.0045
+	// borderDist must equal BorderBuffer so that every node in the overlap zone
+	// between adjacent tiles is marked as a border node. A smaller value would
+	// leave nodes in the 500m-2.2km band unmarked, breaking cross-tile matching.
+	const borderDist = BorderBuffer
 	borderIDs := IdentifyBorderNodes(tileID, g.NodeLat, g.NodeLon, borderDist)
 	borderIdx := BuildBorderNodeIndex(borderIDs, g.NodeLat, g.NodeLon)
 
