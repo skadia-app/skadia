@@ -644,6 +644,16 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.Lengths = ExtractLengths(lengths)
 	data.ClimbProEvents = ExtractClimbProEvents(climbPros)
 
+	// For merged files (multi-source GPX exports and FIT-stitching tools) the session's TotalElapsedTime can be
+	// the span from first to last timestamp (e.g. 17h) rather than actual recording
+	// time (e.g. 1h28). Cap ElapsedTimeS to the recording time if significantly lower.
+	if len(data.Streams) >= 2 {
+		recordingTime := activityutil.CalcRecordingTime(data.Streams)
+		if recordingTime > 0 && recordingTime < data.ElapsedTimeS {
+			data.ElapsedTimeS = recordingTime
+		}
+	}
+
 	// Refine MovingTimeS using stream data when speed or GPS information is
 	// available. The device's TotalTimerTime (already set above) is a valid
 	// upper bound because the device itself excluded manual/auto-pause periods.
