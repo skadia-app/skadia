@@ -4,6 +4,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
@@ -53,6 +54,31 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 	dstLon := g.NodeLon[dst]
 
 	airDist := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[src], g.NodeLon[src], dstLat, dstLon)
+	// Diagnose: check for pathological edge geometry sizes
+	var maxGeom, maxElev uint32
+	var maxGeomEdge, maxElevEdge uint32
+	for ei := uint32(0); ei < g.EdgeCount; ei++ {
+		gs := g.EdgeGeomOff[ei+1] - g.EdgeGeomOff[ei]
+		if gs > maxGeom {
+			maxGeom = gs
+			maxGeomEdge = ei
+		}
+		if g.EdgeElevOff != nil {
+			es := g.EdgeElevOff[ei+1] - g.EdgeElevOff[ei]
+			if es > maxElev {
+				maxElev = es
+				maxElevEdge = ei
+			}
+		}
+	}
+	slog.Info("pass0 start",
+		"src", src, "dst", dst, "nodes", g.NodeCount, "edges", g.EdgeCount,
+		"air_dist_m", airDist/cfg.Pass0Coefficient,
+		"src_ele_dm", g.NodeEle[src], "dst_ele_dm", g.NodeEle[dst],
+		"max_geom_pts", maxGeom, "max_geom_edge", maxGeomEdge,
+		"max_elev_pts", maxElev, "max_elev_edge", maxElevEdge,
+		"total_geom_pts", len(g.EdgeGeomLat),
+		"total_elev_pts", len(g.EdgeElevProf))
 	state.frontier.Push(FrontierEntry{
 		NodeID:  src,
 		Cost:    0,
@@ -63,14 +89,27 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 	state.nodeGen[src] = state.generation
 
 	expansions := 0
+	var blockedEdges int
 
 	for state.frontier.Len() > 0 {
 		if expansions&(checkCancelEvery-1) == 0 {
 			if err := ctx.Err(); err != nil {
+				slog.Warn("pass0 context cancelled",
+					"expansions", expansions, "frontier", state.frontier.Len(),
+					"blocked_edges", blockedEdges,
+					"elapsed_ms", time.Since(start).Milliseconds())
 				return nil, 0, nil, err
 			}
 		}
 		expansions++
+		if expansions <= 5 || expansions%10_000 == 0 {
+			cur0 := state.frontier.entries[0]
+			slog.Info("pass0 progress",
+				"expansions", expansions, "frontier", state.frontier.Len(),
+				"blocked_edges", blockedEdges,
+				"top_cost", cur0.Cost, "top_air", cur0.AirDist,
+				"elapsed_ms", time.Since(start).Milliseconds())
+		}
 		if expansions > maxExpansions {
 			return nil, 0, nil, fmt.Errorf("pass0: expansion limit reached (%d), route too long or graph disconnected", maxExpansions)
 		}
@@ -88,6 +127,10 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 		// Reached destination
 		if cur.NodeID == dst {
+			slog.Info("pass0 found destination",
+				"expansions", expansions, "frontier", state.frontier.Len(),
+				"blocked_edges", blockedEdges,
+				"elapsed_ms", time.Since(start).Milliseconds())
 			track := extractTrack(state, src, dst, g.NodeCount)
 			stats := &PassStats{
 				Pass0Expansions: expansions,
@@ -105,12 +148,24 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 			target := g.Targets[ei]
 
 			edgeCost := cfg.EdgeCost(g, ei)
+			if edgeCost >= costBlocked*100 {
+				blockedEdges++
+				continue
+			}
 
 			var newState PathState
 			var elevCost float32
 			profStart := g.EdgeElevOff[ei]
 			profEnd := g.EdgeElevOff[ei+1]
 			if profEnd > profStart {
+				nPts := profEnd - profStart
+				if expansions <= 10 && nPts > 100 {
+					slog.Warn("pass0 large edge profile",
+						"expansion", expansions, "edge", ei, "target", target,
+						"elev_pts", nPts,
+						"geom_pts", g.EdgeGeomOff[ei+1]-g.EdgeGeomOff[ei],
+						"dist_cm", g.EdgeDist[ei])
+				}
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
 				newState, elevCost = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
@@ -149,7 +204,10 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 		}
 	}
 
-	return nil, 0, nil, fmt.Errorf("no route found (pass0: expanded %d nodes)", expansions)
+	slog.Warn("pass0 exhausted frontier",
+		"expansions", expansions, "blocked_edges", blockedEdges,
+		"elapsed_ms", time.Since(start).Milliseconds())
+	return nil, 0, nil, fmt.Errorf("no route found (pass0: expanded %d nodes, blocked %d edges)", expansions, blockedEdges)
 }
 
 // pass1 runs a Dijkstra (c=0) with adaptive cost-cutting from the pass0 track.

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,7 +91,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			for i, child := range children {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
-				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil); err != nil {
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, activityutil.DefaultSpeedSmoothingWindow); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
 					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
 					return
@@ -118,7 +119,15 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID, scope); err != nil {
+	// Parse optional smooth_window (1-5, default 3).
+	smoothWindow := activityutil.DefaultSpeedSmoothingWindow
+	if w := r.URL.Query().Get("smooth_window"); w != "" {
+		if wn, err := strconv.Atoi(w); err == nil && wn >= 1 && wn <= 5 {
+			smoothWindow = wn
+		}
+	}
+
+	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
@@ -206,7 +215,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		ctx := context.Background()
 
 		for _, id := range ids {
-			if err := h.reprocessActivity(ctx, id, userID, scope); err != nil {
+			if err := h.reprocessActivity(ctx, id, userID, scope, activityutil.DefaultSpeedSmoothingWindow); err != nil {
 				slog.Error("reprocess-all: activity failed", "id", id, "error", err)
 				h.recomputeJob.errors.Add(1)
 			} else {
@@ -308,7 +317,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "tags": re-evaluate autotag rules and update tags
 //   - "segments": segment efforts + lap detection
 //   - "geo": Stage 2 geo enrichment (peaks, forests, water, stops, lifts, surfaces, borders)
-func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool) error {
+func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int) error {
 	allScope := len(scope) == 0 // nil/empty = reprocess everything
 	doStreams := allScope || scope["streams"]
 	doSensors := allScope || scope["sensors"]
@@ -538,7 +547,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if sErr != nil {
 			slog.Error("reprocess: load streams for speed smoothing failed", "id", activityID, "error", sErr)
 		} else if len(streamPts) >= 3 {
-			streamPts = activityutil.SmoothSpeed(streamPts, activityutil.DefaultSpeedSmoothingWindow)
+			streamPts = activityutil.SmoothSpeed(streamPts, smoothWindow)
 			if err := h.DB.UpdateStreamSpeeds(ctx, activityID, streamPts); err != nil {
 				slog.Error("reprocess: update smoothed speeds failed", "id", activityID, "error", err)
 			} else {
