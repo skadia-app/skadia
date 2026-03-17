@@ -106,7 +106,22 @@ export default function EnrichmentSettingsPage() {
       })
     },
   })
-  const enrichMut = useMutation({ mutationFn: backfillEnrichment })
+  const enrichMut = useMutation({
+    mutationFn: backfillEnrichment,
+    onError: (error: unknown) => {
+      const message = error instanceof ApiError
+        ? (error.body || error.message || 'Unbekannter Fehler')
+        : error instanceof Error
+          ? error.message
+          : 'Unbekannter Fehler'
+      addToast({
+        type: 'error',
+        title: 'Enrichment-Backfill fehlgeschlagen',
+        message,
+        duration: 0,
+      })
+    },
+  })
 
   // BUGFIX: Always send the full settings object merged with the change.
   // Sending only partial data causes the backend PUT to zero out all other fields.

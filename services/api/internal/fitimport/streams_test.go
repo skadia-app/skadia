@@ -1,6 +1,7 @@
 package fitimport
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestFixDistanceResets_TwoLapReset(t *testing.T) {
 		if got[i].DistanceM == nil {
 			t.Fatalf("point %d: DistanceM is nil, want %f", i, w)
 		}
-		if absF(*got[i].DistanceM-w) > 0.01 {
+		if math.Abs(*got[i].DistanceM-w) > 0.01 {
 			t.Errorf("point %d: got %f, want %f", i, *got[i].DistanceM, w)
 		}
 	}
@@ -76,7 +77,7 @@ func TestFixDistanceResets_NilDistances(t *testing.T) {
 	if got[2].DistanceM == nil {
 		t.Fatal("point 2: DistanceM is nil")
 	}
-	if absF(*got[2].DistanceM-200.5) > 0.01 {
+	if math.Abs(*got[2].DistanceM-200.5) > 0.01 {
 		t.Errorf("point 2: got %f, want 200.5", *got[2].DistanceM)
 	}
 }
@@ -92,10 +93,10 @@ func TestFixDistanceResets_SmallDrop(t *testing.T) {
 	}
 	got := activityutil.FixDistanceResets(points)
 	// Kein Offset — 498 < 500 aber < 100m Differenz
-	if absF(*got[1].DistanceM-498.0) > 0.01 {
+	if math.Abs(*got[1].DistanceM-498.0) > 0.01 {
 		t.Errorf("point 1: got %f, want 498.0 (small drop should not trigger reset)", *got[1].DistanceM)
 	}
-	if absF(*got[2].DistanceM-600.0) > 0.01 {
+	if math.Abs(*got[2].DistanceM-600.0) > 0.01 {
 		t.Errorf("point 2: got %f, want 600.0", *got[2].DistanceM)
 	}
 }
@@ -127,18 +128,12 @@ func TestFixDistanceResets_ThreeSegments(t *testing.T) {
 		if got[i].DistanceM == nil {
 			t.Fatalf("point %d: DistanceM is nil, want %f", i, w)
 		}
-		if absF(*got[i].DistanceM-w) > 0.01 {
+		if math.Abs(*got[i].DistanceM-w) > 0.01 {
 			t.Errorf("point %d: got %f, want %f", i, *got[i].DistanceM, w)
 		}
 	}
 }
 
-func absF(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
 
 // TestDeriveGPSMetrics_MeringScenario — 82 points, 0 with distance,
 // 3 clusters separated by multi-hour gaps. Should derive distance for all GPS points.
