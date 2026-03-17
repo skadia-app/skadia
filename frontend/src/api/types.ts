@@ -146,6 +146,7 @@ export interface Activity {
   garmin_activity_id?: number | null
   strava_activity_id?: number | null
   komoot_tour_id?: number | null
+  gps_corrections_count?: number
   // Sport conflict resolution
   sport_conflict_pending?: boolean
   sport_conflict?: {
@@ -166,6 +167,8 @@ export interface StreamPoint {
   time: string
   lat?: number
   lng?: number
+  raw_lat?: number
+  raw_lng?: number
   altitude_m?: number
   speed_ms?: number
   distance_m?: number
