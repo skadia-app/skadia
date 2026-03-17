@@ -541,7 +541,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8d. Speed smoothing — opt-in only (not part of "all").
-	// Loads existing streams, applies a moving average to speed_ms, and writes
+	// Loads existing streams, applies a median filter to speed_ms, and writes
 	// the smoothed values back. Does not re-parse the original file.
 	if doSpeedSmooth {
 		streamPts, sErr := h.DB.GetStreamPoints(ctx, activityID)
@@ -552,7 +552,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			if err := h.DB.UpdateStreamSpeeds(ctx, activityID, streamPts); err != nil {
 				slog.Error("reprocess: update smoothed speeds failed", "id", activityID, "error", err)
 			} else {
-				slog.Info("reprocess: speed smoothing applied", "activity_id", activityID, "window", activityutil.DefaultSpeedSmoothingWindow)
+				slog.Info("reprocess: speed smoothing applied", "activity_id", activityID, "window", smoothWindow)
 			}
 		}
 	}
