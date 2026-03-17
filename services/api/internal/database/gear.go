@@ -3,12 +3,16 @@ package database
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/sixdouglas/suncalc"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
 // gearSelectCols are the columns returned by gear queries.
@@ -1120,8 +1124,11 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.start_city, a.start_state, a.start_country, a.start_country_code, a.end_city,
 			a.gear_id::text,
 			a.tags,
+			a.started_at,
 			ST_Y(a.start_location::geometry) AS start_lat,
 			ST_X(a.start_location::geometry) AS start_lon,
+			ST_Y(a.end_location::geometry) AS end_lat,
+			ST_X(a.end_location::geometry) AS end_lon,
 			COALESCE(pc.cnt, 0) AS photo_count,
 			COALESCE(lc.cnt, 0) AS detected_lap_count,
 			a.lift_count, a.lift_ascent_m, a.lift_descent_m, a.lift_distance_m, a.lift_duration_s,
@@ -1153,7 +1160,9 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		endCity                                                   *string
 		gearID                                                    *string
 		tags                                                      []string
+		startedAt                                                 time.Time
 		startLat, startLon                                        *float64
+		endLat, endLon                                            *float64
 		photoCount, detectedLapCount                              int
 		liftCount                                                 *int
 		liftAscentM, liftDescentM, liftDistM                      *float64
@@ -1176,7 +1185,9 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&avgTempC, &minTempC, &maxTempC,
 		&startCity, &startState, &startCountry, &startCountryCode, &endCity,
 		&gearID, &tags,
+		&startedAt,
 		&startLat, &startLon,
+		&endLat, &endLon,
 		&photoCount, &detectedLapCount,
 		&liftCount, &liftAscentM, &liftDescentM, &liftDistM, &liftDurationS,
 		&netAscentM, &netDescentM, &netDistM,
@@ -1279,6 +1290,18 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	if len(tags) > 0 {
 		m["tags"] = tags
 	}
+
+	// Dynamic computed fields for rules engine
+	if startLat != nil && startLon != nil && !startedAt.IsZero() {
+		pos := suncalc.GetPosition(startedAt, *startLat, *startLon)
+		m["sun_elevation"] = pos.Altitude * 180 / math.Pi
+	}
+	// NULL-Guard: start_end_distance_m nur berechnen wenn BEIDE Endpunkte vorhanden
+	// (Indoor-Aktivitäten ohne GPS haben kein end_location → sonst fälschlich 0m → Rundtour-Tag)
+	if startLat != nil && startLon != nil && endLat != nil && endLon != nil {
+		m["start_end_distance_m"] = rules.HaversineM(*startLat, *startLon, *endLat, *endLon)
+	}
+	// KEIN start_end_distance_m Key wenn Koordinaten fehlen → Rundtour-Rule matched nicht
 
 	segEfforts, err := db.getSegmentEffortsForActivity(ctx, activityID)
 	if err == nil && len(segEfforts) > 0 {
@@ -1404,6 +1427,9 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		return err
 	case "is_indoor":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_indoor = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "is_round_trip":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_round_trip = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "set_name_template":
 		title, ok := value.(string)
