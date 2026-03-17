@@ -10,6 +10,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
+// crossLastEdge stores per-global-node turncost/initialcost state for cross-tile routing.
+type crossLastEdge struct {
+	DX       float32
+	DY       float32
+	WayClass uint8
+}
+
 // TileRouter performs A* routing across a tiled graph.
 // Single-tile routes delegate to the existing Router.
 // Cross-tile routes use a sparse A* with BorderNode expansion.
@@ -155,9 +162,10 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 		TileID:       startTileID,
 	})
 
-	// Track hysteresis state per global node.
+	// Track hysteresis state and last-edge direction per global node.
 	pathStates := make(map[uint64]PathState)
 	pathStates[srcGID] = PathState{}
+	lastEdges := make(map[uint64]crossLastEdge)
 
 	var expansions int
 	maxExpansions := int(tr.maxExpansionsPerTile) * 20 // generous cross-tile budget
@@ -202,6 +210,7 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 		}
 
 		hyState := entry.State
+		curLastEdge := lastEdges[gid]
 
 		// Expand edges.
 		edgeStart := g.Offsets[localNode]
@@ -209,22 +218,36 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			edgeCost := cfg.EdgeCost(g, ei)
-			// Skip blocked edges. EdgeCost returns distM * costBlocked (=10_000)
-			// for impassable highways, so a 100m blocked edge costs 1M.
-			// Threshold costBlocked*100 = 1M catches all blocked edges ≥100m.
-			if edgeCost >= costBlocked*100 {
+			ecf := cfg.EdgeCost(g, ei)
+			if ecf.Flat >= costBlocked {
 				continue
 			}
 
-			// Elevation hysteresis.
-			deltaEleMilli := (g.NodeEle[target] - g.NodeEle[localNode]) * 100 // dm → mm
-			distMilli := int32(g.EdgeDist[ei]) * 10                           // cm → mm
-			newHyState, elevCost := propagateHysteresis(hyState, deltaEleMilli, distMilli, cfg)
+			// Turncost + direction (cross-tile uses localNode coords)
+			tc, newDX, newDY := computeTurnCost(
+				g.NodeLon[localNode], g.NodeLat[localNode],
+				g.NodeLon[target], g.NodeLat[target],
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost)
 
-			totalEdgeCost := edgeCost + elevCost
-			newCost := entry.Cost + totalEdgeCost
-			correctedCost := newCost + newHyState.elevationCorrection(cfg)
+			// Elevation hysteresis — prefer edge profile over node-level fallback.
+			var hr HysteresisResult
+			profStart := g.EdgeElevOff[ei]
+			profEnd := g.EdgeElevOff[ei+1]
+			if profEnd > profStart && profEnd-profStart <= 5000 {
+				profile := g.EdgeElevProf[profStart:profEnd]
+				segDist := edgeSegmentDistances(g, ei)
+				hr = propagateHysteresisProfile(hyState, profile, segDist, cfg)
+			} else {
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[localNode]) * 100
+				distMilli := int32(g.EdgeDist[ei]) * 10
+				hr = propagateHysteresis(hyState, deltaEleMilli, distMilli, cfg)
+			}
+
+			// Slope-weighted costfactor interpolation
+			distM := float32(g.EdgeDist[ei]) / 100.0
+			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, curLastEdge.WayClass)
+			newCost := entry.Cost + edgeCost
+			correctedCost := newCost + hr.State.elevationCorrection(cfg)
 
 			targetLat := float64(g.NodeLat[target]) / 1e7
 			targetLon := float64(g.NodeLon[target]) / 1e7
@@ -240,14 +263,18 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 				tns.ParentEdgeTile = curTileID
 
 				targetAirDist := float32(equirectDistM(targetLat, targetLon, dstLat, dstLon)) * cfg.Pass0Coefficient
-				pathStates[targetGID] = newHyState
+				pathStates[targetGID] = hr.State
+				lastEdges[targetGID] = crossLastEdge{DX: newDX, DY: newDY, WayClass: ecf.WayClass}
 
 				state.frontier.Push(CrossFrontierEntry{
 					GlobalNodeID: targetGID,
 					Cost:         correctedCost,
 					AirDist:      targetAirDist,
-					State:        newHyState,
+					State:        hr.State,
 					TileID:       curTileID,
+					LastEdgeDX:   newDX,
+					LastEdgeDY:   newDY,
+					LastWayClass: ecf.WayClass,
 				})
 			}
 
@@ -255,8 +282,9 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 			// that contain the same coordinate.
 			if g.IsBorder != nil && len(g.IsBorder) > int(target) && g.IsBorder[target] {
 				for _, neighborTileID := range graph.NeighborTileIDs(curTileID) {
-					tr.expandBorderNode(state, pathStates, g, target, curTileID,
-						neighborTileID, gid, ei, correctedCost, newHyState, dstLat, dstLon, cfg)
+					tr.expandBorderNode(state, pathStates, lastEdges, g, target, curTileID,
+						neighborTileID, gid, ei, correctedCost, hr.State,
+						newDX, newDY, ecf.WayClass, dstLat, dstLon, cfg)
 				}
 			}
 		}
@@ -270,6 +298,7 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 func (tr *TileRouter) expandBorderNode(
 	state *CrossTileState,
 	pathStates map[uint64]PathState,
+	lastEdges map[uint64]crossLastEdge,
 	srcGraph *graph.Graph,
 	localTarget uint32,
 	srcTileID, neighborTileID uint32,
@@ -277,6 +306,8 @@ func (tr *TileRouter) expandBorderNode(
 	edgeIdx uint32,
 	newCost float32,
 	hyState PathState,
+	lastDX, lastDY float32,
+	lastWayClass uint8,
 	dstLat, dstLon float64,
 	cfg *CostConfig,
 ) {
@@ -315,6 +346,7 @@ func (tr *TileRouter) expandBorderNode(
 		airDist := float32(equirectDistM(nLat, nLon, dstLat, dstLon)) * cfg.Pass0Coefficient
 
 		pathStates[neighborGID] = hyState
+		lastEdges[neighborGID] = crossLastEdge{DX: lastDX, DY: lastDY, WayClass: lastWayClass}
 
 		state.frontier.Push(CrossFrontierEntry{
 			GlobalNodeID: neighborGID,
@@ -322,6 +354,9 @@ func (tr *TileRouter) expandBorderNode(
 			AirDist:      airDist,
 			State:        hyState,
 			TileID:       neighborTileID,
+			LastEdgeDX:   lastDX,
+			LastEdgeDY:   lastDY,
+			LastWayClass: lastWayClass,
 		})
 	}
 }

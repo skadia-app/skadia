@@ -23,6 +23,9 @@ type CrossFrontierEntry struct {
 	Parent       uint64
 	Edge         uint32
 	TileID       uint32
+	LastEdgeDX   float32 // normalized direction X (lon-component)
+	LastEdgeDY   float32 // normalized direction Y (lat-component)
+	LastWayClass uint8   // 0=normal, 1=ferry, 2=mainroad
 }
 
 // CrossFrontier is a min-heap of CrossFrontierEntry.

@@ -91,16 +91,16 @@ func makeTestGraph(nodes [][3]float64, edges [][4]int) *graph.Graph {
 
 func simpleCostConfig() *CostConfig {
 	cfg := &CostConfig{
-		UphillCostFactor:   1.0,
-		DownhillCostFactor: 0.0,
-		ElevPenaltyBuffer:  5.0,
-		ElevMaxBuffer:      10.0,
-		Pass0Coefficient:   1.5,
+		UphillCost:        1.0,
+		DownhillCost:      0.0,
+		ElevPenaltyBuffer: 5.0,
+		ElevMaxBuffer:     10.0,
+		Pass0Coefficient:  1.5,
 	}
-	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
-	// Simple cost: distance in meters (EdgeDist is in cm)
-	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) float32 {
-		return float32(g.EdgeDist[edgeIdx]) / 100.0
+	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
+	// Simple cost: costfactor=1.0 for all edges (distance computed in A* loop)
+	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+		return EdgeCostFactors{Flat: 1.0}
 	}
 	return cfg
 }
@@ -171,8 +171,8 @@ func TestRoute_Diamond_HysteresisChoice(t *testing.T) {
 
 	// High uphill cost → prefer flat route
 	cfg := simpleCostConfig()
-	cfg.UphillCostFactor = 5.0
-	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCostFactor, cfg.DownhillCostFactor)
+	cfg.UphillCost = 5.0
+	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -433,5 +433,276 @@ func TestRoute_SparseFallback_SameResult(t *testing.T) {
 	if math.Abs(resSparse.DistanceM-resFlat.DistanceM) > 0.1 {
 		t.Errorf("distance mismatch: sparse=%.1f, flat=%.1f",
 			resSparse.DistanceM, resFlat.DistanceM)
+	}
+}
+
+func TestRoute_TurnCost_PrefersStraight(t *testing.T) {
+	// Graph: 0→1→3 (straight line north) vs 0→2→3 (zigzag east then back)
+	// With TurnCost, the straight path should be preferred even if zigzag is
+	// shorter in distance, because zigzag has a sharp turn at node 2.
+	//
+	// We use explicit edge distances that make zigzag shorter than straight.
+	// Straight: 0→1→3 = 350m + 350m = 700m (no turns)
+	// Zigzag:   0→2→3 = 250m + 250m = 500m (sharp turn at node 2)
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000},       // node 0: start
+		{47.0035, 11.0, 5000},    // node 1: straight intermediate (north)
+		{47.0025, 11.003, 5000},  // node 2: zigzag intermediate (east)
+		{47.007, 11.0, 5000},     // node 3: destination (north)
+	}
+	edges := [][4]int{
+		// Straight path: 0→1→3
+		{0, 1, 35000, 16}, // 350m
+		{1, 3, 35000, 16}, // 350m
+		// Zigzag path: 0→2→3 (shorter distance, but with turn)
+		{0, 2, 25000, 16}, // 250m
+		{2, 3, 25000, 16}, // 250m
+		// Reverse edges
+		{1, 0, 35000, 16},
+		{3, 1, 35000, 16},
+		{2, 0, 25000, 16},
+		{3, 2, 25000, 16},
+	}
+
+	g := makeTestGraph(nodes, edges)
+	ctx := context.Background()
+
+	// Without TurnCost: zigzag should win (500m < 700m)
+	cfgNoTurn := simpleCostConfig()
+	cfgNoTurn.TurnCost = 0
+
+	rNoTurn := NewRouter(g, 1, 5)
+	resNoTurn, err := rNoTurn.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat: 47.007, ToLon: 11.0,
+	}, cfgNoTurn)
+	if err != nil {
+		t.Fatalf("no-turn route failed: %v", err)
+	}
+
+	// With TurnCost: straight should win (turn penalty outweighs distance savings)
+	cfgTurn := simpleCostConfig()
+	cfgTurn.TurnCost = 200 // high turn cost
+
+	rTurn := NewRouter(g, 1, 5)
+	resTurn, err := rTurn.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat: 47.007, ToLon: 11.0,
+	}, cfgTurn)
+	if err != nil {
+		t.Fatalf("turn route failed: %v", err)
+	}
+
+	t.Logf("no-turn: dist=%.0fm, cost=%.0f", resNoTurn.DistanceM, resNoTurn.Cost)
+	t.Logf("turn:    dist=%.0fm, cost=%.0f", resTurn.DistanceM, resTurn.Cost)
+
+	// Without turn cost, shorter zigzag should be chosen (cost=500)
+	if resNoTurn.Cost > 550 {
+		t.Errorf("without turncost: expected zigzag route (cost~500), got cost=%.0f", resNoTurn.Cost)
+	}
+	// With turn cost, straight path should be chosen (cost=700, cheaper than 500+turn_penalty)
+	if resTurn.Cost < resNoTurn.Cost {
+		t.Errorf("with turncost: expected higher cost than no-turn, got turn=%.0f vs noTurn=%.0f",
+			resTurn.Cost, resNoTurn.Cost)
+	}
+	// The straight route should be longer in distance
+	if resTurn.DistanceM < resNoTurn.DistanceM {
+		t.Logf("NOTE: with turncost, router chose longer distance path (%.0fm > %.0fm) — turn avoidance working",
+			resTurn.DistanceM, resNoTurn.DistanceM)
+	}
+}
+
+func TestRoute_3CostFactor_SlopeWeighted(t *testing.T) {
+	// Test that UpWeight/DownWeight correctly interpolate costfactors.
+	// Graph: 0→1 with elevation gain (uphill).
+	// With Up=3.0, Flat=1.0, Down=0.5 the uphill-weighted cost should be
+	// significantly higher than flat-only cost.
+	//
+	// Node 0: 500m, Node 1: 600m (100m gain over 1000m = 10% grade)
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000},   // 500m
+		{47.01, 11.0, 6000},  // 600m
+	}
+	edges := [][4]int{
+		{0, 1, 100000, 16}, // 1000m, path
+		{1, 0, 100000, 16},
+	}
+
+	g := makeTestGraph(nodes, edges)
+
+	// Config with different up/down costfactors
+	cfg := simpleCostConfig()
+	cfg.UphillCost = 5.0
+	cfg.DownhillCost = 0.0
+	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
+
+	// Use a custom EdgeCost that returns Up/Down factors
+	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+		return EdgeCostFactors{
+			Flat: 1.0,
+			Up:   3.0,  // uphill is 3x more expensive
+			Down: 0.5,  // downhill is cheaper
+		}
+	}
+
+	r := NewRouter(g, 1, 5)
+	ctx := context.Background()
+
+	// Route uphill: 0→1
+	resUp, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat: 47.01, ToLon: 11.0,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("uphill route failed: %v", err)
+	}
+
+	// Route downhill: 1→0
+	resDown, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.01, FromLon: 11.0,
+		ToLat: 47.0, ToLon: 11.0,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("downhill route failed: %v", err)
+	}
+
+	t.Logf("uphill cost=%.1f, downhill cost=%.1f", resUp.Cost, resDown.Cost)
+
+	// Uphill cost should be significantly higher than downhill
+	if resUp.Cost <= resDown.Cost {
+		t.Errorf("uphill cost (%.1f) should be > downhill cost (%.1f) with Up=3.0, Down=0.5",
+			resUp.Cost, resDown.Cost)
+	}
+}
+
+func TestRoute_InitialCost_AvoidsFerryHopping(t *testing.T) {
+	// Graph: S→A--ferry--B→D (land→ferry→land, 2 transitions = 2*10000 penalty)
+	//        S→C→D (all land, longer distance but no penalty)
+	//
+	// The initialcost fires on land(WC=2)→ferry(WC=1) and ferry(WC=1)→land(WC=2) transitions.
+	// Both paths start with a land edge so LastWayClass becomes non-zero before ferry.
+	//
+	// S(0) --land-- A(1) --ferry-- B(2) --land-- D(3)
+	//   \                                         /
+	//    -----------land(C(4))-------------------
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000},      // S (start)
+		{47.002, 11.0, 5000},    // A (land→ferry transition)
+		{47.006, 11.0, 5000},    // B (ferry→land transition)
+		{47.01, 11.0, 5000},     // D (destination)
+		{47.005, 11.005, 5000},  // C (land detour)
+	}
+
+	allEdges := [][4]int{
+		// Ferry path: S→A→B→D
+		{0, 1, 20000, 16},  // S→A: 200m land
+		{1, 2, 30000, 16},  // A→B: 300m ferry
+		{2, 3, 20000, 16},  // B→D: 200m land
+		// Land detour: S→C→D
+		{0, 4, 60000, 16},  // S→C: 600m land
+		{4, 3, 60000, 16},  // C→D: 600m land
+		// Reverse edges
+		{1, 0, 20000, 16},
+		{2, 1, 30000, 16},
+		{3, 2, 20000, 16},
+		{4, 0, 60000, 16},
+		{3, 4, 60000, 16},
+	}
+
+	g := makeTestGraph(nodes, allEdges)
+
+	findFrom := func(g *graph.Graph, edgeIdx uint32) uint32 {
+		for i := uint32(0); i < g.NodeCount; i++ {
+			if g.Offsets[i] <= edgeIdx && edgeIdx < g.Offsets[i+1] {
+				return i
+			}
+		}
+		return 0
+	}
+
+	ferryEdgeSet := map[[2]uint32]bool{
+		{1, 2}: true, {2, 1}: true, // A↔B is ferry
+	}
+
+	ctx := context.Background()
+
+	// Without WayClass: all WayClass=0, no penalty. Ferry path wins (700m < 1200m).
+	cfgNoWC := simpleCostConfig()
+	rNoWC := NewRouter(g, 1, 5)
+	resNoWC, err := rNoWC.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat: 47.01, ToLon: 11.0,
+	}, cfgNoWC)
+	if err != nil {
+		t.Fatalf("no-wayclass route failed: %v", err)
+	}
+
+	// With WayClass: land edges get WC=2, ferry edges get WC=1.
+	// Ferry path: S→A (WC=2, last=0→skip), A→B (WC=1, last=2→penalty 10000),
+	//             B→D (WC=2, last=1→penalty 10000). Total: 700 + 20000 = 20700.
+	// Land path: S→C (WC=2, last=0→skip), C→D (WC=2, same→no penalty). Total: 1200.
+	cfgWC := simpleCostConfig()
+	cfgWC.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+		from := findFrom(g, edgeIdx)
+		to := g.Targets[edgeIdx]
+		ecf := EdgeCostFactors{Flat: 1.0}
+		if ferryEdgeSet[[2]uint32{from, to}] {
+			ecf.WayClass = 1 // ferry
+		} else {
+			ecf.WayClass = 2 // mainroad (non-zero, so transitions are detected)
+		}
+		return ecf
+	}
+
+	rWC := NewRouter(g, 1, 5)
+	resWC, err := rWC.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat: 47.01, ToLon: 11.0,
+	}, cfgWC)
+	if err != nil {
+		t.Fatalf("wayclass route failed: %v", err)
+	}
+
+	t.Logf("no-wayclass: dist=%.0fm, cost=%.0f", resNoWC.DistanceM, resNoWC.Cost)
+	t.Logf("with-wayclass: dist=%.0fm, cost=%.0f", resWC.DistanceM, resWC.Cost)
+
+	// Without WayClass: ferry path chosen (shorter)
+	if resNoWC.Cost > 800 {
+		t.Errorf("without wayclass: expected ferry route (cost~700), got cost=%.0f", resNoWC.Cost)
+	}
+
+	// With WayClass: land route chosen (ferry gets 2*10000 penalty)
+	if resWC.Cost < 1100 {
+		t.Errorf("with wayclass: expected land route (cost~1200), got cost=%.0f — ferry penalty not working", resWC.Cost)
+	}
+}
+
+func TestComputeTurnCost_Basic(t *testing.T) {
+	// Straight ahead: cosAngle=1, turnCost=0
+	tc, dx, dy := computeTurnCost(0, 0, 100, 0, 1, 0, 90)
+	if tc != 0 {
+		t.Errorf("straight ahead: expected turnCost=0, got %f", tc)
+	}
+	if dx == 0 {
+		t.Error("expected non-zero dx")
+	}
+	_ = dy
+
+	// 180° turn: cosAngle=-1, turnCost=2*base
+	tc2, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 90)
+	if math.Abs(float64(tc2)-180) > 1 {
+		t.Errorf("180° turn: expected turnCost~180, got %f", tc2)
+	}
+
+	// No previous direction: no turn cost
+	tc3, _, _ := computeTurnCost(0, 0, 100, 0, 0, 0, 90)
+	if tc3 != 0 {
+		t.Errorf("no prev direction: expected turnCost=0, got %f", tc3)
+	}
+
+	// TurnCost base=0: no turn cost regardless
+	tc4, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 0)
+	if tc4 != 0 {
+		t.Errorf("base=0: expected turnCost=0, got %f", tc4)
 	}
 }

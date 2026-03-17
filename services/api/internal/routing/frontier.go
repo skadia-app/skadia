@@ -1,14 +1,17 @@
 package routing
 
 // FrontierEntry is a priority queue entry for A*/Dijkstra search.
-// 28 bytes. Priority key = Cost + AirDist.
+// Priority key = Cost + AirDist.
 type FrontierEntry struct {
-	NodeID  uint32
-	Cost    float32   // g(n) — accumulated cost
-	AirDist float32   // coefficient * equirectDist(node, dst)
-	State   PathState // elevation hysteresis state (8 bytes, inline)
-	Parent  uint32    // parent node ID
-	Edge    uint32    // edge index for re-tracking
+	NodeID       uint32
+	Cost         float32   // g(n) — accumulated cost
+	AirDist      float32   // coefficient * equirectDist(node, dst)
+	State        PathState // elevation hysteresis state (8 bytes, inline)
+	Parent       uint32    // parent node ID
+	Edge         uint32    // edge index for re-tracking
+	LastEdgeDX   float32   // normalized direction X (lon-component)
+	LastEdgeDY   float32   // normalized direction Y (lat-component)
+	LastWayClass uint8     // 0=normal, 1=ferry, 2=mainroad
 }
 
 // Frontier is a custom typed binary min-heap over FrontierEntry.
