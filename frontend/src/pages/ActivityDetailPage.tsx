@@ -756,6 +756,17 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
 
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
   const [smoothing, setSmoothing] = useState<'idle' | 'smoothing' | 'resetting'>('idle')
+  const [smoothPopover, setSmoothPopover] = useState(false)
+  const [smoothWindow, setSmoothWindow] = useState(3)
+  const smoothRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!smoothPopover) return
+    const handler = (e: MouseEvent) => {
+      if (smoothRef.current && !smoothRef.current.contains(e.target as Node)) setSmoothPopover(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [smoothPopover])
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
@@ -1004,48 +1015,88 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
 
       {/* Speed smoothing + reset — opt-in correction for GPS speed noise */}
       {activity.has_gps && activity.sport_type !== 'multisport' && (
-        <>
-          <button
-            disabled={smoothing !== 'idle'}
-            onClick={async () => {
-              setSmoothing('smoothing')
-              try {
-                await reprocessActivity(activity.id, ['speed_smooth'])
-                queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-                queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                addToast({ type: 'success', title: 'Geschwindigkeit geglättet' })
-              } catch {
-                addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
-              } finally {
-                setSmoothing('idle')
-              }
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
-            title="Geschwindigkeit mit Median-Filter glätten (GPS-Rauschen reduzieren)"
-          >
-            {smoothing === 'smoothing' ? '…' : '⌇'} Glätten
-          </button>
-          <button
-            disabled={smoothing !== 'idle'}
-            onClick={async () => {
-              setSmoothing('resetting')
-              try {
-                await reprocessActivity(activity.id, ['streams'])
-                queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-                queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                addToast({ type: 'success', title: 'Originaldaten wiederhergestellt' })
-              } catch {
-                addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
-              } finally {
-                setSmoothing('idle')
-              }
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
-            title="Geschwindigkeitsdaten aus Originaldatei wiederherstellen"
-          >
-            {smoothing === 'resetting' ? '…' : '↺'}
-          </button>
-        </>
+        <div className="relative" ref={smoothRef}>
+          <div className="flex items-center gap-1">
+            <button
+              disabled={smoothing !== 'idle'}
+              onClick={() => setSmoothPopover(v => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+            >
+              {smoothing === 'smoothing' ? '…' : '⌇'} Glätten
+            </button>
+            <button
+              disabled={smoothing !== 'idle'}
+              onClick={async () => {
+                setSmoothing('resetting')
+                try {
+                  await reprocessActivity(activity.id, ['streams'])
+                  queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                  queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+                  addToast({ type: 'success', title: 'Originaldaten wiederhergestellt' })
+                } catch {
+                  addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
+                } finally {
+                  setSmoothing('idle')
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+              title="Geschwindigkeitsdaten aus Originaldatei wiederherstellen"
+            >
+              {smoothing === 'resetting' ? '…' : '↺'}
+            </button>
+          </div>
+          {smoothPopover && (
+            <div className="absolute top-full left-0 mt-1 z-50 w-72 bg-white dark:bg-neutral-900 rounded-xl shadow-xl border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Glättet GPS-Geschwindigkeitsrauschen mit einem Median-Filter.
+                Höhere Werte entfernen mehr Ausreißer, können aber echte
+                Geschwindigkeitsänderungen abschwächen.
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400">
+                  <span>Leicht</span>
+                  <span className="font-medium text-neutral-700 dark:text-neutral-200">{smoothWindow * 2 + 1}s Fenster</span>
+                  <span>Stark</span>
+                </div>
+                <input
+                  type="range"
+                  min={1} max={5} step={1}
+                  value={smoothWindow}
+                  onChange={e => setSmoothWindow(Number(e.target.value))}
+                  className="w-full accent-accent-DEFAULT"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSmoothPopover(false)}
+                  className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  disabled={smoothing !== 'idle'}
+                  onClick={async () => {
+                    setSmoothPopover(false)
+                    setSmoothing('smoothing')
+                    try {
+                      await reprocessActivity(activity.id, ['speed_smooth'], smoothWindow)
+                      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                      queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+                      addToast({ type: 'success', title: `Geglättet (${smoothWindow * 2 + 1}s Fenster)` })
+                    } catch {
+                      addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
+                    } finally {
+                      setSmoothing('idle')
+                    }
+                  }}
+                  className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 cursor-pointer"
+                >
+                  Anwenden
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
       {/* Edit Button — trim/split/merge not applicable for multisport parents */}
       {activity.sport_type !== 'multisport' && (
