@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   RouteWaypoint,
@@ -13,6 +13,7 @@ import {
   createRoute,
   updateRoute,
   computeInternalRoute,
+  computeRoute,
   getElevationProfile,
   type ElevationPoint,
 } from '@/api/routes'
@@ -20,6 +21,8 @@ import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults } from '@/lib/routingProfiles'
 
 // ─── Internal state ───────────────────────────────────────────────────────────
+
+type RoutingEngine = 'fitroute' | 'brouter'
 
 interface RoutePlannerState {
   waypoints: RouteWaypoint[]
@@ -29,6 +32,8 @@ interface RoutePlannerState {
   isCalculating: boolean
   calculationError: string | null
   editingRouteId: string | null
+  routingEngine: RoutingEngine
+  brouterProfile: string
 }
 
 const INITIAL_STATE: RoutePlannerState = {
@@ -39,6 +44,8 @@ const INITIAL_STATE: RoutePlannerState = {
   isCalculating: false,
   calculationError: null,
   editingRouteId: null,
+  routingEngine: 'fitroute',
+  brouterProfile: 'hiking-mountain',
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,6 +90,18 @@ export function useRoutePlanner() {
     queryFn: getCapabilities,
     staleTime: 5 * 60 * 1000, // 5 min — changes only on server restart
   })
+
+  // Set default engine based on capabilities: if routing=false, fall back to brouter
+  useEffect(() => {
+    if (capabilitiesQuery.data && !capabilitiesQuery.data.routing) {
+      setState(s => {
+        if (s.routingEngine === 'fitroute') {
+          return { ...s, routingEngine: 'brouter' }
+        }
+        return s
+      })
+    }
+  }, [capabilitiesQuery.data])
 
   // ── Route list ──────────────────────────────────────────────────────────────
 
@@ -129,7 +148,7 @@ export function useRoutePlanner() {
         if (s.waypoints.length < 2) return s
         const prevWp = s.waypoints[s.waypoints.length - 2]
         // Trigger segment calculation async (state setter is synchronous guard only)
-        void _calculateSegment(prevWp, newWp, s.profileConfig)
+        void _calculateSegment(prevWp, newWp, s.profileConfig, s.routingEngine, s.brouterProfile)
         return s
       })
     },
@@ -165,10 +184,10 @@ export function useRoutePlanner() {
         const idx = s.waypoints.findIndex(w => w.id === wpId)
         if (idx === -1) return s
         if (idx > 0) {
-          void _calculateSegment(s.waypoints[idx - 1], s.waypoints[idx], s.profileConfig)
+          void _calculateSegment(s.waypoints[idx - 1], s.waypoints[idx], s.profileConfig, s.routingEngine, s.brouterProfile)
         }
         if (idx < s.waypoints.length - 1) {
-          void _calculateSegment(s.waypoints[idx], s.waypoints[idx + 1], s.profileConfig)
+          void _calculateSegment(s.waypoints[idx], s.waypoints[idx + 1], s.profileConfig, s.routingEngine, s.brouterProfile)
         }
         return s
       })
@@ -191,10 +210,15 @@ export function useRoutePlanner() {
     from: RouteWaypoint,
     to: RouteWaypoint,
     profileConfig: ProfileConfig,
+    engine: RoutingEngine = 'fitroute',
+    brouterProf: string = 'hiking-mountain',
   ): Promise<void> {
     setState(s => ({ ...s, isCalculating: true, calculationError: null }))
     try {
-      const result = await computeInternalRoute(from.latlng, to.latlng, profileConfig)
+      const result =
+        engine === 'brouter'
+          ? await computeRoute([from.latlng, to.latlng], brouterProf)
+          : await computeInternalRoute(from.latlng, to.latlng, profileConfig)
       const feature = result.features[0]
       const isFallback = feature?.properties?.fallback === true
 
@@ -225,22 +249,26 @@ export function useRoutePlanner() {
 
   const calculateSegment = useCallback(
     (from: RouteWaypoint, to: RouteWaypoint) => {
-      return _calculateSegment(from, to, state.profileConfig)
+      return _calculateSegment(from, to, state.profileConfig, state.routingEngine, state.brouterProfile)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.profileConfig],
+    [state.profileConfig, state.routingEngine, state.brouterProfile],
   )
 
   const recalculateAll = useCallback(async () => {
     let currentWaypoints: RouteWaypoint[] = []
     let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
+    let currentEngine: RoutingEngine = 'fitroute'
+    let currentBrouterProfile = 'hiking-mountain'
     setState(s => {
       currentWaypoints = s.waypoints
       currentProfileConfig = s.profileConfig
+      currentEngine = s.routingEngine
+      currentBrouterProfile = s.brouterProfile
       return { ...s, segments: [], isCalculating: true, calculationError: null }
     })
     for (let i = 0; i < currentWaypoints.length - 1; i++) {
-      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig)
+      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig, currentEngine, currentBrouterProfile)
     }
     setState(s => ({ ...s, isCalculating: false }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,7 +294,7 @@ export function useRoutePlanner() {
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
         const toWp = s.waypoints.find(w => w.id === seg.to_waypoint)
         if (fromWp && toWp) {
-          void _calculateSegment(fromWp, toWp, s.profileConfig)
+          void _calculateSegment(fromWp, toWp, s.profileConfig, s.routingEngine, s.brouterProfile)
         }
       }
       segments[segmentIndex] = seg
@@ -284,12 +312,16 @@ export function useRoutePlanner() {
   const setProfileAndRecalculate = useCallback(
     async (profileConfig: ProfileConfig) => {
       let currentWaypoints: RouteWaypoint[] = []
+      let currentEngine: RoutingEngine = 'fitroute'
+      let currentBrouterProfile = 'hiking-mountain'
       setState(s => {
         currentWaypoints = s.waypoints
+        currentEngine = s.routingEngine
+        currentBrouterProfile = s.brouterProfile
         return { ...s, profileConfig, segments: [], isCalculating: true, calculationError: null }
       })
       for (let i = 0; i < currentWaypoints.length - 1; i++) {
-        await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profileConfig)
+        await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profileConfig, currentEngine, currentBrouterProfile)
       }
       setState(s => ({ ...s, isCalculating: false }))
     },
@@ -306,7 +338,8 @@ export function useRoutePlanner() {
   const loadRoute = useCallback((route: PlannedRoute) => {
     // route.profile is a string (BRouter legacy) — derive ProfileConfig from it
     const profileConfig = getProfileDefaults(route.profile)
-    setState({
+    setState(s => ({
+      ...s,
       waypoints: route.waypoints,
       segments: route.segments,
       profileConfig,
@@ -314,7 +347,7 @@ export function useRoutePlanner() {
       isCalculating: false,
       calculationError: null,
       editingRouteId: route.id,
-    })
+    }))
   }, [])
 
   // Load waypoints into the planner without creating/linking a saved route.
@@ -336,7 +369,19 @@ export function useRoutePlanner() {
       ...INITIAL_STATE,
       profileConfig: s.profileConfig,
       sportType: s.sportType,
+      routingEngine: s.routingEngine,
+      brouterProfile: s.brouterProfile,
     }))
+  }, [])
+
+  // ── Routing engine ──────────────────────────────────────────────────────────
+
+  const setRoutingEngine = useCallback((engine: RoutingEngine) => {
+    setState(s => ({ ...s, routingEngine: engine }))
+  }, [])
+
+  const setBrouterProfile = useCallback((profile: string) => {
+    setState(s => ({ ...s, brouterProfile: profile }))
   }, [])
 
   // ── Save mutation ────────────────────────────────────────────────────────────
@@ -421,6 +466,8 @@ export function useRoutePlanner() {
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
     editingRouteId: state.editingRouteId,
+    routingEngine: state.routingEngine,
+    brouterProfile: state.brouterProfile,
     totals,
     canSave,
     isDirty,
@@ -440,6 +487,10 @@ export function useRoutePlanner() {
     setProfile,
     setProfileAndRecalculate,
     setSportType,
+
+    // Routing engine
+    setRoutingEngine,
+    setBrouterProfile,
 
     // Route lifecycle
     loadRoute,

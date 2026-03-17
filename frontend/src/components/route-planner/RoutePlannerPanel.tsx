@@ -144,12 +144,29 @@ function WaypointItem({
   )
 }
 
+const BROUTER_PROFILES = [
+  { value: 'hiking-mountain', label: 'Wandern (Alpin, SAC T1-T3)' },
+  { value: 'hiking-sac2',     label: 'Wandern (SAC T2 max)' },
+  { value: 'cycling-road',    label: 'Rennrad' },
+  { value: 'cycling-mountain', label: 'MTB' },
+  { value: 'cycling-gravel',  label: 'Gravel' },
+  { value: 'trekking',        label: 'Trekking (Rad)' },
+  { value: 'running',         label: 'Laufen' },
+  { value: 'walking',         label: 'Spaziergang' },
+]
+
 export interface RoutePlannerPanelProps {
   // Current planning state (controlled from parent / MapPage)
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
   profileConfig: ProfileConfig
   showHeatmap: boolean
+  // Routing engine
+  routingEngine: 'fitroute' | 'brouter'
+  brouterProfile: string
+  fitRouteAvailable: boolean
+  onRoutingEngineChange: (engine: 'fitroute' | 'brouter') => void
+  onBrouterProfileChange: (profile: string) => void
   // Stats (computed by parent from segments)
   totalDistanceM: number
   totalElevationGain: number
@@ -176,6 +193,11 @@ export default function RoutePlannerPanel({
   segments,
   profileConfig,
   showHeatmap,
+  routingEngine,
+  brouterProfile,
+  fitRouteAvailable,
+  onRoutingEngineChange,
+  onBrouterProfileChange,
   totalDistanceM,
   totalElevationGain,
   totalElevationLoss,
@@ -253,11 +275,56 @@ export default function RoutePlannerPanel({
         {!collapsed && (
           <div className="flex flex-col">
 
-            {/* Profile editor */}
-            <ProfileEditor
-              config={profileConfig}
-              onChange={onProfileChange}
-            />
+            {/* Routing engine toggle */}
+            <div className="px-3 pt-2.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-1 p-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800">
+                <button
+                  onClick={() => onRoutingEngineChange('fitroute')}
+                  disabled={!fitRouteAvailable}
+                  title={!fitRouteAvailable ? 'Routing-Engine nicht verfügbar (keine Tiles)' : undefined}
+                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                    routingEngine === 'fitroute'
+                      ? 'bg-accent-DEFAULT text-white shadow-sm'
+                      : 'bg-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  FITroute
+                </button>
+                <button
+                  onClick={() => onRoutingEngineChange('brouter')}
+                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                    routingEngine === 'brouter'
+                      ? 'bg-accent-DEFAULT text-white shadow-sm'
+                      : 'bg-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  BRouter
+                </button>
+              </div>
+            </div>
+
+            {/* Profile editor (FITroute) or BRouter profile selector */}
+            {routingEngine === 'fitroute' ? (
+              <ProfileEditor
+                config={profileConfig}
+                onChange={onProfileChange}
+              />
+            ) : (
+              <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
+                <label className="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1">
+                  Profil
+                </label>
+                <select
+                  value={brouterProfile}
+                  onChange={e => onBrouterProfileChange(e.target.value)}
+                  className="w-full text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT cursor-pointer"
+                >
+                  {BROUTER_PROFILES.map(p => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Waypoint list */}
             <div className="px-3 pt-2 pb-1 max-h-56 overflow-y-auto">
