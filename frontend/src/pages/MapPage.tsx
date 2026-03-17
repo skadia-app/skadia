@@ -1251,6 +1251,48 @@ export default function MapPage() {
         }
       })
 
+      // Drop-Aktivitäten direkt auf den Marker (Marker liegt im DOM über dem Canvas,
+      // deshalb kommt der Canvas-Drop-Handler nicht an wenn der Cursor genau auf dem Pin ist)
+      el.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types.includes('application/skadia-activities')) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+        // Snap-Animation beibehalten
+        inner.style.transition = 'scale 0.15s ease'
+        inner.style.scale = '1.35'
+      })
+      el.addEventListener('dragleave', () => {
+        inner.style.scale = ''
+        inner.style.transition = ''
+      })
+      el.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        inner.style.scale = ''
+        inner.style.transition = ''
+        const raw = e.dataTransfer?.getData('application/skadia-activities')
+        if (!raw) return
+        let activityIDs: string[]
+        try { activityIDs = JSON.parse(raw) } catch { return }
+        try {
+          await assignActivitiesToTag(tag.id, activityIDs)
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+          queryClient.invalidateQueries({ queryKey: ['tags'] })
+          syncTagLocation(tag.id).catch(() => {})
+          setTagActivitiesVersion(v => v + 1)
+        } catch (err) {
+          console.error('assignActivitiesToTag fehlgeschlagen:', err)
+        }
+        setShowIndoorAssign(false)
+        // Pulse
+        inner.style.transition = 'scale 0.15s ease'
+        inner.style.scale = '1.5'
+        setTimeout(() => { inner.style.scale = '1.0' }, 150)
+        setTimeout(() => { inner.style.transition = ''; inner.style.scale = '' }, 400)
+      })
+
       locationTagMarkersRef.current.push(marker)
     })
 
