@@ -235,6 +235,8 @@ type Activity struct {
 	// Sport conflict resolution
 	SportConflictPending bool               `json:"sport_conflict_pending"`
 	SportConflictMeta    *SportConflictMeta `json:"sport_conflict,omitempty"`
+	// GPS correction count (number of stream points corrected by spatial outlier detection)
+	GPSCorrectionsCount int `json:"gps_corrections_count"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
@@ -305,6 +307,9 @@ type StreamResponse struct {
 	VerticalOscillationMm *int16   `json:"vertical_oscillation_mm,omitempty"`
 	StanceTimePercent     *float32 `json:"stance_time_percent,omitempty"`
 	LeftRightBalance      *int16   `json:"left_right_balance,omitempty"`
+	// GPS correction: original coordinates before spike interpolation
+	RawLat *float64 `json:"raw_lat,omitempty"`
+	RawLng *float64 `json:"raw_lng,omitempty"`
 }
 
 // SensorResponse is the API response for the sensors endpoint.
