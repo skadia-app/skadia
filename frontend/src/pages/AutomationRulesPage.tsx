@@ -79,6 +79,9 @@ export default function AutomationRulesPage() {
     },
   })
 
+  const systemRules = rules?.filter(r => r.is_system) ?? []
+  const userRules = rules?.filter(r => !r.is_system) ?? []
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Regeln...</div>
   }
@@ -133,34 +136,70 @@ export default function AutomationRulesPage() {
         </div>
       )}
 
-      {/* Rules list */}
-      {rules && rules.length > 0 ? (
-        <div className="space-y-3">
-          {rules.map((rule) => (
-            <div key={rule.id}>
-              {editingId === rule.id ? (
-                <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-                  <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Regel bearbeiten</h2>
-                  <RuleEditor
+      {/* System rules section */}
+      {systemRules.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">System-Regeln</h3>
+          <div className="space-y-3">
+            {systemRules.map((rule) => (
+              <div key={rule.id}>
+                {editingId === rule.id ? (
+                  <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Regel bearbeiten</h2>
+                    <RuleEditor
+                      rule={rule}
+                      onSave={(data) => updateMutation.mutate({ id: rule.id, data })}
+                      onCancel={() => setEditingId(null)}
+                      isSaving={updateMutation.isPending}
+                    />
+                  </div>
+                ) : (
+                  <RuleCard
                     rule={rule}
-                    onSave={(data) => updateMutation.mutate({ id: rule.id, data })}
-                    onCancel={() => setEditingId(null)}
-                    isSaving={updateMutation.isPending}
+                    onEdit={() => setEditingId(rule.id)}
+                    onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
+                    onDelete={() => setDeleteConfirmId(rule.id)}
                   />
-                </div>
-              ) : (
-                <RuleCard
-                  rule={rule}
-                  onEdit={() => setEditingId(rule.id)}
-                  onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
-                  onDelete={() => setDeleteConfirmId(rule.id)}
-                />
-              )}
-            </div>
-          ))}
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* User rules section */}
+      {userRules.length > 0 ? (
+        <div>
+          {systemRules.length > 0 && (
+            <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">Meine Regeln</h3>
+          )}
+          <div className="space-y-3">
+            {userRules.map((rule) => (
+              <div key={rule.id}>
+                {editingId === rule.id ? (
+                  <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Regel bearbeiten</h2>
+                    <RuleEditor
+                      rule={rule}
+                      onSave={(data) => updateMutation.mutate({ id: rule.id, data })}
+                      onCancel={() => setEditingId(null)}
+                      isSaving={updateMutation.isPending}
+                    />
+                  </div>
+                ) : (
+                  <RuleCard
+                    rule={rule}
+                    onEdit={() => setEditingId(rule.id)}
+                    onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
+                    onDelete={() => setDeleteConfirmId(rule.id)}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        !creating && (
+        !creating && systemRules.length === 0 && (
           <div className="text-center py-16 text-neutral-400">
             Noch keine Regeln vorhanden.
           </div>
@@ -218,52 +257,75 @@ function RuleCard({
   onToggle: (active: boolean) => void
   onDelete: () => void
 }) {
+  const isEbikeSync = rule.system_type === 'ebike_sync'
+
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
       <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={onEdit}>
+        <div
+          className={`flex-1 min-w-0 ${!isEbikeSync ? 'cursor-pointer' : ''}`}
+          onClick={!isEbikeSync ? onEdit : undefined}
+        >
           <div className="flex items-center gap-3">
             <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</h3>
+            {rule.is_system && (
+              <span className="text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.5 rounded font-medium">
+                System
+              </span>
+            )}
             <span className="text-xs text-neutral-400 tabular-nums">Prio {rule.priority}</span>
             <span className="text-xs text-neutral-400 tabular-nums">{rule.times_applied}x angewendet</span>
           </div>
-          <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            <span className="font-mono text-xs">
-              WENN {rule.conditions.map((c) => `${c.field} ${c.op} ${JSON.stringify(c.value)}`).join(' UND ')}
-            </span>
-          </div>
-          <div className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
-            <span className="font-mono text-xs">
-              DANN {rule.actions.map((a) => `${actionLabel(a.action)}(${JSON.stringify(a.params)})`).join(', ')}
-            </span>
-          </div>
+          {isEbikeSync ? (
+            <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 italic">
+              Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.
+            </div>
+          ) : (
+            <>
+              <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                <span className="font-mono text-xs">
+                  WENN {rule.conditions.map((c) => `${c.field} ${c.op} ${JSON.stringify(c.value)}`).join(' UND ')}
+                </span>
+              </div>
+              <div className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+                <span className="font-mono text-xs">
+                  DANN {rule.actions.map((a) => `${actionLabel(a.action)}(${JSON.stringify(a.params)})`).join(', ')}
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="flex items-center gap-3 ml-4">
-          {/* Toggle */}
-          <button
-            onClick={() => onToggle(!rule.is_active)}
-            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
-            style={{ backgroundColor: rule.is_active ? '#f97316' : '#d4d4d4' }}
-            role="switch"
-            aria-checked={rule.is_active}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                rule.is_active ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-          <button
-            onClick={onDelete}
-            className="text-neutral-400 hover:text-rose-500 transition-colors"
-            title="Regel löschen"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
+        {!isEbikeSync && (
+          <div className="flex items-center gap-3 ml-4">
+            {/* Toggle */}
+            <button
+              onClick={() => onToggle(!rule.is_active)}
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
+              style={{ backgroundColor: rule.is_active ? '#f97316' : '#d4d4d4' }}
+              role="switch"
+              aria-checked={rule.is_active}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  rule.is_active ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+            {/* Delete button: only for non-system rules */}
+            {!rule.is_system && (
+              <button
+                onClick={onDelete}
+                className="text-neutral-400 hover:text-rose-500 transition-colors"
+                title="Regel löschen"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
