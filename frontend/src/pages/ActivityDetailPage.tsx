@@ -755,7 +755,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
 
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
-  const [smoothing, setSmoothing] = useState(false)
+  const [smoothing, setSmoothing] = useState<'idle' | 'smoothing' | 'resetting'>('idle')
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
@@ -1002,27 +1002,50 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
         )}
       </div>
 
-      {/* Speed smoothing — opt-in correction for GPS speed noise */}
+      {/* Speed smoothing + reset — opt-in correction for GPS speed noise */}
       {activity.has_gps && activity.sport_type !== 'multisport' && (
-        <button
-          disabled={smoothing}
-          onClick={async () => {
-            setSmoothing(true)
-            try {
-              await reprocessAllActivities({ ids: [activity.id], scope: ['speed_smooth'] })
-              queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-              queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-              addToast({ type: 'success', title: 'Geschwindigkeit geglättet' })
-            } catch {
-              addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
-            } finally {
-              setSmoothing(false)
-            }
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
-        >
-          {smoothing ? '…' : '⌇'} Glätten
-        </button>
+        <>
+          <button
+            disabled={smoothing !== 'idle'}
+            onClick={async () => {
+              setSmoothing('smoothing')
+              try {
+                await reprocessActivity(activity.id, ['speed_smooth'])
+                queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+                addToast({ type: 'success', title: 'Geschwindigkeit geglättet' })
+              } catch {
+                addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
+              } finally {
+                setSmoothing('idle')
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+            title="Geschwindigkeit mit Median-Filter glätten (GPS-Rauschen reduzieren)"
+          >
+            {smoothing === 'smoothing' ? '…' : '⌇'} Glätten
+          </button>
+          <button
+            disabled={smoothing !== 'idle'}
+            onClick={async () => {
+              setSmoothing('resetting')
+              try {
+                await reprocessActivity(activity.id, ['streams'])
+                queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+                addToast({ type: 'success', title: 'Originaldaten wiederhergestellt' })
+              } catch {
+                addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
+              } finally {
+                setSmoothing('idle')
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+            title="Geschwindigkeitsdaten aus Originaldatei wiederherstellen"
+          >
+            {smoothing === 'resetting' ? '…' : '↺'}
+          </button>
+        </>
       )}
       {/* Edit Button — trim/split/merge not applicable for multisport parents */}
       {activity.sport_type !== 'multisport' && (
