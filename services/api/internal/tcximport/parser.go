@@ -379,18 +379,29 @@ func deriveTCXGPSMetrics(points []model.StreamPoint) []model.StreamPoint {
 	if len(points) < 2 {
 		return points
 	}
-	hasDist := false
+	// Require the distance stream to be *complete* (last point non-nil) before
+	// skipping derivation — same logic as deriveGPSMetrics in the FIT importer.
+	// A partial stream (e.g. distance only for the first lap) would otherwise
+	// collapse the chart X-axis to that initial range.
+	lastDistIdx := -1
+	for i := len(points) - 1; i >= 0; i-- {
+		if points[i].DistanceM != nil {
+			lastDistIdx = i
+			break
+		}
+	}
+	hasDist := lastDistIdx >= 0 && lastDistIdx >= len(points)-max(1, len(points)/100)
+
 	hasSpeed := false
 	for _, p := range points {
-		if p.DistanceM != nil {
-			hasDist = true
-		}
 		if p.SpeedMS != nil {
 			hasSpeed = true
+			break
 		}
-		if hasDist && hasSpeed {
-			return points
-		}
+	}
+
+	if hasDist && hasSpeed {
+		return points
 	}
 	if !hasDist {
 		var cumDist float64

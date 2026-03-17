@@ -124,18 +124,37 @@ func deriveGPSMetrics(points []model.StreamPoint) []model.StreamPoint {
 	}
 
 	// Only derive what is missing — don't overwrite existing values.
-	hasDist := false
+	//
+	// For distance we require that the stream is *complete*, i.e. that the last
+	// point has a non-nil DistanceM.  Some older pre-2015 Garmin devices record
+	// distance only for the first GPS-lock period (e.g. the first ~1 km) and
+	// then stop — leaving all subsequent points with distance == NULL.  If we
+	// treat "any non-nil value" as hasDist=true we skip the GPS derivation,
+	// which causes the frontend X-axis to collapse to that tiny initial range
+	// (forward-filling the last known value for the null tail).  Requiring the
+	// last point to be non-nil ensures partial / truncated streams are
+	// re-derived from GPS coordinates.
+	lastDistIdx := -1
+	for i := len(points) - 1; i >= 0; i-- {
+		if points[i].DistanceM != nil {
+			lastDistIdx = i
+			break
+		}
+	}
+	// "Complete" means the distance stream covers the entire activity: the last
+	// point (or within the final 1% of points) must have a value.
+	hasDist := lastDistIdx >= 0 && lastDistIdx >= len(points)-max(1, len(points)/100)
+
 	hasSpeed := false
 	for _, p := range points {
-		if p.DistanceM != nil {
-			hasDist = true
-		}
 		if p.SpeedMS != nil {
 			hasSpeed = true
+			break
 		}
-		if hasDist && hasSpeed {
-			return points
-		}
+	}
+
+	if hasDist && hasSpeed {
+		return points
 	}
 
 	if !hasDist {

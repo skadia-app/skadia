@@ -7,7 +7,9 @@ import (
 )
 
 func TestTileCache_GetAndEvict(t *testing.T) {
-	cache := NewTileCache(500)
+	// Each graph with NodeCount=100, EdgeCount=50 is ~4304 bytes.
+	// Budget for 2 tiles: 9000.
+	cache := NewTileCache(9000)
 	g1 := &graph.Graph{TileID: 1, NodeCount: 100, EdgeCount: 50}
 	g2 := &graph.Graph{TileID: 2, NodeCount: 100, EdgeCount: 50}
 	g3 := &graph.Graph{TileID: 3, NodeCount: 100, EdgeCount: 50}
@@ -20,6 +22,7 @@ func TestTileCache_GetAndEvict(t *testing.T) {
 		t.Fatal("tile 1 should be cached")
 	}
 
+	// Insert third tile → evicts LRU (tile 2, since tile 1 was just accessed).
 	cache.Put(3, g3)
 	_, ok = cache.Get(2)
 	if ok {
@@ -32,13 +35,16 @@ func TestTileCache_GetAndEvict(t *testing.T) {
 }
 
 func TestTileCache_LargeEvictsMultiple(t *testing.T) {
-	cache := NewTileCache(1000)
+	// 3 small tiles (~490 bytes each) fit in 2000 budget.
+	cache := NewTileCache(2000)
 	cache.Put(1, &graph.Graph{TileID: 1, NodeCount: 10, EdgeCount: 5})
 	cache.Put(2, &graph.Graph{TileID: 2, NodeCount: 10, EdgeCount: 5})
 	cache.Put(3, &graph.Graph{TileID: 3, NodeCount: 10, EdgeCount: 5})
 	if cache.Len() != 3 {
 		t.Fatalf("len = %d, want 3", cache.Len())
 	}
+
+	// Insert a large tile that exceeds budget → evicts all small tiles.
 	cache.Put(4, &graph.Graph{TileID: 4, NodeCount: 100000, EdgeCount: 50000})
 	if cache.Len() != 1 {
 		t.Errorf("after large insert: len = %d, want 1", cache.Len())

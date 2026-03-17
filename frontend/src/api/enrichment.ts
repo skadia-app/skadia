@@ -23,8 +23,8 @@ export async function updateEnrichmentSettings(settings: Partial<EnrichmentSetti
   return apiClient<EnrichmentSettings>('/settings/enrichment', { method: 'PUT', body: settings })
 }
 
-export async function backfillWeather(): Promise<{ processed: number; errors: number; error_details?: string }> {
-  return apiClient<{ processed: number; errors: number; error_details?: string }>('/admin/backfill-weather', { method: 'POST' })
+export async function backfillWeather(): Promise<{ job_id: string; status: string }> {
+  return apiClient<{ job_id: string; status: string }>('/admin/backfill-weather', { method: 'POST' })
 }
 
 export async function backfillEnrichment(): Promise<{ processed: number; errors: number; error_details?: string }> {

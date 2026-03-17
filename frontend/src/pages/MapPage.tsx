@@ -64,7 +64,7 @@ export interface MapFilterState {
   isEbike: boolean | null  // null=neutral, true=only E-Bike, false=exclude E-Bike
 }
 
-interface MapOverlayState {
+export interface MapOverlayState {
   showPeaks: boolean
   peaksOnlyVisited: boolean
   showWaters: boolean
@@ -881,7 +881,10 @@ export default function MapPage() {
   // damit dieser Effect erneut feuert und den Layer-Zustand sauber herstellt.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    // styleVersion === 0 bedeutet: style.load wurde noch nie gefeuert → Map noch nicht initialisiert.
+    // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch von
+    // Web-Workern dekodiert werden, obwohl addSource/addLayer problemlos funktionieren.
+    if (!map || styleVersion === 0) return
     if (viewMode === 'terra_incognita') {
       // Beim Wechsel zu Terra Incognita: Overlay-Source komplett entfernen (inkl. Tile-Cache),
       // da die Source für Terra Incognita nicht mehr benötigt wird.
@@ -909,7 +912,10 @@ export default function MapPage() {
   // styleVersion-Trigger korrekt vorhanden ist.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    // styleVersion === 0: Map noch nicht initialisiert — isStyleLoaded() würde sowieso false liefern.
+    // Nach dem ersten style.load (styleVersion >= 1) ist addSource/addLayer sicher, auch wenn
+    // isStyleLoaded() wegen laufender Tile-Dekodierung noch false zurückgibt.
+    if (!map || styleVersion === 0) return
     terraIncognitaRef.current = terraIncognitaData ?? null
     removeTerraIncognitaLayers(map)
     if (viewMode === 'terra_incognita' && terraIncognitaData?.rings?.length) {
@@ -2337,199 +2343,19 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* Kartenebenen */}
-        <div className="border-t border-neutral-200 dark:border-neutral-700 pt-3 mt-3 px-3">
-          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-            Kartenebenen
-          </h3>
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={overlayState.showPeaks}
-                  onChange={e => updateOverlay('showPeaks', e.target.checked)}
-                  className="rounded"
-                />
-                <span>Gipfel</span>
-              </label>
-              {overlayState.showPeaks && (
-                <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
-                  <input
-                    type="checkbox"
-                    checked={overlayState.peaksOnlyVisited}
-                    onChange={e => updateOverlay('peaksOnlyVisited', e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>Nur besuchte</span>
-                </label>
-              )}
-            </div>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overlayState.showWaters}
-                onChange={e => updateOverlay('showWaters', e.target.checked)}
-                className="rounded"
-              />
-              <span>Gewässer</span>
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overlayState.showForests}
-                onChange={e => updateOverlay('showForests', e.target.checked)}
-                className="rounded"
-              />
-              <span>Wälder</span>
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overlayState.showVisitedPois}
-                onChange={e => updateOverlay('showVisitedPois', e.target.checked)}
-                className="rounded"
-              />
-              <span>Besuchte Einkehr</span>
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overlayState.showAmenities}
-                onChange={e => updateOverlay('showAmenities', e.target.checked)}
-                className="rounded"
-              />
-              <span>Einkehr (Tiles)</span>
-            </label>
-            <div className="space-y-1">
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={overlayState.showSegmentsOverlay}
-                  onChange={e => updateOverlay('showSegmentsOverlay', e.target.checked)}
-                  className="rounded"
-                />
-                <span>Segmente (Linien)</span>
-              </label>
-              {overlayState.showSegmentsOverlay && (
-                <div className="ml-5 space-y-2">
-                  {/* Terrain-Typ-Filter */}
-                  <div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Typ:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {([
-                        { id: 'standard', label: 'Standard' },
-                        { id: 'trail', label: 'Trail' },
-                        { id: 'lift', label: 'Lift' },
-                      ] as const).map(({ id, label }) => (
-                        <button
-                          key={id}
-                          onClick={() => setSegmentFilters(f => ({
-                            ...f,
-                            terrainTypes: f.terrainTypes.includes(id)
-                              ? f.terrainTypes.filter(t => t !== id)
-                              : [...f.terrainTypes, id],
-                          }))}
-                          className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
-                            segmentFilters.terrainTypes.includes(id)
-                              ? 'bg-accent-DEFAULT text-white border-transparent'
-                              : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Status-Filter */}
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={segmentFilters.riddenOnly}
-                      onChange={e => setSegmentFilters(f => ({ ...f, riddenOnly: e.target.checked }))}
-                      className="rounded"
-                    />
-                    <span>Nur gefahrene</span>
-                  </label>
-
-                  {/* Favoriten-Filter */}
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={segmentFilters.favoritesOnly}
-                      onChange={e => setSegmentFilters(f => ({ ...f, favoritesOnly: e.target.checked }))}
-                      className="rounded"
-                    />
-                    <span>Nur Favoriten</span>
-                  </label>
-
-                  {/* Sport-Gruppen-Filter */}
-                  <div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {([
-                        { id: 'bike', label: 'Rad' },
-                        { id: 'foot', label: 'Lauf' },
-                        { id: 'ski', label: 'Winter' },
-                        { id: 'paddle', label: 'Wasser' },
-                        { id: 'generic', label: 'Sonstig' },
-                      ] as const).map(({ id, label }) => (
-                        <button
-                          key={id}
-                          onClick={() => setSegmentFilters(f => ({
-                            ...f,
-                            sportGroups: f.sportGroups.includes(id)
-                              ? f.sportGroups.filter(g => g !== id)
-                              : [...f.sportGroups, id],
-                          }))}
-                          className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
-                            segmentFilters.sportGroups.includes(id)
-                              ? 'bg-accent-DEFAULT text-white border-transparent'
-                              : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Farb-Konfiguration */}
-                  <div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                      {([
-                        { key: 'standard', label: 'Standard' },
-                        { key: 'trail', label: 'Trail' },
-                        { key: 'lift', label: 'Lift' },
-                        { key: 'ridden', label: 'Gefahren' },
-                        { key: 'favorite', label: 'Favoriten' },
-                      ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
-                        <div key={key} className="flex items-center gap-1.5 text-xs">
-                          <ColorPicker
-                            value={segmentColors[key] ?? DEFAULT_SEGMENT_COLORS[key]}
-                            onChange={hex => {
-                              const next = { ...segmentColors, [key]: hex }
-                              setSegmentColors(next)
-                              localStorage.setItem('skadia-segment-colors', JSON.stringify(next))
-                            }}
-                          />
-                          <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Filters panel — in Terra Incognita nicht relevant */}
-        {viewMode !== 'terra_incognita' && (
-          <MapFilters filters={filters} onChange={handleFilterChange} forceDark={baseStyle === 'dark'} viewMode={viewMode} />
-        )}
+        {/* Filters panel — immer sichtbar; in Terra Incognita werden nur Kartenebenen angezeigt */}
+        <MapFilters
+          filters={filters}
+          onChange={handleFilterChange}
+          forceDark={baseStyle === 'dark'}
+          viewMode={viewMode}
+          overlayState={overlayState}
+          onOverlayChange={updateOverlay}
+          segmentFilters={segmentFilters}
+          onSegmentFiltersChange={(f) => setSegmentFilters(f)}
+          segmentColors={segmentColors}
+          onSegmentColorsChange={(c) => setSegmentColors(c)}
+        />
 
         {/* Drag-to-merge Bestätigungs-Dialog */}
         {tagMergeDialog && (
