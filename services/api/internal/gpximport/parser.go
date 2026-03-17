@@ -156,7 +156,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 
 		// Distance calculation (haversine)
 		if i > 0 && sp.Lat != nil {
-			d := haversine(prevLat, prevLon, *sp.Lat, *sp.Lng)
+			d := activityutil.HaversineMeters(prevLat, prevLon, *sp.Lat, *sp.Lng)
 			totalDistance += d
 
 			dist := totalDistance
@@ -439,13 +439,3 @@ func parseGPXCreator(creator string) (source, device string) {
 	return source, device
 }
 
-func haversine(lat1, lon1, lat2, lon2 float64) float64 {
-	const r = 6371000 // Earth radius in meters
-	dLat := (lat2 - lat1) * math.Pi / 180
-	dLon := (lon2 - lon1) * math.Pi / 180
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
-			math.Sin(dLon/2)*math.Sin(dLon/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return r * c
-}

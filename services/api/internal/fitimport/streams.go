@@ -111,13 +111,5 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 		streams = append(streams, sp)
 	}
 
-	return deriveGPSMetrics(activityutil.FixDistanceResets(streams))
-}
-
-// deriveGPSMetrics fills in distance_m and speed_ms from GPS positions and
-// timestamps when those fields are absent from the FIT file.
-// Delegates to the shared FillMissingDistanceAndSpeed which uses per-point
-// gap-filling (preserves real values, derives only nil points).
-func deriveGPSMetrics(points []model.StreamPoint) []model.StreamPoint {
-	return activityutil.FillMissingDistanceAndSpeed(points)
+	return activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(streams))
 }

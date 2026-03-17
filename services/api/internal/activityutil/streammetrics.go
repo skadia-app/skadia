@@ -61,7 +61,7 @@ func FillMissingDistanceAndSpeed(points []model.StreamPoint) []model.StreamPoint
 			continue
 		}
 		if hasPrev {
-			cumDist += haversineMeters(prevLat, prevLng, *points[i].Lat, *points[i].Lng)
+			cumDist += HaversineMeters(prevLat, prevLng, *points[i].Lat, *points[i].Lng)
 		}
 		dist := cumDist
 		points[i].DistanceM = &dist
@@ -88,7 +88,7 @@ func FillMissingDistanceAndSpeed(points []model.StreamPoint) []model.StreamPoint
 		if points[i].DistanceM != nil && points[i-1].DistanceM != nil {
 			d = *points[i].DistanceM - *points[i-1].DistanceM
 		} else {
-			d = haversineMeters(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
+			d = HaversineMeters(*points[i-1].Lat, *points[i-1].Lng, *points[i].Lat, *points[i].Lng)
 		}
 		spd := d / dt
 		points[i].SpeedMS = &spd
@@ -142,9 +142,9 @@ func CalcRecordingTime(points []model.StreamPoint) int {
 	return int(totalSeconds)
 }
 
-// haversineMeters returns the great-circle distance in metres between two
+// HaversineMeters returns the great-circle distance in metres between two
 // WGS-84 coordinate pairs.
-func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+func HaversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
 	const R = 6371000.0
 	phi1 := lat1 * math.Pi / 180
 	phi2 := lat2 * math.Pi / 180

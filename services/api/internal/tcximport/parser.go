@@ -266,8 +266,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 	data.MaxHeartRate = maxHR
 
-	streams = activityutil.FixDistanceResets(streams)
-	streams = deriveTCXGPSMetrics(streams)
+	streams = activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(streams))
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
@@ -382,10 +381,3 @@ func parseTCXCreator(creator tcxCreator) (source, device string) {
 	return source, device
 }
 
-// deriveTCXGPSMetrics fills in distance_m and speed_ms from GPS positions and
-// timestamps when absent from the TCX file.
-// Delegates to the shared FillMissingDistanceAndSpeed which uses per-point
-// gap-filling (preserves real values, derives only nil points).
-func deriveTCXGPSMetrics(points []model.StreamPoint) []model.StreamPoint {
-	return activityutil.FillMissingDistanceAndSpeed(points)
-}
