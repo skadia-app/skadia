@@ -1,94 +1,58 @@
 package graph
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
-// SampleElevation queries DEM elevation for all nodes via batch SQL.
-// Returns elevations in decimeters (0.1m precision).
-func SampleElevation(ctx context.Context, pool *pgxpool.Pool,
-	lats, lons []int32, isBridge []bool, progressFn func(done, total int)) ([]int32, error) {
+// SampleElevationFromReader queries elevations using a dem.Reader.
+// Returns elevations in decimeters. NoData values are replaced with 0.
+func SampleElevationFromReader(reader dem.Reader, lats, lons []int32,
+	progressFn func(done, total int)) []int32 {
 
-	const batchSize = 10000
 	n := len(lats)
-	elevations := make([]int32, n)
+	elevations := reader.ElevationBatch(lats, lons)
 
-	for i := 0; i < n; i += batchSize {
-		end := min(i+batchSize, n)
-
-		batchLats := make([]float64, end-i)
-		batchLons := make([]float64, end-i)
-		for j := i; j < end; j++ {
-			batchLats[j-i] = float64(lats[j]) / 1e7
-			batchLons[j-i] = float64(lons[j]) / 1e7
-		}
-
-		rows, err := pool.Query(ctx, `
-			SELECT COALESCE(ROUND(dem.get_elevation(
-				ST_SetSRID(ST_MakePoint(lon, lat), 4326)
-			) * 10)::int, 0)
-			FROM unnest($1::float8[], $2::float8[]) WITH ORDINALITY AS t(lon, lat, ord)
-			ORDER BY ord`,
-			batchLons, batchLats)
-		if err != nil {
-			return nil, fmt.Errorf("elevation batch %d-%d: %w", i, end, err)
-		}
-
-		j := i
-		for rows.Next() {
-			var ele int32
-			if err := rows.Scan(&ele); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan elevation: %w", err)
-			}
-			elevations[j] = ele
-			j++
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("elevation rows: %w", err)
-		}
-
-		if progressFn != nil {
-			progressFn(end, n)
+	noDataCount := 0
+	for i, v := range elevations {
+		if v == dem.NoData {
+			elevations[i] = 0
+			noDataCount++
 		}
 	}
+	if noDataCount > 0 {
+		slog.Info("DEM no-data points replaced with 0",
+			"count", noDataCount, "total", n)
+	}
 
-	InterpolateMissing(elevations, isBridge)
-
-	return elevations, nil
+	if progressFn != nil {
+		progressFn(n, n)
+	}
+	return elevations
 }
 
-// SampleEdgeElevationProfiles queries DEM elevation for all edge geometry points
-// and builds the elevation profile arrays on the Graph.
-func SampleEdgeElevationProfiles(ctx context.Context, pool *pgxpool.Pool, g *Graph) error {
+// SampleEdgeElevationProfilesFromReader fills edge elevation profiles using a dem.Reader.
+func SampleEdgeElevationProfilesFromReader(reader dem.Reader, g *Graph) {
 	totalGeomPoints := len(g.EdgeGeomLat)
 	if totalGeomPoints == 0 {
 		for i := uint32(0); i <= g.EdgeCount; i++ {
 			g.EdgeElevOff[i] = 0
 		}
-		return nil
+		return
 	}
 
-	// Batch-query DEM for all geometry points
-	isBridge := make([]bool, totalGeomPoints) // no bridge info for geometry points
-	elevations, err := SampleElevation(ctx, pool, g.EdgeGeomLat, g.EdgeGeomLon, isBridge, nil)
-	if err != nil {
-		return fmt.Errorf("sample edge elevations: %w", err)
+	elevations := reader.ElevationBatch(g.EdgeGeomLat, g.EdgeGeomLon)
+
+	for i, v := range elevations {
+		if v == dem.NoData {
+			elevations[i] = 0
+		}
 	}
 
-	// Build elevation profile: same offsets as geometry
 	g.EdgeElevProf = make([]int32, totalGeomPoints)
 	copy(g.EdgeElevProf, elevations)
-
-	// EdgeElevOff mirrors EdgeGeomOff (same points, same offsets)
 	copy(g.EdgeElevOff, g.EdgeGeomOff)
-
-	return nil
 }
 
 // InterpolateMissing fills gaps in elevation data for bridge/tunnel segments.

@@ -91,7 +91,7 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 
 	// Build produces a heap graph and serializes to outputPath.
 	// Then load the serialized file via mmap for consistent behavior.
-	_, err := graph.Build(ctx, pool, outputPath, nil, progressFn)
+	_, err := graph.Build(ctx, pool, outputPath, nil, nil, progressFn)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func (m *GraphManager) TileManager() *TileManager {
 // RebuildTiles builds all tiles from PostGIS data and (re-)initializes
 // tile mode. Returns an error if a rebuild is already in progress.
 func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
-	tileDir string, cacheSize int64,
+	tileDir string, cacheSize int64, hgtDirs []string, workers int,
 	progressFn func(tileID uint32, step string, pct int)) error {
 
 	if !m.mu.TryLock() {
@@ -161,7 +161,7 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	defer m.mu.Unlock()
 
-	results, err := graph.BuildAllTiles(ctx, pool, tileDir, progressFn)
+	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, workers, progressFn)
 	if err != nil {
 		return err
 	}

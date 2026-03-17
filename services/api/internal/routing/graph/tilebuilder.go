@@ -7,9 +7,13 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
 // TileBuildResult holds the outcome of building a single tile graph.
@@ -24,15 +28,27 @@ type TileBuildResult struct {
 // BuildTile constructs and serializes the graph for a single 1x1-degree tile.
 // The tile is built with an expanded bounding box (BorderBuffer) to ensure
 // border nodes overlap with neighboring tiles for cross-tile routing.
+// A per-tile dem.Reader is created from hgtDirs and closed after use.
 func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
-	outputDir string,
+	outputDir string, hgtDirs []string,
 	progressFn func(step string, pct int)) (*TileBuildResult, error) {
 
 	start := time.Now()
 	tilePath := TileFilePath(outputDir, tileID)
 	bbox := TileBBoxExpanded(tileID, BorderBuffer)
 
-	g, err := Build(ctx, pool, "", &bbox, progressFn)
+	// Create DEM reader for this tile's bounding box.
+	var demReader dem.Reader
+	if len(hgtDirs) > 0 {
+		var err error
+		demReader, err = dem.NewReaderForTile(hgtDirs, tileID)
+		if err != nil {
+			return nil, fmt.Errorf("DEM reader for tile %d: %w", tileID, err)
+		}
+		defer demReader.Close()
+	}
+
+	g, err := Build(ctx, pool, "", &bbox, demReader, progressFn)
 	if err != nil {
 		return nil, fmt.Errorf("build tile %d: %w", tileID, err)
 	}
@@ -102,10 +118,14 @@ func DiscoverTileIDs(ctx context.Context, pool *pgxpool.Pool) ([]uint32, error) 
 	return ids, rows.Err()
 }
 
-// BuildAllTiles discovers all tiles with OSM data and builds each one
-// sequentially. Already-existing tile files are skipped. Memory is freed
-// between tiles via GC + FreeOSMemory to stay within RAM limits.
+// BuildAllTiles discovers all tiles with OSM data and builds them in parallel
+// using errgroup. Already-existing tile files are skipped. Memory is freed
+// after each tile via GC + FreeOSMemory to stay within RAM limits.
+//
+// workers controls the degree of parallelism. If workers <= 0, it defaults to
+// min(max(NumCPU/4, 1), 2).
 func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
+	hgtDirs []string, workers int,
 	progressFn func(tileID uint32, step string, pct int)) ([]TileBuildResult, error) {
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -123,29 +143,57 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 		progressFn(0, "discovering", len(tileIDs))
 	}
 
+	// Default worker count.
+	if workers <= 0 {
+		workers = max(runtime.NumCPU()/4, 1)
+		if workers > 2 {
+			workers = 2
+		}
+	}
+	slog.Info("tile build parallelism", "workers", workers)
+
+	var mu sync.Mutex
 	var results []TileBuildResult
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(workers)
+
 	for i, tileID := range tileIDs {
+		i, tileID := i, tileID // capture loop vars
 		tilePath := TileFilePath(outputDir, tileID)
+
 		if info, err := os.Stat(tilePath); err == nil && info.Size() > 0 {
 			slog.Info("tile already exists, skipping", "tile_id", tileID, "path", tilePath)
-			// Report skipped tile as complete for progress.
 			if progressFn != nil {
 				progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), 100)
 			}
 			continue
 		}
-		slog.Info("building tile", "tile_id", tileID, "index", i+1, "total", len(tileIDs))
-		result, err := BuildTile(ctx, pool, tileID, outputDir, func(step string, pct int) {
-			if progressFn != nil {
-				progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), pct)
+
+		g.Go(func() error {
+			slog.Info("building tile", "tile_id", tileID, "index", i+1, "total", len(tileIDs))
+			result, err := BuildTile(gCtx, pool, tileID, outputDir, hgtDirs,
+				func(step string, pct int) {
+					if progressFn != nil {
+						progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), pct)
+					}
+				})
+			if err != nil {
+				return fmt.Errorf("tile %d: %w", tileID, err)
 			}
+
+			mu.Lock()
+			results = append(results, *result)
+			mu.Unlock()
+
+			runtime.GC()
+			debug.FreeOSMemory()
+			return nil
 		})
-		if err != nil {
-			return results, fmt.Errorf("tile %d: %w", tileID, err)
-		}
-		results = append(results, *result)
-		runtime.GC()
-		debug.FreeOSMemory()
+	}
+
+	if err := g.Wait(); err != nil {
+		return results, err
 	}
 
 	return results, nil
