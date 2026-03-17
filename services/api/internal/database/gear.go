@@ -1331,21 +1331,65 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET gear_id = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "add_tag":
-		tag, ok := value.(string)
+		tagID, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("add_tag value must be a string")
+			return fmt.Errorf("add_tag value must be a tag_id string")
 		}
-		_, err := db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_append(tags, $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(tags, '{}')))`,
-			tag, activityID)
-		return err
+		// Resolve tag name
+		var tagName string
+		var isSystem bool
+		if err := db.Pool.QueryRow(ctx,
+			`SELECT name, is_system FROM tags WHERE id = $1`, tagID,
+		).Scan(&tagName, &isSystem); err != nil {
+			return fmt.Errorf("add_tag: resolve tag: %w", err)
+		}
+		// System-Tags: respect activity_tag_removals
+		if isSystem {
+			var removed bool
+			_ = db.Pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM activity_tag_removals WHERE activity_id = $1 AND tag_id = $2)`,
+				activityID, tagID,
+			).Scan(&removed)
+			if removed {
+				return nil // User explicitly removed this tag — skip
+			}
+		}
+		// Junction table
+		_, _ = db.Pool.Exec(ctx,
+			`INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+			 VALUES ($1, $2, 'rule') ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+			activityID, tagID)
+		// TEXT[] cache
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE activities SET tags = array_append(tags, $1), updated_at = NOW()
+			 WHERE id = $2 AND NOT ($1 = ANY(COALESCE(tags, '{}')))`,
+			tagName, activityID)
+		// activity_count
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = $1) WHERE id = $1`,
+			tagID)
+		return nil
 	case "remove_tag":
-		tag, ok := value.(string)
+		tagID, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("remove_tag value must be a string")
+			return fmt.Errorf("remove_tag value must be a tag_id string")
 		}
-		_, err := db.Pool.Exec(ctx, `UPDATE activities SET tags = array_remove(tags, $1) WHERE id = $2`, tag, activityID)
-		return err
+		var tagName string
+		if err := db.Pool.QueryRow(ctx,
+			`SELECT name FROM tags WHERE id = $1`, tagID,
+		).Scan(&tagName); err != nil {
+			return fmt.Errorf("remove_tag: resolve tag: %w", err)
+		}
+		_, _ = db.Pool.Exec(ctx,
+			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
+			activityID, tagID)
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE activities SET tags = array_remove(tags, $1), updated_at = NOW() WHERE id = $2`,
+			tagName, activityID)
+		_, _ = db.Pool.Exec(ctx,
+			`UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = $1) WHERE id = $1`,
+			tagID)
+		return nil
 	case "visibility":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = $1 WHERE id = $2`, value, activityID)
 		return err
