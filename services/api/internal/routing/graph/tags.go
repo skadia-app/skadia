@@ -278,6 +278,61 @@ func DecodeField(v uint64, start, width int) uint64 {
 	return (v >> start) & mask
 }
 
+// --- EdgeTags2 Decode helpers ---
+// All functions operate on the second uint64 produced by EncodeEdgeTags2.
+
+// DecodeForestPct extracts forest_pct (bits 0-6).
+func DecodeForestPct(v uint64) uint8 { return uint8(v & 0x7F) }
+
+// DecodeNoiseScore extracts noise_score (bits 7-13).
+func DecodeNoiseScore(v uint64) uint8 { return uint8((v >> 7) & 0x7F) }
+
+// DecodeTrafficClass extracts traffic_class (bits 14-15).
+func DecodeTrafficClass(v uint64) uint8 { return uint8((v >> 14) & 0x03) }
+
+// DecodeProtectedArea extracts protected_area (bits 16-17).
+func DecodeProtectedArea(v uint64) uint8 { return uint8((v >> 16) & 0x03) }
+
+// DecodeIsCycleroute extracts is_cycleroute (bit 18).
+func DecodeIsCycleroute(v uint64) bool { return (v>>18)&1 == 1 }
+
+// DecodeIsHikeroute extracts is_hikeroute (bit 19).
+func DecodeIsHikeroute(v uint64) bool { return (v>>19)&1 == 1 }
+
+// DecodeCyclerouteNetwork extracts cycleroute_network (bits 20-22).
+func DecodeCyclerouteNetwork(v uint64) uint8 { return uint8((v >> 20) & 0x07) }
+
+// DecodeHikerouteNetwork extracts hikeroute_network (bits 23-25).
+func DecodeHikerouteNetwork(v uint64) uint8 { return uint8((v >> 23) & 0x07) }
+
+// DecodeLanduseClass extracts landuse_class (bits 26-28).
+func DecodeLanduseClass(v uint64) uint8 { return uint8((v >> 26) & 0x07) }
+
+// DecodeMtbScaleUphill extracts mtb_scale_uphill (bits 29-31).
+func DecodeMtbScaleUphill(v uint64) uint8 { return uint8((v >> 29) & 0x07) }
+
+// DecodeViaFerrataScale extracts via_ferrata_scale (bits 32-34).
+func DecodeViaFerrataScale(v uint64) uint8 { return uint8((v >> 32) & 0x07) }
+
+// DecodeTrailVisibility extracts trail_visibility (bits 35-37).
+func DecodeTrailVisibility(v uint64) uint8 { return uint8((v >> 35) & 0x07) }
+
+// DecodeWidthDm extracts width_dm (bits 38-45).
+func DecodeWidthDm(v uint64) uint8 { return uint8((v >> 38) & 0xFF) }
+
+// DecodeInclineOffset extracts incline_offset (bits 46-53).
+// Value is stored as ParseIncline result (0=unknown, 128=flat, 128+pct=positive incline).
+func DecodeInclineOffset(v uint64) uint8 { return uint8((v >> 46) & 0xFF) }
+
+// DecodeSidewalk extracts sidewalk (bits 54-56).
+func DecodeSidewalk(v uint64) uint8 { return uint8((v >> 54) & 0x07) }
+
+// --- EdgeTags1 reverse-direction bit ---
+
+// DecodeIsReverse extracts bit 61 from EdgeTags1, which is set on reverse
+// edges (bidirectional ways traversed from To→From in the CSR).
+func DecodeIsReverse(v uint64) bool { return (v>>61)&1 == 1 }
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
