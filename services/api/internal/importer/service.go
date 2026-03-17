@@ -93,10 +93,11 @@ func (s *Service) PostProcess(
 	// 1. Stage 1 Enrichment (synchronous, ~50ms)
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events)
-		// Apply automation rules after enrichment
-		if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
-			_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
-		}
+	}
+
+	// Apply automation rules (alle Aktivitäten — Frost/Nacht brauchen kein GPS)
+	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
+		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
 	}
 
 	// 2a. Insert streams

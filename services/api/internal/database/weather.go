@@ -10,10 +10,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// weatherTagMapping maps lowercase mapWeatherCode() output to capitalized system tag names.
+// weatherTagMapping maps lowercase mapWeatherCode() output to lowercase system tag names.
 var weatherTagMapping = map[string]string{
-	"sonnig":   "Sonnig",
-	"bewölkt":  "Bewölkt",
+	"sonnig":   "sonnig",
+	"bewölkt":  "bewölkt",
 	"regen":    "Regen",
 	"schnee":   "Schnee",
 	"nebel":    "Nebel",
