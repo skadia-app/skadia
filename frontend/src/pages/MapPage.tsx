@@ -2721,6 +2721,14 @@ const RING_LAYER_OPACITIES = [0.10, 0.17, 0.33, 0.44, 0.57]
 
 const FOG_COLOR = '#d0daea'
 
+// Halo-Layer-Konfiguration: [ringIdx, lineWidth, lineBlur, targetOpacity]
+// Drei äußere Ring-Grenzen erhalten verschwommene weiße Linien für den wolkigen Rand-Effekt.
+const HALO_CONFIG: [number, number, number, number][] = [
+  [2, 16, 10, 0.30], // konfigurierter Radius (innerste Halo)
+  [3, 28, 18, 0.22], // mittlere Grenze
+  [4, 44, 28, 0.16], // äußerste Grenze (diffusester Übergang)
+]
+
 // Modul-globaler State
 let terraAnimRafId: number | null = null
 
