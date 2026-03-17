@@ -940,7 +940,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+			  AND ar.actions::text LIKE '%' || t.id::text || '%'
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
@@ -1037,7 +1037,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+			  AND ar.actions::text LIKE '%' || t.id::text || '%'
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
@@ -1070,7 +1070,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+			  AND ar.actions::text LIKE '%' || t.id::text || '%'
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return nil
 }
