@@ -978,6 +978,8 @@ type AutomationRule struct {
 	Actions         json.RawMessage `json:"actions"`
 	TimesApplied    int             `json:"times_applied"`
 	CreatedAt       time.Time       `json:"created_at"`
+	IsSystem        bool            `json:"is_system"`
+	SystemType      *string         `json:"system_type"`
 }
 
 // AutomationRuleCreate is the request body for creating an automation rule.
