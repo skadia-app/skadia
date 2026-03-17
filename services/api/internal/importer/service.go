@@ -99,6 +99,16 @@ func (s *Service) PostProcess(
 		slog.Error("insert streams failed", "error", err)
 	}
 
+	// 2a.0 Store GPS correction count
+	if data.GPSCorrectionCount > 0 {
+		slog.Info("GPS corrections applied",
+			"activity_id", activityID,
+			"corrected", data.GPSCorrectionCount)
+		_, _ = s.DB.Pool.Exec(ctx,
+			`UPDATE activities SET gps_corrections_count = $1 WHERE id = $2`,
+			data.GPSCorrectionCount, activityID)
+	}
+
 	// 2a.1 Weather stream refinement — re-fetch with summit/midpoint GPS if relevant.
 	// Runs as a background goroutine to avoid blocking post-processing.
 	// The stage1 weather (start-only) is already stored; this overwrites it with
