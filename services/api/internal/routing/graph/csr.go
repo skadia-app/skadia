@@ -187,6 +187,15 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	allGeomLat := make([]int32, 0, totalGeomPoints)
 	allGeomLon := make([]int32, 0, totalGeomPoints)
 
+	// Track geometry spans per CSR edge: edges are placed in CSR order (by source
+	// node) but geometry is appended in file order (by way). We record each edge's
+	// geometry span in allGeomLat, then reorder to CSR order after Read 2.
+	type geomSpan struct {
+		start uint32
+		size  uint32
+	}
+	edgeGeomSpans := make([]geomSpan, edgeCount)
+
 	// === Read 2: Place edges in CSR order ===
 	if err := r.Reset(); err != nil {
 		r.Close()
@@ -203,7 +212,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 		g.EdgeTags1[pos] = tags1
 		g.EdgeTags2[pos] = tags2
 		g.EdgeOSMIdx[pos] = osmIdx
-		g.EdgeGeomOff[pos] = uint32(len(allGeomLat))
+		startIdx := uint32(len(allGeomLat))
 		if reversed {
 			for j := len(geomLat) - 1; j >= 0; j-- {
 				allGeomLat = append(allGeomLat, geomLat[j])
@@ -213,6 +222,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 			allGeomLat = append(allGeomLat, geomLat...)
 			allGeomLon = append(allGeomLon, geomLon...)
 		}
+		edgeGeomSpans[pos] = geomSpan{start: startIdx, size: uint32(len(allGeomLat)) - startIdx}
 	}
 
 	for {
@@ -235,9 +245,24 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	}
 	r.Close()
 
-	g.EdgeGeomOff[edgeCount] = uint32(len(allGeomLat))
-	g.EdgeGeomLat = allGeomLat
-	g.EdgeGeomLon = allGeomLon
+	// Reorder geometry from file order to CSR order so that EdgeGeomOff is
+	// monotonically increasing (required by all consumers: A*, retrack, serialize).
+	sortedGeomLat := make([]int32, 0, totalGeomPoints)
+	sortedGeomLon := make([]int32, 0, totalGeomPoints)
+	for ei := uint32(0); ei < edgeCount; ei++ {
+		span := edgeGeomSpans[ei]
+		g.EdgeGeomOff[ei] = uint32(len(sortedGeomLat))
+		sortedGeomLat = append(sortedGeomLat, allGeomLat[span.start:span.start+span.size]...)
+		sortedGeomLon = append(sortedGeomLon, allGeomLon[span.start:span.start+span.size]...)
+	}
+	g.EdgeGeomOff[edgeCount] = uint32(len(sortedGeomLat))
+	g.EdgeGeomLat = sortedGeomLat
+	g.EdgeGeomLon = sortedGeomLon
+
+	// Free unsorted geometry arrays.
+	allGeomLat = nil
+	allGeomLon = nil
+	edgeGeomSpans = nil
 
 	g.EdgeElevOff = make([]uint32, edgeCount+1)
 	g.EdgeElevProf = nil
