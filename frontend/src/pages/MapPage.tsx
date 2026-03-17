@@ -2182,6 +2182,11 @@ export default function MapPage() {
             segments={planner.segments}
             profileConfig={planner.profileConfig}
             showHeatmap={viewMode === 'heatmap'}
+            routingEngine={planner.routingEngine}
+            brouterProfile={planner.brouterProfile}
+            fitRouteAvailable={planner.capabilities?.routing ?? false}
+            onRoutingEngineChange={planner.setRoutingEngine}
+            onBrouterProfileChange={planner.setBrouterProfile}
             totalDistanceM={planner.totals.distance_m}
             totalElevationGain={planner.totals.elevation_gain}
             totalElevationLoss={planner.totals.elevation_loss}
