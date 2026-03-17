@@ -1060,7 +1060,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                 </div>
                 <input
                   type="range"
-                  min={1} max={5} step={1}
+                  min={1} max={3} step={1}
                   value={smoothWindow}
                   onChange={e => setSmoothWindow(Number(e.target.value))}
                   className="w-full accent-accent-DEFAULT"
