@@ -112,8 +112,8 @@ func (m *TileManager) TileCount() int { return m.index.Load().Count() }
 // CachedCount returns the number of tiles currently held in the LRU cache.
 func (m *TileManager) CachedCount() int { return m.cache.Len() }
 
-// Rescan re-reads the tile directory and atomically replaces the index.
-// Use this after new tile files have been written to disk.
+// Rescan re-reads the tile directory, atomically replaces the index,
+// and invalidates all cached tiles (they may have been rebuilt on disk).
 func (m *TileManager) Rescan() error {
 	oldIdx := m.index.Load()
 	idx, err := ScanTileIndex(oldIdx.dir)
@@ -121,5 +121,9 @@ func (m *TileManager) Rescan() error {
 		return err
 	}
 	m.index.Store(idx)
+	// Invalidate cache — rebuilt tiles on disk may differ from cached versions.
+	// Safe because in-flight routing goroutines hold *Graph pointers that remain
+	// valid (Go GC keeps them alive until the goroutine releases the reference).
+	m.cache.Clear()
 	return nil
 }
