@@ -1136,12 +1136,17 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 		slog.Warn("osm import: stale route_way_members cleanup failed", "error", err)
 	}
 
-	// ON CONFLICT DO NOTHING — PK (route_osm_id, way_osm_id) handles dedup.
-	// Previous version used NOT EXISTS subquery which caused sequential scans.
+	// Plain INSERT with DISTINCT — the C2-DELETE above already removed all
+	// memberships for routes in this staging set, so no cross-region dedup needed.
+	// DISTINCT guards against staging-internal duplicates (osm2pgsql can produce
+	// duplicate relation members for forward+backward traversal of the same way).
+	// DO NOT use ON CONFLICT — there is no unique constraint (by design: border
+	// regions with different data dates produce legitimate duplicate tuples that
+	// are resolved by "newest import wins" via the C2-DELETE-then-INSERT pattern).
+	// DO NOT use WHERE NOT EXISTS — causes sequential scans on 50M+ row table (9h hang).
 	_, err = q.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO public.osm_route_way_members (route_osm_id, way_osm_id, source)
-		SELECT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
-		ON CONFLICT (route_osm_id, way_osm_id) DO NOTHING
+		SELECT DISTINCT s.route_osm_id, s.way_osm_id, s.source FROM %s.osm_route_way_members s
 	`, stagingSchema))
 	if err != nil {
 		slog.Warn("osm import: route_way_members staging insert failed", "error", err)
