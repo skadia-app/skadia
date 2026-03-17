@@ -93,44 +93,39 @@ function EChartsContainer({ option, onHoverElapsed }: { option: EChartsCoreOptio
     })
 
     type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    let pendingAreas: BrushArea[] | null = null
+    let brushZoomLock = false
 
     chart.off('brush')
     chart.off('brushEnd')
     chart.off('dataZoom')
 
-    chart.on('brush', (params: unknown) => {
+    chart.on('brushEnd', (params: unknown) => {
+      if (brushZoomLock) return
+      brushZoomLock = true
+
       const p = params as { areas?: BrushArea[]; batch?: Array<{ areas?: BrushArea[] }> }
       const areas = p.areas ?? p.batch?.[0]?.areas
-      if (areas && areas.length > 0) pendingAreas = [...areas]
-    })
-
-    chart.on('brushEnd', (params: unknown) => {
-      const p = params as { areas?: BrushArea[]; batch?: Array<{ areas?: BrushArea[] }> }
-      const direct = p.areas ?? p.batch?.[0]?.areas
-      const areas = (direct && direct.length > 0) ? direct : pendingAreas
-      pendingAreas = null
-      if (!areas || areas.length === 0) return
+      if (!areas || areas.length === 0) { brushZoomLock = false; return }
 
       const area = areas[0]
       const xAxis = (option as { xAxis?: { max?: number } }).xAxis
       const xMax = xAxis?.max ?? 1
 
       let startData: number, endData: number
-      if (area.range) {
+      if (area.coordRange) {
+        [startData, endData] = area.coordRange
+      } else if (area.range) {
         const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
         const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) return
+        if (s == null || e == null) { brushZoomLock = false; return }
         startData = s as number
         endData = e as number
-      } else if (area.coordRange) {
-        [startData, endData] = area.coordRange
-      } else return
+      } else { brushZoomLock = false; return }
 
-      if (endData <= startData) return
+      if (endData <= startData) { brushZoomLock = false; return }
       const startPct = Math.max(0, (Math.max(0, startData) / xMax) * 100)
       const endPct = Math.min(100, (Math.min(xMax, endData) / xMax) * 100)
-      if (endPct - startPct < 0.5) return
+      if (endPct - startPct < 0.5) { brushZoomLock = false; return }
 
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: startPct, end: endPct })
       chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
@@ -140,6 +135,7 @@ function EChartsContainer({ option, onHoverElapsed }: { option: EChartsCoreOptio
         brushOption: { brushType: false },
       })
       setIsZoomed(true)
+      requestAnimationFrame(() => { brushZoomLock = false })
     })
 
     chart.on('dataZoom', (params: unknown) => {

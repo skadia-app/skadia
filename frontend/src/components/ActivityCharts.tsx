@@ -218,6 +218,9 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
 
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
   const isSyncingRef = useRef(false)
+  // Shared lock across all ChartPanel instances to prevent cascading brushEnd
+  // events from echarts.connect propagation (see brushEnd handler comment).
+  const brushZoomLockRef = useRef(false)
 
   const registerChart = useCallback((id: string, chart: echarts.ECharts) => {
     chartInstancesRef.current.set(id, chart)
@@ -373,6 +376,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     onSyncZoom: syncZoom,
     onRegister: registerChart,
     onUnregister: unregisterChart,
+    brushZoomLockRef,
     xMode,
     splitMarkers,
   }
@@ -461,6 +465,7 @@ interface ChartPanelProps {
   onSyncZoom: (start: number, end: number, sourceId: string) => void
   onRegister: (id: string, chart: echarts.ECharts) => void
   onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
   markLines?: 'none' | 'max' | 'minmax'
   altitudeSmartY?: boolean
   showGradient?: boolean
@@ -472,7 +477,7 @@ interface ChartPanelProps {
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  markLines = 'none', altitudeSmartY, showGradient, xMode,
+  brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradient, xMode,
   sunMarkLines, splitMarkers,
 }: ChartPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -637,7 +642,7 @@ function ChartPanel({
           lineStyle: { width: 1.5, color },
           itemStyle: { color },
           areaStyle: area ? { color: `${color}20` } : undefined,
-          connectNulls: false,
+          connectNulls: true,
           // No 'sampling' — all data points are rendered directly.
           // Typical activity files have 3K–36K points, well within
           // canvas performance limits.
@@ -708,52 +713,47 @@ function ChartPanel({
 
     // Brush areas type
     type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    // Backup: capture areas from brush event (fallback if brushEnd lacks them)
-    let pendingBrushAreas: BrushArea[] | null = null
 
-    // Brush gesture in progress → only capture areas for brushEnd fallback
-    chart.on('brush', (params: unknown) => {
+    // Brush gesture ended → zoom all charts + map
+    // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
+    // triggers brushEnd again on all echarts.connect'd charts with the SAME
+    // pixel range but a DIFFERENT axis scale → exponential zoom-in.
+    chart.on('brushEnd', (params: unknown) => {
+      if (brushZoomLockRef.current) return
+      brushZoomLockRef.current = true
+
       const p = params as {
         areas?: BrushArea[]
         batch?: Array<{ areas?: BrushArea[] }>
       }
       const areas = p.areas ?? p.batch?.[0]?.areas
-      if (areas && areas.length > 0) {
-        pendingBrushAreas = [...areas]
+      if (!areas || areas.length === 0) {
+        brushZoomLockRef.current = false
+        return
       }
-    })
-
-    // Brush gesture ended → zoom all charts + map
-    // Try brushEnd params first (ECharts 6), fall back to captured areas
-    chart.on('brushEnd', (params: unknown) => {
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const directAreas = p.areas ?? p.batch?.[0]?.areas
-      const areas = (directAreas && directAreas.length > 0) ? directAreas : pendingBrushAreas
-      pendingBrushAreas = null
-      if (!areas || areas.length === 0) return
 
       const area = areas[0]
       let startData: number
       let endData: number
 
-      // Prefer pixel range → convertFromPixel (most reliable across ECharts versions)
-      if (area.range) {
+      if (area.coordRange) {
+        [startData, endData] = area.coordRange
+      } else if (area.range) {
         const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
         const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) return
+        if (s == null || e == null) { brushZoomLockRef.current = false; return }
         startData = s as number
         endData = e as number
-      } else if (area.coordRange) {
-        [startData, endData] = area.coordRange
       } else {
+        brushZoomLockRef.current = false
         return
       }
 
-      if (endData <= startData) return
+      if (endData <= startData) { brushZoomLockRef.current = false; return }
       onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+      // Release lock after current event cycle so future brush gestures work
+      requestAnimationFrame(() => { brushZoomLockRef.current = false })
     })
 
     // Mouse-wheel / pan → sync all other charts + update map.

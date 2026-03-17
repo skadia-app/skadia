@@ -210,51 +210,37 @@ export default function PMCChart() {
 
     // Brush areas type
     type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    // Backup: capture areas from brush event (fallback if brushEnd lacks them)
-    let pendingBrushAreas: BrushArea[] | null = null
+    // Re-entry guard: dataZoom dispatch triggers cascading brushEnd events
+    let brushZoomLock = false
 
-    // Brush gesture in progress: capture areas
-    chart.on('brush', (params: unknown) => {
+    chart.on('brushEnd', (params: unknown) => {
+      if (brushZoomLock) return
+      brushZoomLock = true
+
       const p = params as {
         areas?: BrushArea[]
         batch?: Array<{ areas?: BrushArea[] }>
       }
       const areas = p.areas ?? p.batch?.[0]?.areas
-      if (areas && areas.length > 0) {
-        pendingBrushAreas = [...areas]
-      }
-    })
-
-    // Brush gesture ended: zoom using direct params or captured areas
-    chart.on('brushEnd', (params: unknown) => {
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const directAreas = p.areas ?? p.batch?.[0]?.areas
-      const areas = (directAreas && directAreas.length > 0) ? directAreas : pendingBrushAreas
-      pendingBrushAreas = null
-      if (!areas || areas.length === 0) return
+      if (!areas || areas.length === 0) { brushZoomLock = false; return }
 
       const area = areas[0]
       let startIdx: number
       let endIdx: number
 
-      // Prefer pixel range → convertFromPixel (most reliable across ECharts versions)
-      if (area.range) {
+      if (area.coordRange) {
+        [startIdx, endIdx] = area.coordRange
+      } else if (area.range) {
         const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
         const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) return
+        if (s == null || e == null) { brushZoomLock = false; return }
         startIdx = Math.round(s as number)
         endIdx = Math.round(e as number)
-      } else if (area.coordRange) {
-        // xAxis is category-based, so coordRange gives index values
-        [startIdx, endIdx] = area.coordRange
       } else {
-        return
+        brushZoomLock = false; return
       }
 
-      if (endIdx <= startIdx) return
+      if (endIdx <= startIdx) { brushZoomLock = false; return }
       startIdx = Math.max(0, startIdx)
       endIdx = Math.min(dates.length - 1, endIdx)
 
@@ -273,6 +259,7 @@ export default function PMCChart() {
       })
 
       setIsZoomed(true)
+      requestAnimationFrame(() => { brushZoomLock = false })
     })
 
     const observer = new ResizeObserver(() => chart.resize())
