@@ -676,6 +676,7 @@ type Tag struct {
 	CoverImageURL      *string  `json:"cover_image_url,omitempty"`
 	CoverImageThumbURL *string  `json:"cover_image_thumb_url,omitempty"`
 	Zone               *TagZone `json:"zone,omitempty"`
+	HasAutomation      bool     `json:"has_automation"`
 }
 
 // TagZone represents an optional geographic zone attached to a location tag.

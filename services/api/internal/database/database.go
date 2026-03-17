@@ -2187,7 +2187,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, cover_image_url, cover_image_thumb_url
+			lat, lng, cover_image_url, cover_image_thumb_url, has_automation
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -2206,7 +2206,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2275,7 +2275,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, cover_image_url, cover_image_thumb_url
+			lat, lng, cover_image_url, cover_image_thumb_url, has_automation
 		FROM tags
 		WHERE id = $1 AND user_id = $2`, tagID, userID,
 	).Scan(
@@ -2283,7 +2283,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -2332,13 +2332,13 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, cover_image_url, cover_image_thumb_url`,
+			lat, lng, cover_image_url, cover_image_thumb_url, has_automation`,
 		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, category,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL)
+		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -2427,7 +2427,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, cover_image_url, cover_image_thumb_url`
+		lat, lng, cover_image_url, cover_image_thumb_url, has_automation`
 
 	scanTag := func(row interface{ Scan(...any) error }) (*model.Tag, error) {
 		var t model.Tag
@@ -2436,7 +2436,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 		)
 		return &t, err
 	}
@@ -2476,7 +2476,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 func (db *DB) ClearTagCoverImages(ctx context.Context, tagID, userID string) (*model.Tag, error) {
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, cover_image_url, cover_image_thumb_url`
+		lat, lng, cover_image_url, cover_image_thumb_url, has_automation`
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx,
 		fmt.Sprintf(`UPDATE tags
@@ -2489,7 +2489,7 @@ func (db *DB) ClearTagCoverImages(ctx context.Context, tagID, userID string) (*m
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -2520,7 +2520,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
 			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
-			t.lat, t.lng, t.cover_image_url, t.cover_image_thumb_url
+			t.lat, t.lng, t.cover_image_url, t.cover_image_thumb_url, t.has_automation
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -2540,7 +2540,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+			&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2989,7 +2989,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	// 5. Return the surviving target tag (with refreshed activity_count).
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, cover_image_url, cover_image_thumb_url`
+		lat, lng, cover_image_url, cover_image_thumb_url, has_automation`
 	var t model.Tag
 	err = tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1`, tagCols),
@@ -2999,7 +2999,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL,
+		&t.Lat, &t.Lng, &t.CoverImageURL, &t.CoverImageThumbURL, &t.HasAutomation,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get merged tag: %w", err)
