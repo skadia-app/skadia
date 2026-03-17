@@ -109,6 +109,8 @@ const (
 	SectionEdgeGeomLon  uint16 = 15
 	SectionEdgeElevOff  uint16 = 16
 	SectionEdgeElevProf uint16 = 17
+	// v3 sections (tiled graph engine)
+	SectionBorderNodeIndex uint16 = 18
 )
 
 // OutDegree returns the number of outgoing edges for node i.
