@@ -2622,8 +2622,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// Weather system tags
 	weatherTags := []struct{ name, color string }{
-		{"Sonnig", "#FCD34D"},
-		{"Bewölkt", "#9CA3AF"},
+		{"sonnig", "#FCD34D"},
+		{"bewölkt", "#9CA3AF"},
 		{"Regen", "#3B82F6"},
 		{"Schnee", "#F3F4F6"},
 		{"Nebel", "#D1D5DB"},
@@ -2760,7 +2760,7 @@ func (db *DB) migrateExistingTagsToTable(ctx context.Context, userID string) err
 			isAuto = true
 		}
 		// Rundtour is rule-managed (system rule round_trip), so isAuto stays false
-		if tagName == "Sonnig" || tagName == "Bewölkt" || tagName == "Regen" ||
+		if tagName == "sonnig" || tagName == "bewölkt" || tagName == "Regen" ||
 			tagName == "Schnee" || tagName == "Nebel" || tagName == "Gewitter" {
 			isAuto = false // Weather tags are not marked as auto (system flag)
 			category = "weather"
