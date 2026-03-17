@@ -91,7 +91,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			for i, child := range children {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
-				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, activityutil.DefaultSpeedSmoothingWindow); err != nil {
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
 					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
 					return
@@ -216,7 +216,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		ctx := context.Background()
 
 		for _, id := range ids {
-			if err := h.reprocessActivity(ctx, id, userID, scope, activityutil.DefaultSpeedSmoothingWindow); err != nil {
+			if err := h.reprocessActivity(ctx, id, userID, scope, 0); err != nil {
 				slog.Error("reprocess-all: activity failed", "id", id, "error", err)
 				h.recomputeJob.errors.Add(1)
 			} else {
@@ -544,11 +544,15 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// Loads existing streams, applies a median filter to speed_ms, and writes
 	// the smoothed values back. Does not re-parse the original file.
 	if doSpeedSmooth {
+		w := smoothWindow
+		if w <= 0 {
+			w = activityutil.DefaultSpeedSmoothingWindow
+		}
 		streamPts, sErr := h.DB.GetStreamPoints(ctx, activityID)
 		if sErr != nil {
 			slog.Error("reprocess: load streams for speed smoothing failed", "id", activityID, "error", sErr)
 		} else if len(streamPts) >= 3 {
-			streamPts = activityutil.SmoothSpeed(streamPts, smoothWindow)
+			streamPts = activityutil.SmoothSpeed(streamPts, w)
 			if err := h.DB.UpdateStreamSpeeds(ctx, activityID, streamPts); err != nil {
 				slog.Error("reprocess: update smoothed speeds failed", "id", activityID, "error", err)
 			} else {
