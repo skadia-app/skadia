@@ -2322,14 +2322,18 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 	if conditionsLogic == "" {
 		conditionsLogic = "and"
 	}
+	category := "custom"
+	if lat != nil && lng != nil {
+		category = "standort"
+	}
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng, category)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
 			lat, lng, cover_image_url, cover_image_thumb_url`,
-		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng,
+		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, category,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
@@ -2400,6 +2404,15 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		sets = append(sets, fmt.Sprintf("lng = $%d", argIdx))
 		args = append(args, lng)
 		argIdx++
+		// Auto-set category based on location
+		if lat != nil {
+			sets = append(sets, fmt.Sprintf("category = $%d", argIdx))
+			args = append(args, "standort")
+			argIdx++
+		} else {
+			// lat removed → revert standort back to custom (only if it was standort)
+			sets = append(sets, "category = CASE WHEN category = 'standort' THEN 'custom' ELSE category END")
+		}
 	}
 	if coverImageURL != nil {
 		sets = append(sets, fmt.Sprintf("cover_image_url = $%d", argIdx))
@@ -2859,6 +2872,31 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		return nil, fmt.Errorf("target and source tag must differ")
 	}
 
+	// Block merge if source is a system tag
+	var sourceIsSystem bool
+	if err := tx.QueryRow(ctx,
+		`SELECT is_system FROM tags WHERE id = $1 AND user_id = $2`,
+		sourceTagID, userID,
+	).Scan(&sourceIsSystem); err != nil {
+		return nil, fmt.Errorf("check source system: %w", err)
+	}
+	if sourceIsSystem {
+		return nil, fmt.Errorf("source_is_system")
+	}
+
+	// Block merge if source tag is referenced by an automation rule
+	var hasRule bool
+	tx.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM automation_rules
+			WHERE user_id = $1 AND actions::text LIKE '%' || $2::text || '%'
+		)`,
+		userID, sourceTagID,
+	).Scan(&hasRule) //nolint:errcheck
+	if hasRule {
+		return nil, fmt.Errorf("source_has_rule")
+	}
+
 	// 2. Move activity_tags rows: for activities that have source but not target,
 	//    update the tag_id. For activities that already have both, just delete the
 	//    source row (to avoid a unique constraint violation).
@@ -2924,7 +2962,22 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		return nil, fmt.Errorf("update activities.tags (remove source): %w", err)
 	}
 
-	// 4. Delete the source tag.
+	// 4a. Migrate activity_tag_removals from source to target.
+	_, err = tx.Exec(ctx, `
+		UPDATE activity_tag_removals SET tag_id = $1
+		WHERE tag_id = $2
+		  AND activity_id NOT IN (SELECT activity_id FROM activity_tag_removals WHERE tag_id = $1)`,
+		targetTagID, sourceTagID)
+	if err != nil {
+		return nil, fmt.Errorf("migrate removals: %w", err)
+	}
+	_, err = tx.Exec(ctx,
+		`DELETE FROM activity_tag_removals WHERE tag_id = $1`, sourceTagID)
+	if err != nil {
+		return nil, fmt.Errorf("delete stale removals: %w", err)
+	}
+
+	// 4b. Delete the source tag.
 	_, err = tx.Exec(ctx,
 		`DELETE FROM tags WHERE id = $1 AND user_id = $2`,
 		sourceTagID, userID,
