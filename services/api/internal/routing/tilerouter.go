@@ -405,10 +405,12 @@ func (tr *TileRouter) retrackCrossTile(state *CrossTileState,
 						lat := float64(eg.EdgeGeomLat[gi]) / 1e7
 						lon := float64(eg.EdgeGeomLon[gi]) / 1e7
 						var ele float64
-						profStart := eg.EdgeElevOff[edgeIdx]
-						profIdx := gi - geomStart
-						if profStart+profIdx < eg.EdgeElevOff[edgeIdx+1] {
-							ele = float64(eg.EdgeElevProf[profStart+profIdx]) / 10.0
+						if eg.EdgeElevProf != nil && eg.EdgeElevOff != nil {
+							profStart := eg.EdgeElevOff[edgeIdx]
+							profIdx := gi - geomStart
+							if profStart+profIdx < eg.EdgeElevOff[edgeIdx+1] {
+								ele = float64(eg.EdgeElevProf[profStart+profIdx]) / 10.0
+							}
 						}
 						coords = append(coords, LatLonEle{Lat: lat, Lon: lon, Ele: ele})
 					}
