@@ -56,6 +56,8 @@ func SampleEdgeElevationProfilesFromReader(reader dem.Reader, g *Graph) {
 }
 
 // InterpolateMissing fills gaps in elevation data for bridge/tunnel segments.
+// Used by BuildFromWays (test/synthetic data path). The mmap HGT reader
+// handles voids via its own 8-direction spiral interpolation.
 func InterpolateMissing(elevations []int32, isBridge []bool) {
 	n := len(elevations)
 	if n == 0 {

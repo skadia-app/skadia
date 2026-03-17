@@ -120,7 +120,9 @@ func NewReaderForTile(hgtDirs []string, tileID uint32) (Reader, error) {
 
 // tileBBoxExpanded returns the expanded tile bounding box.
 // Duplicates graph.TileBBoxExpanded to avoid circular import.
-// MUST match graph.BorderBuffer (0.02).
+
+// borderBuffer MUST match graph.BorderBuffer (0.02).
+// Duplicated here to avoid circular import (dem → graph → dem).
 const borderBuffer = 0.02
 
 func tileBBoxExpanded(tileID uint32) [4]float64 {

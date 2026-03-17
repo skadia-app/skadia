@@ -159,7 +159,6 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 	g.SetLimit(workers)
 
 	for i, tileID := range tileIDs {
-		i, tileID := i, tileID // capture loop vars
 		tilePath := TileFilePath(outputDir, tileID)
 
 		if info, err := os.Stat(tilePath); err == nil && info.Size() > 0 {
