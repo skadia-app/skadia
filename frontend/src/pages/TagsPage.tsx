@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
 import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone, deleteOrphanTag, seedDefaultTags } from '@/api/tags'
 import type { Tag, TagActivity } from '@/api/tags'
-import { migrateTagConditions } from '@/api/rules'
 import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
 import { format } from 'date-fns'
@@ -627,16 +626,6 @@ export default function TagsPage() {
     },
   })
 
-  const migrateMut = useMutation({
-    mutationFn: migrateTagConditions,
-    onSuccess: (result) => {
-      if (result.migrated > 0) {
-        queryClient.invalidateQueries({ queryKey: ['tags'] })
-        queryClient.invalidateQueries({ queryKey: ['automation-rules'] })
-      }
-    },
-  })
-
   const deleteOrphanMut = useMutation({
     mutationFn: (name: string) => deleteOrphanTag(name),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tags'] }) },
@@ -651,21 +640,6 @@ export default function TagsPage() {
       queryClient.invalidateQueries({ queryKey: ['tags'] })
     }).catch(() => { /* ignore */ })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-migrate tag conditions to automation rules on first load
-  const hasMigrated = useRef(false)
-  useEffect(() => {
-    if (!tags || hasMigrated.current) return
-    const hasConditions = tags.some(t => {
-      const cLen = t.conditions ? JSON.stringify(t.conditions).length : 0
-      const cgLen = t.condition_groups ? JSON.stringify(t.condition_groups).length : 0
-      return cLen > 2 || cgLen > 2
-    })
-    if (hasConditions) {
-      hasMigrated.current = true
-      migrateMut.mutate()
-    }
-  }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Tags...</div>
@@ -686,14 +660,6 @@ export default function TagsPage() {
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Tags</h1>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => migrateMut.mutate()}
-            disabled={migrateMut.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 disabled:opacity-50 transition-colors"
-            title="Tag-Bedingungen in Automatisierungsregeln umwandeln"
-          >
-            {migrateMut.isPending ? 'Migriere...' : 'Tags migrieren'}
-          </button>
           <Link
             to="/workshop/rules?new=1"
             className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
@@ -752,7 +718,7 @@ export default function TagsPage() {
                         >
                           {tag.name}
                         </span>
-                        {tag.is_auto && (
+                        {(tag.has_automation || tag.is_auto) && (
                           <span
                             className="text-xs text-neutral-400 dark:text-neutral-500"
                             title="Automatisch vergeben (Bedingungen gesetzt)"
@@ -772,7 +738,15 @@ export default function TagsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-                    {editingId === tag.id ? null : (tag.category || '\u2014')}
+                    {editingId === tag.id ? null : (
+                      ({
+                        system: 'System',
+                        weather: 'Wetter',
+                        standort: 'Standort',
+                        custom: 'Eigene',
+                        orphan: 'Verwaist',
+                      } as Record<string, string>)[tag.category || 'custom'] || tag.category || '—'
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {editingId === tag.id ? null : (
