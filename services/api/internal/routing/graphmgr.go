@@ -79,7 +79,7 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 
 	// Build produces a heap graph and serializes to outputPath.
 	// Then load the serialized file via mmap for consistent behavior.
-	_, err := graph.Build(ctx, pool, outputPath, progressFn)
+	_, err := graph.Build(ctx, pool, outputPath, nil, progressFn)
 	if err != nil {
 		return err
 	}

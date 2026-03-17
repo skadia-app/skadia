@@ -42,11 +42,25 @@ func BuildFromWays(ways []RawWay, elevations []int32) *Graph {
 	return g
 }
 
+// bboxWhereClause returns a PostGIS ST_Intersects filter for the given bounding
+// box, or an empty string if bbox is nil. The bbox array is [minLat, minLon, maxLat, maxLon].
+func bboxWhereClause(bbox *[4]float64) string {
+	if bbox == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		" AND ST_Intersects(geom, ST_MakeEnvelope(%f, %f, %f, %f, 4326))",
+		bbox[1], bbox[0], bbox[3], bbox[2],
+	)
+}
+
 // Build constructs the complete graph from PostGIS data.
 // Uses cursor-based streaming to avoid loading all ways into memory at once.
 // Edges are written to a temp file by StreamTopology, then read back by
 // BuildCSRFromFile in two passes (degree counting + CSR placement).
+// If bbox is non-nil, only ways intersecting the bounding box are included.
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
+	bbox *[4]float64,
 	progressFn func(step string, pct int)) (*Graph, error) {
 
 	report := func(step string, pct int) {
@@ -57,7 +71,8 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	}
 
 	var totalWays int64
-	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL AND highway != 'construction' AND (tags->>'area') IS DISTINCT FROM 'yes'").Scan(&totalWays); err != nil {
+	countQuery := `SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL AND highway != 'construction' AND (tags->>'area') IS DISTINCT FROM 'yes'` + bboxWhereClause(bbox)
+	if err := pool.QueryRow(ctx, countQuery).Scan(&totalWays); err != nil {
 		return nil, fmt.Errorf("count ways: %w", err)
 	}
 	slog.Info("ways to load", "count", totalWays)
@@ -81,7 +96,7 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	defer os.Remove(edgeTmpPath)
 
 	report("load_topology", 0)
-	topo, err := StreamTopology(ctx, pool, totalWays, edgeTmpPath, func(loaded int64) {
+	topo, err := StreamTopology(ctx, pool, totalWays, edgeTmpPath, bbox, func(loaded int64) {
 		if totalWays > 0 {
 			report("load_topology", int(loaded*100/totalWays))
 		}
@@ -130,8 +145,9 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	return g, nil
 }
 
-// waysQuery is the SQL for loading routing-eligible ways from PostGIS.
-const waysQuery = `
+// waysQueryBase is the SQL for loading routing-eligible ways from PostGIS,
+// without the ORDER BY clause — allows injecting additional WHERE filters.
+const waysQueryBase = `
 	SELECT DISTINCT ON (osm_id)
 		osm_id,
 		ST_AsText(geom) AS geom_wkt,
@@ -163,7 +179,10 @@ const waysQuery = `
 	FROM osm_ways
 	WHERE highway IS NOT NULL
 	  AND highway != 'construction'
-	  AND (tags->>'area') IS DISTINCT FROM 'yes'
+	  AND (tags->>'area') IS DISTINCT FROM 'yes'`
+
+// waysQuery is the full SQL including ORDER BY (used by LoadWays).
+const waysQuery = waysQueryBase + `
 	ORDER BY osm_id, way_id DESC`
 
 // StreamTopology streams ways from PostGIS in two passes and builds a compact
@@ -174,19 +193,20 @@ const waysQuery = `
 // to uint64 — no string copies in CompactEdge (36 bytes vs ~300 bytes).
 // Intermediate vertices become edge geometry instead of graph nodes.
 func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
-	edgeTmpPath string,
+	edgeTmpPath string, bbox *[4]float64,
 	progressFn func(loaded int64)) (*CompactTopologyResult, error) {
 
 	// === Pass 1: Degree counting (geometry only, no tags) ===
 	slog.Info("stream topology: pass 1 — counting vertex degrees")
 	vd := NewVertexDegree()
 
-	rows1, err := pool.Query(ctx, `
+	pass1Query := `
 		SELECT DISTINCT ON (osm_id) ST_AsText(geom)
 		FROM osm_ways
 		WHERE highway IS NOT NULL AND highway != 'construction'
-		  AND (tags->>'area') IS DISTINCT FROM 'yes'
-		ORDER BY osm_id, way_id DESC`)
+		  AND (tags->>'area') IS DISTINCT FROM 'yes'` + bboxWhereClause(bbox) + `
+		ORDER BY osm_id, way_id DESC`
+	rows1, err := pool.Query(ctx, pass1Query)
 	if err != nil {
 		return nil, fmt.Errorf("pass 1 query: %w", err)
 	}
@@ -270,7 +290,9 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		return 0, false
 	}
 
-	rows2, err := pool.Query(ctx, waysQuery)
+	pass2Query := waysQueryBase + bboxWhereClause(bbox) + `
+	ORDER BY osm_id, way_id DESC`
+	rows2, err := pool.Query(ctx, pass2Query)
 	if err != nil {
 		return nil, fmt.Errorf("pass 2 query: %w", err)
 	}
