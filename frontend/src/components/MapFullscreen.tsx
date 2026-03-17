@@ -677,47 +677,42 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
 
     // Brush handling (same pattern as ActivityCharts)
     type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    let pendingBrushAreas: BrushArea[] | null = null
+    // Re-entry guard: dataZoom dispatch triggers cascading brushEnd events
+    // with the SAME pixel range but different axis scale → exponential zoom-in.
+    let brushZoomLock = false
 
-    chart.on('brush', (params: unknown) => {
+    chart.on('brushEnd', (params: unknown) => {
+      if (brushZoomLock) return
+      brushZoomLock = true
+
       const p = params as {
         areas?: BrushArea[]
         batch?: Array<{ areas?: BrushArea[] }>
       }
       const areas = p.areas ?? p.batch?.[0]?.areas
-      if (areas && areas.length > 0) {
-        pendingBrushAreas = [...areas]
+      if (!areas || areas.length === 0) {
+        brushZoomLock = false
+        return
       }
-    })
-
-    chart.on('brushEnd', (params: unknown) => {
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const directAreas = p.areas ?? p.batch?.[0]?.areas
-      const areas = (directAreas && directAreas.length > 0) ? directAreas : pendingBrushAreas
-      pendingBrushAreas = null
-      if (!areas || areas.length === 0) return
 
       const area = areas[0]
       let startData: number
       let endData: number
 
-      // Prefer pixel range → convertFromPixel (most reliable across ECharts versions)
-      if (area.range) {
+      if (area.coordRange) {
+        [startData, endData] = area.coordRange
+      } else if (area.range) {
         const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
         const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) return
+        if (s == null || e == null) { brushZoomLock = false; return }
         startData = s as number
         endData = e as number
-      } else if (area.coordRange) {
-        [startData, endData] = area.coordRange
       } else {
+        brushZoomLock = false
         return
       }
 
-      if (endData <= startData) return
+      if (endData <= startData) { brushZoomLock = false; return }
 
       const sv = Math.max(0, startData)
       const ev = Math.min(xMax, endData)
@@ -725,7 +720,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
       // Use percentage-based zoom (reliable with filterMode:'none')
       const startPct = Math.max(0, (sv / xMax) * 100)
       const endPct = Math.min(100, (ev / xMax) * 100)
-      if (endPct - startPct < 0.5) return // ignore tiny selections
+      if (endPct - startPct < 0.5) { brushZoomLock = false; return }
 
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: startPct, end: endPct })
       chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
@@ -740,6 +735,8 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
       // Highlight segment on map using stream indices
       const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       highlightMapSegment(findClosestIdx(xArr, sv), findClosestIdx(xArr, ev))
+
+      requestAnimationFrame(() => { brushZoomLock = false })
     })
 
     // Mouse-wheel / pan zoom
