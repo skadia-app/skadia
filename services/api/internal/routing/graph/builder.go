@@ -107,6 +107,26 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	slog.Info("topology built", "nodes", topo.NodeCount)
 	report("load_topology", 100)
 
+	// WCC pruning: filter disconnected components from edge temp file.
+	// Operates on disk — no RAM duplication of the graph.
+	// Must run BEFORE BuildCSRFromFile so the CSR is built from filtered edges.
+	report("prune_wcc", 0)
+	filteredPath := edgeTmpPath + ".filtered"
+	wccStats, wccErr := FilterWCCEdgeFile(edgeTmpPath, filteredPath, 100, nil)
+	if wccErr != nil {
+		slog.Warn("WCC filtering failed, using unfiltered edges", "error", wccErr)
+		os.Remove(filteredPath)
+	} else if wccStats.WaysRemoved > 0 {
+		// Replace original with filtered file.
+		os.Remove(edgeTmpPath)
+		if err := os.Rename(filteredPath, edgeTmpPath); err != nil {
+			slog.Warn("WCC rename failed", "error", err)
+		}
+	} else {
+		os.Remove(filteredPath) // no changes needed
+	}
+	report("prune_wcc", 100)
+
 	report("build_csr", 0)
 	g, err := BuildCSRFromFile(topo.Nodes, topo.NodeTags, edgeTmpPath)
 	if err != nil {
@@ -138,25 +158,6 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 		}
 		report("elevation_edges", 100)
 	}
-
-	// WCC pruning: filter disconnected components from edge temp file.
-	// Operates on disk — no RAM duplication of the graph.
-	report("prune_wcc", 0)
-	filteredPath := edgeTmpPath + ".filtered"
-	wccStats, wccErr := FilterWCCEdgeFile(edgeTmpPath, filteredPath, 100, nil)
-	if wccErr != nil {
-		slog.Warn("WCC filtering failed, using unfiltered edges", "error", wccErr)
-		os.Remove(filteredPath)
-	} else if wccStats.WaysRemoved > 0 {
-		// Replace original with filtered file.
-		os.Remove(edgeTmpPath)
-		if err := os.Rename(filteredPath, edgeTmpPath); err != nil {
-			slog.Warn("WCC rename failed", "error", err)
-		}
-	} else {
-		os.Remove(filteredPath) // no changes needed
-	}
-	report("prune_wcc", 100)
 
 	report("spatial_index", 0)
 	g.Grid = BuildSpatialIndex(g, 0.01)

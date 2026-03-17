@@ -419,8 +419,9 @@ func DeserializeMmap(path string) (*Graph, error) {
 	if d, ok := findSection(SectionEdgeTags2); ok {
 		g.EdgeTags2 = bytesToUint64Slice(d)
 	}
-	// OSMIDPool: cold (segment display only), skip to save ~200 MB
-	_ = poolSize
+	if d, ok := findSection(SectionOSMIDPool); ok {
+		g.OSMIDPool = decodeOSMIDPool(d, poolSize)
+	}
 	if d, ok := findSection(SectionNodeLat); ok {
 		g.NodeLat = bytesToInt32Slice(d)
 	}
@@ -440,19 +441,21 @@ func DeserializeMmap(path string) (*Graph, error) {
 	if d, ok := findSection(SectionEdgeGeomOff); ok {
 		g.EdgeGeomOff = bytesToUint32Slice(d)
 	}
+	if d, ok := findSection(SectionEdgeGeomLat); ok {
+		g.EdgeGeomLat = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeGeomLon); ok {
+		g.EdgeGeomLon = bytesToInt32Slice(d)
+	}
 	if d, ok := findSection(SectionEdgeElevOff); ok {
 		g.EdgeElevOff = bytesToUint32Slice(d)
 	}
-
-	// Cold sections — skip loading to save RAM. The nil-guards in pass.go
-	// and result.go handle nil gracefully (straight-line geometry, no segments).
-	// Geometry display and segment info are cosmetic — routing is correct without them.
-	// TODO: re-enable via madvise(MADV_RANDOM) once system has swap or more RAM.
-	//
-	// if d, ok := findSection(SectionEdgeGeomLat); ok { g.EdgeGeomLat = mmapInt32Slice(d) }
-	// if d, ok := findSection(SectionEdgeGeomLon); ok { g.EdgeGeomLon = mmapInt32Slice(d) }
-	// if d, ok := findSection(SectionEdgeElevProf); ok { g.EdgeElevProf = mmapInt32Slice(d) }
-	// if d, ok := findSection(SectionEdgeOSMIdx); ok { g.EdgeOSMIdx = mmapUint32Slice(d) }
+	if d, ok := findSection(SectionEdgeElevProf); ok {
+		g.EdgeElevProf = bytesToInt32Slice(d)
+	}
+	if d, ok := findSection(SectionEdgeOSMIdx); ok {
+		g.EdgeOSMIdx = bytesToUint32Slice(d)
+	}
 
 	// v3 tile sections
 	if d, ok := findSection(SectionTileMeta); ok && len(d) >= 4 {
