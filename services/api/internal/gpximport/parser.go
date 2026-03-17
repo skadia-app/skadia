@@ -239,7 +239,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 
 	var corrReport activityutil.CorrectionReport
-	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig())
+	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig(), data.SportType)
 	data.GPSCorrectionCount = corrReport.CorrectedCount
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2

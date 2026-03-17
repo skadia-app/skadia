@@ -634,7 +634,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// Extract streams, apply GPS correction pipeline, track, sensors
 	streams := ExtractStreams(records)
 	var corrReport activityutil.CorrectionReport
-	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig())
+	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig(), data.SportType)
 	data.GPSCorrectionCount = corrReport.CorrectedCount
 	data.RRIntervals = rrIntervals
 	data.TrackPoints = ExtractTrackPoints(records)

@@ -145,12 +145,21 @@ func CalcRecordingTime(points []model.StreamPoint) int {
 // CorrectAndFillStreams runs the full stream processing pipeline:
 //  1. FixDistanceResets (counter reset repair)
 //  2. CorrectGPSOutliers (spatial spike detection + interpolation)
-//  3. FillMissingDistanceAndSpeed (derive from corrected GPS)
+//  3. CorrectSpeedOutliers (gradient-aware, sport-specific speed plausibility)
+//  4. FillMissingDistanceAndSpeed (derive from corrected GPS)
 //
 // The cfg parameter allows overriding defaults for testing/tuning.
-func CorrectAndFillStreams(points []model.StreamPoint, cfg CorrectionConfig) ([]model.StreamPoint, CorrectionReport) {
+// sportType is the FIT sport name (e.g. "cycling", "running") used to select
+// the appropriate speed threshold in CorrectSpeedOutliers.
+func CorrectAndFillStreams(points []model.StreamPoint, cfg CorrectionConfig, sportType string) ([]model.StreamPoint, CorrectionReport) {
 	points = FixDistanceResets(points)
 	points, report := CorrectGPSOutliers(points, cfg)
+
+	// Speed plausibility pass (gradient-aware, sport-specific).
+	speedCfg := DefaultSpeedCorrectionConfig()
+	points, speedReport := CorrectSpeedOutliers(points, sportType, speedCfg)
+	report.CorrectedCount += speedReport.CorrectedCount
+
 	points = FillMissingDistanceAndSpeed(points)
 	return points, report
 }
