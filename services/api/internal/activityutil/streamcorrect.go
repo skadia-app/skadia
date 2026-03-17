@@ -259,3 +259,81 @@ func CorrectGPSOutliers(points []model.StreamPoint, cfg CorrectionConfig) ([]mod
 
 	return points, report
 }
+
+// SpeedCorrectionConfig holds tunable parameters for gradient-aware speed filtering.
+type SpeedCorrectionConfig struct {
+	// MaxSpeedByGroup maps segment group (bike/foot/ski/paddle/swim/generic) to the
+	// base max speed in m/s on flat ground. Gradient bonus is added on top.
+	// These are generous — a well-trained road cyclist can sprint to 65 km/h on flat.
+	MaxSpeedByGroup map[string]float64
+
+	// GradientBonusFactor: for each 1% downhill gradient, add this many m/s
+	// to the base max speed. Default: 1.4 (≈ 5 km/h per 1% gradient).
+	// At -10%: bonus = 1.4 * 10 = 14 m/s (50 km/h).
+	GradientBonusFactor float64
+
+	// MinOvershootRatio: speed must exceed max_speed * this ratio to be flagged.
+	// Prevents false positives from minor GPS jitter near the threshold.
+	// Default: 1.3 (speed must be 30% above max to trigger).
+	MinOvershootRatio float64
+
+	// CadenceBoostFactor: if cadence > 0 at a spike point, multiply the
+	// allowed max speed by this factor. Rider is actively pedaling/running.
+	// Default: 1.3
+	CadenceBoostFactor float64
+
+	// MaxAccelMS2: maximum plausible acceleration in m/s².
+	// Currently informational only — recorded in report for future tuning.
+	// Reserved for a future acceleration-based filter pass.
+	// Default: 5.0
+	MaxAccelMS2 float64
+
+	// MaxConsecutiveOver: if more than N consecutive points all exceed the
+	// threshold, treat as real movement (gondola, shuttle), not GPS error.
+	// Default: 3
+	MaxConsecutiveOver int
+
+	// MinPointsRequired: minimum stream length to attempt correction.
+	// Default: 5
+	MinPointsRequired int
+}
+
+// DefaultSpeedCorrectionConfig returns conservative defaults for speed filtering.
+func DefaultSpeedCorrectionConfig() SpeedCorrectionConfig {
+	return SpeedCorrectionConfig{
+		MaxSpeedByGroup: map[string]float64{
+			"bike":    19.4, // 70 km/h flat — road sprint, drafting, any bike type
+			"foot":     8.3, // 30 km/h flat — fast trail running downhill
+			"ski":     22.2, // 80 km/h flat — ski alpin legitimately fast
+			"paddle":   5.6, // 20 km/h
+			"swim":     2.8, // 10 km/h
+			"generic": 19.4, // conservative default (= bike)
+		},
+		GradientBonusFactor: 1.4,
+		MinOvershootRatio:   1.3,
+		CadenceBoostFactor:  1.3,
+		MaxAccelMS2:         5.0,
+		MaxConsecutiveOver:  3,
+		MinPointsRequired:   5,
+	}
+}
+
+// SpeedPointCorrection records the speed filter decision for a single point.
+type SpeedPointCorrection struct {
+	Index        int     // stream index
+	SpeedMS      float64 // GPS-derived speed in m/s
+	MaxAllowedMS float64 // computed max speed (with gradient + cadence boosts)
+	GradientPct  float64 // gradient at this point (negative = downhill)
+	HasCadence   bool    // cadence > 0 at this point
+	AccelMS2     float64 // acceleration from previous point (informational)
+	Corrected    bool    // true if position was interpolated
+}
+
+// SpeedCorrectionReport summarizes speed-based corrections.
+type SpeedCorrectionReport struct {
+	TotalPoints    int                    // total stream points
+	CandidateCount int                    // points exceeding max speed * overshoot ratio
+	CorrectedCount int                    // actually corrected
+	SkippedConsec  int                    // skipped because consecutive > max
+	Points         []SpeedPointCorrection // per-point detail
+}
