@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000176**
+Alle Migrationen im Überblick. Nächste freie: **000177**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -15,3 +15,4 @@ Alle Migrationen im Überblick. Nächste freie: **000176**
 | 000173 | import_log_batch_skipreason        | batch_id UUID + skip_reason TEXT Spalten in import_log |
 | 000174 | import_log_status_check            | import_log Status-Check |
 | 000175 | enrichment_tags_unification        | activity_tag_removals, Rundtour trigger bidirektional (is_round_trip ↔ activity_tags), Schnee text_color fix (#1F2937), weather tag backfill, weather_auto_tags pref in users |
+| 000176 | tag_system_unification             | automation_rules: is_system/system_type/has_automation; System-Rules (ebike_sync/round_trip/frost/nacht) für alle User; Adjektive kleingeschrieben (sonnig/bewölkt); Rundtour-Trigger DROP |
