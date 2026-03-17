@@ -162,22 +162,23 @@ func TestEdgeCost_SACPenalty0_NotZero(t *testing.T) {
 func TestEdgeCost_ForestBonus_Additive(t *testing.T) {
 	tags := encodeTags("path", "")
 	// forest_pct=100 → forestAdd = (1.0 - 1.0) * weight = 0.0 (no penalty for full forest)
-	// forest_pct=0   → forestAdd = (1.0 - 0.0) * weight = weight
-	enrich0 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{ForestPct: 0})
+	// forest_pct=1   → forestAdd = (1.0 - 0.01) * weight ≈ weight (almost no forest)
+	// Note: forest_pct=0 means "no data" (no penalty), so we use 1 for "no forest"
+	enrich1 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{ForestPct: 1})
 	enrich100 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{ForestPct: 100})
 
-	g0 := testGraph(tags, &enrich0)
+	g1 := testGraph(tags, &enrich1)
 	g100 := testGraph(tags, &enrich100)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf0 := cfg.EdgeCost(g0, 0)
+	ecf1 := cfg.EdgeCost(g1, 0)
 	ecf100 := cfg.EdgeCost(g100, 0)
 
-	// forestWeight=0.5: no-forest should be ~0.5 more expensive than full-forest
-	diff := ecf0.Flat - ecf100.Flat
+	// forestWeight=0.5: almost-no-forest should be ~0.5 more expensive than full-forest
+	diff := ecf1.Flat - ecf100.Flat
 	if diff < 0.3 || diff > 0.7 {
 		t.Errorf("forest bonus diff = %f, expected ~0.5 (no forest=%f, full forest=%f)",
-			diff, ecf0.Flat, ecf100.Flat)
+			diff, ecf1.Flat, ecf100.Flat)
 	}
 }
 
