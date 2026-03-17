@@ -473,9 +473,47 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var settings model.EnrichmentSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+	// Decode the incoming JSON into a raw map so we can distinguish an
+	// explicit false from a missing field (Go bool zero-value problem).
+	var rawPatch map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&rawPatch); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		return
+	}
+
+	// Load existing settings from DB (upserts defaults if not yet present).
+	existing, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
+	if err != nil {
+		slog.Error("update enrichment settings: load existing failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		return
+	}
+
+	// Re-encode existing settings to JSON, then merge the patch on top so
+	// only the keys present in the request body overwrite existing values.
+	// This prevents a partial send from zeroing out unmentioned bool fields.
+	existingJSON, err := json.Marshal(existing)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "marshal failed", r.URL.Path)
+		return
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(existingJSON, &merged); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "unmarshal failed", r.URL.Path)
+		return
+	}
+	for k, v := range rawPatch {
+		merged[k] = v
+	}
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal Error", "merge failed", r.URL.Path)
+		return
+	}
+
+	var settings model.EnrichmentSettings
+	if err := json.Unmarshal(mergedJSON, &settings); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid merged JSON", r.URL.Path)
 		return
 	}
 	settings.UserID = userID
