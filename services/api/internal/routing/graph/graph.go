@@ -41,6 +41,7 @@ type Graph struct {
 	Grid *SpatialGrid
 
 	// Metadata.
+	TileID    uint32
 	NodeCount uint32
 	EdgeCount uint32
 	Version   uint32
