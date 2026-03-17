@@ -259,16 +259,16 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	g.EdgeGeomLat = sortedGeomLat
 	g.EdgeGeomLon = sortedGeomLon
 
-	// Free unsorted geometry arrays.
-	allGeomLat = nil
-	allGeomLon = nil
-	edgeGeomSpans = nil
+	// Free unsorted geometry arrays (GC can collect them).
+	allGeomLat = nil //nolint:ineffassign
+	allGeomLon = nil //nolint:ineffassign
+	edgeGeomSpans = nil //nolint:ineffassign
 
 	g.EdgeElevOff = make([]uint32, edgeCount+1)
 	g.EdgeElevProf = nil
 
 	g.BBox = computeBBox(nodes)
-	slog.Info("CSR build complete", "nodes", nodeCount, "edges", edgeCount, "geom_points", len(allGeomLat))
+	slog.Info("CSR build complete", "nodes", nodeCount, "edges", edgeCount, "geom_points", len(g.EdgeGeomLat))
 	return g, nil
 }
 
