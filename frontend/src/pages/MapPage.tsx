@@ -516,6 +516,7 @@ export default function MapPage() {
   const [selectedLocationTagId, setSelectedLocationTagId] = useState<string | null>(null)
   const [tagActivitiesLoading, setTagActivitiesLoading] = useState(false)
   const [tagActivities, setTagActivities] = useState<TagActivity[]>([])
+  const [tagActivitiesVersion, setTagActivitiesVersion] = useState(0)
   const [newLocationPick, setNewLocationPick] = useState<{
     name: string
     color: string
@@ -1435,11 +1436,15 @@ export default function MapPage() {
       if (nearbyTag) {
         try {
           await assignActivitiesToTag(nearbyTag.id, activityIDs)
-        } catch { /* ignorieren */ }
-        queryClient.invalidateQueries({ queryKey: ['activities'] })
-        queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
-        queryClient.invalidateQueries({ queryKey: ['tags'] })
-        syncTagLocation(nearbyTag.id).catch(() => {})
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+          queryClient.invalidateQueries({ queryKey: ['tags'] })
+          syncTagLocation(nearbyTag.id).catch(() => {})
+          // Popup-Aktivitätsliste neu laden, falls der Pin gerade geöffnet ist
+          setTagActivitiesVersion(v => v + 1)
+        } catch (err) {
+          console.error('assignActivitiesToTag fehlgeschlagen:', err)
+        }
         setShowIndoorAssign(false)
         // Pulse animation on successful drop
         const targetMarker = locationTagMarkersRef.current.find(m => m.getElement().dataset.tagId === nearbyTag.id)
@@ -1665,7 +1670,7 @@ export default function MapPage() {
       .catch(() => { if (!cancelled) setTagActivities([]) })
       .finally(() => { if (!cancelled) setTagActivitiesLoading(false) })
     return () => { cancelled = true }
-  }, [selectedLocationTagId])
+  }, [selectedLocationTagId, tagActivitiesVersion])
 
   // Location tag popup: gallery state + photo loading
   const [tagPhotos, setTagPhotos] = useState<import('@/api/activityPhotos').ActivityPhoto[]>([])
@@ -2955,6 +2960,6 @@ function addOverlayLayers(
   } else {
     // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
     // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
-    addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor)
+    addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor, undefined, Math.pow(filters.opacity / 100, 2))
   }
 }

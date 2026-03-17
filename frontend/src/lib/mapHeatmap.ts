@@ -71,6 +71,7 @@ export function addHeatmapLayers(
   tileUrl: string,
   colorHex: string,
   beforeLayerId?: string,
+  opacityScale = 1.0,
 ): void {
   if (map.getSource(HEATMAP_SOURCE_ID)) return // schon vorhanden
 
@@ -88,11 +89,11 @@ export function addHeatmapLayers(
   const [cOuter, cMid, cBase, cBright, cHot] = deriveHeatmapGlowColors(colorHex)
 
   const layers: Array<{ id: string; color: string; width: number; opacity: number; blur: number }> = [
-    { id: 'heatmap-glow-outer', color: cOuter, width: 16, opacity: 0.10, blur: 8 },
-    { id: 'heatmap-glow-mid',   color: cMid,   width: 9,  opacity: 0.15, blur: 4 },
-    { id: 'heatmap-base',       color: cBase,  width: 4,  opacity: 0.28, blur: 0 },
-    { id: 'heatmap-bright',     color: cBright, width: 2, opacity: 0.20, blur: 0 },
-    { id: 'heatmap-hot',        color: cHot,   width: 1,  opacity: 0.12, blur: 0 },
+    { id: 'heatmap-glow-outer', color: cOuter, width: 16, opacity: 0.10 * opacityScale, blur: 8 },
+    { id: 'heatmap-glow-mid',   color: cMid,   width: 9,  opacity: 0.15 * opacityScale, blur: 4 },
+    { id: 'heatmap-base',       color: cBase,  width: 4,  opacity: 0.28 * opacityScale, blur: 0 },
+    { id: 'heatmap-bright',     color: cBright, width: 2, opacity: 0.20 * opacityScale, blur: 0 },
+    { id: 'heatmap-hot',        color: cHot,   width: 1,  opacity: 0.12 * opacityScale, blur: 0 },
   ]
 
   for (const l of layers) {
