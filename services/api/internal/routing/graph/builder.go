@@ -139,10 +139,23 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 		report("elevation_edges", 100)
 	}
 
-	// TODO: PruneWCC doubles RAM temporarily (copies entire graph).
-	// For 5 GB graph → 10 GB peak → OOM. Needs in-place pruning.
-	// Skipped for first route — small disconnected components won't affect routing quality.
-	slog.Info("skipping WCC pruning (would double RAM)", "nodes", g.NodeCount)
+	// WCC pruning: filter disconnected components from edge temp file.
+	// Operates on disk — no RAM duplication of the graph.
+	report("prune_wcc", 0)
+	filteredPath := edgeTmpPath + ".filtered"
+	wccStats, wccErr := FilterWCCEdgeFile(edgeTmpPath, filteredPath, 100, nil)
+	if wccErr != nil {
+		slog.Warn("WCC filtering failed, using unfiltered edges", "error", wccErr)
+		os.Remove(filteredPath)
+	} else if wccStats.WaysRemoved > 0 {
+		// Replace original with filtered file.
+		os.Remove(edgeTmpPath)
+		if err := os.Rename(filteredPath, edgeTmpPath); err != nil {
+			slog.Warn("WCC rename failed", "error", err)
+		}
+	} else {
+		os.Remove(filteredPath) // no changes needed
+	}
 	report("prune_wcc", 100)
 
 	report("spatial_index", 0)
