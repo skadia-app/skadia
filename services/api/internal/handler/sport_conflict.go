@@ -105,7 +105,7 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 				}
 			}()
 			ctx := context.Background()
-			if reErr := h.reprocessActivity(ctx, activityID, userID, nil); reErr != nil {
+			if reErr := h.reprocessActivity(ctx, activityID, userID, nil, 3); reErr != nil {
 				slog.Warn("sport conflict resolve: recompute failed", "id", activityID, "error", reErr)
 				failed = true
 			}

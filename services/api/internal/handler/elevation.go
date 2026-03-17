@@ -68,7 +68,7 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 
 	// Phase 1: Re-parse original file (streams + metrics scope) to restore GPS altitude.
 	scope := map[string]bool{"streams": true, "metrics": true}
-	if err := h.reprocessActivity(ctx, activityID, userID, scope); err != nil {
+	if err := h.reprocessActivity(ctx, activityID, userID, scope, 3); err != nil {
 		slog.Error("elevation reset: reprocess failed", "error", err, "activity_id", activityID)
 		h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		return
