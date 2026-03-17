@@ -3727,9 +3727,10 @@ func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, a
 			return fmt.Errorf("assign activities to tag: link %s: %w", actID, err)
 		}
 		// Keep denormalized TEXT[] cache in sync.
+		// COALESCE guards against NULL tags array: NOT ($2 = ANY(NULL)) → NULL → FALSE, skips update.
 		_, _ = db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_append(tags, $2), updated_at = NOW()
-			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(tags))`,
+			`UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), $2), updated_at = NOW()
+			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(COALESCE(tags, '{}')))`,
 			actID, tagName, userID)
 	}
 	return nil
