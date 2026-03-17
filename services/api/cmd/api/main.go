@@ -188,9 +188,17 @@ func main() {
 		},
 	}
 
-	// Routing graph manager.
+	// Routing graph manager — try tile mode first, fall back to monolithic.
 	graphMgr := &routing.GraphManager{}
 	h.GraphManager = graphMgr
+	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
+	if tileMode, err := graphMgr.InitTileMode(tileDir, 2_500_000_000); err != nil {
+		slog.Warn("tile mode init failed", "error", err)
+	} else if tileMode {
+		slog.Info("routing: tile mode active")
+	}
+	// Always try loading the monolithic graph as well (used as fallback and
+	// for RoutingGraphStatus metadata).
 	if err := graphMgr.LoadFromFile(cfg.RoutingGraphPath); err != nil {
 		slog.Warn("no routing graph loaded", "path", cfg.RoutingGraphPath, "error", err)
 	}
@@ -346,6 +354,7 @@ func main() {
 			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
 			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
+			r.Post("/admin/routing/rebuild-tiles", h.RebuildRoutingTiles)
 
 			r.Get("/me", h.GetMe)
 
