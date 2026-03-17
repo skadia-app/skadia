@@ -161,7 +161,7 @@ func evalGeofence(c Condition, activity map[string]any) bool {
 	if !latOK || !lonOK || startLat == nil || startLon == nil {
 		return false
 	}
-	dist := haversineM(toFloat(startLat), toFloat(startLon), lat, lon)
+	dist := HaversineM(toFloat(startLat), toFloat(startLon), lat, lon)
 	inside := dist <= radiusM
 	if mode == "outside" {
 		return !inside
@@ -207,7 +207,7 @@ func evalGeofenceZone(c Condition, activity map[string]any) bool {
 		lat := toFloat(params["lat"])
 		lon := toFloat(params["lon"])
 		radiusM := toFloat(params["radius_m"])
-		inside = haversineM(sLat, sLon, lat, lon) <= radiusM
+		inside = HaversineM(sLat, sLon, lat, lon) <= radiusM
 	}
 
 	if mode == "outside" {
@@ -235,7 +235,7 @@ func evalGeofenceProximity(c Condition, activity map[string]any) bool {
 	if !latOK || !lonOK || startLat == nil || startLon == nil {
 		return false
 	}
-	dist := haversineM(toFloat(startLat), toFloat(startLon), lat, lon)
+	dist := HaversineM(toFloat(startLat), toFloat(startLon), lat, lon)
 	inside := dist <= radiusM
 	if mode == "outside" {
 		return !inside
@@ -272,7 +272,7 @@ func pointInGeoJSONPolygon(lat, lon float64, geoJSONStr string) bool {
 	return inside
 }
 
-func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
+func HaversineM(lat1, lon1, lat2, lon2 float64) float64 {
 	const R = 6371000.0
 	p1 := lat1 * math.Pi / 180
 	p2 := lat2 * math.Pi / 180
@@ -514,6 +514,18 @@ func Apply(actions []Action) []ActivityChange {
 			}
 			if json.Unmarshal(a.Params, &p) == nil {
 				changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
+			}
+		case "set_field":
+			var p struct {
+				Field string `json:"field"`
+				Value any    `json:"value"`
+			}
+			if json.Unmarshal(a.Params, &p) == nil && p.Field != "" {
+				// Whitelist: nur erlaubte Felder
+				switch p.Field {
+				case "is_round_trip", "is_indoor":
+					changes = append(changes, ActivityChange{Field: p.Field, Value: p.Value})
+				}
 			}
 		}
 	}
