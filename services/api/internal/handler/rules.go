@@ -181,17 +181,6 @@ func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID s
 	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules)
 }
 
-func (h *Handler) MigrateTagConditions(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	count, err := h.DB.MigrateTagConditionsToRules(r.Context(), userID)
-	if err != nil {
-		slog.Error("migrate tag conditions failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "migration failed", r.URL.Path)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"migrated": count})
-}
-
 // resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl
 // with values from the activity map. The substitution is a simple sequential
 // strings.ReplaceAll pass — tokens cannot be nested or escaped. Adding a new

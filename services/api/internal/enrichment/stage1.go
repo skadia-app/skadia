@@ -49,12 +49,6 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// Round trip detection (requires GPS start+end)
-	if data.StartLat != 0 && data.EndLat != 0 {
-		isRT := IsRoundTrip(data.StartLat, data.StartLng, data.EndLat, data.EndLng, 500)
-		fields["is_round_trip"] = isRT
-	}
-
 	// TRIMP calculation (requires HR stream)
 	if len(data.Streams) > 0 {
 		var hrStream []int
@@ -322,35 +316,6 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// Autotag evaluation: collect enrichment context and evaluate all autotag rules
-	enrichCtx := &EnrichmentContext{
-		StartCity:    startCity,
-		StartCountry: "",
-		IsRoundTrip:  false,
-	}
-	if sc, ok := fields["start_country"].(string); ok {
-		enrichCtx.StartCountry = sc
-	}
-	if tod, ok := fields["time_of_day"].([]string); ok {
-		enrichCtx.TimeOfDay = tod
-	}
-	if rt, ok := fields["is_round_trip"].(bool); ok {
-		enrichCtx.IsRoundTrip = rt
-	}
-
-	if autoTags := EvaluateAutoTags(ctx, db, userID, data, enrichCtx); len(autoTags) > 0 {
-		// Start from already-accumulated tags (e.g. from sub_type conversions above),
-		// falling back to the original activity tags.
-		base, _ := fields["tags"].([]string)
-		if base == nil {
-			base = data.Tags
-		}
-		for _, tag := range autoTags {
-			base = appendTagIfMissing(base, tag)
-		}
-		fields["tags"] = base
-	}
-
 	// E-Bike tag: if is_ebike is true, ensure "E-Bike" tag is in tags array
 	// and link in activity_tags junction table (same pattern as "Wettkampf" above).
 	if data.IsEbike {
@@ -555,12 +520,6 @@ func Intensity(avgHR, maxHR float64) string {
 	default:
 		return "" // needs better criteria: power zones, TSS, training type — see roadmap
 	}
-}
-
-// IsRoundTrip checks if start and end points are within threshold meters.
-func IsRoundTrip(startLat, startLng, endLat, endLng, thresholdM float64) bool {
-	dist := haversine(startLat, startLng, endLat, endLng)
-	return dist <= thresholdM
 }
 
 // haversine returns distance in meters between two lat/lng points.
