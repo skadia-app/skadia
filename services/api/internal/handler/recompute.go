@@ -485,6 +485,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events)
+		// Apply automation rules after enrichment
+		allRules, _ := h.DB.ListRules(ctx, userID)
+		_ = h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
 	}
 
 	// 8b. Tags-only reprocess: re-evaluate autotags without full enrichment.
