@@ -176,12 +176,16 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 				time, activity_id,
 				lat, lng, altitude_m, speed_ms, distance_m,
 				heart_rate, power_w, cadence, temperature_c,
-				ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+				ground_contact_time_ms, vertical_oscillation_mm,
+				stance_time_percent, left_right_balance,
+				raw_lat, raw_lng
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 			s.Time, activityID,
 			s.Lat, s.Lng, s.AltitudeM, s.SpeedMS, s.DistanceM,
 			s.HeartRate, s.PowerW, s.Cadence, s.TemperatureC,
-			s.GroundContactTimeMs, s.VerticalOscillationMm, s.StanceTimePercent, s.LeftRightBalance,
+			s.GroundContactTimeMs, s.VerticalOscillationMm,
+			s.StanceTimePercent, s.LeftRightBalance,
+			s.RawLat, s.RawLng,
 		)
 	}
 
