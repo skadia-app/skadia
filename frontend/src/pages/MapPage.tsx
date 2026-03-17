@@ -2180,7 +2180,7 @@ export default function MapPage() {
           <RoutePlannerPanel
             waypoints={planner.waypoints}
             segments={planner.segments}
-            profile={planner.profile}
+            profileConfig={planner.profileConfig}
             showHeatmap={viewMode === 'heatmap'}
             totalDistanceM={planner.totals.distance_m}
             totalElevationGain={planner.totals.elevation_gain}

@@ -12,17 +12,19 @@ import {
   getRoute,
   createRoute,
   updateRoute,
-  computeRoute,
+  computeInternalRoute,
   getElevationProfile,
   type ElevationPoint,
 } from '@/api/routes'
+import type { ProfileConfig } from '@/lib/routingProfiles'
+import { getProfileDefaults } from '@/lib/routingProfiles'
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
 interface RoutePlannerState {
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
-  profile: string
+  profileConfig: ProfileConfig
   sportType: string
   isCalculating: boolean
   calculationError: string | null
@@ -32,7 +34,7 @@ interface RoutePlannerState {
 const INITIAL_STATE: RoutePlannerState = {
   waypoints: [],
   segments: [],
-  profile: 'hiking-sac2',
+  profileConfig: getProfileDefaults('hiking'),
   sportType: 'hiking',
   isCalculating: false,
   calculationError: null,
@@ -127,7 +129,7 @@ export function useRoutePlanner() {
         if (s.waypoints.length < 2) return s
         const prevWp = s.waypoints[s.waypoints.length - 2]
         // Trigger segment calculation async (state setter is synchronous guard only)
-        void _calculateSegment(prevWp, newWp, s.profile)
+        void _calculateSegment(prevWp, newWp, s.profileConfig)
         return s
       })
     },
@@ -163,10 +165,10 @@ export function useRoutePlanner() {
         const idx = s.waypoints.findIndex(w => w.id === wpId)
         if (idx === -1) return s
         if (idx > 0) {
-          void _calculateSegment(s.waypoints[idx - 1], s.waypoints[idx], s.profile)
+          void _calculateSegment(s.waypoints[idx - 1], s.waypoints[idx], s.profileConfig)
         }
         if (idx < s.waypoints.length - 1) {
-          void _calculateSegment(s.waypoints[idx], s.waypoints[idx + 1], s.profile)
+          void _calculateSegment(s.waypoints[idx], s.waypoints[idx + 1], s.profileConfig)
         }
         return s
       })
@@ -188,11 +190,11 @@ export function useRoutePlanner() {
   async function _calculateSegment(
     from: RouteWaypoint,
     to: RouteWaypoint,
-    profile: string,
+    profileConfig: ProfileConfig,
   ): Promise<void> {
     setState(s => ({ ...s, isCalculating: true, calculationError: null }))
     try {
-      const result = await computeRoute([from.latlng, to.latlng], profile)
+      const result = await computeInternalRoute(from.latlng, to.latlng, profileConfig)
       const feature = result.features[0]
       const isFallback = feature?.properties?.fallback === true
 
@@ -223,22 +225,22 @@ export function useRoutePlanner() {
 
   const calculateSegment = useCallback(
     (from: RouteWaypoint, to: RouteWaypoint) => {
-      return _calculateSegment(from, to, state.profile)
+      return _calculateSegment(from, to, state.profileConfig)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.profile],
+    [state.profileConfig],
   )
 
   const recalculateAll = useCallback(async () => {
     let currentWaypoints: RouteWaypoint[] = []
-    let currentProfile = ''
+    let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
     setState(s => {
       currentWaypoints = s.waypoints
-      currentProfile = s.profile
+      currentProfileConfig = s.profileConfig
       return { ...s, segments: [], isCalculating: true, calculationError: null }
     })
     for (let i = 0; i < currentWaypoints.length - 1; i++) {
-      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfile)
+      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig)
     }
     setState(s => ({ ...s, isCalculating: false }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,7 +266,7 @@ export function useRoutePlanner() {
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
         const toWp = s.waypoints.find(w => w.id === seg.to_waypoint)
         if (fromWp && toWp) {
-          void _calculateSegment(fromWp, toWp, s.profile)
+          void _calculateSegment(fromWp, toWp, s.profileConfig)
         }
       }
       segments[segmentIndex] = seg
@@ -275,19 +277,19 @@ export function useRoutePlanner() {
 
   // ── Profile ─────────────────────────────────────────────────────────────────
 
-  const setProfile = useCallback((profile: string) => {
-    setState(s => ({ ...s, profile }))
+  const setProfile = useCallback((profileConfig: ProfileConfig) => {
+    setState(s => ({ ...s, profileConfig }))
   }, [])
 
   const setProfileAndRecalculate = useCallback(
-    async (profile: string) => {
+    async (profileConfig: ProfileConfig) => {
       let currentWaypoints: RouteWaypoint[] = []
       setState(s => {
         currentWaypoints = s.waypoints
-        return { ...s, profile, segments: [], isCalculating: true, calculationError: null }
+        return { ...s, profileConfig, segments: [], isCalculating: true, calculationError: null }
       })
       for (let i = 0; i < currentWaypoints.length - 1; i++) {
-        await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profile)
+        await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profileConfig)
       }
       setState(s => ({ ...s, isCalculating: false }))
     },
@@ -302,10 +304,12 @@ export function useRoutePlanner() {
   // ── Load route into planner ─────────────────────────────────────────────────
 
   const loadRoute = useCallback((route: PlannedRoute) => {
+    // route.profile is a string (BRouter legacy) — derive ProfileConfig from it
+    const profileConfig = getProfileDefaults(route.profile)
     setState({
       waypoints: route.waypoints,
       segments: route.segments,
-      profile: route.profile,
+      profileConfig,
       sportType: route.sport_type,
       isCalculating: false,
       calculationError: null,
@@ -330,7 +334,7 @@ export function useRoutePlanner() {
   const clear = useCallback(() => {
     setState(s => ({
       ...INITIAL_STATE,
-      profile: s.profile,
+      profileConfig: s.profileConfig,
       sportType: s.sportType,
     }))
   }, [])
@@ -342,7 +346,7 @@ export function useRoutePlanner() {
       const payload: Partial<PlannedRoute> = {
         waypoints: state.waypoints,
         segments: state.segments,
-        profile: state.profile,
+        profile: state.profileConfig.profile,
         sport_type: state.sportType,
         total_distance_m: totals.distance_m,
         total_elevation_gain: totals.elevation_gain,
@@ -411,7 +415,8 @@ export function useRoutePlanner() {
     // State
     waypoints: state.waypoints,
     segments: state.segments,
-    profile: state.profile,
+    profileConfig: state.profileConfig,
+    profile: state.profileConfig.profile,   // convenience string alias
     sportType: state.sportType,
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,

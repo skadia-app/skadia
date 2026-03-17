@@ -1,18 +1,8 @@
 import { useState, useCallback } from 'react'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
-
-// BRouter routing profiles — must match validBRouterProfiles in brouter_proxy.go
-const ROUTING_PROFILES = [
-  { value: 'hiking-mountain', label: 'Wandern (Alpin, SAC T1-T3)' },
-  { value: 'hiking-sac2',     label: 'Wandern (SAC T2 max)' },
-  { value: 'cycling-road',    label: 'Rennrad' },
-  { value: 'cycling-mountain', label: 'MTB' },
-  { value: 'cycling-gravel',  label: 'Gravel' },
-  { value: 'trekking',        label: 'Trekking (Rad)' },
-  { value: 'running',         label: 'Laufen' },
-  { value: 'walking',         label: 'Spaziergang' },
-]
+import type { ProfileConfig } from '@/lib/routingProfiles'
+import ProfileEditor from './ProfileEditor'
 
 function formatDistance(m: number): string {
   if (m < 1000) return `${Math.round(m)} m`
@@ -158,7 +148,7 @@ export interface RoutePlannerPanelProps {
   // Current planning state (controlled from parent / MapPage)
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
-  profile: string
+  profileConfig: ProfileConfig
   showHeatmap: boolean
   // Stats (computed by parent from segments)
   totalDistanceM: number
@@ -166,7 +156,7 @@ export interface RoutePlannerPanelProps {
   totalElevationLoss: number
   estimatedTimeMin?: number
   // Callbacks
-  onProfileChange: (profile: string) => void
+  onProfileChange: (config: ProfileConfig) => void
   onRemoveWaypoint: (id: string) => void
   onMoveWaypointUp: (id: string) => void
   onMoveWaypointDown: (id: string) => void
@@ -184,7 +174,7 @@ export interface RoutePlannerPanelProps {
 export default function RoutePlannerPanel({
   waypoints,
   segments,
-  profile,
+  profileConfig,
   showHeatmap,
   totalDistanceM,
   totalElevationGain,
@@ -263,21 +253,11 @@ export default function RoutePlannerPanel({
         {!collapsed && (
           <div className="flex flex-col">
 
-            {/* Profile selector */}
-            <div className="px-3 pt-2.5 pb-2 border-b border-neutral-100 dark:border-neutral-800">
-              <label className="block text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">
-                Profil
-              </label>
-              <select
-                value={profile}
-                onChange={e => onProfileChange(e.target.value)}
-                className="w-full text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent cursor-pointer"
-              >
-                {ROUTING_PROFILES.map(p => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
+            {/* Profile editor */}
+            <ProfileEditor
+              config={profileConfig}
+              onChange={onProfileChange}
+            />
 
             {/* Waypoint list */}
             <div className="px-3 pt-2 pb-1 max-h-56 overflow-y-auto">

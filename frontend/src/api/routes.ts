@@ -1,5 +1,6 @@
 import { apiClient, apiUpload, apiDownload } from './client'
 import type { Tag } from './tags'
+import type { ProfileConfig } from '@/lib/routingProfiles'
 
 // === Types ===
 
@@ -268,6 +269,23 @@ export async function getWaypointsFromActivity(
   activityId: string | number,
 ): Promise<{ waypoints: RouteWaypoint[] }> {
   return apiClient(`/routes/from-activity/${activityId}/waypoints`)
+}
+
+// === Internal Router (FITroute) ===
+
+export async function computeInternalRoute(
+  from: [number, number],
+  to: [number, number],
+  config?: ProfileConfig,
+): Promise<GeoJSON.FeatureCollection> {
+  return apiClient('/routing/route-internal', {
+    method: 'POST',
+    body: {
+      from,
+      to,
+      config: config ?? { profile: 'hiking' },
+    },
+  })
 }
 
 // === Route Suggestion ===
