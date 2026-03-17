@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -97,7 +98,7 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		fileSizeMB = float64(info.Size()) / (1024 * 1024)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"graph_loaded": true,
 		"node_count":   g.NodeCount,
 		"edge_count":   g.EdgeCount,
@@ -105,10 +106,20 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		"bbox":         g.BBox,
 		"version":      g.Version,
 		"file_size_mb": int(fileSizeMB),
-	})
+		"tile_mode":    h.GraphManager.IsTileMode(),
+	}
+
+	if tm := h.GraphManager.TileManager(); tm != nil {
+		resp["tile_count"] = tm.TileCount()
+		resp["tile_cached"] = tm.CachedCount()
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // RouteCalculate computes a route using the internal routing engine.
+// When tile mode is active, routes are computed via the cross-tile A*;
+// otherwise the monolithic in-memory graph is used.
 func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -117,12 +128,18 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	router := h.GraphManager.Router()
-	if router == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "no routing graph loaded",
-		})
-		return
+	useTileMode := h.GraphManager.IsTileMode()
+
+	// In monolithic mode we need a loaded graph; in tile mode we don't.
+	var router *routing.Router
+	if !useTileMode {
+		router = h.GraphManager.Router()
+		if router == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error": "no routing graph loaded",
+			})
+			return
+		}
 	}
 
 	var req struct {
@@ -237,19 +254,38 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	var result *routing.RouteResult
 	var err error
 
-	if len(req.Via) > 0 {
-		waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
-		waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
-		for _, v := range req.Via {
-			waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
+	if useTileMode {
+		// Tile mode: segment-by-segment for via points, single call otherwise.
+		if len(req.Via) > 0 {
+			waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
+			waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
+			for _, v := range req.Via {
+				waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
+			}
+			waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
+			result, err = h.tileRouteVia(ctx, waypoints, cfg)
+		} else {
+			result, err = h.GraphManager.TileRoute(ctx, routing.RouteRequest{
+				FromLat: req.From[0], FromLon: req.From[1],
+				ToLat: req.To[0], ToLon: req.To[1],
+			}, cfg)
 		}
-		waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
-		result, err = router.RouteVia(ctx, waypoints, cfg)
 	} else {
-		result, err = router.Route(ctx, routing.RouteRequest{
-			FromLat: req.From[0], FromLon: req.From[1],
-			ToLat: req.To[0], ToLon: req.To[1],
-		}, cfg)
+		// Monolithic mode.
+		if len(req.Via) > 0 {
+			waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
+			waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
+			for _, v := range req.Via {
+				waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
+			}
+			waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
+			result, err = router.RouteVia(ctx, waypoints, cfg)
+		} else {
+			result, err = router.Route(ctx, routing.RouteRequest{
+				FromLat: req.From[0], FromLon: req.From[1],
+				ToLat: req.To[0], ToLon: req.To[1],
+			}, cfg)
+		}
 	}
 
 	duration := time.Since(start)
@@ -272,7 +308,12 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode := "monolithic"
+	if useTileMode {
+		mode = "tiled"
+	}
 	slog.Info("route computed",
+		"mode", mode,
 		"from", req.From, "to", req.To,
 		"via_count", len(req.Via),
 		"distance_m", result.DistanceM,
@@ -286,4 +327,97 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(result.ToGeoJSON()); err != nil {
 		slog.Warn("route response write failed", "error", err)
 	}
+}
+
+// tileRouteVia routes through multiple waypoints in tile mode by calling
+// TileRoute for each consecutive pair and concatenating the results.
+func (h *Handler) tileRouteVia(ctx context.Context, waypoints []routing.LatLon,
+	cfg *routing.CostConfig) (*routing.RouteResult, error) {
+
+	if len(waypoints) < 2 {
+		return nil, errors.New("need at least 2 waypoints")
+	}
+
+	combined := &routing.RouteResult{}
+	for i := 0; i < len(waypoints)-1; i++ {
+		seg, err := h.GraphManager.TileRoute(ctx, routing.RouteRequest{
+			FromLat: waypoints[i].Lat, FromLon: waypoints[i].Lon,
+			ToLat: waypoints[i+1].Lat, ToLon: waypoints[i+1].Lon,
+		}, cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		// Concatenate, avoiding duplicate junction points.
+		if i > 0 && len(combined.Coordinates) > 0 && len(seg.Coordinates) > 0 {
+			seg.Coordinates = seg.Coordinates[1:]
+		}
+		combined.Coordinates = append(combined.Coordinates, seg.Coordinates...)
+		combined.DistanceM += seg.DistanceM
+		combined.AscentM += seg.AscentM
+		combined.DescentM += seg.DescentM
+		combined.Cost += seg.Cost
+		combined.PassStats.Pass0Expansions += seg.PassStats.Pass0Expansions
+		combined.PassStats.TotalDurationMs += seg.PassStats.TotalDurationMs
+	}
+	return combined, nil
+}
+
+// RebuildRoutingTiles triggers a background tile build from PostGIS data.
+// POST /admin/routing/rebuild-tiles
+func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
+	if h.GraphManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "routing not configured",
+		})
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": "unauthorized",
+		})
+		return
+	}
+
+	graphPath := h.Config.RoutingGraphPath
+	if graphPath == "" {
+		graphPath = "/data/routing/graph.bin"
+	}
+	tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
+
+	entityName := "Routing Tiles"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
+		"tile_build", nil, &entityName, 100)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": "failed to create job",
+		})
+		return
+	}
+
+	bgCtx := context.Background()
+	const tileCacheBytes = 2_500_000_000
+
+	go func() {
+		err := h.GraphManager.RebuildTiles(bgCtx, h.DB.Pool, tileDir, tileCacheBytes,
+			func(tileID uint32, step string, pct int) {
+				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(pct))
+				_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, step)
+			})
+		if err != nil {
+			slog.Error("tile build failed", "error", err, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+		} else {
+			slog.Info("tile build completed", "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+		}
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":   "started",
+		"job_id":   jobID,
+		"tile_dir": tileDir,
+	})
 }
