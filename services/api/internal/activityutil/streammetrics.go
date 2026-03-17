@@ -142,31 +142,6 @@ func CalcRecordingTime(points []model.StreamPoint) int {
 	return int(totalSeconds)
 }
 
-// CorrectAndFillStreams runs the full stream processing pipeline:
-//  1. FixDistanceResets (counter reset repair)
-//  2. CorrectGPSOutliers (spatial spike detection + interpolation)
-//  3. CorrectSpeedOutliers (gradient-aware, sport-specific speed plausibility)
-//  4. FillMissingDistanceAndSpeed (derive from corrected GPS)
-//
-// The cfg parameter allows overriding defaults for testing/tuning.
-// sportType is the FIT sport name (e.g. "cycling", "running") used to select
-// the appropriate speed threshold in CorrectSpeedOutliers.
-func CorrectAndFillStreams(points []model.StreamPoint, cfg CorrectionConfig, sportType string) ([]model.StreamPoint, CorrectionReport) {
-	points = FixDistanceResets(points)
-	points, report := CorrectGPSOutliers(points, cfg)
-
-	// Speed plausibility pass (gradient-aware, sport-specific).
-	// Moves displaced points closer to their predecessors along the bearing,
-	// capping distance to maxAllowed * dt. Single pass is sufficient because
-	// each point is corrected independently relative to its predecessor.
-	speedCfg := DefaultSpeedCorrectionConfig()
-	points, speedReport := CorrectSpeedOutliers(points, sportType, speedCfg)
-	report.CorrectedCount += speedReport.CorrectedCount
-
-	points = FillMissingDistanceAndSpeed(points)
-	return points, report
-}
-
 // HaversineMeters returns the great-circle distance in metres between two
 // WGS-84 coordinate pairs.
 func HaversineMeters(lat1, lng1, lat2, lng2 float64) float64 {

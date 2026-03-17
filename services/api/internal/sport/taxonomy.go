@@ -28,7 +28,6 @@ type SportDef struct {
 	SegmentGroup     string                `json:"segment_group"`
 	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
 	MovingThreshold  float64               `json:"moving_threshold"`
-	MaxSpeedFlat     float64               `json:"max_speed_flat"` // max plausible speed on flat ground (m/s), 0 = use group default
 	SubTypePromotion bool                  `json:"sub_type_promotion"`
 	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
@@ -637,16 +636,6 @@ func MovingThreshold(sportType string) float64 {
 		return 0.0
 	}
 	return d.MovingThreshold
-}
-
-// MaxSpeedFlatForSport returns the maximum plausible flat-ground speed (m/s) for a sport type.
-// Returns 0 if not specifically set (caller should fall back to group default).
-func MaxSpeedFlatForSport(sportType string) float64 {
-	d, ok := registry[sportType]
-	if !ok {
-		return 0
-	}
-	return d.MaxSpeedFlat
 }
 
 // CategoryForSport returns the category for a given sport type.

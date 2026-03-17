@@ -266,9 +266,8 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 	data.MaxHeartRate = maxHR
 
-	var corrReport activityutil.CorrectionReport
-	data.Streams, corrReport = activityutil.CorrectAndFillStreams(streams, activityutil.DefaultCorrectionConfig(), data.SportType)
-	data.GPSCorrectionCount = corrReport.CorrectedCount
+	streams = activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(streams))
+	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
 	data.IsIndoor = !data.HasGPS

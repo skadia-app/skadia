@@ -176,16 +176,12 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 				time, activity_id,
 				lat, lng, altitude_m, speed_ms, distance_m,
 				heart_rate, power_w, cadence, temperature_c,
-				ground_contact_time_ms, vertical_oscillation_mm,
-				stance_time_percent, left_right_balance,
-				raw_lat, raw_lng
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+				ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 			s.Time, activityID,
 			s.Lat, s.Lng, s.AltitudeM, s.SpeedMS, s.DistanceM,
 			s.HeartRate, s.PowerW, s.Cadence, s.TemperatureC,
-			s.GroundContactTimeMs, s.VerticalOscillationMm,
-			s.StanceTimePercent, s.LeftRightBalance,
-			s.RawLat, s.RawLng,
+			s.GroundContactTimeMs, s.VerticalOscillationMm, s.StanceTimePercent, s.LeftRightBalance,
 		)
 	}
 
@@ -326,8 +322,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.fusion_sources,
 			a.garmin_activity_id, a.strava_activity_id, a.komoot_tour_id,
 		a.sport_conflict_pending,
-		iq.metadata AS sport_conflict_meta,
-		a.gps_corrections_count
+		iq.metadata AS sport_conflict_meta
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -367,7 +362,6 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.GarminActivityID, &a.StravaActivityID, &a.KomootTourID,
 		&a.SportConflictPending,
 		&sportConflictMeta,
-		&a.GPSCorrectionsCount,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -886,8 +880,7 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 	rows, err := db.Pool.Query(ctx, `
 		SELECT time, lat, lng, altitude_m, speed_ms, distance_m,
 			heart_rate, power_w, cadence, temperature_c,
-			ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance,
-			raw_lat, raw_lng
+			ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC`,
@@ -905,7 +898,6 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.Time, &s.Lat, &s.Lng, &s.AltitudeM, &s.SpeedMS, &s.DistanceM,
 			&s.HeartRate, &s.PowerW, &s.Cadence, &s.TemperatureC,
 			&s.GroundContactTimeMs, &s.VerticalOscillationMm, &s.StanceTimePercent, &s.LeftRightBalance,
-			&s.RawLat, &s.RawLng,
 		); err != nil {
 			return nil, fmt.Errorf("scan stream: %w", err)
 		}
