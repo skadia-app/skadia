@@ -2573,73 +2573,31 @@ func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]mod
 	return activities, nil
 }
 
-// GetAutoTags returns all tags where is_auto=true for a user.
-func (db *DB) GetAutoTags(ctx context.Context, userID string) ([]model.Tag, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng
-		FROM tags
-		WHERE user_id = $1 AND is_auto = true
-		ORDER BY name ASC`,
-		userID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get auto tags: %w", err)
-	}
-	defer rows.Close()
-
-	var tags []model.Tag
-	for rows.Next() {
-		var t model.Tag
-		if err := rows.Scan(
-			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-			&t.ConditionGroups, &t.ConditionsLogic,
-			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng,
-		); err != nil {
-			return nil, fmt.Errorf("scan auto tag: %w", err)
-		}
-		tags = append(tags, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("get auto tags: %w", err)
-	}
-	if tags == nil {
-		tags = []model.Tag{}
-	}
-	return tags, nil
-}
-
-// SeedDefaultAutoTags creates the default autotag definitions if they don't exist.
-func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
-	nachtConditions := []byte(`{"operator":"AND","rules":[{"field":"time_of_day","op":"contains","value":"nacht"}]}`)
-	frostConditions := []byte(`{"operator":"AND","rules":[{"field":"min_temperature_c","op":"lte","value":0},{"field":"avg_temperature_c","op":"lte","value":0}]}`)
+// SeedSystemDefaults creates the default system tags and automation rules for a new user.
+func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
 	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
 
-	// Custom auto-tags
+	// System tags (is_auto=false — now driven by automation rules, not the old autotag engine)
 	seeds := []struct {
 		name, color, textColor string
-		conditions             []byte
 		desc                   string
 	}{
-		{"Nacht", "#1E293B", "#E2E8F0", nachtConditions, nachtDesc},
-		{"Frost", "#38BDF8", "#0C4A6E", frostConditions, frostDesc},
+		{"Nacht", "#1E293B", "#E2E8F0", nachtDesc},
+		{"Frost", "#38BDF8", "#0C4A6E", frostDesc},
 	}
 	for _, s := range seeds {
 		if _, err := db.Pool.Exec(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, conditions, description)
-			VALUES ($1, $2, $3, $4, true, true, $5, $6)
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+			VALUES ($1, $2, $3, $4, true, false, $5)
 			ON CONFLICT (user_id, name) DO NOTHING`,
-			userID, s.name, s.color, s.textColor, s.conditions, s.desc,
+			userID, s.name, s.color, s.textColor, s.desc,
 		); err != nil {
-			return fmt.Errorf("seed %s autotag: %w", s.name, err)
+			return fmt.Errorf("seed %s tag: %w", s.name, err)
 		}
 	}
 
-	// Rundtour — trigger-managed (like E-Bike), NOT an autotag
+	// Rundtour — rule-managed (set_field + add_tag via automation rule)
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
 		VALUES ($1, 'Rundtour', '#10B981', '#FFFFFF', true, false, 'Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)')
@@ -2670,8 +2628,7 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 		}
 	}
 
-	// E-Bike system tag (no conditions — synced via DB trigger with is_ebike column).
-	// is_auto=false prevents reprocessTags from stripping it as an "unmatched auto-tag".
+	// E-Bike system tag (no conditions — synced via automation rule with is_ebike column).
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
 		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_ebike)')
@@ -2681,16 +2638,53 @@ func (db *DB) SeedDefaultAutoTags(ctx context.Context, userID string) error {
 		return fmt.Errorf("seed E-Bike tag: %w", err)
 	}
 
-	// First: Migrate existing tags from activities.tags TEXT[] to tags table
+	// Migrate existing tags from activities.tags TEXT[] to tags table
 	// This ensures all previously used tags appear in the Tags overview
 	if err := db.migrateExistingTagsToTable(ctx, userID); err != nil {
 		slog.Warn("seed: migrate existing tags failed (non-fatal)", "user_id", userID, "error", err)
 	}
 
-	// Auto-migrate any tag conditions to automation rules (idempotent: conditions cleared after migration)
-	if _, err := db.MigrateTagConditionsToRules(ctx, userID); err != nil {
-		slog.Warn("seed: auto-migrate tag conditions failed (non-fatal)", "user_id", userID, "error", err)
+	// System automation rules for new users
+	// (existing users get them via migration 000176)
+	type tagRule struct {
+		tagName    string
+		systemType string
+		priority   int
+		conditions string
 	}
+	tagRules := []tagRule{
+		{"Rundtour", "round_trip", -99, `[{"field":"start_end_distance_m","op":"lte","value":500}]`},
+		{"Frost", "frost", -98, `[{"field":"min_temperature_c","op":"lte","value":0}]`},
+		{"Nacht", "nacht", -97, `[{"field":"sun_elevation","op":"lte","value":-6}]`},
+	}
+	for _, tr := range tagRules {
+		var tagID string
+		err := db.Pool.QueryRow(ctx,
+			`SELECT id FROM tags WHERE user_id = $1 AND name = $2 AND is_system = true`,
+			userID, tr.tagName,
+		).Scan(&tagID)
+		if err != nil {
+			continue
+		}
+		var actions string
+		switch tr.tagName {
+		case "Rundtour":
+			actions = fmt.Sprintf(`[{"action":"add_tag","params":{"tag_id":"%s"}},{"action":"set_field","params":{"field":"is_round_trip","value":true}}]`, tagID)
+		default:
+			actions = fmt.Sprintf(`[{"action":"add_tag","params":{"tag_id":"%s"}}]`, tagID)
+		}
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
+			VALUES ($1, $2, true, $3, true, $4, $5::jsonb, 'and', $6::jsonb)
+			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
+			userID, tr.tagName, tr.systemType, tr.priority, tr.conditions, actions)
+	}
+	// E-Bike rule (no conditions/actions — handled by import pipeline)
+	_, _ = db.Pool.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
+		VALUES ($1, 'E-Bike', true, 'ebike_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
+		userID)
 
 	return nil
 }
@@ -3227,103 +3221,6 @@ func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model
 		climbs = []model.Climb{}
 	}
 	return climbs, rows.Err()
-}
-
-// MigrateTagConditionsToRules converts tag auto-conditions into automation rules.
-// Handles both the new flat-array format AND the old autotag object format
-// {"operator":"AND/OR","rules":[{"field":"...","op":"...","value":...}]}.
-func (db *DB) MigrateTagConditionsToRules(ctx context.Context, userID string) (int, error) {
-	// Use a broad filter: any tag that has non-null, non-trivial conditions or condition_groups.
-	// We avoid jsonb_array_length because conditions may be a JSON object (autotag format), not an array.
-	rows, err := db.Pool.Query(ctx,
-		`SELECT id, name, conditions, conditions_logic, condition_groups
-		 FROM tags
-		 WHERE user_id = $1
-		   AND (
-		     (conditions IS NOT NULL AND conditions::text NOT IN ('null','[]','{}',''))
-		     OR (condition_groups IS NOT NULL AND condition_groups::text NOT IN ('null','[]','{}',''))
-		   )`,
-		userID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("load tags for migration: %w", err)
-	}
-	defer rows.Close()
-
-	type tagRow struct {
-		id              string
-		name            string
-		conditions      json.RawMessage
-		conditionsLogic string
-		conditionGroups json.RawMessage
-	}
-	var tags []tagRow
-	for rows.Next() {
-		var t tagRow
-		if err := rows.Scan(&t.id, &t.name, &t.conditions, &t.conditionsLogic, &t.conditionGroups); err != nil {
-			continue
-		}
-		tags = append(tags, t)
-	}
-	if rowsErr := rows.Err(); rowsErr != nil {
-		rows.Close()
-		return 0, fmt.Errorf("load tags for migration: %w", rowsErr)
-	}
-	rows.Close()
-
-	count := 0
-	for _, tag := range tags {
-		action := map[string]any{
-			"action": "add_tag",
-			"params": map[string]any{"tag_id": tag.id},
-		}
-		actionsJSON, _ := json.Marshal([]any{action})
-
-		conditions := tag.conditions
-		condLogic := tag.conditionsLogic
-		if condLogic == "" {
-			condLogic = "and"
-		}
-
-		// Detect and unwrap old autotag format: {"operator":"AND/OR","rules":[...]}
-		// The new rules engine expects a flat JSON array of conditions.
-		if len(conditions) > 0 && conditions[0] == '{' {
-			var autoFmt struct {
-				Operator string          `json:"operator"`
-				Rules    json.RawMessage `json:"rules"`
-			}
-			if jsonErr := json.Unmarshal(conditions, &autoFmt); jsonErr == nil && len(autoFmt.Rules) >= 2 {
-				conditions = autoFmt.Rules
-				if autoFmt.Operator != "" {
-					condLogic = strings.ToLower(autoFmt.Operator)
-				}
-			}
-		}
-		if len(conditions) == 0 {
-			conditions = json.RawMessage(`[]`)
-		}
-
-		ruleName := "Auto: " + tag.name
-		_, err := db.Pool.Exec(ctx,
-			`INSERT INTO automation_rules (user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions)
-			 VALUES ($1, $2, true, 0, $3, $4, $5, $6)
-			 ON CONFLICT DO NOTHING`,
-			userID, ruleName, conditions, condLogic, tag.conditionGroups, actionsJSON,
-		)
-		if err != nil {
-			slog.Warn("migrate tag condition: insert rule failed", "tag_id", tag.id, "error", err)
-			continue
-		}
-		_, err = db.Pool.Exec(ctx,
-			`UPDATE tags SET conditions = NULL, condition_groups = NULL, conditions_logic = 'and' WHERE id = $1`,
-			tag.id,
-		)
-		if err != nil {
-			slog.Warn("migrate tag condition: clear tag conditions failed", "tag_id", tag.id, "error", err)
-		}
-		count++
-	}
-	return count, nil
 }
 
 // DeleteOrphanTag removes a tag name from all activities.tags TEXT[] for a user.

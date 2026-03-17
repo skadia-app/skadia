@@ -825,7 +825,7 @@ func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.SeedDefaultAutoTags(r.Context(), userID); err != nil {
+	if err := h.DB.SeedSystemDefaults(r.Context(), userID); err != nil {
 		slog.Error("seed default tags failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to seed default tags", r.URL.Path)
 		return
