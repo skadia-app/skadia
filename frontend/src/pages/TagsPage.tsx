@@ -612,7 +612,17 @@ export default function TagsPage() {
   const mergeMut = useMutation({
     mutationFn: ({ targetId, sourceId }: { targetId: string; sourceId: string }) =>
       mergeTags(targetId, sourceId),
-    onSuccess: (survivingTag) => {
+    onSuccess: (result) => {
+      if (result && 'status' in result && result.status === 'conflict') {
+        setMergeError(
+          result.reason === 'source_is_system'
+            ? 'System-Tags können nicht als Quell-Tag fusioniert werden.'
+            : 'Dieser Tag wird von einer Automatisierungsregel referenziert. Entferne oder ändere zuerst die Regel.'
+        )
+        setMergeSuccess(null)
+        return
+      }
+      const survivingTag = result as Tag
       queryClient.invalidateQueries({ queryKey: ['tags'] })
       setMergeSuccess(`Tags fusioniert. "${survivingTag.name}" bleibt bestehen.`)
       setMergeSourceId('')
