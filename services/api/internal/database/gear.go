@@ -860,7 +860,7 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 
 // --- Automation Rules ---
 
-const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at`
+const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type`
 
 func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 	var r model.AutomationRule
@@ -868,6 +868,7 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.IsSystem, &r.SystemType,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -895,6 +896,7 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 			&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 			&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 			&r.Actions, &r.TimesApplied, &r.CreatedAt,
+			&r.IsSystem, &r.SystemType,
 		); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
@@ -924,6 +926,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.IsSystem, &r.SystemType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
@@ -932,6 +935,21 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 }
 
 func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
+	// Server-side guard: ebike_sync rules are fully read-only
+	var sysType *string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT system_type FROM automation_rules WHERE id = $1 AND user_id = $2`,
+		id, userID,
+	).Scan(&sysType); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if sysType != nil && *sysType == "ebike_sync" {
+		return nil, fmt.Errorf("e-bike system rule is read-only")
+	}
+
 	var sets []string
 	var args []any
 	argIdx := 1
@@ -995,6 +1013,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.IsSystem, &r.SystemType,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1006,6 +1025,21 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 }
 
 func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
+	// Server-side guard: system rules cannot be deleted
+	var isSystem bool
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT is_system FROM automation_rules WHERE id = $1 AND user_id = $2`,
+		id, userID,
+	).Scan(&isSystem); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("rule not found")
+		}
+		return err
+	}
+	if isSystem {
+		return fmt.Errorf("system rules cannot be deleted")
+	}
+
 	tag, err := db.Pool.Exec(ctx, `DELETE FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete rule: %w", err)
