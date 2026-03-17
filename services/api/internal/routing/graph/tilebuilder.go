@@ -118,17 +118,26 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 	}
 	slog.Info("discovered tiles", "count", len(tileIDs))
 
+	// Report total tile count for progress tracking.
+	if progressFn != nil {
+		progressFn(0, "discovering", len(tileIDs))
+	}
+
 	var results []TileBuildResult
 	for i, tileID := range tileIDs {
 		tilePath := TileFilePath(outputDir, tileID)
 		if info, err := os.Stat(tilePath); err == nil && info.Size() > 0 {
 			slog.Info("tile already exists, skipping", "tile_id", tileID, "path", tilePath)
+			// Report skipped tile as complete for progress.
+			if progressFn != nil {
+				progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), 100)
+			}
 			continue
 		}
 		slog.Info("building tile", "tile_id", tileID, "index", i+1, "total", len(tileIDs))
 		result, err := BuildTile(ctx, pool, tileID, outputDir, func(step string, pct int) {
 			if progressFn != nil {
-				progressFn(tileID, step, pct)
+				progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), pct)
 			}
 		})
 		if err != nil {

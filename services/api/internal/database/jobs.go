@@ -50,6 +50,15 @@ func (db *DB) UpdateBackgroundJobProgress(ctx context.Context, jobID string, cur
 	return err
 }
 
+// UpdateBackgroundJobTotal updates the progress_total for a running job.
+func (db *DB) UpdateBackgroundJobTotal(ctx context.Context, jobID string, total int64) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`,
+		total, jobID,
+	)
+	return err
+}
+
 // CompleteBackgroundJob setzt status auf 'completed' oder 'failed' und trägt finished_at ein.
 // Erzeugt zusätzlich eine Notification für den User (best-effort).
 func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool) error {
@@ -112,6 +121,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"dem_import":              "Höhenmodell importieren",
 		"apply_rules":             "Regeln anwenden",
 		"routing_graph_build":     "Routing-Graph erstellen",
+		"tile_build":              "Routing-Tiles erstellen",
 		"weather_backfill":        "Wetter-Backfill",
 	}
 	label := labels[jobType]

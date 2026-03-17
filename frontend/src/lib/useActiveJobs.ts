@@ -16,6 +16,7 @@ const jobTypeLabels: Record<string, string> = {
   photo_clip_embed:        'Foto-Indexierung',
   phash_backfill:          'pHash-Berechnung',
   recompute_multisport:    'Multisport-Neuberechnung',
+  tile_build:              'Routing-Tiles erstellen',
 }
 
 export type { ActiveJob }

@@ -388,8 +388,9 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
 
 	entityName := "Routing Tiles"
+	// progress_total = 0 initially; updated to tile count after discovery.
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
-		"tile_build", nil, &entityName, 100)
+		"tile_build", nil, &entityName, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"error": "failed to create job",
@@ -401,10 +402,17 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	const tileCacheBytes = 2_500_000_000
 
 	go func() {
+		var tilesBuilt int64
 		err := h.GraphManager.RebuildTiles(bgCtx, h.DB.Pool, tileDir, tileCacheBytes,
 			func(tileID uint32, step string, pct int) {
-				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(pct))
-				_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, step)
+				if step == "discovering" {
+					// pct holds total tile count during discovery phase.
+					_ = h.DB.UpdateBackgroundJobTotal(bgCtx, jobID, int64(pct))
+				} else if pct == 100 {
+					// Tile completed.
+					tilesBuilt++
+					_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, tilesBuilt)
+				}
 			})
 		if err != nil {
 			slog.Error("tile build failed", "error", err, "job_id", jobID)
