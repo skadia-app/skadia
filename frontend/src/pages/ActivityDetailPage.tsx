@@ -757,6 +757,8 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const [reprocessScopeOpen, setReprocessScopeOpen] = useState(false)
   const [smoothing, setSmoothing] = useState<'idle' | 'smoothing' | 'resetting'>('idle')
   const [smoothPopover, setSmoothPopover] = useState(false)
+  // Default matches backend DefaultSpeedSmoothingWindow (half-radius).
+  // Slider range 1-3 → total window 3s/5s/7s (always odd for clean median).
   const [smoothWindow, setSmoothWindow] = useState(2)
   const smoothRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
