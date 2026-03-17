@@ -71,6 +71,25 @@ func Serialize(g *Graph, path string) error {
 		sections = append(sections, sectionData{SectionEdgeElevProf, int32SliceToBytes(g.EdgeElevProf)})
 	}
 
+	// v3 tile sections
+	if g.TileID > 0 {
+		tileMetaBuf := make([]byte, 4)
+		le.PutUint32(tileMetaBuf, g.TileID)
+		sections = append(sections, sectionData{SectionTileMeta, tileMetaBuf})
+	}
+	if g.BorderIndex != nil && len(g.BorderIndex.Entries) > 0 {
+		sections = append(sections, sectionData{SectionBorderNodeIndex, g.BorderIndex.Serialize()})
+	}
+	if len(g.IsBorder) > 0 {
+		packed := make([]byte, len(g.IsBorder))
+		for i, b := range g.IsBorder {
+			if b {
+				packed[i] = 1
+			}
+		}
+		sections = append(sections, sectionData{SectionIsBorder, packed})
+	}
+
 	sectionCnt := uint16(len(sections))
 	dirSize := int(sectionCnt) * 12
 
@@ -269,6 +288,24 @@ func Deserialize(path string) (*Graph, error) {
 		g.EdgeElevProf = bytesToInt32Slice(d)
 	}
 
+	// v3 tile sections
+	if d, ok := findSection(SectionTileMeta); ok && len(d) >= 4 {
+		g.TileID = le.Uint32(d[:4])
+	}
+	if d, ok := findSection(SectionBorderNodeIndex); ok {
+		idx, err := DeserializeBorderNodeIndex(d)
+		if err != nil {
+			return nil, fmt.Errorf("border node index: %w", err)
+		}
+		g.BorderIndex = idx
+	}
+	if d, ok := findSection(SectionIsBorder); ok {
+		g.IsBorder = make([]bool, len(d))
+		for i, b := range d {
+			g.IsBorder[i] = b != 0
+		}
+	}
+
 	return g, nil
 }
 
@@ -416,6 +453,25 @@ func DeserializeMmap(path string) (*Graph, error) {
 	// if d, ok := findSection(SectionEdgeGeomLon); ok { g.EdgeGeomLon = mmapInt32Slice(d) }
 	// if d, ok := findSection(SectionEdgeElevProf); ok { g.EdgeElevProf = mmapInt32Slice(d) }
 	// if d, ok := findSection(SectionEdgeOSMIdx); ok { g.EdgeOSMIdx = mmapUint32Slice(d) }
+
+	// v3 tile sections
+	if d, ok := findSection(SectionTileMeta); ok && len(d) >= 4 {
+		g.TileID = le.Uint32(d[:4])
+	}
+	if d, ok := findSection(SectionBorderNodeIndex); ok {
+		idx, err := DeserializeBorderNodeIndex(d)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("border node index: %w", err)
+		}
+		g.BorderIndex = idx
+	}
+	if d, ok := findSection(SectionIsBorder); ok {
+		g.IsBorder = make([]bool, len(d))
+		for i, b := range d {
+			g.IsBorder[i] = b != 0
+		}
+	}
 
 	runtime.SetFinalizer(g, (*Graph).closeMmap)
 

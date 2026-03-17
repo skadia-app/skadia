@@ -40,6 +40,10 @@ type Graph struct {
 	// Spatial index for nearest-node lookups.
 	Grid *SpatialGrid
 
+	// Tile border data (tiled graph engine).
+	BorderIndex *BorderNodeIndex
+	IsBorder    []bool
+
 	// Metadata.
 	TileID    uint32
 	NodeCount uint32
@@ -112,6 +116,8 @@ const (
 	SectionEdgeElevProf uint16 = 17
 	// v3 sections (tiled graph engine)
 	SectionBorderNodeIndex uint16 = 18
+	SectionTileMeta        uint16 = 19
+	SectionIsBorder        uint16 = 20
 )
 
 // OutDegree returns the number of outgoing edges for node i.
