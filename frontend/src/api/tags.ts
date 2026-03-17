@@ -202,12 +202,16 @@ export async function clearTagCoverImage(tagId: string): Promise<Tag> {
   return normaliseTag(tag)
 }
 
-export async function mergeTags(targetId: string, sourceId: string): Promise<Tag> {
-  const tag = await apiClient<Tag>(`/tags/${targetId}/merge`, {
+export async function mergeTags(targetId: string, sourceId: string): Promise<Tag | { status: string; reason?: string }> {
+  const result = await apiClient<Tag | { status: string; reason?: string }>(`/tags/${targetId}/merge`, {
     method: 'POST',
     body: { source_tag_id: sourceId },
   })
-  return normaliseTag(tag)
+  // If the response is a conflict result, return it as-is
+  if (result && 'status' in result && (result as { status: string }).status === 'conflict') {
+    return result as { status: string; reason?: string }
+  }
+  return normaliseTag(result as Tag)
 }
 
 export async function unassignActivitiesFromTag(tagId: string, activityIds: string[]): Promise<void> {
