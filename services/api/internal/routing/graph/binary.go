@@ -441,20 +441,24 @@ func DeserializeMmap(path string) (*Graph, error) {
 	if d, ok := findSection(SectionEdgeGeomOff); ok {
 		g.EdgeGeomOff = bytesToUint32Slice(d)
 	}
+	// Cold sections — zero-copy mmap slices (NOT copied to Go heap).
+	// These are large arrays (EdgeGeomLat/Lon ~1+ GB, EdgeElevProf ~500 MB)
+	// used only during retrack (route display). Keeping them in the mmap region
+	// avoids heap pressure and OOM. The OS page cache manages their residency.
 	if d, ok := findSection(SectionEdgeGeomLat); ok {
-		g.EdgeGeomLat = bytesToInt32Slice(d)
+		g.EdgeGeomLat = mmapInt32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeGeomLon); ok {
-		g.EdgeGeomLon = bytesToInt32Slice(d)
+		g.EdgeGeomLon = mmapInt32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeElevOff); ok {
-		g.EdgeElevOff = bytesToUint32Slice(d)
+		g.EdgeElevOff = mmapUint32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeElevProf); ok {
-		g.EdgeElevProf = bytesToInt32Slice(d)
+		g.EdgeElevProf = mmapInt32Slice(d)
 	}
 	if d, ok := findSection(SectionEdgeOSMIdx); ok {
-		g.EdgeOSMIdx = bytesToUint32Slice(d)
+		g.EdgeOSMIdx = mmapUint32Slice(d)
 	}
 
 	// v3 tile sections
