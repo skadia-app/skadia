@@ -87,8 +87,9 @@ export async function updateActivity(id: string, data: Partial<Pick<Activity, 't
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
-export async function reprocessActivity(id: string): Promise<Activity | { job_id: string }> {
-  return apiClient<Activity | { job_id: string }>(`/activities/${id}/recompute`, { method: 'POST' })
+export async function reprocessActivity(id: string, scope?: string[]): Promise<Activity | { job_id: string }> {
+  const params = scope?.length ? '?' + scope.map(s => `scope=${s}`).join('&') : ''
+  return apiClient<Activity | { job_id: string }>(`/activities/${id}/recompute${params}`, { method: 'POST' })
 }
 
 export interface ReprocessFilter {

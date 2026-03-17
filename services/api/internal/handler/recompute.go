@@ -109,7 +109,16 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID, nil); err != nil {
+	// Parse optional scope from query string: ?scope=speed_smooth&scope=streams
+	var scope map[string]bool
+	if scopes := r.URL.Query()["scope"]; len(scopes) > 0 {
+		scope = make(map[string]bool, len(scopes))
+		for _, s := range scopes {
+			scope[s] = true
+		}
+	}
+
+	if err := h.reprocessActivity(r.Context(), id, userID, scope); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
