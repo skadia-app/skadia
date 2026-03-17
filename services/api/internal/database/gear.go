@@ -935,6 +935,13 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
 	}
+	// Refresh has_automation for all tags of this user
+	db.Pool.Exec(ctx, `
+		UPDATE tags t SET has_automation = EXISTS (
+			SELECT 1 FROM automation_rules ar
+			WHERE ar.user_id = t.user_id AND ar.is_active = true
+			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
 
@@ -1025,6 +1032,13 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	if err != nil {
 		return nil, fmt.Errorf("update rule: %w", err)
 	}
+	// Refresh has_automation for all tags of this user
+	db.Pool.Exec(ctx, `
+		UPDATE tags t SET has_automation = EXISTS (
+			SELECT 1 FROM automation_rules ar
+			WHERE ar.user_id = t.user_id AND ar.is_active = true
+			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
 
@@ -1051,6 +1065,13 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("rule not found")
 	}
+	// Refresh has_automation for all tags of this user
+	db.Pool.Exec(ctx, `
+		UPDATE tags t SET has_automation = EXISTS (
+			SELECT 1 FROM automation_rules ar
+			WHERE ar.user_id = t.user_id AND ar.is_active = true
+			  AND ar.actions::text LIKE '%"tag_id":"' || t.id::text || '"%'
+		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return nil
 }
 
