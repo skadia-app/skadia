@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillWeather, backfillEnrichment } from '@/api/enrichment'
 import { ApiError } from '@/api/client'
 import type { EnrichmentSettings } from '@/api/types'
+import { useToast } from '@/lib/toast'
 
 // Welche Features sind bereits implementiert vs. geplant
 type FeatureStatus = 'available' | 'planned'
@@ -69,6 +70,7 @@ const THRESHOLDS: { key: keyof EnrichmentSettings; label: string; unit: string; 
 
 export default function EnrichmentSettingsPage() {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   // Track which key is currently being saved to avoid blocking unrelated toggles
   const [pendingKey, setPendingKey] = useState<keyof EnrichmentSettings | null>(null)
 
@@ -88,7 +90,22 @@ export default function EnrichmentSettingsPage() {
     },
   })
 
-  const weatherMut = useMutation({ mutationFn: backfillWeather })
+  const weatherMut = useMutation({
+    mutationFn: backfillWeather,
+    onError: (error: unknown) => {
+      const message = error instanceof ApiError
+        ? (error.body || error.message || 'Unbekannter Fehler')
+        : error instanceof Error
+          ? error.message
+          : 'Unbekannter Fehler'
+      addToast({
+        type: 'error',
+        title: 'Wetter-Backfill fehlgeschlagen',
+        message,
+        duration: 0,
+      })
+    },
+  })
   const enrichMut = useMutation({ mutationFn: backfillEnrichment })
 
   // BUGFIX: Always send the full settings object merged with the change.
