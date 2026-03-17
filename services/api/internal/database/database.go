@@ -196,6 +196,32 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 	return nil
 }
 
+// UpdateStreamSpeeds writes smoothed speed_ms values back to activity_streams.
+// Only updates points where SpeedMS is non-nil.
+func (db *DB) UpdateStreamSpeeds(ctx context.Context, activityID string, streams []model.StreamPoint) error {
+	batch := &pgx.Batch{}
+	for _, s := range streams {
+		if s.SpeedMS == nil {
+			continue
+		}
+		batch.Queue(
+			`UPDATE activity_streams SET speed_ms = $1 WHERE activity_id = $2 AND time = $3`,
+			*s.SpeedMS, activityID, s.Time,
+		)
+	}
+	if batch.Len() == 0 {
+		return nil
+	}
+	br := db.Pool.SendBatch(ctx, batch)
+	defer br.Close()
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("update stream speed at index %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []model.TrackPoint) error {
 	if len(trackPoints) < 2 {
 		return nil

@@ -17,13 +17,14 @@ export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = {
 }
 
 export const REPROCESS_SCOPES = [
-  ['streams',    'Streams & Track'],
-  ['sensors',    'Sensoren'],
-  ['metrics',    'Metriken'],
-  ['details',    'Runden/Splits'],
-  ['segments',   'Segmente & Runden'],
-  ['sport_type', 'Sportart'],
-  ['tags',       'Tags'],
+  ['streams',      'Streams & Track'],
+  ['sensors',      'Sensoren'],
+  ['metrics',      'Metriken'],
+  ['details',      'Runden/Splits'],
+  ['segments',     'Segmente & Runden'],
+  ['sport_type',   'Sportart'],
+  ['tags',         'Tags'],
+  ['speed_smooth', 'Geschwindigkeit glätten'],
 ] as const
 
 type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0] | GeoScopeKey

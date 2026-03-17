@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -308,6 +309,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doDetails := allScope || scope["details"]
 	doSegments := allScope || scope["segments"]
 	doGeo := allScope || scope["geo"]
+	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -515,6 +517,23 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		for _, segID := range affectedSegIDs {
 			if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
 				slog.Warn("reprocess: update segment ranks failed", "segment_id", segID, "error", err)
+			}
+		}
+	}
+
+	// 8d. Speed smoothing — opt-in only (not part of "all").
+	// Loads existing streams, applies a moving average to speed_ms, and writes
+	// the smoothed values back. Does not re-parse the original file.
+	if doSpeedSmooth {
+		streamPts, sErr := h.DB.GetStreamPoints(ctx, activityID)
+		if sErr != nil {
+			slog.Error("reprocess: load streams for speed smoothing failed", "id", activityID, "error", sErr)
+		} else if len(streamPts) >= 3 {
+			streamPts = activityutil.SmoothSpeed(streamPts, activityutil.DefaultSpeedSmoothingWindow)
+			if err := h.DB.UpdateStreamSpeeds(ctx, activityID, streamPts); err != nil {
+				slog.Error("reprocess: update smoothed speeds failed", "id", activityID, "error", err)
+			} else {
+				slog.Info("reprocess: speed smoothing applied", "activity_id", activityID, "window", activityutil.DefaultSpeedSmoothingWindow)
 			}
 		}
 	}
