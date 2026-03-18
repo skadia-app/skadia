@@ -451,7 +451,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) 
 			if trafficWeight > 0 {
 				trafficClass := graph.DecodeTrafficClass(tags2)
 				if trafficClass > 0 { // 0 = no data
-					trafficAdd = float32(trafficClass) / 3.0 * trafficWeight // max +1.0
+					trafficAdd = float32(trafficClass) / 6.0 * trafficWeight // max +1.0 (6 classes now, was 3)
 				}
 			}
 			if protectedWeight > 0 {
