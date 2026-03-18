@@ -52,6 +52,8 @@ function JobRow({ job }: { job: ActiveJob }) {
     routing_graph_build:     'Routing-Graph erstellen',
     weather_backfill:        'Wetter-Daten nachfüllen',
     tile_build:              'Routing-Tiles erstellen',
+    brouter_segment_build:   'BRouter-Segmente erstellen',
+    brouter_segment_download: 'BRouter-Segmente herunterladen',
   }
 
   const label = job.job_type === 'segment_recompute'
@@ -129,20 +131,23 @@ function JobRow({ job }: { job: ActiveJob }) {
           )}
         </p>
 
-        {/* OSM-Import: Phasen-Anzeige */}
+        {/* OSM-Import/Enrichment: Phasen-Anzeige */}
         {isOSMJob && job.status === 'running' && (
           <>
             {phaseLabel && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{phaseLabel}</p>
             )}
+            {enrichmentSubLabel && (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{enrichmentSubLabel}</p>
+            )}
             <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
               {formatElapsed(job.started_at)}
             </p>
-            {downloadPct !== null ? (
+            {(downloadPct !== null || pct !== null) ? (
               <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
-                  style={{ width: `${downloadPct}%` }}
+                  style={{ width: `${downloadPct ?? pct}%` }}
                 />
               </div>
             ) : (

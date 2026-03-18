@@ -71,9 +71,9 @@ function buildSegmentFromFeature(
     geometry: feature?.geometry as GeoJSON.LineString | undefined,
     control_points: isFallback ? [from.latlng, to.latlng] : [],
     smooth: false,
-    distance_m: (feature?.properties?.['track-length'] as number) ?? 0,
-    elevation_gain: (feature?.properties?.['filtered ascend'] as number) ?? 0,
-    elevation_loss: (feature?.properties?.['filtered descend'] as number) ?? 0,
+    distance_m: Number(feature?.properties?.['track-length']) || 0,
+    elevation_gain: Number(feature?.properties?.['filtered ascend']) || 0,
+    elevation_loss: Number(feature?.properties?.['filtered descend']) || 0,
   }
 }
 
