@@ -57,3 +57,73 @@ func TestRasterizePolygonMax(t *testing.T) {
 		t.Errorf("edge area should be 1, got %d", edge)
 	}
 }
+
+func TestRasterizeTriangle(t *testing.T) {
+	bbox := orb.Bound{Min: orb.Point{0, 0}, Max: orb.Point{1, 1}}
+	g := NewGrid(bbox, 1120.0)
+	tri := orb.Polygon{orb.Ring{
+		{0.2, 0.2}, {0.8, 0.2}, {0.5, 0.8}, {0.2, 0.2},
+	}}
+	RasterizePolygon(g, tri, 1)
+	inside := g.SamplePoint(orb.Point{0.5, 0.4})
+	if inside != 1 {
+		t.Errorf("inside triangle should be filled, got %d", inside)
+	}
+	outside := g.SamplePoint(orb.Point{0.1, 0.7})
+	if outside != 0 {
+		t.Errorf("outside triangle should be empty, got %d", outside)
+	}
+}
+
+func TestRasterizeEmptyPolygon(t *testing.T) {
+	bbox := orb.Bound{Min: orb.Point{0, 0}, Max: orb.Point{1, 1}}
+	g := NewGrid(bbox, 1120.0)
+	// Empty polygon — should not panic
+	RasterizePolygon(g, orb.Polygon{}, 1)
+	// Too-small ring
+	RasterizePolygon(g, orb.Polygon{orb.Ring{{0.5, 0.5}, {0.5, 0.5}}}, 1)
+}
+
+func TestRasterizeOverlappingPolygons(t *testing.T) {
+	bbox := orb.Bound{Min: orb.Point{0, 0}, Max: orb.Point{1, 1}}
+	g := NewGrid(bbox, 1120.0)
+	// Two overlapping squares — second should overwrite
+	p1 := orb.Polygon{orb.Ring{{0.2, 0.2}, {0.6, 0.2}, {0.6, 0.6}, {0.2, 0.6}, {0.2, 0.2}}}
+	p2 := orb.Polygon{orb.Ring{{0.4, 0.4}, {0.8, 0.4}, {0.8, 0.8}, {0.4, 0.8}, {0.4, 0.4}}}
+	RasterizePolygon(g, p1, 1)
+	RasterizePolygon(g, p2, 2)
+	// Overlap region should have value 2 (last write wins)
+	overlap := g.SamplePoint(orb.Point{0.5, 0.5})
+	if overlap != 2 {
+		t.Errorf("overlap should be 2 (last write), got %d", overlap)
+	}
+	// Only in p1
+	onlyP1 := g.SamplePoint(orb.Point{0.3, 0.3})
+	if onlyP1 != 1 {
+		t.Errorf("only-p1 area should be 1, got %d", onlyP1)
+	}
+}
+
+func TestAggregationMode(t *testing.T) {
+	samples := []uint8{2, 3, 2, 3, 2, OutOfBounds, 1}
+	m := Mode(samples)
+	if m != 2 {
+		t.Errorf("mode should be 2, got %d", m)
+	}
+}
+
+func TestAggregationWeightedAvg(t *testing.T) {
+	samples := []uint8{10, 20, 30, OutOfBounds}
+	avg := WeightedAvg(samples)
+	if avg != 20 {
+		t.Errorf("weighted avg should be 20, got %d", avg)
+	}
+}
+
+func TestAggregationMaxVal(t *testing.T) {
+	samples := []uint8{5, 100, 50, OutOfBounds, 200}
+	m := MaxVal(samples)
+	if m != 200 {
+		t.Errorf("max should be 200, got %d", m)
+	}
+}
