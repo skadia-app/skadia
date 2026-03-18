@@ -415,7 +415,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 }
 
 // RetryOSMTopology was removed: pgr_createTopology was removed in pgRouting 4.0.1.
-// FITroute's CSR graph builder computes topology from osm_ways directly.
+// BadRouter's CSR graph builder computes topology from osm_ways directly.
 
 // GetOSMSchedule returns current scheduler settings shared across all imported regions.
 // GET /api/v1/admin/osm-schedule

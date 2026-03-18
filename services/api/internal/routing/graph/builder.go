@@ -88,7 +88,7 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 		}
 		edgeTmpPath = filepath.Join(dir, "edges.tmp")
 	} else {
-		tmpFile, err := os.CreateTemp("", "fitroute-edges-*.tmp")
+		tmpFile, err := os.CreateTemp("", "badrouter-edges-*.tmp")
 		if err != nil {
 			return nil, fmt.Errorf("create temp: %w", err)
 		}

@@ -317,7 +317,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
 
           <PipelinePanel
             title="Routing-Tiles"
-            description="FITroute Graph-Tiles mit DEM-Elevation neu bauen"
+            description="BadRouter Graph-Tiles mit DEM-Elevation neu bauen"
             icon={Layers}
             buttonLabel="Tiles bauen"
             onStart={() => tilesMut.mutate(tilesRegions)}

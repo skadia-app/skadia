@@ -271,7 +271,7 @@ export async function getWaypointsFromActivity(
   return apiClient(`/routes/from-activity/${activityId}/waypoints`)
 }
 
-// === Internal Router (FITroute) ===
+// === Internal Router (BadRouter) ===
 
 export async function computeInternalRoute(
   from: [number, number],

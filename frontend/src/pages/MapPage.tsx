@@ -2156,7 +2156,7 @@ export default function MapPage() {
           <button
             onClick={() => {
               if (!plannerAvailable) {
-                addToast({ type: 'info', title: 'Routenplaner nicht verfügbar', message: 'Benötigt BRouter-Segmente oder FITroute-Graph. Lade Segmente in den Einstellungen herunter.' })
+                addToast({ type: 'info', title: 'Routenplaner nicht verfügbar', message: 'Benötigt BRouter-Segmente oder BadRouter-Graph. Lade Segmente in den Einstellungen herunter.' })
                 return
               }
               if (plannerActive) {
@@ -2165,7 +2165,7 @@ export default function MapPage() {
                 setPlannerActive(true)
               }
             }}
-            title={plannerAvailable ? 'Routenplaner' : 'Routenplaner benötigt BRouter-Segmente oder FITroute-Graph.'}
+            title={plannerAvailable ? 'Routenplaner' : 'Routenplaner benötigt BRouter-Segmente oder BadRouter-Graph.'}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors ${
               !plannerAvailable
                 ? 'opacity-50 cursor-not-allowed bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600'
@@ -2267,7 +2267,7 @@ export default function MapPage() {
             showHeatmap={viewMode === 'heatmap'}
             routingEngine={planner.routingEngine}
             brouterProfile={planner.brouterProfile}
-            fitRouteAvailable={planner.capabilities?.routing ?? false}
+            badRouterAvailable={planner.capabilities?.routing ?? false}
             onRoutingEngineChange={planner.setRoutingEngine}
             onBrouterProfileChange={planner.setBrouterProfile}
             totalDistanceM={planner.totals.distance_m}

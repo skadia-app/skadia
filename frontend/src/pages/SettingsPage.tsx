@@ -1161,7 +1161,7 @@ function LocalMapAndGeoSection() {
     })
   }
   // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology.
-  // FITroute's CSR graph builder computes topology from osm_ways directly.
+  // BadRouter's CSR graph builder computes topology from osm_ways directly.
 
   const martinBadge =
     martinStatus === 'loading' ? (

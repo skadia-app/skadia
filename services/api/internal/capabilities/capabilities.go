@@ -30,7 +30,7 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 	caps := Capabilities{}
 
 	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
-	// pgr_createTopology check removed — pgRouting 4.0+ removed it, and FITroute's CSR graph
+	// pgr_createTopology check removed — pgRouting 4.0+ removed it, and BadRouter's CSR graph
 	// builder computes topology in Go (routing/graph/topology.go), not via pgRouting.
 	var wayCount int
 	if err := pool.QueryRow(ctx,

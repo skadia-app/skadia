@@ -162,10 +162,10 @@ export interface RoutePlannerPanelProps {
   profileConfig: ProfileConfig
   showHeatmap: boolean
   // Routing engine
-  routingEngine: 'fitroute' | 'brouter'
+  routingEngine: 'badrouter' | 'brouter'
   brouterProfile: string
-  fitRouteAvailable: boolean
-  onRoutingEngineChange: (engine: 'fitroute' | 'brouter') => void
+  badRouterAvailable: boolean
+  onRoutingEngineChange: (engine: 'badrouter' | 'brouter') => void
   onBrouterProfileChange: (profile: string) => void
   // Stats (computed by parent from segments)
   totalDistanceM: number
@@ -195,7 +195,7 @@ export default function RoutePlannerPanel({
   showHeatmap,
   routingEngine,
   brouterProfile,
-  fitRouteAvailable,
+  badRouterAvailable,
   onRoutingEngineChange,
   onBrouterProfileChange,
   totalDistanceM,
@@ -279,16 +279,16 @@ export default function RoutePlannerPanel({
             <div className="px-3 pt-2.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
               <div className="flex items-center gap-1 p-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800">
                 <button
-                  onClick={() => onRoutingEngineChange('fitroute')}
-                  disabled={!fitRouteAvailable}
-                  title={!fitRouteAvailable ? 'Routing-Engine nicht verfügbar (keine Tiles)' : undefined}
+                  onClick={() => onRoutingEngineChange('badrouter')}
+                  disabled={!badRouterAvailable}
+                  title={!badRouterAvailable ? 'Routing-Engine nicht verfügbar (keine Tiles)' : undefined}
                   className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
-                    routingEngine === 'fitroute'
+                    routingEngine === 'badrouter'
                       ? 'bg-accent-DEFAULT text-white shadow-sm'
                       : 'bg-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
                   }`}
                 >
-                  FITroute
+                  BadRouter
                 </button>
                 <button
                   onClick={() => onRoutingEngineChange('brouter')}
@@ -303,8 +303,8 @@ export default function RoutePlannerPanel({
               </div>
             </div>
 
-            {/* Profile editor (FITroute) or BRouter profile selector */}
-            {routingEngine === 'fitroute' ? (
+            {/* Profile editor (BadRouter) or BRouter profile selector */}
+            {routingEngine === 'badrouter' ? (
               <ProfileEditor
                 config={profileConfig}
                 onChange={onProfileChange}

@@ -576,7 +576,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	}
 
 	// Phase 5 (Trail-Topologie) removed: pgr_createTopology removed in pgRouting 4.0.1.
-	// FITroute's CSR graph builder computes topology from osm_ways directly.
+	// BadRouter's CSR graph builder computes topology from osm_ways directly.
 
 	// === Import abgeschlossen — Enrichment wird vom Handler als separater Job gestartet ===
 	reporter.Complete()
@@ -644,7 +644,7 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 }
 
 // RunTopologyOnly was removed: pgr_createTopology was removed in pgRouting 4.0.1,
-// and FITroute's CSR graph builder (routing/graph/topology.go) computes topology
+// and BadRouter's CSR graph builder (routing/graph/topology.go) computes topology
 // directly from osm_ways coordinates. No SQL-based topology needed.
 
 // clearOSMData löscht die Daten der gewählten Kategorien:

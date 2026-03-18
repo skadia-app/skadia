@@ -257,7 +257,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   className="accent-accent-DEFAULT"
                 />
                 <span className="text-neutral-700 dark:text-neutral-300">Routing-Tiles bauen</span>
-                <span className="text-xs text-neutral-400">(FITroute Graph mit DEM)</span>
+                <span className="text-xs text-neutral-400">(BadRouter Graph mit DEM)</span>
                 {tilesDisabled && <span className="text-xs text-red-500">(benötigt Enrichment)</span>}
               </label>
               <label className="flex items-center gap-2 text-sm">
