@@ -377,8 +377,14 @@ export function useRoutePlanner() {
   // ── Routing engine ──────────────────────────────────────────────────────────
 
   const setRoutingEngine = useCallback((engine: RoutingEngine) => {
-    setState(s => ({ ...s, routingEngine: engine }))
-  }, [])
+    setState(s => {
+      if (s.routingEngine === engine) return s
+      return { ...s, routingEngine: engine }
+    })
+    // Recalculate all segments with the new engine
+    // Use setTimeout to ensure state is updated before recalculation reads it
+    setTimeout(() => recalculateAll(), 0)
+  }, [recalculateAll])
 
   const setBrouterProfile = useCallback((profile: string) => {
     setState(s => ({ ...s, brouterProfile: profile }))
