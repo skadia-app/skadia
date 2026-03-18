@@ -11,6 +11,18 @@ import (
 const OutOfBounds uint8 = 0xFF
 const earthRadiusM = 6_371_000.0
 
+// Layer name constants for TileGrids registry.
+const (
+	LayerForest         = "forest"
+	LayerLanduse        = "landuse"
+	LayerWater          = "water"
+	LayerProtected      = "protected"
+	LayerUrbanization   = "urbanization"
+	LayerRiverProximity = "river_proximity"
+	LayerNoise          = "noise"
+	LayerTraffic        = "traffic"
+)
+
 // gridPool recycles Data slices to reduce GC pressure (700 tiles = 26 GB allocs).
 var gridPool = sync.Pool{
 	New: func() any { return []uint8(nil) },

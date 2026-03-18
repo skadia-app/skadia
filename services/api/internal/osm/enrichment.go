@@ -146,7 +146,8 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	}
 	cumulative = halfTotal
 
-	// === Phase 2: SQL-based enrichment (traffic_class, landuse derivation, route membership) ===
+	// === Phase 2: SQL-based enrichment (landuse derivation, route membership) ===
+	// traffic_class is now computed by the Coverage Layer (coverage/traffic.go).
 	slog.Info("enrichment: phase 2 — SQL-based enrichment")
 	phase2Steps := []struct {
 		name string
@@ -154,9 +155,6 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	}{
 		{"landuse_class", func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichLanduseClass(ctx, p, bboxClause, chunkCb)
-		}},
-		{"traffic_class", func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichTrafficClass(ctx, p, bboxClause, chunkCb)
 		}},
 		{"route_membership", func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichRouteMembership(ctx, p, bboxClause)
@@ -340,10 +338,9 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	return nil
 }
 
-// EnrichTrafficClass calculates traffic class (1-6) for primary/secondary/tertiary roads.
-// Adapted from BRouter's brouter.sql formula.
-// Uses pool.Acquire() for connection pinning (TEMP tables across steps).
-// P3-TODO: industrial_factor returns 0 until Lua imports landuse=industrial.
+// EnrichTrafficClass is replaced by coverage.buildTrafficInputs (traffic grid).
+// Kept temporarily for reference; will be removed after E2E validation.
+// DEPRECATED: Do not call — traffic_class is now computed by the Coverage Layer.
 func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: starting traffic_class")
 
