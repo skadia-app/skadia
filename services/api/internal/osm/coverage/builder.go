@@ -63,7 +63,7 @@ var noiseOffsets = map[string]float64{
 type TileGrids struct {
 	Forest, Landuse, Water         *CoverageGrid // 25 m resolution
 	Protected, Urbanization, Noise *CoverageGrid // 100 m resolution
-	RiverProximity                 *CoverageGrid // 25 m resolution
+	RiverProximity                 *CoverageGrid // 50 m resolution
 }
 
 // Release returns all grid buffers to the pool.
@@ -191,11 +191,11 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 
 	tg := &TileGrids{}
 
-	// Fine grids (25 m)
-	tg.Forest = NewGrid(bound, 25)
-	tg.Landuse = NewGrid(bound, 25)
-	tg.Water = NewGrid(bound, 25)
-	tg.RiverProximity = NewGrid(bound, 25)
+	// Medium grids (50 m) — sufficient for way-level aggregation, 4× less memory than 25m
+	tg.Forest = NewGrid(bound, 50)
+	tg.Landuse = NewGrid(bound, 50)
+	tg.Water = NewGrid(bound, 50)
+	tg.RiverProximity = NewGrid(bound, 50)
 
 	// Coarse grids (100 m)
 	tg.Protected = NewGrid(bound, 100)
@@ -541,12 +541,12 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			continue
 		}
 
-		forestSamples := tg.Forest.SampleLine(ls, 25)
+		forestSamples := tg.Forest.SampleLine(ls, 50)
 		protectedSamples := tg.Protected.SampleLine(ls, 100)
-		landuseSamples := tg.Landuse.SampleLine(ls, 25)
+		landuseSamples := tg.Landuse.SampleLine(ls, 50)
 		noiseSamples := tg.Noise.SampleLine(ls, 100)
 		urbanSamples := tg.Urbanization.SampleLine(ls, 100)
-		riverSamples := tg.RiverProximity.SampleLine(ls, 25)
+		riverSamples := tg.RiverProximity.SampleLine(ls, 50)
 
 		noiseMax := MaxVal(noiseSamples)
 
