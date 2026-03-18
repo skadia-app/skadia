@@ -16,6 +16,44 @@ import (
 // validWKTRe validates that a WKT string is a safe POLYGON (defense in depth against SQL injection).
 var validWKTRe = regexp.MustCompile(`^POLYGON\(\([0-9\s.,eE+-]+\)\)$`)
 
+const defaultChunkSize int64 = 50000 // way_ids per chunk
+
+// wayIDRange returns the min/max way_id for ways matching "highway IS NOT NULL AND <column> IS NULL".
+// Returns (0, 0) if no matching rows exist.
+func wayIDRange(ctx context.Context, conn *pgxpool.Conn, column string) (minID, maxID int64, err error) {
+	err = conn.QueryRow(ctx, fmt.Sprintf(
+		"SELECT COALESCE(min(way_id),0), COALESCE(max(way_id),0) FROM osm_ways WHERE highway IS NOT NULL AND %s IS NULL", column),
+	).Scan(&minID, &maxID)
+	return
+}
+
+// chunkedExec runs a parameterized SQL in way_id range chunks.
+// The SQL MUST use $1 and $2 as placeholders for the way_id range (lo, hi).
+// Additional args can be passed after chunkSize — they become $3, $4, etc.
+// Calls progressFn with total affected rows after each chunk.
+func chunkedExec(ctx context.Context, conn *pgxpool.Conn, sql string,
+	minID, maxID, chunkSize int64, name string, progressFn func(int64), args ...any) (int64, error) {
+	var total int64
+	for lo := minID; lo <= maxID; lo += chunkSize {
+		if ctx.Err() != nil {
+			return total, ctx.Err()
+		}
+		allArgs := append([]any{lo, lo + chunkSize - 1}, args...)
+		tag, err := conn.Exec(ctx, sql, allArgs...)
+		if err != nil {
+			return total, fmt.Errorf("chunk [%d-%d]: %w", lo, lo+chunkSize-1, err)
+		}
+		total += tag.RowsAffected()
+		if progressFn != nil {
+			progressFn(total)
+		}
+	}
+	if total > 0 {
+		slog.Info("enrichment: chunked step complete", "step", name, "rows", total)
+	}
+	return total, nil
+}
+
 // RunSpatialEnrichment runs all enrichment sub-phases on osm_ways using direct polygon joins.
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
 // regionFilter: "" = global (all ways), "germany" = only DE + 50km buffer,
@@ -50,12 +88,22 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	// Each enrichment sub-function acquires its own pinned connection and applies
 	// connection-level work_mem tuning. No top-level tuning connection needed here.
 
-	slog.Info("enrichment: resetting enrichment columns", "region_filter", regionFilter)
-	resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
-		landuse_class = NULL, noise_score = NULL, traffic_class = NULL
-		WHERE highway IS NOT NULL%s`, bboxClause)
-	if _, err := pool.Exec(ctx, resetSQL); err != nil {
-		return fmt.Errorf("enrichment: reset columns: %w", err)
+	// Resume support: skip reset if enrichment was interrupted mid-flight.
+	// Completed chunks set columns to non-NULL; the reset would destroy that progress.
+	// Only reset on fresh start (no enriched ways in the target BBox).
+	var alreadyEnriched int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM osm_ways w
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NOT NULL`+bboxClause).Scan(&alreadyEnriched)
+	if alreadyEnriched > 0 {
+		slog.Info("enrichment: resuming — skipping column reset", "already_enriched", alreadyEnriched)
+	} else {
+		slog.Info("enrichment: fresh start — resetting enrichment columns", "region_filter", regionFilter)
+		resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
+			landuse_class = NULL, noise_score = NULL, traffic_class = NULL
+			WHERE highway IS NOT NULL%s`, bboxClause)
+		if _, err := pool.Exec(ctx, resetSQL); err != nil {
+			return fmt.Errorf("enrichment: reset columns: %w", err)
+		}
 	}
 
 	report := func(pct int) {
@@ -219,10 +267,17 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	}
 	defer conn.Exec(ctx, "DROP VIEW IF EXISTS noise_sources") //nolint:errcheck
 
-	// Calculate noise score.
+	// Calculate noise score (chunked).
 	// osm_ways.geom is already SRID 4326 — cast directly to ::geography for meter distances.
 	// AND w2.noise_score IS NULL — nur resettete Ways, verhindert Überschreiben nicht-betroffener Regionen.
-	_, err = conn.Exec(ctx, `
+	minID, maxID, err := wayIDRange(ctx, conn, "noise_score")
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: noise_score — no NULL rows, skipping")
+		return nil
+	}
+	slog.Info("enrichment: noise_score way_id range", "min", minID, "max", maxID)
+
+	if _, err := chunkedExec(ctx, conn, `
 		UPDATE osm_ways w SET noise_score = sub.score
 		FROM (
 			SELECT w2.way_id,
@@ -238,21 +293,25 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 				n.geom::geography,
 				n.buffer_m
 			)
-			WHERE w2.highway IS NOT NULL AND w2.noise_score IS NULL
+			WHERE w2.way_id BETWEEN $1 AND $2
+			  AND w2.highway IS NOT NULL AND w2.noise_score IS NULL
 			GROUP BY w2.way_id
 		) sub
 		WHERE w.way_id = sub.way_id
-	`)
-	if err != nil {
+	`, minID, maxID, defaultChunkSize, "noise_score:calculate", nil); err != nil {
 		return fmt.Errorf("enrichment noise_score: update: %w", err)
 	}
 
-	// Default 0 for ways with no nearby noise sources (restricted to BBox region if active)
-	_, err = conn.Exec(ctx, `
-		UPDATE osm_ways w SET noise_score = 0
-		WHERE w.noise_score IS NULL AND w.highway IS NOT NULL`+bboxClause)
-	if err != nil {
-		return fmt.Errorf("enrichment noise_score: default: %w", err)
+	// Default 0 for ways with no nearby noise sources (chunked)
+	minID, maxID, _ = wayIDRange(ctx, conn, "noise_score")
+	if maxID > 0 {
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET noise_score = 0
+			WHERE w.way_id BETWEEN $1 AND $2
+			  AND w.noise_score IS NULL AND w.highway IS NOT NULL
+		`, minID, maxID, defaultChunkSize, "noise_score:default", nil); err != nil {
+			return fmt.Errorf("enrichment noise_score: default: %w", err)
+		}
 	}
 
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
@@ -406,18 +465,66 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		`},
 	}
 
+	// Execute temp table creation steps (global grid data)
 	for _, step := range steps {
+		if step.name == "classify" {
+			break // classify step is chunked separately below
+		}
 		slog.Info("enrichment: traffic_class step", "step", step.name)
 		if _, err := conn.Exec(ctx, step.sql); err != nil {
 			return fmt.Errorf("enrichment traffic_class step %s: %w", step.name, err)
 		}
 	}
 
-	// Default 0 for ways not covered by the traffic grid (path, track, footway, etc.)
-	// Restricted to BBox region if active, to avoid overwriting unrelated regions.
-	if _, err = pool.Exec(ctx, `UPDATE osm_ways w SET traffic_class = 0
-		WHERE w.highway IS NOT NULL AND w.traffic_class IS NULL`+bboxClause); err != nil {
-		slog.Warn("enrichment: traffic_class null default failed", "error", err)
+	// Classify step — chunked
+	minID, maxID, err := wayIDRange(ctx, conn, "traffic_class")
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: traffic_class — no NULL rows, skipping classify")
+	} else {
+		slog.Info("enrichment: traffic_class way_id range", "min", minID, "max", maxID)
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET traffic_class = sub.tc
+			FROM (
+				SELECT inner_q.way_id,
+					(CASE
+						WHEN inner_q.traffic_raw < 6  THEN 1
+						WHEN inner_q.traffic_raw < 19 THEN 2
+						ELSE 3
+					END)::SMALLINT AS tc
+				FROM (
+					SELECT w3.way_id,
+						COALESCE(p.factor, 0) * 0.3
+						+ COALESCE(i.factor, 0) * 0.2
+						+ COALESCE(md.factor, 0) * 30.0
+						+ COALESCE(hd.factor, 0) * 5.0
+						AS traffic_raw
+					FROM osm_ways w3
+					JOIN routing_grid g ON ST_Intersects(w3.geom, g.geom)
+					LEFT JOIN populate_factor p ON p.cell = g.geom
+					LEFT JOIN industrial_factor i ON i.cell = g.geom
+					LEFT JOIN motorway_density md ON md.cell = g.geom
+					LEFT JOIN highway_density hd ON hd.cell = g.geom
+					WHERE w3.way_id BETWEEN $1 AND $2
+					  AND w3.highway IN ('primary','primary_link','secondary','secondary_link','tertiary')
+					  AND w3.traffic_class IS NULL
+				) inner_q
+			) sub
+			WHERE w.way_id = sub.way_id
+		`, minID, maxID, defaultChunkSize, "traffic_class:classify", nil); err != nil {
+			return fmt.Errorf("enrichment traffic_class: classify: %w", err)
+		}
+	}
+
+	// Default 0 for ways not covered by the traffic grid (path, track, footway, etc.) — chunked
+	minID, maxID, _ = wayIDRange(ctx, conn, "traffic_class")
+	if maxID > 0 {
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET traffic_class = 0
+			WHERE w.way_id BETWEEN $1 AND $2
+			  AND w.highway IS NOT NULL AND w.traffic_class IS NULL
+		`, minID, maxID, defaultChunkSize, "traffic_class:default", nil); err != nil {
+			slog.Warn("enrichment: traffic_class null default failed", "error", err)
+		}
 	}
 
 	_, err = pool.Exec(ctx, "ANALYZE osm_ways")
@@ -434,23 +541,44 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 // this step fills in forest/residential for ways not covered by the landuse raster.
 // 0=other, 1=forest, 2=agricultural, 3=residential, 4=industrial, 5=commercial, 6=quarry.
 func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: starting landuse_class (forest + residential derivation)")
+	slog.Info("enrichment: starting landuse_class (forest + residential derivation, chunked)")
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichment landuse_class: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	// Use landuse_class = 0 rows as targets — wayIDRange checks IS NULL,
+	// but landuse_class is already set to 0 by EnrichLanduseFromPolygons default step.
+	// We need a custom range query for rows where landuse_class = 0.
+	var minID, maxID int64
+	_ = conn.QueryRow(ctx,
+		"SELECT COALESCE(min(way_id),0), COALESCE(max(way_id),0) FROM osm_ways WHERE highway IS NOT NULL AND landuse_class = 0",
+	).Scan(&minID, &maxID)
+	if maxID == 0 {
+		slog.Info("enrichment: landuse_class — no rows with class=0, skipping")
+		return nil
+	}
+	slog.Info("enrichment: landuse_class way_id range", "min", minID, "max", maxID)
 
 	// 1. Forest aus forest_pct ableiten (präziserer 10m-Raster)
-	_, err := pool.Exec(ctx, `
+	if _, err := chunkedExec(ctx, conn, `
 		UPDATE osm_ways w SET landuse_class = 1
-		WHERE w.highway IS NOT NULL AND w.forest_pct >= 60 AND w.landuse_class = 0`+bboxClause)
-	if err != nil {
+		WHERE w.way_id BETWEEN $1 AND $2
+		  AND w.highway IS NOT NULL AND w.forest_pct >= 60 AND w.landuse_class = 0
+	`, minID, maxID, defaultChunkSize, "landuse_class:forest", nil); err != nil {
 		return fmt.Errorf("enrichment landuse_class: forest: %w", err)
 	}
 
 	// 2. Residential-Fallback aus highway-Typ (nur für noch unklassifizierte Ways).
 	// Wege mit forest_pct >= 60 wurden bereits als Wald (1) klassifiziert —
 	// ein Waldweg (highway=residential durch Wald) bleibt Wald, nicht Wohngebiet.
-	_, err = pool.Exec(ctx, `
+	if _, err := chunkedExec(ctx, conn, `
 		UPDATE osm_ways w SET landuse_class = 3
-		WHERE w.highway IN ('residential', 'living_street') AND w.landuse_class = 0`+bboxClause)
-	if err != nil {
+		WHERE w.way_id BETWEEN $1 AND $2
+		  AND w.highway IN ('residential', 'living_street') AND w.landuse_class = 0
+	`, minID, maxID, defaultChunkSize, "landuse_class:residential", nil); err != nil {
 		return fmt.Errorf("enrichment landuse_class: residential: %w", err)
 	}
 
