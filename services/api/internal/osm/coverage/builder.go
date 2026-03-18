@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,7 +89,10 @@ type ProgressFunc func(done, total int)
 // osm_ways within each tile. bboxClause can restrict the area (e.g.
 // " AND ST_Intersects(geom, ST_MakeEnvelope(..., 4326))") or be empty.
 func RunCoverageEnrichment(ctx context.Context, pool *pgxpool.Pool, bboxClause string, workers int, progress ProgressFunc) error {
-	tiles, err := discoverActiveTiles(ctx, pool, bboxClause)
+	// bboxClause from enrichment.go uses alias "w.geom" — coverage queries use bare "geom".
+	coverageBBox := strings.Replace(bboxClause, "w.geom", "geom", 1)
+
+	tiles, err := discoverActiveTiles(ctx, pool, coverageBBox)
 	if err != nil {
 		return fmt.Errorf("discover tiles: %w", err)
 	}
@@ -120,7 +124,7 @@ func RunCoverageEnrichment(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 			if err := gctx.Err(); err != nil {
 				return err
 			}
-			if err := processTile(gctx, pool, tid, ns, bboxClause); err != nil {
+			if err := processTile(gctx, pool, tid, ns, coverageBBox); err != nil {
 				slog.Warn("coverage: tile failed, continuing", "tile", tid, "err", err)
 				// Continue on tile failure — do not abort the whole run.
 			}
