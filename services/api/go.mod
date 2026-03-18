@@ -16,6 +16,7 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/muktihari/fit v0.27.2
 	github.com/nats-io/nats.go v1.49.0
+	github.com/paulmach/orb v0.12.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 	golang.org/x/image v0.32.0
@@ -51,7 +52,6 @@ require (
 	github.com/nats-io/nkeys v0.4.12 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
-	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
