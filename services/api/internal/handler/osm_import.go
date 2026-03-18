@@ -9,13 +9,13 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // Kategorie-Definitionen: ID → betroffene Tabellen.
@@ -57,9 +57,6 @@ type osmImportRequest struct {
 	BuildBRouter bool     `json:"build_brouter"`
 }
 
-// osmJobCancels speichert CancelFuncs für laufende OSM-Import-Jobs.
-var osmJobCancels sync.Map
-
 // CancelOSMImport bricht einen laufenden OSM-Import ab.
 // POST /api/v1/admin/osm-import/cancel/{jobID}
 func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
@@ -75,9 +72,7 @@ func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
-	if fn, ok := osmJobCancels.LoadAndDelete(jobID); ok {
-		fn.(context.CancelFunc)()
-	}
+	shutdown.Cancel(jobID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
@@ -136,17 +131,14 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go h.runOSMImport(jobID, userID, validRegions, req)
+	shutdown.Go(jobID, func(ctx context.Context) {
+		h.runOSMImport(ctx, jobID, userID, validRegions, req)
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	osmJobCancels.Store(jobID, cancel)
-	defer osmJobCancels.Delete(jobID)
-
+func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
 	pipeline := &osmregions.Pipeline{
 		Pool:    h.DB.Pool,
 		DataDir: os.Getenv("OSM_DATA_DIR"),
@@ -155,42 +147,71 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 	if pipeline.DataDir == "" {
 		pipeline.DataDir = "/data/osm"
 	}
-	reporter := &jobReporter{db: h.DB, jobID: jobID}
+	mainReporter := &jobReporter{db: h.DB, jobID: jobID}
 
-	// Sequentiell: jede Region einzeln importieren
+	var succeededRegions []osmregions.Region
+	var failedRegionIDs []string
+
 	for i, reg := range regions {
 		if ctx.Err() != nil {
 			break
 		}
-		reporter.SetPhase(fmt.Sprintf("region_%d_%s", i+1, reg.ID))
+		mainReporter.SetPhase(fmt.Sprintf("region_%d_%s", i+1, reg.ID))
 		slog.Info("osm import: importing region", "region", reg.ID, "index", i+1, "total", len(regions))
 
-		if !pipeline.RunPerRegion(ctx, reg, osmregions.PipelineConfig{
+		regReporter := &regionReporter{inner: mainReporter}
+		if pipeline.RunPerRegion(ctx, reg, osmregions.PipelineConfig{
 			Categories:   req.Categories,
 			BuildBRouter: req.BuildBRouter,
-		}, reporter) {
-			return // RunPerRegion hat reporter.Fail() aufgerufen
+		}, regReporter) {
+			succeededRegions = append(succeededRegions, reg)
+		} else {
+			failedRegionIDs = append(failedRegionIDs, reg.ID)
+			slog.Error("osm import: region failed, continuing with next",
+				"region", reg.ID, "error", regReporter.lastErr)
+			h.DB.Pool.Exec(context.Background(),
+				`UPDATE osm_import_regions SET status = 'failed' WHERE region_id = $1`, reg.ID)
+			if strings.Contains(regReporter.lastErr, "Korruption") || strings.Contains(regReporter.lastErr, "XX0") {
+				h.DB.Pool.Exec(context.Background(),
+					`INSERT INTO notifications (user_id, category, title, body)
+					 VALUES ($1, 'error', 'Datenbank-Korruption bei OSM Import', $2)`,
+					userID, fmt.Sprintf("Region %s: %s", reg.Label, regReporter.lastErr))
+			}
 		}
 	}
 
-	// BRouter-Segmente aus PBF-Dateien bauen wenn angefordert
-	if req.BuildBRouter {
+	if req.BuildBRouter && len(succeededRegions) > 0 {
 		segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
 		if segmentsDir == "" {
 			segmentsDir = "/data/brouter/segments"
 		}
-		reporter.SetPhase("brouter_segments")
-		reporter.SetProgress(0)
+		mainReporter.SetPhase("brouter_segments")
+		mainReporter.SetProgress(0)
 		slog.Info("osm import: building BRouter segments", "dir", segmentsDir)
-		if err := pipeline.BuildBRouterSegments(ctx, regions, pipeline.DataDir, segmentsDir, reporter); err != nil {
+		if err := pipeline.BuildBRouterSegments(ctx, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
 			slog.Error("osm import: BRouter segment build failed", "error", err)
 		}
 	}
 
-	reporter.Complete()
+	if len(succeededRegions) == 0 && len(failedRegionIDs) > 0 {
+		mainReporter.Fail("Alle Regionen fehlgeschlagen: " + strings.Join(failedRegionIDs, ", "))
+		return
+	}
+	if len(failedRegionIDs) > 0 {
+		failMsg := fmt.Sprintf("%d/%d Regionen importiert. Fehlgeschlagen: %s",
+			len(succeededRegions), len(regions), strings.Join(failedRegionIDs, ", "))
+		slog.Warn("osm import: partial success",
+			"succeeded", len(succeededRegions), "failed", failedRegionIDs)
+		h.DB.Pool.Exec(context.Background(),
+			`UPDATE background_jobs SET error = $1 WHERE id = $2`, failMsg, jobID)
+		h.DB.Pool.Exec(context.Background(),
+			`INSERT INTO notifications (user_id, category, title, body)
+			 VALUES ($1, 'warning', 'OSM Import teilweise fehlgeschlagen', $2)`,
+			userID, failMsg)
+	}
+	mainReporter.Complete()
 
-	// Enrichment NUR starten wenn ways importiert wurden
-	if !slices.Contains(req.Categories, "ways") {
+	if !slices.Contains(req.Categories, "ways") || len(succeededRegions) == 0 {
 		return
 	}
 
@@ -202,20 +223,15 @@ func (h *Handler) runOSMImport(jobID, userID string, regions []osmregions.Region
 		return
 	}
 
-	enrichCtx, enrichCancel := context.WithCancel(context.Background())
-	osmJobCancels.Store(enrichJobID, enrichCancel)
-
-	go func() {
-		defer osmJobCancels.Delete(enrichJobID)
-		defer enrichCancel()
+	shutdown.Go(enrichJobID, func(enrichCtx context.Context) {
 		enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
-		regionIDs := make([]string, len(regions))
-		for i, r := range regions {
+		regionIDs := make([]string, len(succeededRegions))
+		for i, r := range succeededRegions {
 			regionIDs[i] = r.ID
 		}
 		regionFilter := strings.Join(regionIDs, ",")
 		pipeline.RunEnrichmentAndSplitting(enrichCtx, regionFilter, enrichReporter)
-	}()
+	})
 }
 
 // jobReporter implements osmregions.ProgressReporter by delegating to background_jobs.
@@ -242,3 +258,16 @@ func (r *jobReporter) Fail(errMsg string) {
 func (r *jobReporter) Complete() {
 	r.db.CompleteBackgroundJob(context.Background(), r.jobID, false)
 }
+
+// regionReporter wraps a ProgressReporter and captures Fail() calls instead
+// of propagating them to the main job reporter. This allows individual region
+// failures without aborting the entire multi-region import.
+type regionReporter struct {
+	inner   osmregions.ProgressReporter
+	lastErr string
+}
+
+func (r *regionReporter) SetPhase(p string)  { r.inner.SetPhase(p) }
+func (r *regionReporter) SetProgress(c int64) { r.inner.SetProgress(c) }
+func (r *regionReporter) Fail(msg string)     { r.lastErr = msg }
+func (r *regionReporter) Complete()           {}

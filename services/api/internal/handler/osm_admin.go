@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -369,20 +370,15 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enrichCtx, enrichCancel := context.WithCancel(context.Background())
-	osmJobCancels.Store(jobID, enrichCancel)
-
-	go func() {
-		defer osmJobCancels.Delete(jobID)
-		defer enrichCancel()
+	shutdown.Go(jobID, func(ctx context.Context) {
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 		dataDir := os.Getenv("OSM_DATA_DIR")
 		if dataDir == "" {
 			dataDir = "/data/osm"
 		}
 		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
-		pipeline.RunEnrichmentAndSplitting(enrichCtx, "", reporter)
-	}()
+		pipeline.RunEnrichmentAndSplitting(ctx, "", reporter)
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
