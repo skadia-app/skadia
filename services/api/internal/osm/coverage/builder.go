@@ -300,7 +300,9 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 // ---------------------------------------------------------------------------
 
 func buildUrbanizationGrid(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, env string) error {
-	q := fmt.Sprintf(`SELECT ST_AsBinary(geom), subtype, COALESCE((tags->>'population')::bigint, 0)
+	q := fmt.Sprintf(`SELECT ST_AsBinary(geom), subtype,
+		COALESCE(CASE WHEN tags->>'population' ~ '^\d+$'
+			THEN (tags->>'population')::bigint END, 0)
 		FROM osm_pois WHERE category = 'settlement' AND geom && %s`, env)
 	rows, err := pool.Query(ctx, q)
 	if err != nil {
