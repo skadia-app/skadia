@@ -169,13 +169,17 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 			failedRegionIDs = append(failedRegionIDs, reg.ID)
 			slog.Error("osm import: region failed, continuing with next",
 				"region", reg.ID, "error", regReporter.lastErr)
-			h.DB.Pool.Exec(context.Background(),
+			ctx5s, cancel5s := context.WithTimeout(context.Background(), 5*time.Second)
+			h.DB.Pool.Exec(ctx5s,
 				`UPDATE osm_import_regions SET status = 'failed' WHERE region_id = $1`, reg.ID)
+			cancel5s()
 			if strings.Contains(regReporter.lastErr, "Korruption") || strings.Contains(regReporter.lastErr, "XX0") {
-				h.DB.Pool.Exec(context.Background(),
+				ctx5s, cancel5s := context.WithTimeout(context.Background(), 5*time.Second)
+				h.DB.Pool.Exec(ctx5s,
 					`INSERT INTO notifications (user_id, category, title, body)
 					 VALUES ($1, 'error', 'Datenbank-Korruption bei OSM Import', $2)`,
 					userID, fmt.Sprintf("Region %s: %s", reg.Label, regReporter.lastErr))
+				cancel5s()
 			}
 		}
 	}
@@ -202,12 +206,16 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 			len(succeededRegions), len(regions), strings.Join(failedRegionIDs, ", "))
 		slog.Warn("osm import: partial success",
 			"succeeded", len(succeededRegions), "failed", failedRegionIDs)
-		h.DB.Pool.Exec(context.Background(),
+		ctx5s, cancel5s := context.WithTimeout(context.Background(), 5*time.Second)
+		h.DB.Pool.Exec(ctx5s,
 			`UPDATE background_jobs SET error = $1 WHERE id = $2`, failMsg, jobID)
-		h.DB.Pool.Exec(context.Background(),
+		cancel5s()
+		ctx5s, cancel5s = context.WithTimeout(context.Background(), 5*time.Second)
+		h.DB.Pool.Exec(ctx5s,
 			`INSERT INTO notifications (user_id, category, title, body)
 			 VALUES ($1, 'warning', 'OSM Import teilweise fehlgeschlagen', $2)`,
 			userID, failMsg)
+		cancel5s()
 	}
 	mainReporter.Complete()
 
