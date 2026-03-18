@@ -52,6 +52,8 @@ type RawEnrichment struct {
 	CyclerouteNetwork string
 	HikerouteNetwork  string
 	LanduseClass      int
+	Urbanization      int // 0-255
+	RiverProximity    int // 0-255
 }
 
 var highwayEnum = map[string]uint8{
@@ -225,7 +227,9 @@ func encodeCyclewaySide(t *RawTags) uint8 {
 //	Bits 38-45: width_dm (8)             — OSM extended
 //	Bits 46-53: incline_offset (8)       — OSM extended (value+128, 0=unknown)
 //	Bits 54-56: sidewalk (3)             — OSM extended
-//	Bits 57-63: reserve (7)
+//	Bits 57-59: urbanization (3)        — enrichment
+//	Bits 60-62: river_proximity (3)     — enrichment
+//	Bit  63:    reserve (1)
 func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	var v uint64
 	// Enrichment (bits 0-28)
@@ -249,6 +253,47 @@ func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	v |= uint64(ParseWidth(t.Width)) << 38
 	v |= uint64(ParseIncline(t.Incline)) << 46
 	v |= uint64(sidewalkEnum[t.Sidewalk]) << 54
+
+	// Bits 57-59: urbanization (3 bits, 0-7 classes)
+	urbanClass := 0
+	switch {
+	case e.Urbanization >= 200:
+		urbanClass = 7
+	case e.Urbanization >= 150:
+		urbanClass = 6
+	case e.Urbanization >= 100:
+		urbanClass = 5
+	case e.Urbanization >= 60:
+		urbanClass = 4
+	case e.Urbanization >= 30:
+		urbanClass = 3
+	case e.Urbanization >= 10:
+		urbanClass = 2
+	case e.Urbanization >= 1:
+		urbanClass = 1
+	}
+	v |= uint64(urbanClass) << 57
+
+	// Bits 60-62: river_proximity (3 bits, 0-7 classes)
+	riverClass := 0
+	switch {
+	case e.RiverProximity >= 200:
+		riverClass = 7
+	case e.RiverProximity >= 150:
+		riverClass = 6
+	case e.RiverProximity >= 100:
+		riverClass = 5
+	case e.RiverProximity >= 60:
+		riverClass = 4
+	case e.RiverProximity >= 30:
+		riverClass = 3
+	case e.RiverProximity >= 10:
+		riverClass = 2
+	case e.RiverProximity >= 1:
+		riverClass = 1
+	}
+	v |= uint64(riverClass) << 60
+
 	return v
 }
 
@@ -326,6 +371,12 @@ func DecodeInclineOffset(v uint64) uint8 { return uint8((v >> 46) & 0xFF) }
 
 // DecodeSidewalk extracts sidewalk (bits 54-56).
 func DecodeSidewalk(v uint64) uint8 { return uint8((v >> 54) & 0x07) }
+
+// DecodeUrbanization extracts urbanization class (bits 57-59).
+func DecodeUrbanization(v uint64) uint8 { return uint8((v >> 57) & 0x07) }
+
+// DecodeRiverProximity extracts river_proximity class (bits 60-62).
+func DecodeRiverProximity(v uint64) uint8 { return uint8((v >> 60) & 0x07) }
 
 // --- EdgeTags1 reverse-direction bit ---
 
