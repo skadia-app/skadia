@@ -363,13 +363,44 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/admin/osm-import/retry-enrichment
 func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-	entityName := "Enrichment Retry"
+
+	var req struct {
+		Regions []string `json:"regions"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Concurrent-Guard: nur ein Enrichment gleichzeitig
+	var running int
+	h.DB.Pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM background_jobs WHERE job_type = 'osm_enrichment' AND status = 'running'`).Scan(&running)
+	if running > 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	// Ways-Vorprüfung wenn Regionen angegeben
+	if len(req.Regions) > 0 {
+		var wayCount int
+		h.DB.Pool.QueryRow(r.Context(),
+			`SELECT count(*) FROM osm_way_regions WHERE region_id = ANY($1)`, req.Regions).Scan(&wayCount)
+		if wayCount == 0 {
+			writeError(w, http.StatusBadRequest, "Bad Request",
+				"Keine Ways für die gewählten Regionen vorhanden. Enrichment benötigt importierte Ways.", r.URL.Path)
+			return
+		}
+	}
+
+	entityName := "Enrichment"
+	if len(req.Regions) > 0 {
+		entityName = "Enrichment: " + strings.Join(req.Regions, ", ")
+	}
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_enrichment", nil, &entityName, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
+	regionFilter := strings.Join(req.Regions, ",")
 	shutdown.Go(jobID, func(ctx context.Context) {
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 		dataDir := os.Getenv("OSM_DATA_DIR")
@@ -377,7 +408,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 			dataDir = "/data/osm"
 		}
 		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
-		pipeline.RunEnrichmentAndSplitting(ctx, "", reporter)
+		pipeline.RunEnrichmentAndSplitting(ctx, regionFilter, reporter)
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
