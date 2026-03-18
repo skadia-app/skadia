@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Download } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
@@ -7,12 +7,18 @@ import {
   deleteOSMRegion,
   cancelOSMImport,
   retryOSMEnrichment,
+  rebuildTiles,
+  buildBRouterSegments,
+  downloadBRouterSegments,
+  fetchOSMRegions,
   type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useModal } from '@/lib/modal'
 import OSMImportModal from '@/components/OSMImportModal'
+import RegionSelector from '@/components/RegionSelector'
+import PipelinePanel from '@/components/PipelinePanel'
 
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '—'
@@ -69,24 +75,48 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     },
   })
 
-  const enrichmentMutation = useMutation({
-    mutationFn: retryOSMEnrichment,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
-      addToast({ type: 'info', title: 'Enrichment gestartet' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 })
-    },
+  const [enrichRegions, setEnrichRegions] = useState<string[]>([])
+  const [tilesRegions, setTilesRegions] = useState<string[]>([])
+  const [brouterLocalRegions, setBrouterLocalRegions] = useState<string[]>([])
+  const [brouterDlRegions, setBrouterDlRegions] = useState<string[]>([])
+
+  const { data: catalogData } = useQuery({
+    queryKey: ['osm-regions'],
+    queryFn: fetchOSMRegions,
+  })
+
+  const enrichMut = useMutation({
+    mutationFn: (regions: string[]) => retryOSMEnrichment(regions),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Enrichment gestartet' }) },
+    onError: () => { addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 }) },
+  })
+  const tilesMut = useMutation({
+    mutationFn: (regions: string[]) => rebuildTiles({ regions, force: true }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Tile-Build gestartet' }) },
+    onError: () => { addToast({ type: 'error', title: 'Tile-Build konnte nicht gestartet werden', duration: 0 }) },
+  })
+  const brouterLocalMut = useMutation({
+    mutationFn: (regions: string[]) => buildBRouterSegments(regions),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'BRouter-Build gestartet' }) },
+    onError: () => { addToast({ type: 'error', title: 'BRouter-Build konnte nicht gestartet werden', duration: 0 }) },
+  })
+  const brouterDlMut = useMutation({
+    mutationFn: (regions: string[]) => downloadBRouterSegments(regions),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'BRouter-Download gestartet' }) },
+    onError: () => { addToast({ type: 'error', title: 'BRouter-Download konnte nicht gestartet werden', duration: 0 }) },
   })
 
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
   const activeEnrichmentJob = jobs.find((j) => j.job_type === 'osm_enrichment' && j.status === 'running')
+  const activeTileBuild = jobs.find(j => j.job_type === 'tile_build' && j.status === 'running')
+  const activeBrouterBuild = jobs.find(j => j.job_type === 'brouter_segment_build' && j.status === 'running')
+  const activeBrouterDl = jobs.find(j => j.job_type === 'brouter_segment_download' && j.status === 'running')
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
   const regions = regionData?.regions ?? []
+  const importedRegions = regions.filter(r => r.status === 'imported')
 
   return (
     <>
@@ -261,16 +291,83 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         </div>
       )}
 
-      {regions.some((r) => r.status === 'imported') && !activeOsmJob && (
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => enrichmentMutation.mutate()}
-            disabled={!!activeEnrichmentJob || enrichmentMutation.isPending}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 hover:border-accent-DEFAULT/30 dark:hover:border-accent-400/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      {regions.length > 0 && (
+        <div className="space-y-3 pt-3">
+          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+            Pipeline-Aktionen
+          </h3>
+
+          <PipelinePanel
+            title="Spatial Enrichment"
+            description="Wald-, Lärm-, Verkehrs- und Landnutzungsdaten für Ways"
+            icon={Sparkles}
+            buttonLabel="Enrichment starten"
+            onStart={() => enrichMut.mutate(enrichRegions)}
+            isPending={enrichMut.isPending || !!activeEnrichmentJob}
+            disabled={importedRegions.length === 0}
+            disabledHint="Keine importierten Regionen vorhanden."
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            {activeEnrichmentJob ? 'Enrichment läuft…' : 'Enrichment neu starten'}
-          </button>
+            <RegionSelector
+              regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
+              selected={enrichRegions}
+              onChange={setEnrichRegions}
+              hint="Nur importierte Regionen werden angezeigt."
+            />
+          </PipelinePanel>
+
+          <PipelinePanel
+            title="Routing-Tiles"
+            description="FITroute Graph-Tiles mit DEM-Elevation neu bauen"
+            icon={Layers}
+            buttonLabel="Tiles bauen"
+            onStart={() => tilesMut.mutate(tilesRegions)}
+            isPending={tilesMut.isPending || !!activeTileBuild}
+            disabled={importedRegions.length === 0}
+            disabledHint="Keine importierten Regionen vorhanden."
+          >
+            <RegionSelector
+              regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
+              selected={tilesRegions}
+              onChange={setTilesRegions}
+              hint="Nur importierte Regionen werden angezeigt."
+            />
+          </PipelinePanel>
+
+          <PipelinePanel
+            title="BRouter-Segmente — Lokal generieren"
+            description="rd5-Segmente aus lokalen PBF-Dateien (OsmFastCutter + DEM)"
+            icon={Route}
+            buttonLabel="Generieren"
+            onStart={() => brouterLocalMut.mutate(brouterLocalRegions)}
+            isPending={brouterLocalMut.isPending || !!activeBrouterBuild}
+            disabled={importedRegions.length === 0}
+            disabledHint="Keine importierten Regionen vorhanden."
+          >
+            <RegionSelector
+              regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
+              selected={brouterLocalRegions}
+              onChange={setBrouterLocalRegions}
+              hint="Nur Regionen mit vorhandener PBF-Datei."
+            />
+          </PipelinePanel>
+
+          <PipelinePanel
+            title="BRouter-Segmente — Download (brouter.de)"
+            description="Fertige rd5-Segmente herunterladen"
+            icon={Download}
+            buttonLabel="Downloaden"
+            buttonVariant="blue"
+            onStart={() => brouterDlMut.mutate(brouterDlRegions)}
+            isPending={brouterDlMut.isPending || !!activeBrouterDl}
+          >
+            <RegionSelector
+              regions={catalogData?.regions?.map(r => ({ id: r.id, label: r.label, continent: r.continent })) ?? []}
+              selected={brouterDlRegions}
+              onChange={setBrouterDlRegions}
+              showContinentTabs
+              hint="Alle Regionen aus dem Katalog verfügbar."
+            />
+          </PipelinePanel>
         </div>
       )}
     </div>
