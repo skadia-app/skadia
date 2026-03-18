@@ -604,15 +604,26 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	}
 
 	shutdown.Go(jobID, func(ctx context.Context) {
-		err := osmregions.DownloadBRouterSegments(ctx, tiles, segmentsDir,
+		res, err := osmregions.DownloadBRouterSegments(ctx, tiles, segmentsDir,
 			func(downloaded, total int) {
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(downloaded))
 			})
+		bgCtx := context.Background()
 		if err != nil {
 			slog.Error("brouter download failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
 		} else {
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
+			// Update entity_name with actual counts so notification is informative.
+			summary := fmt.Sprintf("%d heruntergeladen", res.Downloaded)
+			if res.Skipped > 0 {
+				summary += fmt.Sprintf(", %d übersprungen (bereits vorhanden)", res.Skipped)
+			}
+			if res.Failed > 0 {
+				summary += fmt.Sprintf(", %d fehlgeschlagen", res.Failed)
+			}
+			_, _ = h.DB.Pool.Exec(bgCtx,
+				"UPDATE background_jobs SET entity_name = $1 WHERE id = $2", summary, jobID)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
 		}
 	})
 

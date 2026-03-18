@@ -123,6 +123,8 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"routing_graph_build":     "Routing-Graph erstellen",
 		"tile_build":              "Routing-Tiles erstellen",
 		"weather_backfill":        "Wetter-Backfill",
+		"brouter_segment_build":   "BRouter-Segmente erstellen",
+		"brouter_segment_download": "BRouter-Segmente herunterladen",
 	}
 	label := labels[jobType]
 	if label == "" {
