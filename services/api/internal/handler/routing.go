@@ -497,6 +497,15 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		labels = append(labels, reg.Label)
 	}
 
+	// Concurrent-Guard
+	var running int
+	h.DB.Pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_build' AND status = 'running'`).Scan(&running)
+	if running > 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
 	entityName := "BRouter Segments: " + strings.Join(labels, ", ")
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
 		"brouter_segment_build", nil, &entityName, 100)

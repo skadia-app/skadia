@@ -19,10 +19,12 @@ var validWKTRe = regexp.MustCompile(`^POLYGON\(\([0-9\s.,eE+-]+\)\)$`)
 const defaultChunkSize int64 = 50000 // way_ids per chunk
 
 // wayIDRange returns the min/max way_id for ways matching "highway IS NOT NULL AND <column> IS NULL".
+// bboxClause is an optional SQL fragment (e.g. " AND ST_Intersects(w.geom, ...)") that restricts
+// the range to a geographic bbox; pass "" for global (all ways).
 // Returns (0, 0) if no matching rows exist.
-func wayIDRange(ctx context.Context, conn *pgxpool.Conn, column string) (minID, maxID int64, err error) {
+func wayIDRange(ctx context.Context, conn *pgxpool.Conn, column, bboxClause string) (minID, maxID int64, err error) {
 	err = conn.QueryRow(ctx, fmt.Sprintf(
-		"SELECT COALESCE(min(way_id),0), COALESCE(max(way_id),0) FROM osm_ways WHERE highway IS NOT NULL AND %s IS NULL", column),
+		"SELECT COALESCE(min(way_id),0), COALESCE(max(way_id),0) FROM osm_ways w WHERE w.highway IS NOT NULL AND w.%s IS NULL%s", column, bboxClause),
 	).Scan(&minID, &maxID)
 	return
 }
@@ -282,7 +284,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	// Calculate noise score (chunked).
 	// osm_ways.geom is already SRID 4326 — cast directly to ::geography for meter distances.
 	// AND w2.noise_score IS NULL — nur resettete Ways, verhindert Überschreiben nicht-betroffener Regionen.
-	minID, maxID, err := wayIDRange(ctx, conn, "noise_score")
+	minID, maxID, err := wayIDRange(ctx, conn, "noise_score", bboxClause)
 	if err != nil || maxID == 0 {
 		slog.Info("enrichment: noise_score — no NULL rows, skipping")
 		return nil
@@ -315,7 +317,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	}
 
 	// Default 0 for ways with no nearby noise sources (chunked)
-	minID, maxID, _ = wayIDRange(ctx, conn, "noise_score")
+	minID, maxID, _ = wayIDRange(ctx, conn, "noise_score", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
 			UPDATE osm_ways w SET noise_score = 0
@@ -489,7 +491,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	}
 
 	// Classify step — chunked
-	minID, maxID, err := wayIDRange(ctx, conn, "traffic_class")
+	minID, maxID, err := wayIDRange(ctx, conn, "traffic_class", bboxClause)
 	if err != nil || maxID == 0 {
 		slog.Info("enrichment: traffic_class — no NULL rows, skipping classify")
 	} else {
@@ -528,7 +530,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	}
 
 	// Default 0 for ways not covered by the traffic grid (path, track, footway, etc.) — chunked
-	minID, maxID, _ = wayIDRange(ctx, conn, "traffic_class")
+	minID, maxID, _ = wayIDRange(ctx, conn, "traffic_class", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
 			UPDATE osm_ways w SET traffic_class = 0

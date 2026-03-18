@@ -236,6 +236,8 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 	// Pipeline post-processing: Enrichment → Tiles (sequential)
 	waysImported := slices.Contains(req.Categories, "ways") && len(succeededRegions) > 0
 
+	var enrichmentFailed bool
+
 	// Enrichment
 	if req.shouldRunEnrichment() && waysImported {
 		enrichName := "Enrichment + Splitting"
@@ -251,6 +253,10 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 				regionIDs[i] = r.ID
 			}
 			pipeline.RunEnrichmentAndSplitting(ctx, strings.Join(regionIDs, ","), enrichReporter)
+			enrichmentFailed = enrichReporter.failed
+			if enrichmentFailed {
+				slog.Error("osm import: enrichment failed, skipping tile build")
+			}
 		} else {
 			// Asynchronous: enrichment as separate background job (existing behavior)
 			shutdown.Go(enrichJobID, func(enrichCtx context.Context) {
@@ -264,8 +270,8 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 		}
 	}
 
-	// Tiles (only if enrichment ran synchronously — defense-in-depth guard)
-	if req.BuildTiles && req.shouldRunEnrichment() && waysImported {
+	// Tiles (only if enrichment ran synchronously and succeeded — defense-in-depth guard)
+	if req.BuildTiles && req.shouldRunEnrichment() && waysImported && !enrichmentFailed {
 		tilesName := "Routing Tiles"
 		tilesJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
 			"tile_build", nil, &tilesName, 0)
@@ -312,8 +318,9 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 
 // jobReporter implements osmregions.ProgressReporter by delegating to background_jobs.
 type jobReporter struct {
-	db    *database.DB
-	jobID string
+	db     *database.DB
+	jobID  string
+	failed bool
 }
 
 func (r *jobReporter) SetPhase(phase string) {
@@ -329,6 +336,7 @@ func (r *jobReporter) SetProgress(current int64) {
 }
 
 func (r *jobReporter) Fail(errMsg string) {
+	r.failed = true
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	r.db.Pool.Exec(dbCtx, `UPDATE background_jobs SET error = $1 WHERE id = $2`, errMsg, r.jobID)

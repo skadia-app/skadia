@@ -32,7 +32,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	}
 	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	minID, maxID, err := wayIDRange(ctx, conn, "forest_pct")
+	minID, maxID, err := wayIDRange(ctx, conn, "forest_pct", bboxClause)
 	if err != nil || maxID == 0 {
 		slog.Info("enrichment: forest_pct — no NULL rows, skipping")
 		return nil
@@ -64,7 +64,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	}
 
 	// Refresh range (Phase 1 set many rows)
-	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct", bboxClause)
 	if maxID == 0 {
 		slog.Info("enrichment: forest_pct — all done after within phase")
 		return nil
@@ -85,7 +85,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	slog.Info("enrichment: forest_pct no-forest phase complete")
 
 	// Refresh range (Phase 2 set many more rows)
-	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct", bboxClause)
 	if maxID == 0 {
 		slog.Info("enrichment: forest_pct — all done after no-forest phase")
 		return nil
@@ -122,7 +122,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	slog.Info("enrichment: forest_pct sampling phase complete")
 
 	// Phase 4: Remaining NULLs → 0 (very short ways without sample points)
-	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
 			UPDATE osm_ways w SET forest_pct = 0
@@ -159,7 +159,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 	}
 	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	minID, maxID, err := wayIDRange(ctx, conn, "protected_area")
+	minID, maxID, err := wayIDRange(ctx, conn, "protected_area", bboxClause)
 	if err != nil || maxID == 0 {
 		slog.Info("enrichment: protected_area — no NULL rows, skipping")
 		return nil
@@ -216,7 +216,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 	}
 
 	// Default 0 for ways not in any protected area (chunked)
-	minID, maxID, _ = wayIDRange(ctx, conn, "protected_area")
+	minID, maxID, _ = wayIDRange(ctx, conn, "protected_area", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
 			UPDATE osm_ways w SET protected_area = 0
@@ -265,7 +265,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 	}
 	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	minID, maxID, err := wayIDRange(ctx, conn, "landuse_class")
+	minID, maxID, err := wayIDRange(ctx, conn, "landuse_class", bboxClause)
 	if err != nil || maxID == 0 {
 		slog.Info("enrichment: landuse_from_polygons — no NULL rows, skipping")
 		return nil
@@ -313,7 +313,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 	}
 
 	// Default 0 for ways not covered by any landuse polygon (chunked)
-	minID, maxID, _ = wayIDRange(ctx, conn, "landuse_class")
+	minID, maxID, _ = wayIDRange(ctx, conn, "landuse_class", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
 			UPDATE osm_ways w SET landuse_class = 0
