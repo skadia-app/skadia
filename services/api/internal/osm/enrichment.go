@@ -375,10 +375,10 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		trafficBBoxFilter = strings.Replace(bboxClause, "w.geom", "geom", 1)
 		// Wide expansion for cities (population influence reaches 50km)
 		trafficBBoxFilterWide = strings.Replace(trafficBBoxFilter, "ST_GeomFromText(", "ST_Expand(ST_GeomFromText(", 1)
-		trafficBBoxFilterWide = strings.Replace(trafficBBoxFilterWide, ", 4326))", ", 4326), 0.5)", 1)
+		trafficBBoxFilterWide = strings.Replace(trafficBBoxFilterWide, ", 4326))", ", 4326), 0.5))", 1)
 		// Medium expansion for industrial areas (20km influence range)
 		trafficBBoxFilterMedium = strings.Replace(trafficBBoxFilter, "ST_GeomFromText(", "ST_Expand(ST_GeomFromText(", 1)
-		trafficBBoxFilterMedium = strings.Replace(trafficBBoxFilterMedium, ", 4326))", ", 4326), 0.2)", 1)
+		trafficBBoxFilterMedium = strings.Replace(trafficBBoxFilterMedium, ", 4326))", ", 4326), 0.2))", 1)
 	}
 
 	// Grid extent: use bbox-filtered extent when region filter is active, otherwise scan all ways.
