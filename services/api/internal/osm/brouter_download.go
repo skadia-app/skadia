@@ -56,12 +56,20 @@ func formatBRouterTileID(lon, lat int) string {
 	return fmt.Sprintf("%s%d_%s%d", lonPrefix, lon, latPrefix, lat)
 }
 
+// DownloadResult holds the outcome counts of a segment download run.
+type DownloadResult struct {
+	Downloaded int
+	Skipped    int
+	Failed     int
+	Total      int
+}
+
 // DownloadBRouterSegments downloads rd5 segment files from brouter.de.
 func DownloadBRouterSegments(ctx context.Context, tiles []string, outputDir string,
-	progressFn func(downloaded, total int)) error {
+	progressFn func(downloaded, total int)) (DownloadResult, error) {
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", outputDir, err)
+		return DownloadResult{}, fmt.Errorf("mkdir %s: %w", outputDir, err)
 	}
 
 	total := len(tiles)
@@ -101,11 +109,17 @@ func DownloadBRouterSegments(ctx context.Context, tiles []string, outputDir stri
 	}
 
 	if err := g.Wait(); err != nil {
-		return err
+		return DownloadResult{}, err
+	}
+	res := DownloadResult{
+		Downloaded: int(downloaded.Load()),
+		Skipped:    int(skipped.Load()),
+		Failed:     int(failed.Load()),
+		Total:      total,
 	}
 	slog.Info("brouter download: complete",
-		"downloaded", downloaded.Load(), "skipped", skipped.Load(), "failed", failed.Load(), "total", total)
-	return nil
+		"downloaded", res.Downloaded, "skipped", res.Skipped, "failed", res.Failed, "total", res.Total)
+	return res, nil
 }
 
 func downloadFile(ctx context.Context, url, outPath string) error {
