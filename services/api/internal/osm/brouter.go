@@ -56,13 +56,14 @@ func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
 		}
 	}
 
-	// 4. BRouter paths (installed in Dockerfile via COPY --from)
+	// 4. BRouter paths — JAR baked into image, profiles via bind-mount
+	// (shared with BRouter container so both use the same lookups.dat version)
 	const (
 		jar        = "/brouter/brouter.jar"
-		lookups    = "/brouter/lookups.dat"
-		allBrf     = "/brouter/all.brf"
-		trekkingBrf = "/brouter/trekking.brf"
-		softBrf    = "/brouter/softaccess.brf"
+		lookups    = "/data/brouter/profiles/lookups.dat"
+		allBrf     = "/data/brouter/profiles/all.brf"
+		trekkingBrf = "/data/brouter/profiles/trekking.brf"
+		softBrf    = "/data/brouter/profiles/softaccess.brf"
 	)
 
 	// DEM directories — BRouter accepts HGT files; we pass all available
