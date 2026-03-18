@@ -135,6 +135,8 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 		if ctx.Err() != nil {
 			break
 		}
+		// Always "single": no GPS track means no summit or midpoint to split on.
+		// User prefs (always_two, mountain) are intentionally ignored here.
 		req := enrichment.WeatherRequest{
 			ReadingType: "single",
 			Lat:         a.Lat,
