@@ -1,4 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
 import { RefreshCw, Check, X } from 'lucide-react'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import type { ActiveJob } from '@/lib/useActiveJobs'
@@ -52,8 +58,9 @@ function JobRow({ job }: { job: ActiveJob }) {
     ? `Segment „${job.entity_name ?? 'Segment'}"`
     : JOB_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
 
+  const isEnrichmentWithProgress = job.job_type === 'osm_enrichment' && job.progress_total > 100
   const pct =
-    !isOSMJob && job.progress_total > 0
+    (!isOSMJob || isEnrichmentWithProgress) && job.progress_total > 0
       ? Math.round((job.progress_current / job.progress_total) * 100)
       : null
 
@@ -84,6 +91,12 @@ function JobRow({ job }: { job: ActiveJob }) {
       : null
 
   const isEnrichmentJob = job.job_type === 'osm_enrichment'
+
+  // Enrichment subLabel: show formatted progress (e.g., "4.4k / 4.5M Ways")
+  const enrichmentSubLabel = isEnrichmentWithProgress
+    ? `${formatCount(job.progress_current)} / ${formatCount(job.progress_total)} Ways`
+    : null
+
   const phaseLabel = isEnrichmentJob
     ? (job.phase === 'enrichment'  ? 'Phase 1/2 — Anreichern' :
        job.phase === 'splitting'   ? 'Phase 2/2 — Aufteilen' : null)
