@@ -766,7 +766,7 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Datenimport</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin- oder Strava-Export.
+            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-, Strava- oder Komoot-Export.
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -781,6 +781,12 @@ export default function SettingsPage() {
             className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
           >
             Strava-Import
+          </Link>
+          <Link
+            to="/settings/import?tab=komoot"
+            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+          >
+            Komoot-Import
           </Link>
         </div>
       </section>

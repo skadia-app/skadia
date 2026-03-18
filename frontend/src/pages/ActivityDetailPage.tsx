@@ -1654,7 +1654,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
     if (tagObj?.color) {
       return {
         backgroundColor: tagObj.color + '20', // ~12% opacity background
-        color: tagObj.text_color && tagObj.text_color !== '#FFFFFF'
+        color: tagObj.text_color && tagObj.text_color.toLowerCase() !== '#ffffff'
           ? tagObj.text_color
           : tagObj.color,
       }
