@@ -27,7 +27,8 @@ var validBRouterProfiles = map[string]bool{
 
 // RouteRequest is the request body for POST /api/v1/routing/route.
 type RouteRequest struct {
-	// Waypoints is a list of [longitude, latitude] pairs (at least 2).
+	// Waypoints is a list of [latitude, longitude] pairs (at least 2).
+	// Frontend convention is latlng; the proxy swaps to lonlat for BRouter.
 	Waypoints [][2]float64 `json:"waypoints"`
 	// Profile is the BRouter routing profile name (e.g. "hiking-sac2", "trekking").
 	Profile string `json:"profile"`
@@ -81,9 +82,10 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 
 	// Build BRouter query URL.
 	// BRouter expects: lonlats=lon1,lat1|lon2,lat2|...
+	// Frontend sends [lat, lon] (latlng convention), so we swap to [lon, lat] for BRouter.
 	lonlats := make([]string, 0, len(req.Waypoints))
 	for _, wp := range req.Waypoints {
-		lonlats = append(lonlats, fmt.Sprintf("%.6f,%.6f", wp[0], wp[1]))
+		lonlats = append(lonlats, fmt.Sprintf("%.6f,%.6f", wp[1], wp[0]))
 	}
 	var queryURL strings.Builder
 	queryURL.WriteString(fmt.Sprintf(
@@ -142,7 +144,8 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) straightLineFallback(w http.ResponseWriter, waypoints [][2]float64) {
 	coords := make([]any, len(waypoints))
 	for i, wp := range waypoints {
-		coords[i] = wp
+		// Input is [lat, lon], GeoJSON needs [lon, lat]
+		coords[i] = [2]float64{wp[1], wp[0]}
 	}
 	result := map[string]any{
 		"type": "FeatureCollection",
