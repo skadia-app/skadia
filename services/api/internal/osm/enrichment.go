@@ -16,7 +16,7 @@ import (
 // validWKTRe validates that a WKT string is a safe POLYGON (defense in depth against SQL injection).
 var validWKTRe = regexp.MustCompile(`^POLYGON\(\([0-9\s.,eE+-]+\)\)$`)
 
-const defaultChunkSize int64 = 50000 // way_ids per chunk
+const defaultChunkSize int64 = 200000 // way_ids per chunk
 
 // wayIDRange returns the min/max way_id for ways matching "highway IS NOT NULL AND <column> IS NULL".
 // bboxClause is an optional SQL fragment (e.g. " AND ST_Intersects(w.geom, ...)") that restricts
@@ -212,6 +212,17 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		slog.Warn("enrichment noise_score: SET work_mem failed (non-fatal)", "error", err)
 	}
 
+	// BBox filter for noise sources: expand by 0.05° (~5km) to capture sources just outside
+	// the enrichment region whose noise buffer reaches into it (max 3000m for aerodromes).
+	// Uses bare "geom" (no alias) since noise_sources VIEW queries have no table alias.
+	noiseBBoxFilter := ""
+	if bboxClause != "" {
+		noiseBBoxFilter = strings.Replace(bboxClause, "w.geom", "geom", 1)
+		// Expand the bbox slightly to capture noise sources just outside the region
+		noiseBBoxFilter = strings.Replace(noiseBBoxFilter, "ST_GeomFromText(", "ST_Expand(ST_GeomFromText(", 1)
+		noiseBBoxFilter = strings.Replace(noiseBBoxFilter, ", 4326))", ", 4326), 0.05)", 1)
+	}
+
 	// Prüfe ob osm_railways Daten hat
 	var railCount int64
 	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM osm_railways").Scan(&railCount); err != nil {
@@ -224,10 +235,10 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		railwaySQL = `
         UNION ALL
         SELECT geom::geometry, 'railway_heavy', 300, 0.7
-        FROM osm_railways WHERE railway = 'rail'
+        FROM osm_railways WHERE railway = 'rail'` + noiseBBoxFilter + `
         UNION ALL
         SELECT geom::geometry, 'railway_light', 150, 0.4
-        FROM osm_railways WHERE railway IN ('light_rail', 'narrow_gauge', 'subway')`
+        FROM osm_railways WHERE railway IN ('light_rail', 'narrow_gauge', 'subway')` + noiseBBoxFilter
 	} else {
 		slog.Warn("enrichment: osm_railways empty — skipping railway noise sources")
 	}
@@ -239,7 +250,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		windSQL = `
         UNION ALL
         SELECT geom::geometry, 'wind_turbine', 800, 0.5
-        FROM osm_pois WHERE category = 'wind_turbine'`
+        FROM osm_pois WHERE category = 'wind_turbine'` + noiseBBoxFilter
 		slog.Info("enrichment: wind turbines found", "count", windCount)
 	}
 
@@ -250,7 +261,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		shootingSQL = `
         UNION ALL
         SELECT geom::geometry, 'shooting_range', 400, 0.4
-        FROM osm_pois WHERE category = 'shooting_range'`
+        FROM osm_pois WHERE category = 'shooting_range'` + noiseBBoxFilter
 	}
 
 	// Military areas — polygon directly (distance to nearest edge, not centroid)
@@ -260,22 +271,22 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 		militarySQL = `
         UNION ALL
         SELECT geom::geometry, 'military', 500, 0.6
-        FROM osm_landuse WHERE landuse = 'military'`
+        FROM osm_landuse WHERE landuse = 'military'` + noiseBBoxFilter
 	}
 
 	// Vollständiger View inkl. optionaler Railway-Quellen
 	viewSQL := `CREATE TEMP VIEW noise_sources AS
     SELECT geom::geometry, 'motorway' AS source_type, 500 AS buffer_m, 1.0::float AS weight
-    FROM osm_ways WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')
+    FROM osm_ways WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link')` + noiseBBoxFilter + `
     UNION ALL
     SELECT geom::geometry, 'primary', 200, 0.6
-    FROM osm_ways WHERE highway IN ('primary', 'primary_link')
+    FROM osm_ways WHERE highway IN ('primary', 'primary_link')` + noiseBBoxFilter + `
     UNION ALL
     SELECT geom::geometry, 'secondary', 100, 0.3
-    FROM osm_ways WHERE highway IN ('secondary', 'secondary_link')
+    FROM osm_ways WHERE highway IN ('secondary', 'secondary_link')` + noiseBBoxFilter + `
     UNION ALL
     SELECT geom::geometry, 'aerodrome', 3000, 0.9
-    FROM osm_pois WHERE category = 'aerodrome' AND subtype NOT IN ('gliding', 'hang_gliding')` + windSQL + shootingSQL + militarySQL + railwaySQL
+    FROM osm_pois WHERE category = 'aerodrome' AND subtype NOT IN ('gliding', 'hang_gliding')` + noiseBBoxFilter + windSQL + shootingSQL + militarySQL + railwaySQL
 
 	if _, err = conn.Exec(ctx, viewSQL); err != nil {
 		return fmt.Errorf("enrichment noise_score: create view: %w", err)
@@ -364,11 +375,33 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		}
 	}()
 
+	// BBox filter for traffic temp tables: use bare "geom" (no alias) for direct table queries.
+	// Expand by 0.5° (~55km) for cities (population influence at 50km) and 0.2° (~22km) for industrial.
+	trafficBBoxFilter := ""
+	trafficBBoxFilterWide := ""  // 0.5° expansion for cities (50km influence range)
+	trafficBBoxFilterMedium := "" // 0.2° expansion for industrial areas (20km influence range)
+	if bboxClause != "" {
+		trafficBBoxFilter = strings.Replace(bboxClause, "w.geom", "geom", 1)
+		// Wide expansion for cities (population influence reaches 50km)
+		trafficBBoxFilterWide = strings.Replace(trafficBBoxFilter, "ST_GeomFromText(", "ST_Expand(ST_GeomFromText(", 1)
+		trafficBBoxFilterWide = strings.Replace(trafficBBoxFilterWide, ", 4326))", ", 4326), 0.5)", 1)
+		// Medium expansion for industrial areas (20km influence range)
+		trafficBBoxFilterMedium = strings.Replace(trafficBBoxFilter, "ST_GeomFromText(", "ST_Expand(ST_GeomFromText(", 1)
+		trafficBBoxFilterMedium = strings.Replace(trafficBBoxFilterMedium, ", 4326))", ", 4326), 0.2)", 1)
+	}
+
+	// Grid extent: use bbox-filtered extent when region filter is active, otherwise scan all ways.
+	gridExtentSQL := "(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.45)::geometry, 4326) FROM osm_ways WHERE highway IS NOT NULL)"
+	if bboxClause != "" {
+		gridExtentSQL = "(SELECT ST_SetSRID(ST_Expand(ST_Extent(w.geom), 0.45)::geometry, 4326) FROM osm_ways w WHERE w.highway IS NOT NULL" + bboxClause + ")"
+	}
+
 	steps := []struct {
 		name string
 		sql  string
 	}{
 		// osm_pois.geom is SRID 4326 — ST_Y returns latitude in degrees directly
+		// Filter to bbox + 0.5° buffer (cities 50km away can influence traffic)
 		{"cities_pop", `
 			CREATE TEMP TABLE cities_pop AS
 			SELECT osm_id, name,
@@ -379,7 +412,8 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 			WHERE category = 'settlement'
 			  AND (tags->>'population') ~ '^\d+$'
 			  AND (tags->>'population')::numeric > 200
-		`},
+		` + trafficBBoxFilterWide},
+		// Filter to bbox + 0.2° buffer (industrial areas influence at 20km range)
 		{"industrial_areas", `
 			CREATE TEMP TABLE industrial_areas AS
 			SELECT osm_id, geom,
@@ -388,12 +422,13 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 			FROM osm_landuse
 			WHERE landuse IN ('industrial', 'retail', 'commercial')
 			  AND ST_Area(geom::geography) > 20000
-		`},
+		` + trafficBBoxFilterMedium},
 		// SRID 4326: degrees. 0.09 ≈ 10km, 0.45 ≈ 50km at 47°N.
+		// Use bbox-filtered extent when available instead of scanning all 30M ways.
 		{"routing_grid", `
 			CREATE TEMP TABLE routing_grid AS
 			SELECT (ST_SquareGrid(0.09,
-				(SELECT ST_SetSRID(ST_Expand(ST_Extent(geom), 0.45)::geometry, 4326) FROM osm_ways WHERE highway IS NOT NULL)
+				` + gridExtentSQL + `
 			)).geom
 		`},
 		// ST_Length via ::geography for accurate meter-based density
