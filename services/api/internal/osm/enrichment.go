@@ -106,6 +106,14 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
+	// Count total NULL ways for progress reporting.
+	// Each enrichment column starts NULL; as chunks complete, the count decreases.
+	// We use the initial count as progress_total and report (total - remaining) as current.
+	var totalNullWays int64
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM osm_ways w
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL`+bboxClause).Scan(&totalNullWays)
+	slog.Info("enrichment: ways to process", "total", totalNullWays)
+
 	report := func(pct int) {
 		if progressFn != nil {
 			progressFn(pct)
@@ -113,26 +121,28 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	}
 
 	// === Phase 1: Polygon-basierte Spatial Joins (sequential) ===
-	// Sequential because parallel UPDATEs on the same osm_ways rows cause PostgreSQL
-	// deadlocks (row-level locks) and mutual I/O contention — no net speedup.
-	// CH benchmark: parallel with retries took ~40 min for Phase 1; sequential avoids
-	// all lock overhead and should be comparable or faster.
-	slog.Info("enrichment: phase 1 — spatial joins (sequential)")
-	for _, step := range []struct {
-		name string
-		fn   func(context.Context, *pgxpool.Pool, string) error
+	// Progress per step: forest=0→15, protected=15→25, landuse=25→40
+	slog.Info("enrichment: phase 1 — spatial joins (sequential, chunked)")
+	phase1Steps := []struct {
+		name   string
+		fn     func(context.Context, *pgxpool.Pool, string) error
+		pctEnd int
 	}{
-		{"forest_pct", EnrichForestPct},
-		{"protected_area", EnrichProtectedArea},
-		{"landuse_from_polygons", EnrichLanduseFromPolygons},
-	} {
+		{"forest_pct", EnrichForestPct, 15},
+		{"protected_area", EnrichProtectedArea, 25},
+		{"landuse_from_polygons", EnrichLanduseFromPolygons, 40},
+	}
+	for _, step := range phase1Steps {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("enrichment cancelled before %s: %w", step.name, err)
+		}
 		slog.Info("enrichment: starting " + step.name)
 		if err := step.fn(ctx, pool, bboxClause); err != nil {
 			return fmt.Errorf("enrichment phase 1 (%s): %w", step.name, err)
 		}
+		report(step.pctEnd)
 		slog.Info("enrichment: " + step.name + " done")
 	}
-	report(40)
 
 	// === Phase 2: Derived Enrichment (sequential — row locks prevent parallel UPDATEs) ===
 	slog.Info("enrichment: phase 2 — derived enrichment (sequential)")
