@@ -146,11 +146,26 @@ func downloadFileOnce(ctx context.Context, url, outPath string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	written, err := io.Copy(f, resp.Body)
+	if err != nil {
 		f.Close()
 		os.Remove(tmpPath)
 		return err
 	}
 	f.Close()
+
+	// Verify download completeness: Content-Length must match bytes written.
+	// Without this check, partial downloads (proxy timeout, connection reset)
+	// silently produce truncated files that BRouter cannot read.
+	if resp.ContentLength > 0 && written != resp.ContentLength {
+		os.Remove(tmpPath)
+		return fmt.Errorf("incomplete download: got %d bytes, expected %d: %s", written, resp.ContentLength, url)
+	}
+	// BRouter rd5 segments are typically >50 MB; anything under 1 MB is suspect.
+	if written < 1_000_000 {
+		os.Remove(tmpPath)
+		return fmt.Errorf("download too small (%d bytes), likely corrupt: %s", written, url)
+	}
+
 	return os.Rename(tmpPath, outPath)
 }
