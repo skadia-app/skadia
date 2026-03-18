@@ -1,4 +1,4 @@
-// Package graph implements an in-memory CSR routing graph for FITroute.
+// Package graph implements an in-memory CSR routing graph for BadRouter.
 package graph
 
 import (

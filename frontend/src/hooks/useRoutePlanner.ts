@@ -22,7 +22,7 @@ import { getProfileDefaults } from '@/lib/routingProfiles'
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
-type RoutingEngine = 'fitroute' | 'brouter'
+type RoutingEngine = 'badrouter' | 'brouter'
 
 interface RoutePlannerState {
   waypoints: RouteWaypoint[]
@@ -44,7 +44,7 @@ const INITIAL_STATE: RoutePlannerState = {
   isCalculating: false,
   calculationError: null,
   editingRouteId: null,
-  routingEngine: 'fitroute',
+  routingEngine: 'badrouter',
   brouterProfile: 'hiking-mountain',
 }
 
@@ -95,7 +95,7 @@ export function useRoutePlanner() {
   useEffect(() => {
     if (capabilitiesQuery.data && !capabilitiesQuery.data.routing) {
       setState(s => {
-        if (s.routingEngine === 'fitroute') {
+        if (s.routingEngine === 'badrouter') {
           return { ...s, routingEngine: 'brouter' }
         }
         return s
@@ -210,7 +210,7 @@ export function useRoutePlanner() {
     from: RouteWaypoint,
     to: RouteWaypoint,
     profileConfig: ProfileConfig,
-    engine: RoutingEngine = 'fitroute',
+    engine: RoutingEngine = 'badrouter',
     brouterProf: string = 'hiking-mountain',
   ): Promise<void> {
     setState(s => ({ ...s, isCalculating: true, calculationError: null }))
@@ -258,7 +258,7 @@ export function useRoutePlanner() {
   const recalculateAll = useCallback(async () => {
     let currentWaypoints: RouteWaypoint[] = []
     let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
-    let currentEngine: RoutingEngine = 'fitroute'
+    let currentEngine: RoutingEngine = 'badrouter'
     let currentBrouterProfile = 'hiking-mountain'
     setState(s => {
       currentWaypoints = s.waypoints
@@ -312,7 +312,7 @@ export function useRoutePlanner() {
   const setProfileAndRecalculate = useCallback(
     async (profileConfig: ProfileConfig) => {
       let currentWaypoints: RouteWaypoint[] = []
-      let currentEngine: RoutingEngine = 'fitroute'
+      let currentEngine: RoutingEngine = 'badrouter'
       let currentBrouterProfile = 'hiking-mountain'
       setState(s => {
         currentWaypoints = s.waypoints
