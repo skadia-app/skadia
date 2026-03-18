@@ -354,6 +354,37 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct {
+		Regions []string `json:"regions"`
+		Force   bool     `json:"force"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // empty body = all tiles
+
+	// Concurrent-Guard
+	var running int
+	h.DB.Pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM background_jobs WHERE job_type = 'tile_build' AND status = 'running'`).Scan(&running)
+	if running > 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	// BBox-Union aus Regionen berechnen
+	var filterBBox [4]float64
+	if len(req.Regions) > 0 {
+		filterBBox = [4]float64{180, 90, -180, -90} // inverted start
+		for _, id := range req.Regions {
+			reg, ok := osmregions.RegionByID(id)
+			if !ok {
+				continue
+			}
+			filterBBox[0] = min(filterBBox[0], reg.MinLon)
+			filterBBox[1] = min(filterBBox[1], reg.MinLat)
+			filterBBox[2] = max(filterBBox[2], reg.MaxLon)
+			filterBBox[3] = max(filterBBox[3], reg.MaxLat)
+		}
+	}
+
 	graphPath := h.Config.RoutingGraphPath
 	if graphPath == "" {
 		graphPath = "/data/routing/graph.bin"
@@ -379,7 +410,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		var tilesBuilt atomic.Int64
 		var lastReportedTile atomic.Uint32
 		err := h.GraphManager.RebuildTiles(ctx, h.DB.Pool, tileDir, tileCacheBytes,
-			hgtDirs, workers,
+			hgtDirs, workers, filterBBox, req.Force,
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
 					_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(pct))
