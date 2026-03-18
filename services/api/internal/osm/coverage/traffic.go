@@ -202,7 +202,9 @@ func buildTrafficInputs(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, 
 		SELECT ST_AsBinary(geom), COALESCE(ST_Area(geom::geography), 500000)
 		FROM osm_pois WHERE category = 'aerodrome' AND COALESCE(subtype,'') != 'gliding'
 		AND geom && %s`, env))
-	if err == nil {
+	if err != nil {
+		slog.Warn("coverage: aerodrome query failed (non-fatal)", "err", err)
+	} else {
 		defer aeroRows.Close()
 		for aeroRows.Next() {
 			var wkbBytes []byte
@@ -222,6 +224,9 @@ func buildTrafficInputs(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, 
 				area = 500000
 			}
 			applyIndustrialDecayFloat(industrialGrid, pt, area)
+		}
+		if err := aeroRows.Err(); err != nil {
+			slog.Warn("coverage: aerodrome rows iteration error (non-fatal)", "err", err)
 		}
 	}
 
