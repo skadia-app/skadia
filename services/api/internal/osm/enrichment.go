@@ -76,7 +76,8 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 			SELECT ST_AsText(ST_Expand(
 				(SELECT ST_Extent(w.geom) FROM osm_ways w
 				 JOIN osm_way_regions wr ON w.osm_id = wr.osm_id
-				 WHERE wr.region_id = ANY($1::text[])), 0.5))`,
+				 WHERE wr.region_id = ANY($1::text[])
+				   AND w.highway != 'ferry'), 0.5))`,
 			regions).Scan(&bboxWKT)
 		if err != nil || bboxWKT == "" {
 			slog.Warn("enrichment: BBox computation failed, falling back to global", "regions", regionFilter, "error", err)
