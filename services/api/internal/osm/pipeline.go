@@ -595,9 +595,9 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	// Build subdivided polygon tables for faster spatial joins.
 	// Must run AFTER all regions are imported (not per-region, otherwise DROP destroys prior regions).
 	// Uses regular tables (not UNLOGGED) to survive PostgreSQL crash.
-	slog.Info("osm enrichment: building subdivided polygon tables")
-	// Each table may need extra columns carried forward (e.g., osm_landuse needs "landuse"
-	// for WHERE filtering in EnrichLanduseFromPolygons point-sampling).
+	// Skip rebuild if tables already exist (saves ~5 min on enrichment retries with unchanged data).
+	// Import pipeline calls ClearSubdividedTables() before re-importing to force rebuild.
+	slog.Info("osm enrichment: checking subdivided polygon tables")
 	subdivideSpecs := []struct{ table, extra string }{
 		{"osm_forests", ""},
 		{"osm_boundaries", ""},
@@ -605,6 +605,16 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	}
 	for _, spec := range subdivideSpecs {
 		subTable := spec.table + "_subdivided"
+
+		// Skip if table already exists and has rows
+		var exists bool
+		p.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE tablename = $1)", subTable).Scan(&exists) //nolint:errcheck
+		if exists {
+			slog.Info("osm enrichment: subdivided table exists, skipping rebuild", "table", subTable)
+			continue
+		}
+
+		slog.Info("osm enrichment: building subdivided table", "table", subTable)
 		stmts := []string{
 			fmt.Sprintf("DROP TABLE IF EXISTS %s", subTable),
 			fmt.Sprintf(`CREATE TABLE %s AS
@@ -620,7 +630,7 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 			}
 		}
 	}
-	slog.Info("osm enrichment: subdivided polygon tables built")
+	slog.Info("osm enrichment: subdivided polygon tables ready")
 
 	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(current, total int64) {
 		if current == 0 && total > 0 {
@@ -1604,6 +1614,11 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 			slog.Warn("osm import: analyze failed", "table", table, "error", err)
 		}
 		reporter.SetProgress(int64(i + 1))
+	}
+
+	// Invalidate subdivided polygon tables so enrichment rebuilds them with fresh data.
+	for _, sub := range []string{"osm_forests_subdivided", "osm_boundaries_subdivided", "osm_landuse_subdivided"} {
+		p.Pool.Exec(ctx, "DROP TABLE IF EXISTS "+sub) //nolint:errcheck
 	}
 
 	// === Phase 5.5: Validate polygon geometries (einmalig, statt bei jedem Enrichment-Join) ===

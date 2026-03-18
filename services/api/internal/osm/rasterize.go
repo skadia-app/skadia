@@ -10,10 +10,14 @@ import (
 )
 
 // EnrichForestPct berechnet den Waldanteil jeder Way via BRouter-Hybrid Point-Sampling (chunked).
-// 4-Phasen-Ansatz: ST_CoveredBy für vollständig im Wald liegende Ways (~70%, instant),
-// DWithin-Filter für Ways weit weg von jedem Wald (instant), Point-Sampling alle 25m
-// für Grenzfälle (~30%), Default 0 für Restfälle. Nutzt ST_Intersects (boolean).
-// All phases process way_ids in 50k chunks for resume support and bounded memory.
+// 3-Phasen-Ansatz: DWithin-Filter für Ways weit weg von jedem Wald (instant),
+// Point-Sampling alle 25m für Grenzfälle, Default 0 für Restfälle.
+// Nutzt ST_Intersects (boolean) gegen osm_forests_subdivided.
+// All phases process way_ids in chunks for resume support and bounded memory.
+//
+// NOTE: Phase 1a (ST_CoveredBy for fully-in-forest ways) was removed because it
+// iterated all chunks against 1.9M unsegmented forest polygons (~1.5 min/chunk,
+// ~10h total for Slovenia). Point-sampling handles these ways correctly (≈96-100%).
 func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: forest_pct starting (chunked)")
 
@@ -32,27 +36,6 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	}
 	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	minID, maxID, err := wayIDRange(ctx, conn, "forest_pct", bboxClause)
-	if err != nil || maxID == 0 {
-		slog.Info("enrichment: forest_pct — no NULL rows, skipping")
-		return nil
-	}
-	slog.Info("enrichment: forest_pct way_id range", "min", minID, "max", maxID)
-
-	// Phase 1: Ways completely inside forest → forest_pct = 100
-	if _, err := chunkedExec(ctx, conn, `
-		UPDATE osm_ways w SET forest_pct = 100
-		WHERE w.way_id BETWEEN $1 AND $2
-		  AND w.highway IS NOT NULL AND w.forest_pct IS NULL
-		  AND EXISTS (
-			SELECT 1 FROM osm_forests f
-			WHERE ST_CoveredBy(w.geom, f.geom)
-		  )
-	`, minID, maxID, defaultChunkSize, "forest_pct:within", progressFn); err != nil {
-		return fmt.Errorf("enrichment forest_pct: within phase: %w", err)
-	}
-	slog.Info("enrichment: forest_pct within phase complete")
-
 	// Check subdivided table
 	var forestSubExists bool
 	conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_forests_subdivided')").Scan(&forestSubExists) //nolint:errcheck
@@ -63,14 +46,14 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 		slog.Warn("enrichment: osm_forests_subdivided not found, falling back to osm_forests")
 	}
 
-	// Refresh range (Phase 1 set many rows)
-	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct", bboxClause)
-	if maxID == 0 {
-		slog.Info("enrichment: forest_pct — all done after within phase")
+	minID, maxID, err := wayIDRange(ctx, conn, "forest_pct", bboxClause)
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: forest_pct — no NULL rows, skipping")
 		return nil
 	}
+	slog.Info("enrichment: forest_pct way_id range", "min", minID, "max", maxID)
 
-	// Phase 2: Ways far from any forest → forest_pct = 0
+	// Phase 1: Ways far from any forest → forest_pct = 0
 	if _, err := chunkedExec(ctx, conn, fmt.Sprintf(`
 		UPDATE osm_ways w SET forest_pct = 0
 		WHERE w.way_id BETWEEN $1 AND $2
@@ -91,7 +74,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 		return nil
 	}
 
-	// Phase 3: Edge cases — point-sampling every 25m (chunked, no CTAS)
+	// Phase 2: Edge cases — point-sampling every 25m (chunked, no CTAS)
 	if _, err := chunkedExec(ctx, conn, `
 		UPDATE osm_ways w SET forest_pct = sub.pct
 		FROM (
@@ -121,7 +104,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string,
 	}
 	slog.Info("enrichment: forest_pct sampling phase complete")
 
-	// Phase 4: Remaining NULLs → 0 (very short ways without sample points)
+	// Phase 3: Remaining NULLs → 0 (very short ways without sample points)
 	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct", bboxClause)
 	if maxID > 0 {
 		if _, err := chunkedExec(ctx, conn, `
