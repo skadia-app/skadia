@@ -2,7 +2,6 @@ package coverage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -573,21 +572,11 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 // Helper: load noise settings
 // ---------------------------------------------------------------------------
 
-func loadNoiseSettings(ctx context.Context, pool *pgxpool.Pool) (NoiseSettings, error) {
-	// Use the first user's settings (enrichment is global, not per-user).
-	// Falls back to defaults if no user has custom settings.
-	var raw []byte
-	err := pool.QueryRow(ctx,
-		`SELECT noise_settings FROM users WHERE noise_settings IS NOT NULL LIMIT 1`,
-	).Scan(&raw)
-	if err != nil || raw == nil {
-		return DefaultNoiseSettings(), err
-	}
-	var ns NoiseSettings
-	if err := json.Unmarshal(raw, &ns); err != nil {
-		return DefaultNoiseSettings(), err
-	}
-	return ns, nil
+func loadNoiseSettings(_ context.Context, _ *pgxpool.Pool) (NoiseSettings, error) {
+	// Phase 1 enrichment is global (baked into osm_ways) — always use defaults.
+	// Per-user noise_settings (Migration 000184) apply at routing time via
+	// CoverageReader (Phase 2), where the router reads user-specific weights.
+	return DefaultNoiseSettings(), nil
 }
 
 // ---------------------------------------------------------------------------
