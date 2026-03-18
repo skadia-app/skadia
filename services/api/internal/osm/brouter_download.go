@@ -2,6 +2,7 @@ package osm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 )
+
+var errNotFound = errors.New("not found")
 
 const brouterSegmentsURL = "https://brouter.de/brouter/segments4"
 
@@ -111,6 +114,9 @@ func downloadFile(ctx context.Context, url, outPath string) error {
 	for range maxRetries {
 		if err := downloadFileOnce(ctx, url, outPath); err != nil {
 			lastErr = err
+			if errors.Is(err, errNotFound) {
+				return err // don't retry 404
+			}
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -130,7 +136,7 @@ func downloadFileOnce(ctx context.Context, url, outPath string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("404 not found: %s", url)
+		return fmt.Errorf("%w: %s", errNotFound, url)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, url)
