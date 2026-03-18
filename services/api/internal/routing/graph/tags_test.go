@@ -66,25 +66,25 @@ func TestEncodeEnrichmentTags(t *testing.T) {
 	if got := DecodeField(encoded, 7, 7); got != 30 {
 		t.Errorf("noise_score: got %d, want 30", got)
 	}
-	if got := DecodeField(encoded, 14, 2); got != 2 {
+	if got := DecodeField(encoded, 14, 3); got != 2 {
 		t.Errorf("traffic_class: got %d, want 2", got)
 	}
-	if got := DecodeField(encoded, 16, 2); got != 1 {
+	if got := DecodeField(encoded, 17, 2); got != 1 {
 		t.Errorf("protected_area: got %d, want 1", got)
 	}
-	if !DecodeBool(encoded, 18) {
+	if !DecodeBool(encoded, 19) {
 		t.Error("is_cycleroute should be true")
 	}
-	if DecodeBool(encoded, 19) {
+	if DecodeBool(encoded, 20) {
 		t.Error("is_hikeroute should be false")
 	}
-	if got := DecodeField(encoded, 20, 3); got != uint64(routeNetworkEnum["rcn"]) {
+	if got := DecodeField(encoded, 21, 3); got != uint64(routeNetworkEnum["rcn"]) {
 		t.Errorf("cycleroute_network: got %d, want %d", got, routeNetworkEnum["rcn"])
 	}
-	if got := DecodeField(encoded, 23, 3); got != uint64(routeNetworkEnum["rwn"]) {
+	if got := DecodeField(encoded, 24, 3); got != uint64(routeNetworkEnum["rwn"]) {
 		t.Errorf("hikeroute_network: got %d, want %d", got, routeNetworkEnum["rwn"])
 	}
-	if got := DecodeField(encoded, 26, 3); got != 4 {
+	if got := DecodeField(encoded, 27, 3); got != 4 {
 		t.Errorf("landuse_class: got %d, want 4", got)
 	}
 }
@@ -95,10 +95,10 @@ func TestEnrichmentLocalNetwork(t *testing.T) {
 		HikerouteNetwork:  "lwn",
 	}
 	encoded := EncodeEnrichmentTags(&tags)
-	if got := DecodeField(encoded, 20, 3); got != uint64(routeNetworkEnum["lcn"]) {
+	if got := DecodeField(encoded, 21, 3); got != uint64(routeNetworkEnum["lcn"]) {
 		t.Errorf("cycleroute_network lcn: got %d, want %d", got, routeNetworkEnum["lcn"])
 	}
-	if got := DecodeField(encoded, 23, 3); got != uint64(routeNetworkEnum["lwn"]) {
+	if got := DecodeField(encoded, 24, 3); got != uint64(routeNetworkEnum["lwn"]) {
 		t.Errorf("hikeroute_network lwn: got %d, want %d", got, routeNetworkEnum["lwn"])
 	}
 }
@@ -122,28 +122,28 @@ func TestEncodeEdgeTags2_ExtendedOSM(t *testing.T) {
 	}
 	encoded := EncodeEdgeTags2(&tags, &RawEnrichment{})
 
-	if got := DecodeField(encoded, 29, 3); got != uint64(mtbScaleUphillEnum["3"]) {
+	if got := DecodeField(encoded, 30, 3); got != uint64(mtbScaleUphillEnum["3"]) {
 		t.Errorf("mtb_scale_uphill: got %d, want %d", got, mtbScaleUphillEnum["3"])
 	}
-	if got := DecodeField(encoded, 32, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
+	if got := DecodeField(encoded, 33, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
 		t.Errorf("via_ferrata_scale: got %d, want %d", got, viaFerrataScaleEnum["K4"])
 	}
 	// Lowercase via_ferrata_scale must also work
 	tagsLower := RawTags{ViaFerrataScale: "k4"}
 	encodedLower := EncodeEdgeTags2(&tagsLower, &RawEnrichment{})
-	if got := DecodeField(encodedLower, 32, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
+	if got := DecodeField(encodedLower, 33, 3); got != uint64(viaFerrataScaleEnum["K4"]) {
 		t.Errorf("via_ferrata_scale lowercase k4: got %d, want %d", got, viaFerrataScaleEnum["K4"])
 	}
-	if got := DecodeField(encoded, 35, 3); got != uint64(trailVisibilityEnum["bad"]) {
+	if got := DecodeField(encoded, 36, 3); got != uint64(trailVisibilityEnum["bad"]) {
 		t.Errorf("trail_visibility: got %d, want %d", got, trailVisibilityEnum["bad"])
 	}
-	if got := DecodeField(encoded, 38, 8); got != 25 { // 2.5m = 25dm
+	if got := DecodeField(encoded, 39, 8); got != 25 { // 2.5m = 25dm
 		t.Errorf("width: got %d, want 25", got)
 	}
-	if got := DecodeField(encoded, 46, 8); got != 143 { // 15% + 128 = 143
+	if got := DecodeField(encoded, 47, 8); got != 143 { // 15% + 128 = 143
 		t.Errorf("incline: got %d, want 143", got)
 	}
-	if got := DecodeField(encoded, 54, 3); got != uint64(sidewalkEnum["both"]) {
+	if got := DecodeField(encoded, 55, 3); got != uint64(sidewalkEnum["both"]) {
 		t.Errorf("sidewalk: got %d, want %d", got, sidewalkEnum["both"])
 	}
 }
@@ -204,7 +204,7 @@ func TestParseIncline(t *testing.T) {
 }
 
 func TestNewFieldsDoNotAffectOldFields(t *testing.T) {
-	// Verify OSM extended fields in bits 29-56 don't corrupt enrichment in bits 0-28.
+	// Verify OSM extended fields in bits 30-57 don't corrupt enrichment in bits 0-29.
 	enrich := RawEnrichment{
 		ForestPct: 75, NoiseScore: 30, TrafficClass: 2,
 		ProtectedArea: 1, IsCycleroute: true, LanduseClass: 4,
@@ -217,8 +217,8 @@ func TestNewFieldsDoNotAffectOldFields(t *testing.T) {
 	oldEnc := EncodeEdgeTags2(&emptyTags, &enrich)
 	combEnc := EncodeEdgeTags2(&fullTags, &enrich)
 
-	// Lower 29 bits must be identical.
-	mask := uint64((1 << 29) - 1)
+	// Lower 30 bits must be identical.
+	mask := uint64((1 << 30) - 1)
 	if oldEnc&mask != combEnc&mask {
 		t.Errorf("OSM extended fields corrupted enrichment bits: old=%064b combined=%064b", oldEnc, combEnc)
 	}
@@ -304,7 +304,7 @@ func TestDecodeNoiseScore(t *testing.T) {
 }
 
 func TestDecodeTrafficClass(t *testing.T) {
-	for _, want := range []int{0, 1, 2, 3} {
+	for _, want := range []int{0, 1, 2, 3, 4, 5, 6} {
 		e := &RawEnrichment{TrafficClass: want}
 		v := EncodeEnrichmentTags(e)
 		got := DecodeTrafficClass(v)
@@ -584,5 +584,47 @@ func TestCyclewaySide(t *testing.T) {
 			t.Errorf("cycleway_side left=%q right=%q both=%q: got %d, want %d",
 				tt.left, tt.right, tt.both, got, tt.want)
 		}
+	}
+}
+
+func TestEdgeTags2AllBitsUsed(t *testing.T) {
+	// All fields at max values should not overflow uint64.
+	// Bit count: 7+7+3+2+1+1+3+3+3+3+3+3+8+8+3+3+3 = 64.
+	tags := &RawTags{
+		MtbScaleUphill: "5", ViaFerrataScale: "K6",
+		TrailVisibility: "no", Width: "25.5", Incline: "100%", Sidewalk: "no",
+	}
+	enrich := &RawEnrichment{
+		ForestPct: 100, NoiseScore: 100, TrafficClass: 6,
+		ProtectedArea: 3, IsCycleroute: true, IsHikeroute: true,
+		CyclerouteNetwork: "icn", HikerouteNetwork: "iwn", LanduseClass: 7,
+		Urbanization: 255, RiverProximity: 255,
+	}
+	v := EncodeEdgeTags2(tags, enrich)
+
+	// Verify all fields decode correctly even when all bits are set
+	if got := DecodeForestPct(v); got != 100 {
+		t.Errorf("ForestPct: got %d", got)
+	}
+	if got := DecodeNoiseScore(v); got != 100 {
+		t.Errorf("NoiseScore: got %d", got)
+	}
+	if got := DecodeTrafficClass(v); got != 6 {
+		t.Errorf("TrafficClass: got %d, want 6", got)
+	}
+	if got := DecodeProtectedArea(v); got != 3 {
+		t.Errorf("ProtectedArea: got %d", got)
+	}
+	if !DecodeIsCycleroute(v) {
+		t.Error("IsCycleroute should be true")
+	}
+	if !DecodeIsHikeroute(v) {
+		t.Error("IsHikeroute should be true")
+	}
+	if got := DecodeUrbanization(v); got != 7 {
+		t.Errorf("Urbanization: got %d, want 7", got)
+	}
+	if got := DecodeRiverProximity(v); got != 7 {
+		t.Errorf("RiverProximity: got %d, want 7", got)
 	}
 }
