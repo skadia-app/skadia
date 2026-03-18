@@ -14,7 +14,7 @@ import (
 // DWithin-Filter für Ways weit weg von jedem Wald (instant), Point-Sampling alle 25m
 // für Grenzfälle (~30%), Default 0 für Restfälle. Nutzt ST_Intersects (boolean).
 // All phases process way_ids in 50k chunks for resume support and bounded memory.
-func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: forest_pct starting (chunked)")
 
 	conn, err := pool.Acquire(ctx)
@@ -48,7 +48,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 			SELECT 1 FROM osm_forests f
 			WHERE ST_CoveredBy(w.geom, f.geom)
 		  )
-	`, minID, maxID, defaultChunkSize, "forest_pct:within", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "forest_pct:within", progressFn); err != nil {
 		return fmt.Errorf("enrichment forest_pct: within phase: %w", err)
 	}
 	slog.Info("enrichment: forest_pct within phase complete")
@@ -79,7 +79,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 			SELECT 1 FROM %s fs
 			WHERE ST_DWithin(w.geom, fs.geom, 0.0015)
 		  )
-	`, forestTable), minID, maxID, defaultChunkSize, "forest_pct:no-forest", nil); err != nil {
+	`, forestTable), minID, maxID, defaultChunkSize, "forest_pct:no-forest", progressFn); err != nil {
 		return fmt.Errorf("enrichment forest_pct: no-forest phase: %w", err)
 	}
 	slog.Info("enrichment: forest_pct no-forest phase complete")
@@ -116,7 +116,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 			GROUP BY w2.way_id
 		) sub
 		WHERE w.way_id = sub.way_id
-	`, minID, maxID, defaultChunkSize, "forest_pct:sampling", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "forest_pct:sampling", progressFn); err != nil {
 		return fmt.Errorf("enrichment forest_pct: point-sampling phase: %w", err)
 	}
 	slog.Info("enrichment: forest_pct sampling phase complete")
@@ -128,7 +128,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 			UPDATE osm_ways w SET forest_pct = 0
 			WHERE w.way_id BETWEEN $1 AND $2
 			  AND w.highway IS NOT NULL AND w.forest_pct IS NULL
-		`, minID, maxID, defaultChunkSize, "forest_pct:default", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "forest_pct:default", progressFn); err != nil {
 			return fmt.Errorf("enrichment forest_pct: default: %w", err)
 		}
 	}
@@ -141,7 +141,7 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 // Keine ST_Intersection nötig — nur boolean Überlappungsprüfung.
 // Schutzklassen: 0=kein, 1=allgemein, 2=mittel (class 2/3/4), 3=streng (class 1/1a/1b).
 // All steps process way_ids in 50k chunks — no temp tables needed.
-func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: protected_area starting (chunked)")
 
 	conn, err := pool.Acquire(ctx)
@@ -211,7 +211,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 		WHERE w.way_id = sub.way_id`
 	}
 
-	if _, err := chunkedExec(ctx, conn, updateSQL, minID, maxID, defaultChunkSize, "protected_area:classify", nil); err != nil {
+	if _, err := chunkedExec(ctx, conn, updateSQL, minID, maxID, defaultChunkSize, "protected_area:classify", progressFn); err != nil {
 		return fmt.Errorf("enrichment protected_area: classify: %w", err)
 	}
 
@@ -222,7 +222,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 			UPDATE osm_ways w SET protected_area = 0
 			WHERE w.way_id BETWEEN $1 AND $2
 			  AND w.highway IS NOT NULL AND w.protected_area IS NULL
-		`, minID, maxID, defaultChunkSize, "protected_area:default", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "protected_area:default", progressFn); err != nil {
 			return fmt.Errorf("enrichment protected_area: default: %w", err)
 		}
 	}
@@ -237,7 +237,7 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 // 5=commercial/retail, 6=quarry, 7=military, 8=landfill.
 // Forest (1) und highway-basiertes Residential werden separat in EnrichLanduseClass gesetzt.
 // All steps process way_ids in 50k chunks — no temp tables needed.
-func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: landuse_from_polygons starting (chunked)")
 
 	// Fallback wenn subdivided Tabelle fehlt
@@ -308,7 +308,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 			ORDER BY way_id, cnt DESC
 		) sub
 		WHERE w.way_id = sub.way_id
-	`, minID, maxID, defaultChunkSize, "landuse_polygons:sampling", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "landuse_polygons:sampling", progressFn); err != nil {
 		return fmt.Errorf("enrichment landuse_polygons: point-sampling: %w", err)
 	}
 
@@ -319,7 +319,7 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 			UPDATE osm_ways w SET landuse_class = 0
 			WHERE w.way_id BETWEEN $1 AND $2
 			  AND w.highway IS NOT NULL AND w.landuse_class IS NULL
-		`, minID, maxID, defaultChunkSize, "landuse_polygons:default", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "landuse_polygons:default", progressFn); err != nil {
 			return fmt.Errorf("enrichment landuse_polygons: default: %w", err)
 		}
 	}

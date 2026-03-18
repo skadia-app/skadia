@@ -42,6 +42,7 @@ type PipelineConfig struct {
 type ProgressReporter interface {
 	SetPhase(phase string)
 	SetProgress(current int64)
+	SetTotal(total int64)
 	Fail(errMsg string)
 	Complete()
 }
@@ -621,8 +622,11 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	}
 	slog.Info("osm enrichment: subdivided polygon tables built")
 
-	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(pct int) {
-		reporter.SetProgress(int64(pct))
+	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(current, total int64) {
+		if current == 0 && total > 0 {
+			reporter.SetTotal(total)
+		}
+		reporter.SetProgress(current)
 	}); err != nil {
 		slog.Error("osm enrichment: spatial enrichment failed", "error", err)
 		reporter.Fail("Spatial Enrichment fehlgeschlagen: " + err.Error())
