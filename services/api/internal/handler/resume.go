@@ -36,6 +36,40 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		}
 	}
 
+	// Kill stale PostgreSQL queries from previous API instance.
+	// After a container restart, orphaned connections may still hold row locks
+	// from long-running enrichment UPDATEs or import DELETEs. Our new pool
+	// connections are <2s old, so any query running >2min belongs to the old instance.
+	var terminated int
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT pg_terminate_backend(pid), pid, left(query, 80), query_start
+		FROM pg_stat_activity
+		WHERE usename = current_user
+		  AND pid != pg_backend_pid()
+		  AND (
+			(state = 'active' AND query_start < now() - interval '2 minutes')
+			OR (state = 'idle in transaction' AND state_change < now() - interval '2 minutes')
+		  )`)
+	if err != nil {
+		slog.Warn("resume: stale connection query failed (non-fatal)", "error", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var ok bool
+			var pid int
+			var query string
+			var queryStart time.Time
+			if scanErr := rows.Scan(&ok, &pid, &query, &queryStart); scanErr == nil && ok {
+				terminated++
+				slog.Warn("resume: terminated stale connection",
+					"pid", pid, "running_since", queryStart, "query", query)
+			}
+		}
+	}
+	if terminated > 0 {
+		slog.Info("resume: terminated stale connections from previous instance", "count", terminated)
+	}
+
 	jobs, err := h.DB.ListStaleRunningJobs(ctx)
 	if err != nil {
 		slog.Warn("resume: failed to list stale jobs", "error", err)

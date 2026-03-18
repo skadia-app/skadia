@@ -1,0 +1,1 @@
+ALTER TABLE background_jobs ADD COLUMN IF NOT EXISTS error TEXT;
