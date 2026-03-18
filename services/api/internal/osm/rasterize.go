@@ -9,12 +9,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// EnrichForestPct berechnet den Waldanteil jeder Way via BRouter-Hybrid Point-Sampling.
-// 3-Phasen-Ansatz: ST_CoveredBy für vollständig im Wald liegende Ways (~70%, instant),
+// EnrichForestPct berechnet den Waldanteil jeder Way via BRouter-Hybrid Point-Sampling (chunked).
+// 4-Phasen-Ansatz: ST_CoveredBy für vollständig im Wald liegende Ways (~70%, instant),
 // DWithin-Filter für Ways weit weg von jedem Wald (instant), Point-Sampling alle 25m
-// für Grenzfälle (~30%). Nutzt ST_Intersects (boolean) statt ST_Intersection (Geometrie).
+// für Grenzfälle (~30%), Default 0 für Restfälle. Nutzt ST_Intersects (boolean).
+// All phases process way_ids in 50k chunks for resume support and bounded memory.
 func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: forest_pct starting (BRouter-hybrid point-sampling)")
+	slog.Info("enrichment: forest_pct starting (chunked)")
 
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -23,28 +24,36 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
-	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
-		slog.Warn("enrichment forest_pct: SET work_mem failed (non-fatal)", "error", err)
+	if workMemMB > 512 {
+		workMemMB = 512
 	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
+	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	// Phase 1: Ways komplett im Wald → forest_pct = 100
-	// ST_CoveredBy statt ST_Within: behandelt MultiPolygone mit Löchern korrekt.
-	_, err = conn.Exec(ctx, `
+	minID, maxID, err := wayIDRange(ctx, conn, "forest_pct")
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: forest_pct — no NULL rows, skipping")
+		return nil
+	}
+	slog.Info("enrichment: forest_pct way_id range", "min", minID, "max", maxID)
+
+	// Phase 1: Ways completely inside forest → forest_pct = 100
+	if _, err := chunkedExec(ctx, conn, `
 		UPDATE osm_ways w SET forest_pct = 100
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
+		WHERE w.way_id BETWEEN $1 AND $2
+		  AND w.highway IS NOT NULL AND w.forest_pct IS NULL
 		  AND EXISTS (
 			SELECT 1 FROM osm_forests f
 			WHERE ST_CoveredBy(w.geom, f.geom)
 		  )
-	`)
-	if err != nil {
+	`, minID, maxID, defaultChunkSize, "forest_pct:within", nil); err != nil {
 		return fmt.Errorf("enrichment forest_pct: within phase: %w", err)
 	}
-	slog.Info("enrichment: forest_pct ST_Within phase complete")
+	slog.Info("enrichment: forest_pct within phase complete")
 
-	// Prüfe ob subdivided Tabelle existiert (Fallback auf Original sonst)
+	// Check subdivided table
 	var forestSubExists bool
 	conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_forests_subdivided')").Scan(&forestSubExists) //nolint:errcheck
 	forestTable := "osm_forests"
@@ -54,75 +63,86 @@ func EnrichForestPct(ctx context.Context, pool *pgxpool.Pool, bboxClause string)
 		slog.Warn("enrichment: osm_forests_subdivided not found, falling back to osm_forests")
 	}
 
-	// Phase 2: Ways weit weg von jedem Wald → forest_pct = 0
-	// 0.0015° ≈ ~120m bei 47°N (konservativ)
-	_, err = conn.Exec(ctx, fmt.Sprintf(`
+	// Refresh range (Phase 1 set many rows)
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	if maxID == 0 {
+		slog.Info("enrichment: forest_pct — all done after within phase")
+		return nil
+	}
+
+	// Phase 2: Ways far from any forest → forest_pct = 0
+	if _, err := chunkedExec(ctx, conn, fmt.Sprintf(`
 		UPDATE osm_ways w SET forest_pct = 0
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
+		WHERE w.way_id BETWEEN $1 AND $2
+		  AND w.highway IS NOT NULL AND w.forest_pct IS NULL
 		  AND NOT EXISTS (
 			SELECT 1 FROM %s fs
 			WHERE ST_DWithin(w.geom, fs.geom, 0.0015)
 		  )
-	`, forestTable))
-	if err != nil {
+	`, forestTable), minID, maxID, defaultChunkSize, "forest_pct:no-forest", nil); err != nil {
 		return fmt.Errorf("enrichment forest_pct: no-forest phase: %w", err)
 	}
 	slog.Info("enrichment: forest_pct no-forest phase complete")
 
-	// Phase 3: Grenzfälle — Point-Sampling alle 25m entlang der Way
-	// ST_Intersects pro Punkt (boolean, billig) statt ST_Intersection (Geometrie, teuer)
-	_, err = conn.Exec(ctx, `
-		DROP TABLE IF EXISTS _forest_coverage;
-		CREATE UNLOGGED TABLE _forest_coverage AS
-		SELECT w.way_id,
-			ROUND(100.0 *
-				COUNT(*) FILTER (WHERE EXISTS (
-					SELECT 1 FROM `+forestTable+` fs
-					WHERE ST_Intersects(fs.geom, pt.geom)
-				))::float / NULLIF(COUNT(*), 0)
-			)::SMALLINT AS pct
-		FROM osm_ways w
-		CROSS JOIN LATERAL (
-			SELECT (dp).geom
-			FROM ST_DumpPoints(
-				ST_LineInterpolatePoints(w.geom,
-					LEAST(1.0, 25.0 / GREATEST(25.0, ST_Length(w.geom::geography)))
-				)
-			) dp
-		) pt
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL
-		GROUP BY w.way_id
-	`)
-	if err != nil {
+	// Refresh range (Phase 2 set many more rows)
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	if maxID == 0 {
+		slog.Info("enrichment: forest_pct — all done after no-forest phase")
+		return nil
+	}
+
+	// Phase 3: Edge cases — point-sampling every 25m (chunked, no CTAS)
+	if _, err := chunkedExec(ctx, conn, `
+		UPDATE osm_ways w SET forest_pct = sub.pct
+		FROM (
+			SELECT w2.way_id,
+				ROUND(100.0 *
+					COUNT(*) FILTER (WHERE EXISTS (
+						SELECT 1 FROM `+forestTable+` fs
+						WHERE ST_Intersects(fs.geom, pt.geom)
+					))::float / NULLIF(COUNT(*), 0)
+				)::SMALLINT AS pct
+			FROM osm_ways w2
+			CROSS JOIN LATERAL (
+				SELECT (dp).geom
+				FROM ST_DumpPoints(
+					ST_LineInterpolatePoints(w2.geom,
+						LEAST(1.0, 25.0 / GREATEST(25.0, ST_Length(w2.geom::geography)))
+					)
+				) dp
+			) pt
+			WHERE w2.way_id BETWEEN $1 AND $2
+			  AND w2.highway IS NOT NULL AND w2.forest_pct IS NULL
+			GROUP BY w2.way_id
+		) sub
+		WHERE w.way_id = sub.way_id
+	`, minID, maxID, defaultChunkSize, "forest_pct:sampling", nil); err != nil {
 		return fmt.Errorf("enrichment forest_pct: point-sampling phase: %w", err)
 	}
+	slog.Info("enrichment: forest_pct sampling phase complete")
 
-	_, err = conn.Exec(ctx, `
-		UPDATE osm_ways SET forest_pct = c.pct
-		FROM _forest_coverage c WHERE osm_ways.way_id = c.way_id
-	`)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
-		return fmt.Errorf("enrichment forest_pct: update: %w", err)
+	// Phase 4: Remaining NULLs → 0 (very short ways without sample points)
+	minID, maxID, _ = wayIDRange(ctx, conn, "forest_pct")
+	if maxID > 0 {
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET forest_pct = 0
+			WHERE w.way_id BETWEEN $1 AND $2
+			  AND w.highway IS NOT NULL AND w.forest_pct IS NULL
+		`, minID, maxID, defaultChunkSize, "forest_pct:default", nil); err != nil {
+			return fmt.Errorf("enrichment forest_pct: default: %w", err)
+		}
 	}
 
-	// Phase 4: Verbleibende NULLs → 0 (sehr kurze Ways ohne Sample-Punkte)
-	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET forest_pct = 0 WHERE highway IS NOT NULL AND forest_pct IS NULL"+bboxClause)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
-		return fmt.Errorf("enrichment forest_pct: default: %w", err)
-	}
-
-	conn.Exec(ctx, "DROP TABLE IF EXISTS _forest_coverage") //nolint:errcheck
-	slog.Info("enrichment: forest_pct complete (BRouter-hybrid)")
+	slog.Info("enrichment: forest_pct complete (chunked)")
 	return nil
 }
 
-// EnrichProtectedArea bestimmt die Schutzklasse jeder Way via ST_Intersects.
+// EnrichProtectedArea bestimmt die Schutzklasse jeder Way via ST_Intersects (chunked).
 // Keine ST_Intersection nötig — nur boolean Überlappungsprüfung.
 // Schutzklassen: 0=kein, 1=allgemein, 2=mittel (class 2/3/4), 3=streng (class 1/1a/1b).
+// All steps process way_ids in 50k chunks — no temp tables needed.
 func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: protected_area starting (polygon join)")
+	slog.Info("enrichment: protected_area starting (chunked)")
 
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -131,89 +151,94 @@ func EnrichProtectedArea(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
-	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
-		slog.Warn("enrichment protected_area: SET work_mem failed (non-fatal)", "error", err)
+	if workMemMB > 512 {
+		workMemMB = 512
 	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
+	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	// Prüfe ob subdivided Tabelle existiert (Fallback auf Original sonst)
+	minID, maxID, err := wayIDRange(ctx, conn, "protected_area")
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: protected_area — no NULL rows, skipping")
+		return nil
+	}
+	slog.Info("enrichment: protected_area way_id range", "min", minID, "max", maxID)
+
+	// Check subdivided table
 	var boundarySubExists bool
 	conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_boundaries_subdivided')").Scan(&boundarySubExists) //nolint:errcheck
-	boundaryTable := "osm_boundaries"
+
+	// Chunked UPDATE FROM subquery — no temp table needed
+	var updateSQL string
 	if boundarySubExists {
-		boundaryTable = "osm_boundaries_subdivided"
+		updateSQL = `
+		UPDATE osm_ways w SET protected_area = sub.level
+		FROM (
+			SELECT w2.way_id,
+				MAX(CASE
+					WHEN b.protect_class IN ('1','1a','1b') THEN 3
+					WHEN b.protect_class IN ('2','3','4') THEN 2
+					ELSE 1
+				END)::SMALLINT AS level
+			FROM osm_ways w2
+			JOIN osm_boundaries_subdivided bs ON ST_Intersects(w2.geom, bs.geom)
+			JOIN osm_boundaries b ON b.osm_id = bs.osm_id AND b.boundary_type IN ('protected_area','national_park')
+			WHERE w2.way_id BETWEEN $1 AND $2
+			  AND w2.highway IS NOT NULL AND w2.protected_area IS NULL
+			GROUP BY w2.way_id
+		) sub
+		WHERE w.way_id = sub.way_id`
 	} else {
 		slog.Warn("enrichment: osm_boundaries_subdivided not found, falling back to osm_boundaries")
+		updateSQL = `
+		UPDATE osm_ways w SET protected_area = sub.level
+		FROM (
+			SELECT w2.way_id,
+				MAX(CASE
+					WHEN b.protect_class IN ('1','1a','1b') THEN 3
+					WHEN b.protect_class IN ('2','3','4') THEN 2
+					ELSE 1
+				END)::SMALLINT AS level
+			FROM osm_ways w2
+			JOIN osm_boundaries b ON ST_Intersects(w2.geom, b.geom)
+			  AND b.boundary_type IN ('protected_area','national_park')
+			WHERE w2.way_id BETWEEN $1 AND $2
+			  AND w2.highway IS NOT NULL AND w2.protected_area IS NULL
+			GROUP BY w2.way_id
+		) sub
+		WHERE w.way_id = sub.way_id`
 	}
 
-	// AND w.protected_area IS NULL — nur resettete Ways
-	// If subdivided table exists: join against subdivided (tight BBs → fast GIST),
-	// then back to original for boundary_type filtering.
-	// If fallback: simple join directly against osm_boundaries.
-	var stagingSQL string
-	if boundarySubExists {
-		stagingSQL = fmt.Sprintf(`
-		DROP TABLE IF EXISTS _protected;
-		CREATE UNLOGGED TABLE _protected AS
-		SELECT w.way_id,
-			MAX(CASE
-				WHEN b.protect_class IN ('1','1a','1b') THEN 3
-				WHEN b.protect_class IN ('2','3','4') THEN 2
-				ELSE 1
-			END)::SMALLINT AS level
-		FROM osm_ways w
-		JOIN %s bs ON ST_Intersects(w.geom, bs.geom)
-		JOIN osm_boundaries b ON b.osm_id = bs.osm_id AND b.boundary_type IN ('protected_area','national_park')
-		WHERE w.highway IS NOT NULL AND w.protected_area IS NULL
-		GROUP BY w.way_id`, boundaryTable)
-	} else {
-		stagingSQL = `
-		DROP TABLE IF EXISTS _protected;
-		CREATE UNLOGGED TABLE _protected AS
-		SELECT w.way_id,
-			MAX(CASE
-				WHEN b.protect_class IN ('1','1a','1b') THEN 3
-				WHEN b.protect_class IN ('2','3','4') THEN 2
-				ELSE 1
-			END)::SMALLINT AS level
-		FROM osm_ways w
-		JOIN osm_boundaries b ON ST_Intersects(w.geom, b.geom) AND b.boundary_type IN ('protected_area','national_park')
-		WHERE w.highway IS NOT NULL AND w.protected_area IS NULL
-		GROUP BY w.way_id`
-	}
-	_, err = conn.Exec(ctx, stagingSQL)
-	if err != nil {
-		return fmt.Errorf("enrichment protected_area: create staging: %w", err)
+	if _, err := chunkedExec(ctx, conn, updateSQL, minID, maxID, defaultChunkSize, "protected_area:classify", nil); err != nil {
+		return fmt.Errorf("enrichment protected_area: classify: %w", err)
 	}
 
-	_, err = conn.Exec(ctx, `
-		UPDATE osm_ways SET protected_area = p.level
-		FROM _protected p WHERE osm_ways.way_id = p.way_id
-	`)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _protected") //nolint:errcheck
-		return fmt.Errorf("enrichment protected_area: update: %w", err)
+	// Default 0 for ways not in any protected area (chunked)
+	minID, maxID, _ = wayIDRange(ctx, conn, "protected_area")
+	if maxID > 0 {
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET protected_area = 0
+			WHERE w.way_id BETWEEN $1 AND $2
+			  AND w.highway IS NOT NULL AND w.protected_area IS NULL
+		`, minID, maxID, defaultChunkSize, "protected_area:default", nil); err != nil {
+			return fmt.Errorf("enrichment protected_area: default: %w", err)
+		}
 	}
 
-	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET protected_area = 0 WHERE highway IS NOT NULL AND protected_area IS NULL"+bboxClause)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _protected") //nolint:errcheck
-		return fmt.Errorf("enrichment protected_area: default: %w", err)
-	}
-
-	conn.Exec(ctx, "DROP TABLE IF EXISTS _protected") //nolint:errcheck
 	slog.Info("enrichment: protected_area complete")
 	return nil
 }
 
-// EnrichLanduseFromPolygons bestimmt die dominante Landnutzung jeder Way via Point-Sampling Mehrheitsvotum.
+// EnrichLanduseFromPolygons bestimmt die dominante Landnutzung jeder Way via Point-Sampling Mehrheitsvotum (chunked).
 // BRouter-Hybrid-Muster: Punkte alle 50m, ST_Intersects (boolean) statt ST_Intersection (Geometrie).
 // Enum: 0=other, 2=farmland/meadow/orchard/vineyard, 3=residential, 4=industrial,
 // 5=commercial/retail, 6=quarry, 7=military, 8=landfill.
 // Forest (1) und highway-basiertes Residential werden separat in EnrichLanduseClass gesetzt.
+// All steps process way_ids in 50k chunks — no temp tables needed.
 func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
-	slog.Info("enrichment: landuse_from_polygons starting (point-sampling)")
+	slog.Info("enrichment: landuse_from_polygons starting (chunked)")
 
 	// Fallback wenn subdivided Tabelle fehlt
 	var landuseSubExists bool
@@ -232,66 +257,73 @@ func EnrichLanduseFromPolygons(ctx context.Context, pool *pgxpool.Pool, bboxClau
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
-	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
-		slog.Warn("enrichment landuse_polygons: SET work_mem failed (non-fatal)", "error", err)
+	if workMemMB > 512 {
+		workMemMB = 512
 	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
+	conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)) //nolint:errcheck
 
-	// Point-Sampling: Punkte alle 50m, Mehrheitsvotum des Landuse-Typs
-	_, err = conn.Exec(ctx, `
-		DROP TABLE IF EXISTS _landuse;
-		CREATE UNLOGGED TABLE _landuse AS
-		SELECT DISTINCT ON (way_id) way_id, lc
+	minID, maxID, err := wayIDRange(ctx, conn, "landuse_class")
+	if err != nil || maxID == 0 {
+		slog.Info("enrichment: landuse_from_polygons — no NULL rows, skipping")
+		return nil
+	}
+	slog.Info("enrichment: landuse_from_polygons way_id range", "min", minID, "max", maxID)
+
+	// Point-Sampling: Punkte alle 50m, Mehrheitsvotum des Landuse-Typs (chunked, no CTAS)
+	if _, err := chunkedExec(ctx, conn, `
+		UPDATE osm_ways w SET landuse_class = sub.lc
 		FROM (
-			SELECT w.way_id,
-				(CASE lus.landuse
-					WHEN 'farmland' THEN 2 WHEN 'meadow' THEN 2 WHEN 'orchard' THEN 2 WHEN 'vineyard' THEN 2
-					WHEN 'residential' THEN 3
-					WHEN 'industrial' THEN 4
-					WHEN 'commercial' THEN 5 WHEN 'retail' THEN 5
-					WHEN 'quarry' THEN 6
-					WHEN 'military' THEN 7
-					WHEN 'landfill' THEN 8
-					ELSE 0
-				END)::SMALLINT AS lc,
-				COUNT(*) AS cnt
-			FROM osm_ways w
-			CROSS JOIN LATERAL (
-				SELECT (dp).geom
-				FROM ST_DumpPoints(
-					ST_LineInterpolatePoints(w.geom,
-						LEAST(1.0, 50.0 / GREATEST(50.0, ST_Length(w.geom::geography)))
-					)
-				) dp
-			) pt
-			JOIN `+landuseTable+` lus ON ST_Intersects(lus.geom, pt.geom)
-			WHERE w.highway IS NOT NULL AND w.landuse_class IS NULL
-			  AND lus.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry','military','landfill')
-			GROUP BY w.way_id, lc
-		) votes
-		ORDER BY way_id, cnt DESC
-	`)
-	if err != nil {
-		return fmt.Errorf("enrichment landuse_polygons: create staging: %w", err)
+			SELECT DISTINCT ON (way_id) way_id, lc
+			FROM (
+				SELECT w2.way_id,
+					(CASE lus.landuse
+						WHEN 'farmland' THEN 2 WHEN 'meadow' THEN 2 WHEN 'orchard' THEN 2 WHEN 'vineyard' THEN 2
+						WHEN 'residential' THEN 3
+						WHEN 'industrial' THEN 4
+						WHEN 'commercial' THEN 5 WHEN 'retail' THEN 5
+						WHEN 'quarry' THEN 6
+						WHEN 'military' THEN 7
+						WHEN 'landfill' THEN 8
+						ELSE 0
+					END)::SMALLINT AS lc,
+					COUNT(*) AS cnt
+				FROM osm_ways w2
+				CROSS JOIN LATERAL (
+					SELECT (dp).geom
+					FROM ST_DumpPoints(
+						ST_LineInterpolatePoints(w2.geom,
+							LEAST(1.0, 50.0 / GREATEST(50.0, ST_Length(w2.geom::geography)))
+						)
+					) dp
+				) pt
+				JOIN `+landuseTable+` lus ON ST_Intersects(lus.geom, pt.geom)
+				WHERE w2.way_id BETWEEN $1 AND $2
+				  AND w2.highway IS NOT NULL AND w2.landuse_class IS NULL
+				  AND lus.landuse IN ('farmland','meadow','orchard','vineyard','residential','industrial','commercial','retail','quarry','military','landfill')
+				GROUP BY w2.way_id, lc
+			) votes
+			ORDER BY way_id, cnt DESC
+		) sub
+		WHERE w.way_id = sub.way_id
+	`, minID, maxID, defaultChunkSize, "landuse_polygons:sampling", nil); err != nil {
+		return fmt.Errorf("enrichment landuse_polygons: point-sampling: %w", err)
 	}
 
-	_, err = conn.Exec(ctx, `
-		UPDATE osm_ways SET landuse_class = l.lc
-		FROM _landuse l WHERE osm_ways.way_id = l.way_id
-	`)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
-		return fmt.Errorf("enrichment landuse_polygons: update: %w", err)
+	// Default 0 for ways not covered by any landuse polygon (chunked)
+	minID, maxID, _ = wayIDRange(ctx, conn, "landuse_class")
+	if maxID > 0 {
+		if _, err := chunkedExec(ctx, conn, `
+			UPDATE osm_ways w SET landuse_class = 0
+			WHERE w.way_id BETWEEN $1 AND $2
+			  AND w.highway IS NOT NULL AND w.landuse_class IS NULL
+		`, minID, maxID, defaultChunkSize, "landuse_polygons:default", nil); err != nil {
+			return fmt.Errorf("enrichment landuse_polygons: default: %w", err)
+		}
 	}
 
-	_, err = conn.Exec(ctx, "UPDATE osm_ways w SET landuse_class = 0 WHERE highway IS NOT NULL AND landuse_class IS NULL"+bboxClause)
-	if err != nil {
-		conn.Exec(context.Background(), "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
-		return fmt.Errorf("enrichment landuse_polygons: default: %w", err)
-	}
-
-	conn.Exec(ctx, "DROP TABLE IF EXISTS _landuse") //nolint:errcheck
 	slog.Info("enrichment: landuse_from_polygons complete")
 	return nil
 }
