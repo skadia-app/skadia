@@ -20,30 +20,39 @@ const (
 	CaseLong                        // ≥4h AND Δalt<500m → 2 readings: start + midpoint
 )
 
-// selectWeatherModel returns the best Open-Meteo endpoint and model for the given location and date.
-func selectWeatherModel(lat, lng float64, date time.Time) (endpoint, modelID string) {
-	iconD2Start := time.Date(2022, 11, 24, 0, 0, 0, 0, time.UTC)
-	aromeStart  := time.Date(2022, 11, 13, 0, 0, 0, 0, time.UTC)
-	ifsStart    := time.Date(2017, 1,  1,  0, 0, 0, 0, time.UTC)
+// forecastModelWindow is the empirical retention window for all models on
+// historical-forecast-api.open-meteo.com. All four models (ICON D2, ICON EU,
+// AROME France HD, IFS HRES) return HTTP 500 for dates older than this,
+// regardless of their documented start dates. Empirically measured 2026-03-18:
+// cutoff is 2025-11-11 = 128 days. 120 days used as conservative safety margin.
+const forecastModelWindow = 120 * 24 * time.Hour
 
-	if !date.Before(iconD2Start) && isIconD2Domain(lat, lng) {
-		return forecastEndpoint, "dwd_icon_d2"
-	}
-	if !date.Before(aromeStart) && isFranceDomain(lat, lng) {
-		return forecastEndpoint, "meteofrance_arome_france_hd"
-	}
-	if !date.Before(iconD2Start) && isIconEUDomain(lat, lng) {
-		return forecastEndpoint, "dwd_icon_eu"
-	}
-	// D/A/CH before ICON-D2 availability: prefer ERA5-Land over global IFS.
-	// ERA5-Land has better spatial resolution for Alpine terrain than IFS HRES.
-	if date.Before(iconD2Start) && isIconD2Domain(lat, lng) {
+// selectWeatherModel returns the best Open-Meteo endpoint and model for the
+// given location and date, prioritising highest spatial resolution.
+//
+// Within the ~120-day rolling window of historical-forecast-api:
+//   ICON D2 (~2 km, D/A/CH) > AROME France HD (~1.5 km, France) >
+//   ICON EU (~7 km, Europe) > IFS HRES (~9 km, global)
+//
+// Beyond that window all forecast models return HTTP 500. ERA5-Land
+// (archive-api, ~11 km) is the only reliable option and covers data back to 1940.
+func selectWeatherModel(lat, lng float64, date time.Time) (endpoint, modelID string) {
+	if time.Since(date) > forecastModelWindow {
 		return archiveEndpoint, "era5_land"
 	}
-	if !date.Before(ifsStart) {
-		return forecastEndpoint, "ecmwf_ifs_hres"
+	// Within the rolling window, use the highest-resolution model for the region.
+	// ICON D2 is checked before AROME because it is calibrated for D/A/CH
+	// (including Swiss and Austrian Alps) and covers the overlap zone lng 5–10.
+	if isIconD2Domain(lat, lng) {
+		return forecastEndpoint, "dwd_icon_d2"
 	}
-	return archiveEndpoint, "era5_land"
+	if isFranceDomain(lat, lng) {
+		return forecastEndpoint, "meteofrance_arome_france_hd"
+	}
+	if isIconEUDomain(lat, lng) {
+		return forecastEndpoint, "dwd_icon_eu"
+	}
+	return forecastEndpoint, "ecmwf_ifs_hres"
 }
 
 // isIconD2Domain covers Germany, Austria, Switzerland and adjacent Alpine regions.

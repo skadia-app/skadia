@@ -8,9 +8,8 @@ import (
 )
 
 func TestSelectWeatherModel(t *testing.T) {
-	iconD2Start := time.Date(2022, 11, 24, 0, 0, 0, 0, time.UTC)
-	aromeStart  := time.Date(2022, 11, 13, 0, 0, 0, 0, time.UTC)
-	ifsStart    := time.Date(2017, 1,  1,  0, 0, 0, 0, time.UTC)
+	recent := time.Now().UTC().Add(-7 * 24 * time.Hour)   // 7 days ago — within window
+	old    := time.Now().UTC().Add(-365 * 24 * time.Hour) // 1 year ago — outside window
 
 	tests := []struct {
 		name            string
@@ -19,14 +18,16 @@ func TestSelectWeatherModel(t *testing.T) {
 		wantModel       string
 		wantEndpointKey string // "archive" or "forecast"
 	}{
-		{"Munich ICON D2",    48.1,  11.6,  iconD2Start.Add(24 * time.Hour), "dwd_icon_d2", "forecast"},
-		{"Vienna ICON D2",    48.2,  16.4,  iconD2Start.Add(24 * time.Hour), "dwd_icon_d2", "forecast"},
-		{"Zurich ICON D2",    47.4,   8.5,  iconD2Start.Add(24 * time.Hour), "dwd_icon_d2", "forecast"},
-		{"Paris AROME",       48.85,  2.35, aromeStart.Add(24 * time.Hour),  "meteofrance_arome_france_hd", "forecast"},
-		{"Amsterdam ICON EU", 52.37,  4.90, iconD2Start.Add(24 * time.Hour), "dwd_icon_eu", "forecast"},
-		{"Tokyo IFS",         35.68, 139.69, ifsStart.Add(24 * time.Hour),   "ecmwf_ifs_hres", "forecast"},
-		{"Old activity",      48.1,  11.6,  time.Date(2015, 6, 1, 0, 0, 0, 0, time.UTC), "era5_land", "archive"},
-		{"Old Munich",        48.1,  11.6,  time.Date(2021, 8, 1, 0, 0, 0, 0, time.UTC), "era5_land", "archive"},
+		{"Munich ICON D2",    48.1,  11.6,   recent, "dwd_icon_d2",                 "forecast"},
+		{"Vienna ICON D2",    48.2,  16.4,   recent, "dwd_icon_d2",                 "forecast"},
+		{"Zurich ICON D2",    47.4,   8.5,   recent, "dwd_icon_d2",                 "forecast"},
+		{"Paris AROME",       48.85,  2.35,  recent, "meteofrance_arome_france_hd", "forecast"},
+		{"Amsterdam ICON EU", 52.37,  4.90,  recent, "dwd_icon_eu",                 "forecast"},
+		{"Tokyo IFS",         35.68, 139.69, recent, "ecmwf_ifs_hres",              "forecast"},
+		{"Old Munich",        48.1,  11.6,   old,    "era5_land",                   "archive"},
+		{"Old Paris",         48.85,  2.35,  old,    "era5_land",                   "archive"},
+		{"Old Tokyo",         35.68, 139.69, old,    "era5_land",                   "archive"},
+		{"Very old 2015",     48.1,  11.6,   time.Date(2015, 6, 1, 0, 0, 0, 0, time.UTC), "era5_land", "archive"},
 	}
 
 	for _, tt := range tests {
