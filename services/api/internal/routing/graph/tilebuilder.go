@@ -125,7 +125,7 @@ func DiscoverTileIDs(ctx context.Context, pool *pgxpool.Pool) ([]uint32, error) 
 // workers controls the degree of parallelism. If workers <= 0, it defaults to
 // min(max(NumCPU/4, 1), 2).
 func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
-	hgtDirs []string, workers int,
+	hgtDirs []string, workers int, filterBBox [4]float64, force bool,
 	progressFn func(tileID uint32, step string, pct int)) ([]TileBuildResult, error) {
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -137,6 +137,23 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 		return nil, err
 	}
 	slog.Info("discovered tiles", "count", len(tileIDs))
+
+	// Filter tiles by region BBox if provided.
+	// filterBBox uses [minLon, minLat, maxLon, maxLat] convention (geographic order).
+	// NOTE: TileBBox() returns [latMin, lonMin, latMax, lonMax] — different order!
+	if filterBBox != [4]float64{} {
+		var filtered []uint32
+		minLon, minLat, maxLon, maxLat := filterBBox[0], filterBBox[1], filterBBox[2], filterBBox[3]
+		for _, id := range tileIDs {
+			tb := TileBBox(id) // [latMin, lonMin, latMax, lonMax]
+			tLatMin, tLonMin, tLatMax, tLonMax := tb[0], tb[1], tb[2], tb[3]
+			if tLonMax >= minLon && tLonMin <= maxLon && tLatMax >= minLat && tLatMin <= maxLat {
+				filtered = append(filtered, id)
+			}
+		}
+		slog.Info("tile build: filtered by region BBox", "total", len(tileIDs), "filtered", len(filtered))
+		tileIDs = filtered
+	}
 
 	// Report total tile count for progress tracking.
 	if progressFn != nil {
@@ -162,11 +179,14 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 		tilePath := TileFilePath(outputDir, tileID)
 
 		if info, err := os.Stat(tilePath); err == nil && info.Size() > 0 {
-			slog.Info("tile already exists, skipping", "tile_id", tileID, "path", tilePath)
-			if progressFn != nil {
-				progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), 100)
+			if !force {
+				slog.Info("tile already exists, skipping", "tile_id", tileID, "path", tilePath)
+				if progressFn != nil {
+					progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), 100)
+				}
+				continue
 			}
-			continue
+			os.Remove(tilePath)
 		}
 
 		g.Go(func() error {
