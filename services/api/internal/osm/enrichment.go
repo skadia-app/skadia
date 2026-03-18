@@ -43,9 +43,10 @@ func chunkedExec(ctx context.Context, conn *pgxpool.Conn, sql string,
 		if err != nil {
 			return total, fmt.Errorf("chunk [%d-%d]: %w", lo, lo+chunkSize-1, err)
 		}
-		total += tag.RowsAffected()
-		if progressFn != nil {
-			progressFn(total)
+		affected := tag.RowsAffected()
+		total += affected
+		if progressFn != nil && affected > 0 {
+			progressFn(affected) // delta, not cumulative
 		}
 	}
 	if total > 0 {
@@ -58,8 +59,8 @@ func chunkedExec(ctx context.Context, conn *pgxpool.Conn, sql string,
 // Must be called BEFORE intersection splitting (enrichment values are inherited by split segments).
 // regionFilter: "" = global (all ways), "germany" = only DE + 50km buffer,
 // "germany,austria" = union of both + buffer.
-// Reports progress via the progressFn callback (0-100).
-func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter string, progressFn func(int)) error {
+// Reports progress via progressFn(current, total) with absolute row counts.
+func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter string, progressFn func(current, total int64)) error {
 	// Build BBox clause from region filter.
 	// Used to restrict the reset + all enrichment sub-functions to the affected area only.
 	bboxClause := ""
@@ -106,61 +107,62 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// Count total NULL ways for progress reporting.
-	// Each enrichment column starts NULL; as chunks complete, the count decreases.
-	// We use the initial count as progress_total and report (total - remaining) as current.
-	var totalNullWays int64
+	// Count total ways needing enrichment for real progress reporting.
+	var totalWays int64
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM osm_ways w
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL`+bboxClause).Scan(&totalNullWays)
-	slog.Info("enrichment: ways to process", "total", totalNullWays)
+		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL`+bboxClause).Scan(&totalWays)
+	slog.Info("enrichment: ways to process", "total", totalWays)
+	if progressFn != nil {
+		progressFn(0, totalWays)
+	}
 
-	report := func(pct int) {
+	// Cumulative progress across all enrichment steps.
+	// Each chunkedExec callback reports a delta; we accumulate here.
+	var cumulative int64
+	chunkCb := func(delta int64) {
+		cumulative += delta
 		if progressFn != nil {
-			progressFn(pct)
+			progressFn(cumulative, totalWays)
 		}
 	}
 
-	// === Phase 1: Polygon-basierte Spatial Joins (sequential) ===
-	// Progress per step: forest=0→15, protected=15→25, landuse=25→40
+	// === Phase 1: Polygon-basierte Spatial Joins (sequential, chunked) ===
 	slog.Info("enrichment: phase 1 — spatial joins (sequential, chunked)")
 	phase1Steps := []struct {
-		name   string
-		fn     func(context.Context, *pgxpool.Pool, string) error
-		pctEnd int
+		name string
+		fn   func(context.Context, *pgxpool.Pool, string, func(int64)) error
 	}{
-		{"forest_pct", EnrichForestPct, 15},
-		{"protected_area", EnrichProtectedArea, 25},
-		{"landuse_from_polygons", EnrichLanduseFromPolygons, 40},
+		{"forest_pct", EnrichForestPct},
+		{"protected_area", EnrichProtectedArea},
+		{"landuse_from_polygons", EnrichLanduseFromPolygons},
 	}
 	for _, step := range phase1Steps {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("enrichment cancelled before %s: %w", step.name, err)
 		}
 		slog.Info("enrichment: starting " + step.name)
-		if err := step.fn(ctx, pool, bboxClause); err != nil {
+		if err := step.fn(ctx, pool, bboxClause, chunkCb); err != nil {
 			return fmt.Errorf("enrichment phase 1 (%s): %w", step.name, err)
 		}
-		report(step.pctEnd)
 		slog.Info("enrichment: " + step.name + " done")
 	}
 
-	// === Phase 2: Derived Enrichment (sequential — row locks prevent parallel UPDATEs) ===
-	slog.Info("enrichment: phase 2 — derived enrichment (sequential)")
+	// === Phase 2: Derived Enrichment (sequential, chunked) ===
+	slog.Info("enrichment: phase 2 — derived enrichment (sequential, chunked)")
 	phase2Steps := []struct {
 		name string
-		pct  int
 		fn   func(context.Context, *pgxpool.Pool) error
 	}{
-		{"noise_score", 55, func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichNoiseScore(ctx, p, bboxClause)
+		{"noise_score", func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichNoiseScore(ctx, p, bboxClause, chunkCb)
 		}},
-		{"landuse_class", 65, func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichLanduseClass(ctx, p, bboxClause)
+		{"landuse_class", func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichLanduseClass(ctx, p, bboxClause, chunkCb)
 		}},
-		{"traffic_class", 75, func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichTrafficClass(ctx, p, bboxClause)
+		{"traffic_class", func(ctx context.Context, p *pgxpool.Pool) error {
+			return EnrichTrafficClass(ctx, p, bboxClause, chunkCb)
 		}},
-		{"route_membership", 85, func(ctx context.Context, p *pgxpool.Pool) error {
+		{"route_membership", func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichRouteMembership(ctx, p, bboxClause)
 		}},
 	}
@@ -172,16 +174,16 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		if err := step.fn(ctx, pool); err != nil {
 			return fmt.Errorf("enrichment step %s: %w", step.name, err)
 		}
-		report(step.pct)
 		slog.Info("enrichment: step complete", "step", step.name)
 	}
-	report(90)
 
-	// === Phase 3: Final ANALYZE ===
+	// === Final ANALYZE ===
 	if _, err := pool.Exec(ctx, "ANALYZE osm_ways"); err != nil {
 		slog.Warn("enrichment: final ANALYZE failed", "error", err)
 	}
-	report(100)
+	if progressFn != nil {
+		progressFn(totalWays, totalWays)
+	}
 
 	slog.Info("enrichment: all phases complete")
 	return nil
@@ -191,7 +193,7 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 // Sources: road hierarchy proximity + aerodromes + optional railway lines.
 // Uses pool.Acquire() for connection pinning (TEMP VIEW needs same connection).
 // osm_ways.geom is SRID 4326 — cast directly to ::geography for meter distances.
-func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: starting noise_score")
 
 	conn, err := pool.Acquire(ctx)
@@ -308,7 +310,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 			GROUP BY w2.way_id
 		) sub
 		WHERE w.way_id = sub.way_id
-	`, minID, maxID, defaultChunkSize, "noise_score:calculate", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "noise_score:calculate", progressFn); err != nil {
 		return fmt.Errorf("enrichment noise_score: update: %w", err)
 	}
 
@@ -319,7 +321,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 			UPDATE osm_ways w SET noise_score = 0
 			WHERE w.way_id BETWEEN $1 AND $2
 			  AND w.noise_score IS NULL AND w.highway IS NOT NULL
-		`, minID, maxID, defaultChunkSize, "noise_score:default", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "noise_score:default", progressFn); err != nil {
 			return fmt.Errorf("enrichment noise_score: default: %w", err)
 		}
 	}
@@ -336,7 +338,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 // Adapted from BRouter's brouter.sql formula.
 // Uses pool.Acquire() for connection pinning (TEMP tables across steps).
 // P3-TODO: industrial_factor returns 0 until Lua imports landuse=industrial.
-func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: starting traffic_class")
 
 	conn, err := pool.Acquire(ctx)
@@ -520,7 +522,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 				) inner_q
 			) sub
 			WHERE w.way_id = sub.way_id
-		`, minID, maxID, defaultChunkSize, "traffic_class:classify", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "traffic_class:classify", progressFn); err != nil {
 			return fmt.Errorf("enrichment traffic_class: classify: %w", err)
 		}
 	}
@@ -532,7 +534,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 			UPDATE osm_ways w SET traffic_class = 0
 			WHERE w.way_id BETWEEN $1 AND $2
 			  AND w.highway IS NOT NULL AND w.traffic_class IS NULL
-		`, minID, maxID, defaultChunkSize, "traffic_class:default", nil); err != nil {
+		`, minID, maxID, defaultChunkSize, "traffic_class:default", progressFn); err != nil {
 			slog.Warn("enrichment: traffic_class null default failed", "error", err)
 		}
 	}
@@ -550,7 +552,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 // Raster sampling (SampleLanduse) runs first and sets the primary landuse class;
 // this step fills in forest/residential for ways not covered by the landuse raster.
 // 0=other, 1=forest, 2=agricultural, 3=residential, 4=industrial, 5=commercial, 6=quarry.
-func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
+func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: starting landuse_class (forest + residential derivation, chunked)")
 
 	conn, err := pool.Acquire(ctx)
@@ -577,7 +579,7 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		UPDATE osm_ways w SET landuse_class = 1
 		WHERE w.way_id BETWEEN $1 AND $2
 		  AND w.highway IS NOT NULL AND w.forest_pct >= 60 AND w.landuse_class = 0
-	`, minID, maxID, defaultChunkSize, "landuse_class:forest", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "landuse_class:forest", progressFn); err != nil {
 		return fmt.Errorf("enrichment landuse_class: forest: %w", err)
 	}
 
@@ -588,7 +590,7 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 		UPDATE osm_ways w SET landuse_class = 3
 		WHERE w.way_id BETWEEN $1 AND $2
 		  AND w.highway IN ('residential', 'living_street') AND w.landuse_class = 0
-	`, minID, maxID, defaultChunkSize, "landuse_class:residential", nil); err != nil {
+	`, minID, maxID, defaultChunkSize, "landuse_class:residential", progressFn); err != nil {
 		return fmt.Errorf("enrichment landuse_class: residential: %w", err)
 	}
 

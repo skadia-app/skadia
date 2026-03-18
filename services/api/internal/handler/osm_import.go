@@ -320,6 +320,10 @@ func (r *jobReporter) SetPhase(phase string) {
 	r.db.UpdateBackgroundJobPhase(context.Background(), r.jobID, phase)
 }
 
+func (r *jobReporter) SetTotal(total int64) {
+	r.db.UpdateBackgroundJobTotal(context.Background(), r.jobID, total)
+}
+
 func (r *jobReporter) SetProgress(current int64) {
 	r.db.UpdateBackgroundJobProgress(context.Background(), r.jobID, current)
 }
@@ -344,6 +348,7 @@ type regionReporter struct {
 }
 
 func (r *regionReporter) SetPhase(p string)  { r.inner.SetPhase(p) }
+func (r *regionReporter) SetTotal(t int64)   { r.inner.SetTotal(t) }
 func (r *regionReporter) SetProgress(c int64) { r.inner.SetProgress(c) }
 func (r *regionReporter) Fail(msg string)     { r.lastErr = msg }
 func (r *regionReporter) Complete()           {}
