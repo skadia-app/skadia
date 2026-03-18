@@ -350,7 +350,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                 <button
                   onClick={() => brouterLocalMut.mutate(brouterLocalRegions)}
                   disabled={importedRegions.length === 0 || brouterLocalMut.isPending || !!activeBrouterBuild}
-                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+                  className="text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterLocalMut.isPending || activeBrouterBuild ? 'Läuft…' : 'Generieren'}
                 </button>
@@ -370,7 +370,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                 <button
                   onClick={() => brouterDlMut.mutate(brouterDlRegions)}
                   disabled={brouterDlMut.isPending || !!activeBrouterDl}
-                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+                  className="text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
                 </button>
