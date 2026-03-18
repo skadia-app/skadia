@@ -335,7 +335,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
 
           {/* BRouter — combined panel with two sections */}
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
-            <div className="flex items-start gap-2 mb-4">
+            <div className="flex items-start gap-2 mb-3">
               <Route className="w-4 h-4 mt-0.5 text-neutral-500 dark:text-neutral-400 shrink-0" />
               <div>
                 <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">BRouter-Segmente</h4>
@@ -344,13 +344,13 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
             </div>
 
             {/* Lokal generieren */}
-            <div className="mb-4 pl-6">
-              <div className="flex items-center justify-between mb-2">
-                <h5 className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Lokal generieren (aus PBF-Dateien)</h5>
+            <div className="mb-3 pl-6">
+              <div className="flex items-start justify-between mb-2">
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">Lokal generieren (aus PBF-Dateien)</span>
                 <button
                   onClick={() => brouterLocalMut.mutate(brouterLocalRegions)}
                   disabled={importedRegions.length === 0 || brouterLocalMut.isPending || !!activeBrouterBuild}
-                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
+                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterLocalMut.isPending || activeBrouterBuild ? 'Läuft…' : 'Generieren'}
                 </button>
@@ -364,13 +364,13 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
             </div>
 
             {/* Download von brouter.de */}
-            <div className="pl-6 pt-3 border-t border-neutral-100 dark:border-neutral-800">
-              <div className="flex items-center justify-between mb-2">
-                <h5 className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Download von brouter.de</h5>
+            <div className="pl-6 pt-3 border-t border-neutral-100 dark:border-neutral-800/60">
+              <div className="flex items-start justify-between mb-2">
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">Download von brouter.de</span>
                 <button
                   onClick={() => brouterDlMut.mutate(brouterDlRegions)}
                   disabled={brouterDlMut.isPending || !!activeBrouterDl}
-                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
+                  className="text-xs font-medium text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
                 </button>
