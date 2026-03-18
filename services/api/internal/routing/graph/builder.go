@@ -193,7 +193,9 @@ const waysQueryBase = `
 		COALESCE(trail_visibility, ''),
 		COALESCE(width, ''),
 		COALESCE(incline, ''),
-		COALESCE(sidewalk, '')
+		COALESCE(sidewalk, ''),
+		COALESCE(urbanization, 0),
+		COALESCE(river_proximity, 0)
 	FROM osm_ways
 	WHERE highway IS NOT NULL
 	  AND highway != 'construction'
@@ -331,6 +333,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		var isCycleroute, isHikeroute bool
 		var cyclerouteNetwork, hikerouteNetwork string
 		var landuseClass int
+		var urbanization, riverProximity int
 		var mtbScaleUphill, viaFerrataScale, trailVisibility string
 		var width, incline, sidewalk string
 
@@ -349,6 +352,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			&landuseClass,
 			&mtbScaleUphill, &viaFerrataScale, &trailVisibility,
 			&width, &incline, &sidewalk,
+			&urbanization, &riverProximity,
 		)
 		if err != nil {
 			rows2.Close()
@@ -375,7 +379,9 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			TrafficClass: trafficClass, ProtectedArea: protectedArea,
 			IsCycleroute: isCycleroute, IsHikeroute: isHikeroute,
 			CyclerouteNetwork: cyclerouteNetwork, HikerouteNetwork: hikerouteNetwork,
-			LanduseClass: landuseClass,
+			LanduseClass:   landuseClass,
+			Urbanization:   urbanization,
+			RiverProximity: riverProximity,
 		}
 		tags1 := EncodeOSMTags(&tags)
 		tags2 := EncodeEdgeTags2(&tags, &enrichment)
@@ -506,6 +512,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		var isCycleroute, isHikeroute bool
 		var cyclerouteNetwork, hikerouteNetwork string
 		var landuseClass int
+		var urbanization, riverProximity int
 		var mtbScaleUphill, viaFerrataScale, trailVisibility string
 		var width, incline, sidewalk string
 
@@ -524,6 +531,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			&landuseClass,
 			&mtbScaleUphill, &viaFerrataScale, &trailVisibility,
 			&width, &incline, &sidewalk,
+			&urbanization, &riverProximity,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan way: %w", err)
@@ -548,7 +556,9 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			TrafficClass: trafficClass, ProtectedArea: protectedArea,
 			IsCycleroute: isCycleroute, IsHikeroute: isHikeroute,
 			CyclerouteNetwork: cyclerouteNetwork, HikerouteNetwork: hikerouteNetwork,
-			LanduseClass: landuseClass,
+			LanduseClass:   landuseClass,
+			Urbanization:   urbanization,
+			RiverProximity: riverProximity,
 		}
 		w.Coords = parseLineStringWKT(geomWKT)
 		ways = append(ways, w)
