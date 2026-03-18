@@ -113,10 +113,11 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// Count total ways needing enrichment for real progress reporting.
+	// Count total ways needing enrichment for progress reporting.
+	// Use any NULL column (not just forest_pct) so progress works on resume too.
 	var totalWays int64
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM osm_ways w
-		WHERE w.highway IS NOT NULL AND w.forest_pct IS NULL`+bboxClause).Scan(&totalWays)
+		WHERE w.highway IS NOT NULL AND (w.forest_pct IS NULL OR w.traffic_class IS NULL)`+bboxClause).Scan(&totalWays)
 	slog.Info("enrichment: ways to process", "total", totalWays)
 	if progressFn != nil {
 		progressFn(0, totalWays)
