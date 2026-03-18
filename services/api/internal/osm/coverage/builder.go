@@ -160,13 +160,16 @@ func RunCoverageEnrichment(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 
 // processTile builds grids for a tile and enriches its ways.
 func processTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, ns NoiseSettings, bboxClause string) error {
-	grids, err := buildGridsForTile(ctx, pool, tileID, ns)
+	grids, trafficIn, err := buildGridsForTile(ctx, pool, tileID, ns)
 	if err != nil {
 		return fmt.Errorf("build grids tile %d: %w", tileID, err)
 	}
 	defer grids.Release()
+	if trafficIn != nil {
+		defer trafficIn.release()
+	}
 
-	if err := enrichWaysFromGrids(ctx, pool, tileID, grids, bboxClause); err != nil {
+	if err := enrichWaysFromGrids(ctx, pool, tileID, grids, trafficIn, bboxClause); err != nil {
 		return fmt.Errorf("enrich ways tile %d: %w", tileID, err)
 	}
 	return nil
@@ -202,7 +205,7 @@ func discoverActiveTiles(ctx context.Context, pool *pgxpool.Pool, bboxClause str
 // buildGridsForTile
 // ---------------------------------------------------------------------------
 
-func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, ns NoiseSettings) (*TileGrids, error) {
+func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, ns NoiseSettings) (*TileGrids, *trafficInputs, error) {
 	// 0.1° expansion so urbanization decay reaches into neighboring tiles.
 	bbox := graphpkg.TileBBoxExpanded(tileID, 0.1)
 	bound := tileBBoxToBound(bbox)
@@ -225,14 +228,14 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerForest),
 		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_forests WHERE geom && %s`, env),
 		1, false); err != nil {
-		return nil, fmt.Errorf("forest: %w", err)
+		return nil, nil, fmt.Errorf("forest: %w", err)
 	}
 
 	// --- Water ---
 	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerWater),
 		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_waters WHERE geom && %s`, env),
 		1, false); err != nil {
-		return nil, fmt.Errorf("water: %w", err)
+		return nil, nil, fmt.Errorf("water: %w", err)
 	}
 
 	// --- Landuse (multiple passes) ---
@@ -247,7 +250,7 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerLanduse),
 			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_landuse WHERE landuse = '%s' AND geom && %s`, lt.filter, env),
 			lt.val, false); err != nil {
-			return nil, fmt.Errorf("landuse %s: %w", lt.filter, err)
+			return nil, nil, fmt.Errorf("landuse %s: %w", lt.filter, err)
 		}
 	}
 
@@ -263,26 +266,33 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerProtected),
 			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_boundaries WHERE %s AND geom && %s`, pc.clause, env),
 			pc.val, true); err != nil {
-			return nil, fmt.Errorf("protected: %w", err)
+			return nil, nil, fmt.Errorf("protected: %w", err)
 		}
 	}
 
 	// --- Urbanization ---
 	if err := buildUrbanizationGrid(ctx, pool, tg, env); err != nil {
-		return nil, fmt.Errorf("urbanization: %w", err)
+		return nil, nil, fmt.Errorf("urbanization: %w", err)
 	}
 
 	// --- River proximity ---
 	if err := buildRiverProximityGrid(ctx, pool, tg.MustGet(LayerRiverProximity), env); err != nil {
-		return nil, fmt.Errorf("river proximity: %w", err)
+		return nil, nil, fmt.Errorf("river proximity: %w", err)
 	}
 
 	// --- Noise ---
 	if err := buildNoiseGrid(ctx, pool, tg.MustGet(LayerNoise), env, ns); err != nil {
-		return nil, fmt.Errorf("noise: %w", err)
+		return nil, nil, fmt.Errorf("noise: %w", err)
 	}
 
-	return tg, nil
+	// --- Traffic ---
+	tg.Set(LayerTraffic, NewGrid(bound, 100))
+	trafficIn, err := buildTrafficInputs(ctx, pool, tg, env)
+	if err != nil {
+		return nil, nil, fmt.Errorf("traffic: %w", err)
+	}
+
+	return tg, trafficIn, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -476,11 +486,11 @@ func queryLineNoiseSources(ctx context.Context, pool *pgxpool.Pool, g *CoverageG
 
 const batchSize = 5000
 
-func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32, tg *TileGrids, bboxClause string) error {
+func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32, tg *TileGrids, trafficIn *trafficInputs, bboxClause string) error {
 	bbox := graphpkg.TileBBox(tileID)
 	env := tileBBoxToEnvelope(bbox)
 
-	q := fmt.Sprintf(`SELECT way_id, ST_AsBinary(geom) FROM osm_ways
+	q := fmt.Sprintf(`SELECT way_id, ST_AsBinary(geom), highway FROM osm_ways
 		WHERE highway IS NOT NULL AND forest_pct IS NULL
 		AND ST_Intersects(ST_PointOnSurface(geom), %s)%s`, env, bboxClause)
 
@@ -498,6 +508,7 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 		noiseScore     int
 		urbanization   int
 		riverProximity int
+		trafficClass   int
 	}
 
 	batch := make([]wayResult, 0, batchSize)
@@ -513,6 +524,7 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 		noises := make([]int16, len(batch))
 		urbans := make([]int16, len(batch))
 		rivers := make([]int16, len(batch))
+		traffics := make([]int16, len(batch))
 		for i, r := range batch {
 			wayIDs[i] = r.wayID
 			forests[i] = int16(r.forestPct)
@@ -521,6 +533,7 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			noises[i] = int16(r.noiseScore)
 			urbans[i] = int16(r.urbanization)
 			rivers[i] = int16(r.riverProximity)
+			traffics[i] = int16(r.trafficClass)
 		}
 		_, err := pool.Exec(ctx, `UPDATE osm_ways AS w SET
 			forest_pct = v.forest_pct,
@@ -528,16 +541,18 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			landuse_class = v.landuse_class,
 			noise_score = v.noise_score,
 			urbanization = v.urbanization,
-			river_proximity = v.river_proximity
+			river_proximity = v.river_proximity,
+			traffic_class = v.traffic_class
 			FROM (SELECT unnest($1::bigint[]) AS way_id,
 				unnest($2::smallint[]) AS forest_pct,
 				unnest($3::smallint[]) AS protected_area,
 				unnest($4::smallint[]) AS landuse_class,
 				unnest($5::smallint[]) AS noise_score,
 				unnest($6::smallint[]) AS urbanization,
-				unnest($7::smallint[]) AS river_proximity
+				unnest($7::smallint[]) AS river_proximity,
+				unnest($8::smallint[]) AS traffic_class
 			) v WHERE w.way_id = v.way_id`,
-			wayIDs, forests, protecteds, landuses, noises, urbans, rivers)
+			wayIDs, forests, protecteds, landuses, noises, urbans, rivers, traffics)
 		if err != nil {
 			return fmt.Errorf("batch update: %w", err)
 		}
@@ -548,7 +563,8 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 	for rows.Next() {
 		var wayID int64
 		var wkbBytes []byte
-		if err := rows.Scan(&wayID, &wkbBytes); err != nil {
+		var highway string
+		if err := rows.Scan(&wayID, &wkbBytes, &highway); err != nil {
 			return err
 		}
 		geom, err := wkb.Unmarshal(wkbBytes)
@@ -569,6 +585,28 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 
 		noiseMax := MaxVal(noiseSamples)
 
+		// Traffic — BRouter-correct formula with highway_weight only on populate
+		var hwWeight float64
+		switch {
+		case strings.HasPrefix(highway, "primary"):
+			hwWeight = 1.0
+		case strings.HasPrefix(highway, "secondary"):
+			hwWeight = 0.6
+		case strings.HasPrefix(highway, "tertiary"):
+			hwWeight = 0.4
+		}
+
+		trafficClass := 0
+		if hwWeight > 0 && trafficIn != nil {
+			mid := orb.Point{(ls[0][0] + ls[len(ls)-1][0]) / 2, (ls[0][1] + ls[len(ls)-1][1]) / 2}
+			pop := trafficIn.populate.sample(mid)
+			ind := trafficIn.industrial.sample(mid)
+			mw := trafficIn.mwDensity.sample(mid)
+			hw := trafficIn.hwDensity.sample(mid)
+			raw := trafficRaw(pop*hwWeight, ind, mw, hw)
+			trafficClass = int(classifyTraffic(raw))
+		}
+
 		batch = append(batch, wayResult{
 			wayID:          wayID,
 			forestPct:      PctNonZero(forestSamples),
@@ -577,6 +615,7 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			noiseScore:     noiseMax * 100 / 255,
 			urbanization:   WeightedAvg(urbanSamples),
 			riverProximity: WeightedAvg(riverSamples),
+			trafficClass:   trafficClass,
 		})
 
 		if len(batch) >= batchSize {
