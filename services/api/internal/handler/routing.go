@@ -60,9 +60,9 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 			})
 		if err != nil {
 			slog.Error("routing graph build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
 		} else {
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
 		}
 	})
 
@@ -392,10 +392,10 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 			})
 		if err != nil {
 			slog.Error("tile build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
 		} else {
 			slog.Info("tile build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
 		}
 	})
 
@@ -494,10 +494,10 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 
 		if err := pipeline.BuildBRouterSegments(ctx, regions, osmDataDir, segmentsDir, reporter); err != nil {
 			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
 		} else {
 			slog.Info("BRouter segment build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
 		}
 	})
 

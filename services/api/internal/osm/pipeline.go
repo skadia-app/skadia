@@ -1088,7 +1088,7 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 			SELECT %s, ST_Length(geom::geography) FROM %s.osm_ways
 		`, colList, colList, stagingSchema))
 		if err != nil {
-			return fmt.Errorf("import ways from staging: %w", err)
+			return fmt.Errorf("import osm_ways: %w", err)
 		}
 
 		// Junction-Table: Region-Ownership registrieren
@@ -1114,7 +1114,7 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 			INSERT INTO public.osm_routes (%s) SELECT %s FROM %s.osm_routes
 		`, routeColList, routeColList, stagingSchema))
 		if err != nil {
-			return fmt.Errorf("import routes from staging: %w", err)
+			return fmt.Errorf("import osm_routes: %w", err)
 		}
 
 		_, err = q.Exec(ctx, fmt.Sprintf(`
@@ -1622,6 +1622,9 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 // isCorruptionError returns true if the error indicates PostgreSQL data corruption
 // (SQLSTATE class XX — Internal Error, e.g. XX001 "data_corrupted").
 func isCorruptionError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return strings.HasPrefix(pgErr.Code, "XX")
 	}
@@ -1631,6 +1634,9 @@ func isCorruptionError(err error) bool {
 // extractCorruptedTable tries to identify the corrupted table from the error.
 // First checks PgError.TableName, then falls back to error message parsing.
 func extractCorruptedTable(err error) string {
+	if err == nil {
+		return ""
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.TableName != "" {
 		return pgErr.TableName
 	}
@@ -1684,6 +1690,12 @@ func repairCorruptedTable(ctx context.Context, pool *pgxpool.Pool, table string)
 
 	// Row count after repair
 	_ = conn.QueryRow(ctx, "SELECT count(*) FROM "+repairTable).Scan(&after)
+
+	// Manual BEGIN/COMMIT instead of conn.Begin() because we need the same
+	// pinned connection that has zero_damaged_pages=on set at session level.
+	// pgx.Tx from conn.Begin() would use the same connection, but the manual
+	// approach keeps the zero_damaged_pages SET and the TX on the same conn
+	// without relying on pgx internals.
 
 	// TRUNCATE + INSERT must be atomic so concurrent readers never see an empty table.
 	if _, truncErr := conn.Exec(ctx, "BEGIN"); truncErr == nil {
