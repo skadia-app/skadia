@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateActivity } from '@/api/activities'
+import { assignActivitiesToTag, unassignActivitiesFromTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 
 interface Props {
@@ -20,8 +20,8 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
   const availableTags = locationTags.filter(t => !currentTags.includes(t.name))
 
   const assignMutation = useMutation({
-    mutationFn: (tagName: string) =>
-      updateActivity(activityId, { tags: [...currentTags, tagName] }),
+    mutationFn: (tagId: string) =>
+      assignActivitiesToTag(tagId, [activityId]),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
       onUpdate()
@@ -30,8 +30,8 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
   })
 
   const removeMutation = useMutation({
-    mutationFn: (tagName: string) =>
-      updateActivity(activityId, { tags: currentTags.filter(t => t !== tagName) }),
+    mutationFn: (tagId: string) =>
+      unassignActivitiesFromTag(tagId, [activityId]),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
       onUpdate()
@@ -95,7 +95,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
                 </span>
               )}
               <button
-                onClick={() => removeMutation.mutate(tag.name)}
+                onClick={() => removeMutation.mutate(tag.id)}
                 disabled={removeMutation.isPending}
                 className="opacity-60 hover:opacity-100 cursor-pointer ml-0.5"
                 title="Standort entfernen"
@@ -131,7 +131,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
             {availableTags.map(tag => (
               <button
                 key={tag.id}
-                onClick={() => assignMutation.mutate(tag.name)}
+                onClick={() => assignMutation.mutate(tag.id)}
                 disabled={assignMutation.isPending}
                 className="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 disabled:opacity-50 transition-opacity"
                 style={{ backgroundColor: tag.color, color: tag.text_color }}

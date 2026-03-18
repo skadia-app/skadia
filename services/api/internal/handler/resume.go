@@ -70,6 +70,16 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		slog.Info("resume: terminated stale connections from previous instance", "count", terminated)
 	}
 
+	// Stale 'importing' regions zurücksetzen (Import war nicht abgeschlossen).
+	// Must run unconditionally — even when no stale background_jobs exist,
+	// osm_import_regions can be stuck on 'importing' from a crashed import.
+	if res, err := h.DB.Pool.Exec(ctx,
+		`UPDATE osm_import_regions SET status = 'failed' WHERE status = 'importing'`); err != nil {
+		slog.Warn("resume: failed to reset stale importing regions", "error", err)
+	} else if res.RowsAffected() > 0 {
+		slog.Info("resume: reset stale importing regions", "count", res.RowsAffected())
+	}
+
 	jobs, err := h.DB.ListStaleRunningJobs(ctx)
 	if err != nil {
 		slog.Warn("resume: failed to list stale jobs", "error", err)
@@ -107,11 +117,6 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		}
 	}
 
-	// Stale 'importing' regions zurücksetzen (Import war nicht abgeschlossen)
-	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE osm_import_regions SET status = 'failed' WHERE status = 'importing'`); err != nil {
-		slog.Warn("resume: failed to reset stale importing regions", "error", err)
-	}
 }
 
 // resumeSegmentRecompute restarts a segment recompute job from scratch.

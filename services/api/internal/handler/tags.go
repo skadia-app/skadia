@@ -479,7 +479,7 @@ func (h *Handler) backfillWeatherForLocationTag(
 		FROM activities a
 		WHERE a.id = ANY($1)
 		  AND a.user_id = $2
-		  AND a.is_indoor = true
+		  AND a.has_gps = false
 		  AND NOT EXISTS (SELECT 1 FROM activity_weather aw WHERE aw.activity_id = a.id)`,
 		activityIDs, userID,
 	)
