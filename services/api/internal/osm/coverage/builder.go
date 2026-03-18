@@ -56,22 +56,41 @@ var noiseOffsets = map[string]float64{
 }
 
 // ---------------------------------------------------------------------------
-// TileGrids — all seven coverage grids for one 1°×1° tile
+// TileGrids — all coverage grids for one 1°×1° tile (map-based registry)
 // ---------------------------------------------------------------------------
 
 // TileGrids bundles all coverage grids built for a single tile.
+// Uses a map-based registry instead of named fields for extensibility.
 type TileGrids struct {
-	Forest, Landuse, Water         *CoverageGrid // 25 m resolution
-	Protected, Urbanization, Noise *CoverageGrid // 100 m resolution
-	RiverProximity                 *CoverageGrid // 50 m resolution
+	Layers map[string]*CoverageGrid
+}
+
+func NewTileGrids() *TileGrids {
+	return &TileGrids{Layers: make(map[string]*CoverageGrid)}
+}
+
+// MustGet returns the grid for the given layer. Panics with clear message if not found.
+func (tg *TileGrids) MustGet(name string) *CoverageGrid {
+	g, ok := tg.Layers[name]
+	if !ok || g == nil {
+		panic(fmt.Sprintf("coverage: layer %q not found in TileGrids", name))
+	}
+	return g
+}
+
+// Get returns the grid for the given layer, or nil if not present.
+func (tg *TileGrids) Get(name string) *CoverageGrid {
+	return tg.Layers[name]
+}
+
+// Set adds or replaces a grid in the registry.
+func (tg *TileGrids) Set(name string, g *CoverageGrid) {
+	tg.Layers[name] = g
 }
 
 // Release returns all grid buffers to the pool.
 func (tg *TileGrids) Release() {
-	for _, g := range []*CoverageGrid{
-		tg.Forest, tg.Landuse, tg.Water,
-		tg.Protected, tg.Urbanization, tg.RiverProximity, tg.Noise,
-	} {
+	for _, g := range tg.Layers {
 		if g != nil {
 			g.Release()
 		}
@@ -189,28 +208,28 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 	bound := tileBBoxToBound(bbox)
 	env := tileBBoxToEnvelope(bbox)
 
-	tg := &TileGrids{}
+	tg := NewTileGrids()
 
 	// Medium grids (50 m) — sufficient for way-level aggregation, 4× less memory than 25m
-	tg.Forest = NewGrid(bound, 50)
-	tg.Landuse = NewGrid(bound, 50)
-	tg.Water = NewGrid(bound, 50)
-	tg.RiverProximity = NewGrid(bound, 50)
+	tg.Set(LayerForest, NewGrid(bound, 50))
+	tg.Set(LayerLanduse, NewGrid(bound, 50))
+	tg.Set(LayerWater, NewGrid(bound, 50))
+	tg.Set(LayerRiverProximity, NewGrid(bound, 50))
 
 	// Coarse grids (100 m)
-	tg.Protected = NewGrid(bound, 100)
-	tg.Urbanization = NewGrid(bound, 100)
-	tg.Noise = NewGrid(bound, 100)
+	tg.Set(LayerProtected, NewGrid(bound, 100))
+	tg.Set(LayerUrbanization, NewGrid(bound, 100))
+	tg.Set(LayerNoise, NewGrid(bound, 100))
 
 	// --- Forest ---
-	if err := rasterizePolygonsFromDB(ctx, pool, tg.Forest,
+	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerForest),
 		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_forests WHERE geom && %s`, env),
 		1, false); err != nil {
 		return nil, fmt.Errorf("forest: %w", err)
 	}
 
 	// --- Water ---
-	if err := rasterizePolygonsFromDB(ctx, pool, tg.Water,
+	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerWater),
 		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_waters WHERE geom && %s`, env),
 		1, false); err != nil {
 		return nil, fmt.Errorf("water: %w", err)
@@ -225,7 +244,7 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 		{"commercial", 5}, {"quarry", 6}, {"military", 7}, {"landfill", 8},
 	}
 	for _, lt := range landuseTypes {
-		if err := rasterizePolygonsFromDB(ctx, pool, tg.Landuse,
+		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerLanduse),
 			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_landuse WHERE landuse = '%s' AND geom && %s`, lt.filter, env),
 			lt.val, false); err != nil {
 			return nil, fmt.Errorf("landuse %s: %w", lt.filter, err)
@@ -241,7 +260,7 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 		{"protect_class IN ('2','3','4')", 2},
 		{"protect_class IS NOT NULL AND protect_class NOT IN ('1','1a','1b','2','3','4')", 1},
 	} {
-		if err := rasterizePolygonsFromDB(ctx, pool, tg.Protected,
+		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerProtected),
 			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_boundaries WHERE %s AND geom && %s`, pc.clause, env),
 			pc.val, true); err != nil {
 			return nil, fmt.Errorf("protected: %w", err)
@@ -254,12 +273,12 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 	}
 
 	// --- River proximity ---
-	if err := buildRiverProximityGrid(ctx, pool, tg.RiverProximity, env); err != nil {
+	if err := buildRiverProximityGrid(ctx, pool, tg.MustGet(LayerRiverProximity), env); err != nil {
 		return nil, fmt.Errorf("river proximity: %w", err)
 	}
 
 	// --- Noise ---
-	if err := buildNoiseGrid(ctx, pool, tg.Noise, env, ns); err != nil {
+	if err := buildNoiseGrid(ctx, pool, tg.MustGet(LayerNoise), env, ns); err != nil {
 		return nil, fmt.Errorf("noise: %w", err)
 	}
 
@@ -300,14 +319,14 @@ func buildUrbanizationGrid(ctx context.Context, pool *pgxpool.Pool, tg *TileGrid
 		if pop <= 0 {
 			continue
 		}
-		ApplyUrbanizationDecay(tg.Urbanization, pt, pop)
+		ApplyUrbanizationDecay(tg.MustGet(LayerUrbanization), pt, pop)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
 	// Forest/water override — reduce urbanization where natural cover exists.
-	ApplyForestWaterOverride(tg.Urbanization, tg.Forest, tg.Water)
+	ApplyForestWaterOverride(tg.MustGet(LayerUrbanization), tg.MustGet(LayerForest), tg.MustGet(LayerWater))
 	return nil
 }
 
@@ -541,12 +560,12 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			continue
 		}
 
-		forestSamples := tg.Forest.SampleLine(ls, 50)
-		protectedSamples := tg.Protected.SampleLine(ls, 100)
-		landuseSamples := tg.Landuse.SampleLine(ls, 50)
-		noiseSamples := tg.Noise.SampleLine(ls, 100)
-		urbanSamples := tg.Urbanization.SampleLine(ls, 100)
-		riverSamples := tg.RiverProximity.SampleLine(ls, 50)
+		forestSamples := tg.MustGet(LayerForest).SampleLine(ls, 50)
+		protectedSamples := tg.MustGet(LayerProtected).SampleLine(ls, 100)
+		landuseSamples := tg.MustGet(LayerLanduse).SampleLine(ls, 50)
+		noiseSamples := tg.MustGet(LayerNoise).SampleLine(ls, 100)
+		urbanSamples := tg.MustGet(LayerUrbanization).SampleLine(ls, 100)
+		riverSamples := tg.MustGet(LayerRiverProximity).SampleLine(ls, 50)
 
 		noiseMax := MaxVal(noiseSamples)
 
