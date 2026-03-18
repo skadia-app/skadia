@@ -27,6 +27,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
@@ -744,8 +745,27 @@ func main() {
 
 	slog.Info("shutting down server...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Phase 1: Cancel all background jobs and wait for graceful completion.
+	// 20s timeout — docker-compose stop_grace_period is 30s, leaves 10s buffer.
+	if !shutdown.Shutdown(20 * time.Second) {
+		slog.Warn("shutdown: background jobs did not finish, killing stale DB queries")
+		// Active DB queries from orphaned goroutines would block locks indefinitely.
+		// Kill them so PostgreSQL can release row-locks before SIGKILL arrives.
+		db.Pool.Exec(context.Background(), `
+			SELECT pg_cancel_backend(pid)
+			FROM pg_stat_activity
+			WHERE usename = current_user
+			  AND pid != pg_backend_pid()
+			  AND state = 'active'
+			  AND query_start < now() - interval '5 seconds'`)
+	}
+
+	// Phase 2: Cancel main context (tickers, probes, scheduler)
+	cancel()
+
+	// Phase 3: Stop accepting new HTTP requests, finish in-flight requests.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)

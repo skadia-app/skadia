@@ -3,6 +3,7 @@ package osm
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -1087,7 +1088,7 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 			SELECT %s, ST_Length(geom::geography) FROM %s.osm_ways
 		`, colList, colList, stagingSchema))
 		if err != nil {
-			return fmt.Errorf("import ways from staging: %w", err)
+			return fmt.Errorf("import osm_ways: %w", err)
 		}
 
 		// Junction-Table: Region-Ownership registrieren
@@ -1113,7 +1114,7 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 			INSERT INTO public.osm_routes (%s) SELECT %s FROM %s.osm_routes
 		`, routeColList, routeColList, stagingSchema))
 		if err != nil {
-			return fmt.Errorf("import routes from staging: %w", err)
+			return fmt.Errorf("import osm_routes: %w", err)
 		}
 
 		_, err = q.Exec(ctx, fmt.Sprintf(`
@@ -1466,81 +1467,123 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	// Enrichment-Spalten existieren bereits in public.osm_ways (Migration).
 	// ImportRegionFromStaging kopiert nur Lua-definierte Spalten.
 
-	// === Phase 3: Atomic Clear + Merge (single transaction) ===
-	// Old data is cleared and new data is inserted in one transaction.
-	// If anything fails, the transaction rolls back and old data remains intact.
+	// === Phase 3: Atomic Clear + Merge — with auto-repair on corruption ===
 	reporter.SetPhase("merge")
 	reporter.SetProgress(0)
 
-	tx, err := p.Pool.Begin(ctx)
-	if err != nil {
-		slog.Error("osm import: begin transaction failed", "error", err)
-		reporter.Fail("Transaktion konnte nicht gestartet werden: " + err.Error())
+	// attemptMerge runs clearRegionData + importRegionFromStaging in one TX.
+	attemptMerge := func() error {
+		tx, err := p.Pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin transaction: %w", err)
+		}
+		defer tx.Rollback(context.Background())
+
+		if err := clearRegionData(ctx, tx, regionID); err != nil {
+			return err
+		}
+		if err := importRegionFromStaging(ctx, tx, stagingSchema, regionID); err != nil {
+			return err
+		}
+
+		// Update osm_import_regions INSIDE the transaction
+		durationS := int(time.Since(importStart).Seconds())
+		pbfInfo, _ := os.Stat(pbfPath)
+		var pbfSize int64
+		if pbfInfo != nil {
+			pbfSize = pbfInfo.Size()
+		}
+		replURL, replSeq, _ := extractReplicationInfo(pbfPath)
+		dataDate, _ := extractReplicationTimestamp(pbfPath)
+
+		var replURLArg *string
+		if replURL != "" {
+			replURLArg = &replURL
+		}
+		var replSeqArg *int
+		if replSeq != 0 {
+			replSeqArg = &replSeq
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE osm_import_regions SET
+				status = 'imported', imported_at = now(),
+				pbf_size_bytes = $2, pbf_path = $3,
+				categories = $4, import_duration_s = $5,
+				replication_url = COALESCE($6, replication_url),
+				last_sequence_number = COALESCE($7, last_sequence_number),
+				data_date = COALESCE($8, now())
+			WHERE region_id = $1`,
+			regionID, pbfSize, pbfPath, config.Categories, durationS,
+			replURLArg, replSeqArg, dataDate); err != nil {
+			return fmt.Errorf("status update: %w", err)
+		}
+
+		return tx.Commit(ctx)
+	}
+
+	const maxMergeAttempts = 2
+	var mergeErr error
+	for attempt := range maxMergeAttempts {
+		mergeErr = attemptMerge()
+		if mergeErr == nil {
+			break
+		}
+
+		if !isCorruptionError(mergeErr) {
+			break
+		}
+
+		if attempt == maxMergeAttempts-1 {
+			break
+		}
+
+		table := extractCorruptedTable(mergeErr)
+		if table == "" {
+			slog.Error("osm import: corruption detected but cannot identify table",
+				"region", regionID, "error", mergeErr)
+			break
+		}
+
+		// Staging table corruption can't be repaired
+		if strings.HasPrefix(table, "staging_") {
+			slog.Error("osm import: staging table corrupted, cannot auto-repair",
+				"table", table, "region", regionID)
+			break
+		}
+
+		slog.Warn("osm import: corruption detected, attempting auto-repair",
+			"table", table, "region", regionID, "attempt", attempt+1)
+		before, after, repairErr := repairCorruptedTable(ctx, p.Pool, table)
+		if repairErr != nil {
+			slog.Error("osm import: auto-repair failed",
+				"table", table, "error", repairErr)
+			break
+		}
+		slog.Warn("osm import: table repaired, retrying merge",
+			"table", table, "rows_before", before, "rows_after", after,
+			"rows_lost", before-after, "region", regionID)
+	}
+
+	if mergeErr != nil {
+		msg := "Merge fehlgeschlagen: " + mergeErr.Error()
+		if isCorruptionError(mergeErr) {
+			table := extractCorruptedTable(mergeErr)
+			if table == "" {
+				table = "(unbekannt)"
+			}
+			msg = fmt.Sprintf(
+				"Datenbank-Korruption in Tabelle %s (Region: %s). "+
+					"Auto-Repair fehlgeschlagen oder Retry gescheitert. "+
+					"Manuelle Reparatur nötig. Detail: %s",
+				table, regionID, mergeErr.Error())
+		}
+		slog.Error("osm import: merge failed", "region", regionID, "error", mergeErr)
+		reporter.Fail(msg)
 		return false
 	}
-	defer tx.Rollback(context.Background())
 
-	if err := clearRegionData(ctx, tx, regionID); err != nil {
-		slog.Error("osm import: clear region data in tx failed", "error", err)
-		reporter.Fail("Region-Daten löschen fehlgeschlagen: " + err.Error())
-		return false
-	}
-
-	if err := importRegionFromStaging(ctx, tx, stagingSchema, regionID); err != nil {
-		slog.Error("osm import: staging import in tx failed", "error", err)
-		reporter.Fail("Staging-Import fehlgeschlagen: " + err.Error())
-		return false
-	}
-
-	// Update osm_import_regions INSIDE the transaction so that if the process
-	// crashes after COMMIT, the status is already 'imported'. Without this,
-	// a crash between COMMIT and the status UPDATE would leave the region stuck
-	// in 'importing' even though data was successfully merged.
 	durationS := int(time.Since(importStart).Seconds())
-	pbfInfo, _ := os.Stat(pbfPath)
-	var pbfSize int64
-	if pbfInfo != nil {
-		pbfSize = pbfInfo.Size()
-	}
-
-	// [I3] PBF NOT deleted — kept for future updates/patching.
-	// Extract replication metadata from the PBF header so the DB reflects the
-	// actual data date and replication coordinates rather than import-wall-clock.
-	// These calls read the local PBF via osmium — safe inside a transaction (<1s).
-	replURL, replSeq, _ := extractReplicationInfo(pbfPath)
-	dataDate, _ := extractReplicationTimestamp(pbfPath)
-
-	var replURLArg *string
-	if replURL != "" {
-		replURLArg = &replURL
-	}
-	var replSeqArg *int
-	if replSeq != 0 {
-		replSeqArg = &replSeq
-	}
-
-	_, regErr := tx.Exec(ctx, `
-		UPDATE osm_import_regions SET
-			status = 'imported', imported_at = now(),
-			pbf_size_bytes = $2, pbf_path = $3,
-			categories = $4, import_duration_s = $5,
-			replication_url = COALESCE($6, replication_url),
-			last_sequence_number = COALESCE($7, last_sequence_number),
-			data_date = COALESCE($8, now())
-		WHERE region_id = $1`,
-		regionID, pbfSize, pbfPath, config.Categories, durationS,
-		replURLArg, replSeqArg, dataDate)
-	if regErr != nil {
-		slog.Error("osm import: status update in tx failed", "region", regionID, "error", regErr)
-		reporter.Fail("Region-Status konnte nicht aktualisiert werden: " + regErr.Error())
-		return false
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		slog.Error("osm import: commit failed", "error", err)
-		reporter.Fail("Transaktion konnte nicht committed werden: " + err.Error())
-		return false
-	}
 
 	// === Phase 5: ANALYZE affected tables ===
 	// [I4] Without ANALYZE the query planner uses stale statistics -> bad query plans
@@ -1574,4 +1617,116 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	slog.Info("osm import: per-region import completed", "region", regionID,
 		"duration_s", durationS)
 	return true
+}
+
+// isCorruptionError returns true if the error indicates PostgreSQL data corruption
+// (SQLSTATE class XX — Internal Error, e.g. XX001 "data_corrupted").
+func isCorruptionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		return strings.HasPrefix(pgErr.Code, "XX")
+	}
+	return false
+}
+
+// extractCorruptedTable tries to identify the corrupted table from the error.
+// First checks PgError.TableName, then falls back to error message parsing.
+func extractCorruptedTable(err error) string {
+	if err == nil {
+		return ""
+	}
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.TableName != "" {
+		return pgErr.TableName
+	}
+	// clearRegionData wraps errors as "clear <table>: <err>"
+	// importRegionFromStaging wraps as "import <table>: <err>"
+	msg := err.Error()
+	for _, prefix := range []string{"clear ", "import "} {
+		if strings.HasPrefix(msg, prefix) {
+			rest := msg[len(prefix):]
+			if idx := strings.Index(rest, ":"); idx > 0 {
+				return rest[:idx]
+			}
+		}
+	}
+	return ""
+}
+
+// repairCorruptedTable attempts to salvage data from a corrupted table using
+// zero_damaged_pages (skips corrupted pages). Returns row counts before/after
+// for logging the extent of data loss. Requires superuser privileges.
+//
+// Strategy: CTAS with zero_damaged_pages → TRUNCATE original (in TX) → reinsert → ANALYZE.
+// TRUNCATE preserves indexes/constraints. If TRUNCATE fails (table structure corrupted),
+// falls back to DROP + RENAME (loses indexes, but preserves data).
+func repairCorruptedTable(ctx context.Context, pool *pgxpool.Pool, table string) (before, after int, err error) {
+	if !validSchemaRe.MatchString(table) {
+		return 0, 0, fmt.Errorf("invalid table name: %q", table)
+	}
+	repairTable := table + "_repair"
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	// Best-effort row count before repair (might fail on corruption)
+	_ = conn.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&before)
+
+	// Enable zero_damaged_pages to skip corrupted pages during read
+	if _, err := conn.Exec(ctx, "SET zero_damaged_pages = on"); err != nil {
+		return 0, 0, fmt.Errorf("SET zero_damaged_pages failed (superuser required?): %w", err)
+	}
+	defer conn.Exec(context.Background(), "SET zero_damaged_pages = off")
+
+	// Extract clean data into repair table
+	conn.Exec(ctx, "DROP TABLE IF EXISTS "+repairTable)
+	if _, err := conn.Exec(ctx, "CREATE TABLE "+repairTable+" AS SELECT * FROM "+table); err != nil {
+		return 0, 0, fmt.Errorf("CTAS repair failed: %w", err)
+	}
+
+	// Row count after repair
+	_ = conn.QueryRow(ctx, "SELECT count(*) FROM "+repairTable).Scan(&after)
+
+	// Manual BEGIN/COMMIT instead of conn.Begin() because we need the same
+	// pinned connection that has zero_damaged_pages=on set at session level.
+	// pgx.Tx from conn.Begin() would use the same connection, but the manual
+	// approach keeps the zero_damaged_pages SET and the TX on the same conn
+	// without relying on pgx internals.
+
+	// TRUNCATE + INSERT must be atomic so concurrent readers never see an empty table.
+	if _, truncErr := conn.Exec(ctx, "BEGIN"); truncErr == nil {
+		if _, truncErr := conn.Exec(ctx, "TRUNCATE "+table); truncErr != nil {
+			conn.Exec(ctx, "ROLLBACK")
+			// TRUNCATE failed — fall back to DROP + RENAME
+			slog.Warn("repair: TRUNCATE failed, falling back to DROP+RENAME",
+				"table", table, "error", truncErr)
+			if _, err := conn.Exec(ctx, "DROP TABLE "+table); err != nil {
+				return before, after, fmt.Errorf("DROP corrupted table failed: %w", err)
+			}
+			if _, err := conn.Exec(ctx, "ALTER TABLE "+repairTable+" RENAME TO "+table); err != nil {
+				return before, after, fmt.Errorf("RENAME repair table failed: %w", err)
+			}
+			slog.Warn("repair: indexes lost for table, consider REINDEX", "table", table)
+		} else {
+			if _, err := conn.Exec(ctx, "INSERT INTO "+table+" SELECT * FROM "+repairTable); err != nil {
+				conn.Exec(ctx, "ROLLBACK")
+				return before, after, fmt.Errorf("reinsert after repair failed: %w", err)
+			}
+			if _, err := conn.Exec(ctx, "COMMIT"); err != nil {
+				return before, after, fmt.Errorf("repair commit failed: %w", err)
+			}
+			conn.Exec(ctx, "DROP TABLE "+repairTable)
+		}
+	}
+
+	conn.Exec(ctx, "ANALYZE "+table)
+
+	slog.Info("repair: table repaired",
+		"table", table, "rows_before", before, "rows_after", after,
+		"rows_lost", before-after)
+	return before, after, nil
 }
