@@ -38,6 +38,8 @@ export interface StartOSMImportRequest {
   categories: string[]
   build_brouter?: boolean
   // build_topology removed: pgRouting 4.0+ removed pgr_createTopology
+  run_enrichment?: boolean  // undefined = true (backwards compatible), false = skip
+  build_tiles?: boolean     // opt-in, default false
 }
 
 export interface StartOSMImportResponse {
@@ -91,8 +93,11 @@ export async function deleteOSMRegion(regionID: string): Promise<void> {
   await apiClient(`/admin/osm-regions/${regionID}`, { method: 'DELETE' })
 }
 
-export async function retryOSMEnrichment(): Promise<StartOSMImportResponse> {
-  return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-enrichment', { method: 'POST' })
+export async function retryOSMEnrichment(regions?: string[]): Promise<StartOSMImportResponse> {
+  return apiClient<StartOSMImportResponse>('/admin/osm-import/retry-enrichment', {
+    method: 'POST',
+    ...(regions && regions.length > 0 ? { body: { regions } } : {}),
+  })
 }
 
 // retryOSMTopology removed: pgr_createTopology removed in pgRouting 4.0.1.
@@ -111,4 +116,25 @@ export async function getOSMSchedule(): Promise<OSMSchedule> {
 
 export async function setOSMSchedule(schedule: OSMSchedule): Promise<void> {
   await apiClient<void>('/admin/osm-schedule', { method: 'POST', body: schedule })
+}
+
+export async function rebuildTiles(req?: { regions?: string[], force?: boolean }): Promise<{ job_id: string; status: string }> {
+  return apiClient<{ job_id: string; status: string }>('/admin/routing/rebuild-tiles', {
+    method: 'POST',
+    ...(req ? { body: req } : {}),
+  })
+}
+
+export async function buildBRouterSegments(regions?: string[]): Promise<{ job_id: string; status: string }> {
+  return apiClient<{ job_id: string; status: string }>('/admin/routing/build-brouter-segments', {
+    method: 'POST',
+    ...(regions ? { body: { regions } } : {}),
+  })
+}
+
+export async function downloadBRouterSegments(regions: string[]): Promise<{ job_id: string; tiles: number; status: string }> {
+  return apiClient<{ job_id: string; tiles: number; status: string }>('/admin/routing/download-brouter-segments', {
+    method: 'POST',
+    body: { regions },
+  })
 }
