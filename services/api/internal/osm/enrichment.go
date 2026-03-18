@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 )
 
 // validWKTRe validates that a WKT string is a safe POLYGON (defense in depth against SQL injection).
@@ -103,7 +105,8 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	} else {
 		slog.Info("enrichment: fresh start — resetting enrichment columns", "region_filter", regionFilter)
 		resetSQL := fmt.Sprintf(`UPDATE osm_ways w SET forest_pct = NULL, protected_area = NULL,
-			landuse_class = NULL, noise_score = NULL, traffic_class = NULL
+			landuse_class = NULL, noise_score = NULL, traffic_class = NULL,
+			urbanization = NULL, river_proximity = NULL
 			WHERE highway IS NOT NULL%s`, bboxClause)
 		if _, err := pool.Exec(ctx, resetSQL); err != nil {
 			return fmt.Errorf("enrichment: reset columns: %w", err)
@@ -129,36 +132,25 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 	}
 
-	// === Phase 1: Polygon-basierte Spatial Joins (sequential, chunked) ===
-	slog.Info("enrichment: phase 1 — spatial joins (sequential, chunked)")
-	phase1Steps := []struct {
-		name string
-		fn   func(context.Context, *pgxpool.Pool, string, func(int64)) error
-	}{
-		{"forest_pct", EnrichForestPct},
-		{"protected_area", EnrichProtectedArea},
-		{"landuse_from_polygons", EnrichLanduseFromPolygons},
-	}
-	for _, step := range phase1Steps {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("enrichment cancelled before %s: %w", step.name, err)
+	// === Phase 1: Coverage Layer (tile-based, Go in-memory rasterization) ===
+	// Replaces old SQL-based polygon joins (forest_pct, protected_area, landuse, noise, urbanization, river_proximity).
+	slog.Info("enrichment: phase 1 — coverage layer (tile-based)")
+	halfTotal := totalWays / 2
+	if err := coverage.RunCoverageEnrichment(ctx, pool, bboxClause, 4, func(done, total int) {
+		if total > 0 && progressFn != nil {
+			progressFn(int64(done)*halfTotal/int64(total), totalWays)
 		}
-		slog.Info("enrichment: starting " + step.name)
-		if err := step.fn(ctx, pool, bboxClause, chunkCb); err != nil {
-			return fmt.Errorf("enrichment phase 1 (%s): %w", step.name, err)
-		}
-		slog.Info("enrichment: " + step.name + " done")
+	}); err != nil {
+		return fmt.Errorf("enrichment phase 1 (coverage): %w", err)
 	}
+	cumulative = halfTotal
 
-	// === Phase 2: Derived Enrichment (sequential, chunked) ===
-	slog.Info("enrichment: phase 2 — derived enrichment (sequential, chunked)")
+	// === Phase 2: SQL-based enrichment (traffic_class, landuse derivation, route membership) ===
+	slog.Info("enrichment: phase 2 — SQL-based enrichment")
 	phase2Steps := []struct {
 		name string
 		fn   func(context.Context, *pgxpool.Pool) error
 	}{
-		{"noise_score", func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichNoiseScore(ctx, p, bboxClause, chunkCb)
-		}},
 		{"landuse_class", func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichLanduseClass(ctx, p, bboxClause, chunkCb)
 		}},

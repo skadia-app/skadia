@@ -592,45 +592,8 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 	reporter.SetProgress(0)
 	slog.Info("osm enrichment: starting spatial enrichment")
 
-	// Build subdivided polygon tables for faster spatial joins.
-	// Must run AFTER all regions are imported (not per-region, otherwise DROP destroys prior regions).
-	// Uses regular tables (not UNLOGGED) to survive PostgreSQL crash.
-	// Skip rebuild if tables already exist (saves ~5 min on enrichment retries with unchanged data).
-	// Import pipeline calls ClearSubdividedTables() before re-importing to force rebuild.
-	slog.Info("osm enrichment: checking subdivided polygon tables")
-	subdivideSpecs := []struct{ table, extra string }{
-		{"osm_forests", ""},
-		{"osm_boundaries", ""},
-		{"osm_landuse", ", landuse"},
-	}
-	for _, spec := range subdivideSpecs {
-		subTable := spec.table + "_subdivided"
-
-		// Skip if table already exists and has rows
-		var exists bool
-		p.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE tablename = $1)", subTable).Scan(&exists) //nolint:errcheck
-		if exists {
-			slog.Info("osm enrichment: subdivided table exists, skipping rebuild", "table", subTable)
-			continue
-		}
-
-		slog.Info("osm enrichment: building subdivided table", "table", subTable)
-		stmts := []string{
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", subTable),
-			fmt.Sprintf(`CREATE TABLE %s AS
-				SELECT osm_id, source_region%s, (ST_Dump(ST_Subdivide(geom, 128))).geom AS geom
-				FROM %s`, subTable, spec.extra, spec.table),
-			fmt.Sprintf("CREATE INDEX ON %s USING GIST (geom)", subTable),
-			fmt.Sprintf("ANALYZE %s", subTable),
-		}
-		for _, stmt := range stmts {
-			if _, err := p.Pool.Exec(ctx, stmt); err != nil {
-				slog.Warn("osm enrichment: subdivide failed (non-fatal)", "table", spec.table, "error", err)
-				break
-			}
-		}
-	}
-	slog.Info("osm enrichment: subdivided polygon tables ready")
+	// Coverage Layer: subdivided polygon tables no longer needed — Go in-memory rasterization
+	// replaces SQL-based polygon joins (forest, landuse, water, protected, urbanization, river, noise).
 
 	if err := RunSpatialEnrichment(ctx, p.Pool, regionFilter, func(current, total int64) {
 		if current == 0 && total > 0 {
@@ -1614,11 +1577,6 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 			slog.Warn("osm import: analyze failed", "table", table, "error", err)
 		}
 		reporter.SetProgress(int64(i + 1))
-	}
-
-	// Invalidate subdivided polygon tables so enrichment rebuilds them with fresh data.
-	for _, sub := range []string{"osm_forests_subdivided", "osm_boundaries_subdivided", "osm_landuse_subdivided"} {
-		p.Pool.Exec(ctx, "DROP TABLE IF EXISTS "+sub) //nolint:errcheck
 	}
 
 	// === Phase 5.5: Validate polygon geometries (einmalig, statt bei jedem Enrichment-Join) ===
