@@ -154,6 +154,7 @@ func (m *GraphManager) TileManager() *TileManager {
 // tile mode. Returns an error if a rebuild is already in progress.
 func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	tileDir string, cacheSize int64, hgtDirs []string, workers int,
+	filterBBox [4]float64, force bool,
 	progressFn func(tileID uint32, step string, pct int)) error {
 
 	if !m.mu.TryLock() {
@@ -161,7 +162,7 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	defer m.mu.Unlock()
 
-	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, workers, progressFn)
+	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, workers, filterBBox, force, progressFn)
 	if err != nil {
 		return err
 	}

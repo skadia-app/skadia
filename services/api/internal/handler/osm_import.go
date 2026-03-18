@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -52,9 +53,15 @@ var osmCategories = map[string][]string{
 }
 
 type osmImportRequest struct {
-	Regions      []string `json:"regions"`
-	Categories   []string `json:"categories"`
-	BuildBRouter bool     `json:"build_brouter"`
+	Regions       []string `json:"regions"`
+	Categories    []string `json:"categories"`
+	BuildBRouter  bool     `json:"build_brouter"`
+	RunEnrichment *bool    `json:"run_enrichment"` // nil = true (backwards compatible)
+	BuildTiles    bool     `json:"build_tiles"`    // opt-in, default false
+}
+
+func (r osmImportRequest) shouldRunEnrichment() bool {
+	return r.RunEnrichment == nil || *r.RunEnrichment
 }
 
 // CancelOSMImport bricht einen laufenden OSM-Import ab.
@@ -110,6 +117,13 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Bad Request", "unknown category: "+cat, r.URL.Path)
 			return
 		}
+	}
+
+	// Dependency check: tiles require enrichment
+	if req.BuildTiles && !req.shouldRunEnrichment() {
+		writeError(w, http.StatusBadRequest, "Bad Request",
+			"Tiles benötigen Enrichment. build_tiles=true und run_enrichment=false können nicht kombiniert werden.", r.URL.Path)
+		return
 	}
 
 	// Region-Namen für entity_name zusammenstellen
@@ -219,37 +233,102 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 	}
 	mainReporter.Complete()
 
-	if !slices.Contains(req.Categories, "ways") || len(succeededRegions) == 0 {
-		return
-	}
+	// Pipeline post-processing: Enrichment → Tiles (sequential)
+	waysImported := slices.Contains(req.Categories, "ways") && len(succeededRegions) > 0
 
-	enrichName := "Enrichment + Splitting"
-	enrichJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
-		"osm_enrichment", nil, &enrichName, 100)
-	if err != nil {
-		slog.Error("osm import: failed to create enrichment job", "error", err)
-		return
-	}
+	var enrichmentFailed bool
 
-	shutdown.Go(enrichJobID, func(enrichCtx context.Context) {
-		enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
-		regionIDs := make([]string, len(succeededRegions))
-		for i, r := range succeededRegions {
-			regionIDs[i] = r.ID
+	// Enrichment
+	if req.shouldRunEnrichment() && waysImported {
+		enrichName := "Enrichment + Splitting"
+		enrichJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
+			"osm_enrichment", nil, &enrichName, 100)
+		if err != nil {
+			slog.Error("osm import: failed to create enrichment job", "error", err)
+		} else if req.BuildTiles {
+			// Synchronous: enrichment must finish before tiles can be built
+			enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
+			regionIDs := make([]string, len(succeededRegions))
+			for i, r := range succeededRegions {
+				regionIDs[i] = r.ID
+			}
+			pipeline.RunEnrichmentAndSplitting(ctx, strings.Join(regionIDs, ","), enrichReporter)
+			enrichmentFailed = enrichReporter.failed
+			if enrichmentFailed {
+				slog.Error("osm import: enrichment failed, skipping tile build")
+			}
+		} else {
+			// Asynchronous: enrichment as separate background job (existing behavior)
+			shutdown.Go(enrichJobID, func(enrichCtx context.Context) {
+				enrichReporter := &jobReporter{db: h.DB, jobID: enrichJobID}
+				regionIDs := make([]string, len(succeededRegions))
+				for i, r := range succeededRegions {
+					regionIDs[i] = r.ID
+				}
+				pipeline.RunEnrichmentAndSplitting(enrichCtx, strings.Join(regionIDs, ","), enrichReporter)
+			})
 		}
-		regionFilter := strings.Join(regionIDs, ",")
-		pipeline.RunEnrichmentAndSplitting(enrichCtx, regionFilter, enrichReporter)
-	})
+	}
+
+	// Tiles (only if enrichment ran synchronously and succeeded — defense-in-depth guard)
+	if req.BuildTiles && req.shouldRunEnrichment() && waysImported && !enrichmentFailed {
+		tilesName := "Routing Tiles"
+		tilesJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
+			"tile_build", nil, &tilesName, 0)
+		if err != nil {
+			slog.Error("osm import: failed to create tile build job", "error", err)
+		} else {
+			// BBox-Union for region filter
+			filterBBox := [4]float64{180, 90, -180, -90}
+			for _, reg := range succeededRegions {
+				filterBBox[0] = min(filterBBox[0], reg.MinLon)
+				filterBBox[1] = min(filterBBox[1], reg.MinLat)
+				filterBBox[2] = max(filterBBox[2], reg.MaxLon)
+				filterBBox[3] = max(filterBBox[3], reg.MaxLat)
+			}
+
+			graphPath := os.Getenv("ROUTING_GRAPH_PATH")
+			if graphPath == "" {
+				graphPath = "/data/routing/graph.bin"
+			}
+			tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
+			hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
+
+			mainReporter.SetPhase("tiles")
+			// Implicit force=true: fresh import data → stale tiles must be replaced
+			err := h.GraphManager.RebuildTiles(ctx, h.DB.Pool, tileDir, 1_000_000_000,
+				hgtDirs, 2, filterBBox, true,
+				func(tileID uint32, step string, pct int) {
+					if step == "discovering" {
+						_ = h.DB.UpdateBackgroundJobTotal(context.Background(), tilesJobID, int64(pct))
+					} else if pct == 100 {
+						_ = h.DB.UpdateBackgroundJobProgress(context.Background(), tilesJobID, 1)
+					}
+				})
+			if err != nil {
+				slog.Error("osm import: tile build failed", "error", err)
+				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, true)
+			} else {
+				slog.Info("osm import: tile build completed", "job_id", tilesJobID)
+				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, false)
+			}
+		}
+	}
 }
 
 // jobReporter implements osmregions.ProgressReporter by delegating to background_jobs.
 type jobReporter struct {
-	db    *database.DB
-	jobID string
+	db     *database.DB
+	jobID  string
+	failed bool
 }
 
 func (r *jobReporter) SetPhase(phase string) {
 	r.db.UpdateBackgroundJobPhase(context.Background(), r.jobID, phase)
+}
+
+func (r *jobReporter) SetTotal(total int64) {
+	r.db.UpdateBackgroundJobTotal(context.Background(), r.jobID, total)
 }
 
 func (r *jobReporter) SetProgress(current int64) {
@@ -257,6 +336,7 @@ func (r *jobReporter) SetProgress(current int64) {
 }
 
 func (r *jobReporter) Fail(errMsg string) {
+	r.failed = true
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	r.db.Pool.Exec(dbCtx, `UPDATE background_jobs SET error = $1 WHERE id = $2`, errMsg, r.jobID)
@@ -276,6 +356,7 @@ type regionReporter struct {
 }
 
 func (r *regionReporter) SetPhase(p string)  { r.inner.SetPhase(p) }
+func (r *regionReporter) SetTotal(t int64)   { r.inner.SetTotal(t) }
 func (r *regionReporter) SetProgress(c int64) { r.inner.SetProgress(c) }
 func (r *regionReporter) Fail(msg string)     { r.lastErr = msg }
 func (r *regionReporter) Complete()           {}
