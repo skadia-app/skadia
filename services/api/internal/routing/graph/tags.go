@@ -125,8 +125,8 @@ var cyclewayEnum = map[string]uint8{
 }
 
 // routeNetworkEnum encodes route network hierarchy levels.
-// Cycling and hiking networks are stored in separate 3-bit fields (bits 20-22
-// and 23-25), so they use the same value range independently.
+// Cycling and hiking networks are stored in separate 3-bit fields (bits 21-23
+// and 24-26), so they use the same value range independently.
 // Values: 1=international, 2=national, 3=regional, 4=local.
 var routeNetworkEnum = map[string]uint8{
 	"icn": 1, "ncn": 2, "rcn": 3, "lcn": 4,
@@ -214,47 +214,46 @@ func encodeCyclewaySide(t *RawTags) uint8 {
 //
 //	Bits  0- 6: forest_pct (7)           — enrichment
 //	Bits  7-13: noise_score (7)          — enrichment
-//	Bits 14-15: traffic_class (2)        — enrichment
-//	Bits 16-17: protected_area (2)       — enrichment
-//	Bit  18:    is_cycleroute            — enrichment
-//	Bit  19:    is_hikeroute             — enrichment
-//	Bits 20-22: cycleroute_network (3)   — enrichment
-//	Bits 23-25: hikeroute_network (3)    — enrichment
-//	Bits 26-28: landuse_class (3)        — enrichment
-//	Bits 29-31: mtb_scale_uphill (3)     — OSM extended
-//	Bits 32-34: via_ferrata_scale (3)    — OSM extended
-//	Bits 35-37: trail_visibility (3)     — OSM extended
-//	Bits 38-45: width_dm (8)             — OSM extended
-//	Bits 46-53: incline_offset (8)       — OSM extended (value+128, 0=unknown)
-//	Bits 54-56: sidewalk (3)             — OSM extended
-//	Bits 57-59: urbanization (3)        — enrichment
-//	Bits 60-62: river_proximity (3)     — enrichment
-//	Bit  63:    reserve (1)
+//	Bits 14-16: traffic_class (3)        — enrichment (6 BRouter classes)
+//	Bits 17-18: protected_area (2)       — enrichment
+//	Bit  19:    is_cycleroute            — enrichment
+//	Bit  20:    is_hikeroute             — enrichment
+//	Bits 21-23: cycleroute_network (3)   — enrichment
+//	Bits 24-26: hikeroute_network (3)    — enrichment
+//	Bits 27-29: landuse_class (3)        — enrichment
+//	Bits 30-32: mtb_scale_uphill (3)     — OSM extended
+//	Bits 33-35: via_ferrata_scale (3)    — OSM extended
+//	Bits 36-38: trail_visibility (3)     — OSM extended
+//	Bits 39-46: width_dm (8)             — OSM extended
+//	Bits 47-54: incline_offset (8)       — OSM extended (value+128, 0=unknown)
+//	Bits 55-57: sidewalk (3)             — OSM extended
+//	Bits 58-60: urbanization (3)        — enrichment
+//	Bits 61-63: river_proximity (3)     — enrichment
 func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	var v uint64
-	// Enrichment (bits 0-28)
+	// Enrichment (bits 0-29)
 	v |= uint64(clamp(e.ForestPct, 0, 100))
 	v |= uint64(clamp(e.NoiseScore, 0, 100)) << 7
-	v |= uint64(clamp(e.TrafficClass, 0, 3)) << 14
-	v |= uint64(clamp(e.ProtectedArea, 0, 3)) << 16
+	v |= uint64(clamp(e.TrafficClass, 0, 6)) << 14
+	v |= uint64(clamp(e.ProtectedArea, 0, 3)) << 17
 	if e.IsCycleroute {
-		v |= 1 << 18
-	}
-	if e.IsHikeroute {
 		v |= 1 << 19
 	}
-	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 20
-	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 23
-	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 26
-	// OSM extended (bits 29-56)
-	v |= uint64(mtbScaleUphillEnum[t.MtbScaleUphill]) << 29
-	v |= uint64(viaFerrataScaleEnum[t.ViaFerrataScale]) << 32
-	v |= uint64(trailVisibilityEnum[t.TrailVisibility]) << 35
-	v |= uint64(ParseWidth(t.Width)) << 38
-	v |= uint64(ParseIncline(t.Incline)) << 46
-	v |= uint64(sidewalkEnum[t.Sidewalk]) << 54
+	if e.IsHikeroute {
+		v |= 1 << 20
+	}
+	v |= uint64(routeNetworkEnum[e.CyclerouteNetwork]) << 21
+	v |= uint64(routeNetworkEnum[e.HikerouteNetwork]) << 24
+	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 27
+	// OSM extended (bits 30-57)
+	v |= uint64(mtbScaleUphillEnum[t.MtbScaleUphill]) << 30
+	v |= uint64(viaFerrataScaleEnum[t.ViaFerrataScale]) << 33
+	v |= uint64(trailVisibilityEnum[t.TrailVisibility]) << 36
+	v |= uint64(ParseWidth(t.Width)) << 39
+	v |= uint64(ParseIncline(t.Incline)) << 47
+	v |= uint64(sidewalkEnum[t.Sidewalk]) << 55
 
-	// Bits 57-59: urbanization (3 bits, 0-7 classes)
+	// Bits 58-60: urbanization (3 bits, 0-7 classes)
 	urbanClass := 0
 	switch {
 	case e.Urbanization >= 200:
@@ -272,9 +271,9 @@ func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	case e.Urbanization >= 1:
 		urbanClass = 1
 	}
-	v |= uint64(urbanClass) << 57
+	v |= uint64(urbanClass) << 58
 
-	// Bits 60-62: river_proximity (3 bits, 0-7 classes)
+	// Bits 61-63: river_proximity (3 bits, 0-7 classes)
 	riverClass := 0
 	switch {
 	case e.RiverProximity >= 200:
@@ -292,7 +291,7 @@ func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	case e.RiverProximity >= 1:
 		riverClass = 1
 	}
-	v |= uint64(riverClass) << 60
+	v |= uint64(riverClass) << 61
 
 	return v
 }
@@ -332,51 +331,51 @@ func DecodeForestPct(v uint64) uint8 { return uint8(v & 0x7F) }
 // DecodeNoiseScore extracts noise_score (bits 7-13).
 func DecodeNoiseScore(v uint64) uint8 { return uint8((v >> 7) & 0x7F) }
 
-// DecodeTrafficClass extracts traffic_class (bits 14-15).
-func DecodeTrafficClass(v uint64) uint8 { return uint8((v >> 14) & 0x03) }
+// DecodeTrafficClass extracts traffic_class (bits 14-16).
+func DecodeTrafficClass(v uint64) uint8 { return uint8((v >> 14) & 0x07) }
 
-// DecodeProtectedArea extracts protected_area (bits 16-17).
-func DecodeProtectedArea(v uint64) uint8 { return uint8((v >> 16) & 0x03) }
+// DecodeProtectedArea extracts protected_area (bits 17-18).
+func DecodeProtectedArea(v uint64) uint8 { return uint8((v >> 17) & 0x03) }
 
-// DecodeIsCycleroute extracts is_cycleroute (bit 18).
-func DecodeIsCycleroute(v uint64) bool { return (v>>18)&1 == 1 }
+// DecodeIsCycleroute extracts is_cycleroute (bit 19).
+func DecodeIsCycleroute(v uint64) bool { return (v>>19)&1 == 1 }
 
-// DecodeIsHikeroute extracts is_hikeroute (bit 19).
-func DecodeIsHikeroute(v uint64) bool { return (v>>19)&1 == 1 }
+// DecodeIsHikeroute extracts is_hikeroute (bit 20).
+func DecodeIsHikeroute(v uint64) bool { return (v>>20)&1 == 1 }
 
-// DecodeCyclerouteNetwork extracts cycleroute_network (bits 20-22).
-func DecodeCyclerouteNetwork(v uint64) uint8 { return uint8((v >> 20) & 0x07) }
+// DecodeCyclerouteNetwork extracts cycleroute_network (bits 21-23).
+func DecodeCyclerouteNetwork(v uint64) uint8 { return uint8((v >> 21) & 0x07) }
 
-// DecodeHikerouteNetwork extracts hikeroute_network (bits 23-25).
-func DecodeHikerouteNetwork(v uint64) uint8 { return uint8((v >> 23) & 0x07) }
+// DecodeHikerouteNetwork extracts hikeroute_network (bits 24-26).
+func DecodeHikerouteNetwork(v uint64) uint8 { return uint8((v >> 24) & 0x07) }
 
-// DecodeLanduseClass extracts landuse_class (bits 26-28).
-func DecodeLanduseClass(v uint64) uint8 { return uint8((v >> 26) & 0x07) }
+// DecodeLanduseClass extracts landuse_class (bits 27-29).
+func DecodeLanduseClass(v uint64) uint8 { return uint8((v >> 27) & 0x07) }
 
-// DecodeMtbScaleUphill extracts mtb_scale_uphill (bits 29-31).
-func DecodeMtbScaleUphill(v uint64) uint8 { return uint8((v >> 29) & 0x07) }
+// DecodeMtbScaleUphill extracts mtb_scale_uphill (bits 30-32).
+func DecodeMtbScaleUphill(v uint64) uint8 { return uint8((v >> 30) & 0x07) }
 
-// DecodeViaFerrataScale extracts via_ferrata_scale (bits 32-34).
-func DecodeViaFerrataScale(v uint64) uint8 { return uint8((v >> 32) & 0x07) }
+// DecodeViaFerrataScale extracts via_ferrata_scale (bits 33-35).
+func DecodeViaFerrataScale(v uint64) uint8 { return uint8((v >> 33) & 0x07) }
 
-// DecodeTrailVisibility extracts trail_visibility (bits 35-37).
-func DecodeTrailVisibility(v uint64) uint8 { return uint8((v >> 35) & 0x07) }
+// DecodeTrailVisibility extracts trail_visibility (bits 36-38).
+func DecodeTrailVisibility(v uint64) uint8 { return uint8((v >> 36) & 0x07) }
 
-// DecodeWidthDm extracts width_dm (bits 38-45).
-func DecodeWidthDm(v uint64) uint8 { return uint8((v >> 38) & 0xFF) }
+// DecodeWidthDm extracts width_dm (bits 39-46).
+func DecodeWidthDm(v uint64) uint8 { return uint8((v >> 39) & 0xFF) }
 
-// DecodeInclineOffset extracts incline_offset (bits 46-53).
+// DecodeInclineOffset extracts incline_offset (bits 47-54).
 // Value is stored as ParseIncline result (0=unknown, 128=flat, 128+pct=positive incline).
-func DecodeInclineOffset(v uint64) uint8 { return uint8((v >> 46) & 0xFF) }
+func DecodeInclineOffset(v uint64) uint8 { return uint8((v >> 47) & 0xFF) }
 
-// DecodeSidewalk extracts sidewalk (bits 54-56).
-func DecodeSidewalk(v uint64) uint8 { return uint8((v >> 54) & 0x07) }
+// DecodeSidewalk extracts sidewalk (bits 55-57).
+func DecodeSidewalk(v uint64) uint8 { return uint8((v >> 55) & 0x07) }
 
-// DecodeUrbanization extracts urbanization class (bits 57-59).
-func DecodeUrbanization(v uint64) uint8 { return uint8((v >> 57) & 0x07) }
+// DecodeUrbanization extracts urbanization class (bits 58-60).
+func DecodeUrbanization(v uint64) uint8 { return uint8((v >> 58) & 0x07) }
 
-// DecodeRiverProximity extracts river_proximity class (bits 60-62).
-func DecodeRiverProximity(v uint64) uint8 { return uint8((v >> 60) & 0x07) }
+// DecodeRiverProximity extracts river_proximity class (bits 61-63).
+func DecodeRiverProximity(v uint64) uint8 { return uint8((v >> 61) & 0x07) }
 
 // --- EdgeTags1 reverse-direction bit ---
 

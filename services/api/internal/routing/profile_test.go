@@ -414,17 +414,17 @@ func TestBuildCostConfig_CutoffConversion(t *testing.T) {
 func TestEdgeCost_TrafficPenalty(t *testing.T) {
 	tags := encodeTags("path", "")
 	enrich0 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{TrafficClass: 0})
-	enrich3 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{TrafficClass: 3})
+	enrich6 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{TrafficClass: 6})
 
 	g0 := testGraph(tags, &enrich0)
-	g3 := testGraph(tags, &enrich3)
+	g6 := testGraph(tags, &enrich6)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
 	ecf0 := cfg.EdgeCost(g0, 0)
-	ecf3 := cfg.EdgeCost(g3, 0)
+	ecf6 := cfg.EdgeCost(g6, 0)
 
-	diff := ecf3.Flat - ecf0.Flat
-	// trafficWeight=0.6, class 3 → 3/3 * 0.6 = 0.6
+	diff := ecf6.Flat - ecf0.Flat
+	// trafficWeight=0.6, class 6 → 6/6 * 0.6 = 0.6
 	if diff < 0.4 || diff > 0.8 {
 		t.Errorf("traffic penalty diff = %f, expected ~0.6", diff)
 	}
