@@ -65,6 +65,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   )
   const [activeContinent, setActiveContinent] = useState(initialContinent ?? 'Europa')
   const [buildBRouter, setBuildBRouter] = useState(true)
+  const [runEnrichment, setRunEnrichment] = useState(true)
+  const [buildTiles, setBuildTiles] = useState(false)
+  const tilesDisabled = !runEnrichment
   // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology
 
   const { data: regionsData, isLoading } = useQuery({
@@ -229,25 +232,44 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
           </div>
 
           {/* Sektion 3: Nach dem Import */}
-          <div className="border-t border-neutral-700 pt-4 mt-2">
+          <div>
             <h3 className="text-sm font-medium mb-3">Nach dem Import</h3>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer">
+            <div className="space-y-2.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={runEnrichment}
+                  onChange={e => {
+                    setRunEnrichment(e.target.checked)
+                    if (!e.target.checked) setBuildTiles(false)
+                  }}
+                  className="accent-accent-DEFAULT"
+                />
+                <span className="text-neutral-700 dark:text-neutral-300">Enrichment starten</span>
+                <span className="text-xs text-neutral-400">(Wald, Lärm, Verkehr, Landnutzung)</span>
+              </label>
+              <label className={`flex items-center gap-2 text-sm ${tilesDisabled ? 'opacity-40' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={buildTiles}
+                  disabled={tilesDisabled}
+                  onChange={e => setBuildTiles(e.target.checked)}
+                  className="accent-accent-DEFAULT"
+                />
+                <span className="text-neutral-700 dark:text-neutral-300">Routing-Tiles bauen</span>
+                <span className="text-xs text-neutral-400">(FITroute Graph mit DEM)</span>
+                {tilesDisabled && <span className="text-xs text-red-500">(benötigt Enrichment)</span>}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={buildBRouter}
-                  onChange={() => setBuildBRouter(!buildBRouter)}
+                  onChange={e => setBuildBRouter(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
-                <div>
-                  <span className="text-sm">BRouter-Segmente herunterladen</span>
-                  <span className="text-xs text-neutral-400 block">
-                    Routing-Daten (rd5) von brouter.de für ausgewählte Regionen
-                  </span>
-                </div>
+                <span className="text-neutral-700 dark:text-neutral-300">BRouter rd5-Segmente lokal generieren</span>
+                <span className="text-xs text-neutral-400">(aus PBF-Daten)</span>
               </label>
-              {/* Trail-Topologie entfernt: pgRouting 4.0+ hat pgr_createTopology entfernt.
-                  FITroute's CSR Graph Builder berechnet Topologie direkt aus osm_ways. */}
             </div>
           </div>
 
@@ -281,6 +303,8 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   regions: selectedRegions,
                   categories: selectedCategories,
                   build_brouter: buildBRouter,
+                  run_enrichment: runEnrichment,
+                  build_tiles: buildTiles && runEnrichment,
                 })
               }}
               disabled={!canStart}
