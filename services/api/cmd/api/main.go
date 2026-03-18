@@ -357,6 +357,7 @@ func main() {
 			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
 			r.Post("/admin/routing/rebuild-tiles", h.RebuildRoutingTiles)
 			r.Post("/admin/routing/build-brouter-segments", h.BuildBRouterSegments)
+			r.Post("/admin/routing/download-brouter-segments", h.DownloadBRouterSegments)
 
 			r.Get("/me", h.GetMe)
 

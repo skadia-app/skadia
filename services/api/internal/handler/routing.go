@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -505,5 +506,79 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		"status":   "started",
 		"job_id":   jobID,
 		"regions":  labels,
+	})
+}
+
+// DownloadBRouterSegments downloads pre-built BRouter rd5 segments from brouter.de.
+// POST /admin/routing/download-brouter-segments
+func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Regions) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "regions required"})
+		return
+	}
+
+	var regions []osmregions.Region
+	for _, id := range req.Regions {
+		reg, ok := osmregions.RegionByID(id)
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown region: " + id})
+			return
+		}
+		regions = append(regions, reg)
+	}
+
+	tiles := osmregions.BRouterTileIDs(regions)
+	if len(tiles) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "no tiles for selected regions"})
+		return
+	}
+
+	var running int
+	h.DB.Pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_download' AND status = 'running'`).Scan(&running)
+	if running > 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	entityName := fmt.Sprintf("BRouter Download: %d Tiles", len(tiles))
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
+		"brouter_segment_download", nil, &entityName, int64(len(tiles)))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
+		return
+	}
+
+	segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
+	if segmentsDir == "" {
+		segmentsDir = "/data/brouter/segments"
+	}
+
+	shutdown.Go(jobID, func(ctx context.Context) {
+		err := osmregions.DownloadBRouterSegments(ctx, tiles, segmentsDir,
+			func(downloaded, total int) {
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(downloaded))
+			})
+		if err != nil {
+			slog.Error("brouter download failed", "error", err, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
+		} else {
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
+		}
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "started",
+		"job_id": jobID,
+		"tiles":  len(tiles),
 	})
 }
