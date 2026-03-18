@@ -53,8 +53,15 @@ func ApplyForestWaterOverride(urban, forest, water *CoverageGrid) {
 			continue
 		}
 		center := urban.CellCenter(i/urban.Cols, i%urban.Cols)
-		isForest := forest != nil && forest.SamplePoint(center) > 0 && forest.SamplePoint(center) != OutOfBounds
-		isWater := water != nil && water.SamplePoint(center) > 0 && water.SamplePoint(center) != OutOfBounds
+		var isForest, isWater bool
+		if forest != nil {
+			v := forest.SamplePoint(center)
+			isForest = v > 0 && v != OutOfBounds
+		}
+		if water != nil {
+			v := water.SamplePoint(center)
+			isWater = v > 0 && v != OutOfBounds
+		}
 		if isForest || isWater {
 			urban.Data[i] = uint8(float64(urban.Data[i]) * 0.3)
 		}

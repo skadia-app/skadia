@@ -66,6 +66,7 @@ func rasterizeInternal(g *CoverageGrid, poly orb.Polygon, val uint8, useMax bool
 
 	// Active Edge List: indices into edges[] that are live for the current scan line.
 	active := make([]int, 0, 16)
+	xCrossings := make([]float64, 0, 16) // pre-allocated, reused per row
 	nextEdgeIdx := 0
 
 	for row := 0; row < g.Rows; row++ {
@@ -93,7 +94,7 @@ func rasterizeInternal(g *CoverageGrid, poly orb.Polygon, val uint8, useMax bool
 		}
 
 		// Compute x-crossings for every active edge at scanLat.
-		xCrossings := make([]float64, 0, len(active))
+		xCrossings = xCrossings[:0]
 		for _, idx := range active {
 			e := &edges[idx]
 			x := e.xAtYMin + (scanLat-e.yMin)*e.dxPerDy

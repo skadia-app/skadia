@@ -184,10 +184,9 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 	return nil
 }
 
-// EnrichNoiseScore calculates noise exposure score (0-100) for each way.
-// Sources: road hierarchy proximity + aerodromes + optional railway lines.
-// Uses pool.Acquire() for connection pinning (TEMP VIEW needs same connection).
-// osm_ways.geom is SRID 4326 — cast directly to ::geography for meter distances.
+// EnrichNoiseScore is replaced by coverage.RunCoverageEnrichment (noise grid).
+// Kept temporarily for reference; will be removed after E2E validation.
+// DEPRECATED: Do not call.
 func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string, progressFn func(int64)) error {
 	slog.Info("enrichment: starting noise_score")
 
