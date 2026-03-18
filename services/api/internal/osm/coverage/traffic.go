@@ -117,7 +117,9 @@ func buildTrafficInputs(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, 
 	expandedEnv := fmt.Sprintf("ST_Expand(%s, 0.5)", env)
 
 	settRows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT ST_AsBinary(geom), subtype, COALESCE((tags->>'population')::bigint, 0)
+		SELECT ST_AsBinary(geom), subtype,
+			COALESCE(CASE WHEN tags->>'population' ~ '^\d+$'
+				THEN (tags->>'population')::bigint END, 0)
 		FROM osm_pois WHERE category = 'settlement' AND geom && %s`, expandedEnv))
 	if err != nil {
 		return nil, fmt.Errorf("populate query: %w", err)
