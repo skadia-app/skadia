@@ -15,6 +15,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // RebuildRoutingGraph triggers a background graph rebuild.
@@ -51,22 +52,19 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use detached context — request context is cancelled after 202 response.
-	bgCtx := context.Background()
-
-	go func() {
-		err := h.GraphManager.Rebuild(bgCtx, h.DB.Pool, graphPath,
+	shutdown.Go(jobID, func(ctx context.Context) {
+		err := h.GraphManager.Rebuild(ctx, h.DB.Pool, graphPath,
 			func(step string, pct int) {
-				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(pct))
-				_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, step)
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(pct))
+				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, step)
 			})
 		if err != nil {
 			slog.Error("routing graph build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		} else {
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
 		}
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status": "started",
@@ -372,35 +370,34 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bgCtx := context.Background()
 	const tileCacheBytes = 1_000_000_000 // 1 GB — keeps ~3-4 tiles hot, avoids OOM on 32 GB systems
 
-	go func() {
+	shutdown.Go(jobID, func(ctx context.Context) {
 		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
 		workers := 2
 		var tilesBuilt atomic.Int64
 		var lastReportedTile atomic.Uint32
-		err := h.GraphManager.RebuildTiles(bgCtx, h.DB.Pool, tileDir, tileCacheBytes,
+		err := h.GraphManager.RebuildTiles(ctx, h.DB.Pool, tileDir, tileCacheBytes,
 			hgtDirs, workers,
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
-					_ = h.DB.UpdateBackgroundJobTotal(bgCtx, jobID, int64(pct))
+					_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(pct))
 				} else if pct == 100 {
 					// Only count once per tile (multiple steps report pct=100).
 					if lastReportedTile.Swap(tileID) != tileID {
 						n := tilesBuilt.Add(1)
-						_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, n)
+						_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, n)
 					}
 				}
 			})
 		if err != nil {
 			slog.Error("tile build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		} else {
 			slog.Info("tile build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
 		}
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status":   "started",
@@ -478,8 +475,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bgCtx := context.Background()
-	go func() {
+	shutdown.Go(jobID, func(ctx context.Context) {
 		osmDataDir := os.Getenv("OSM_DATA_DIR")
 		if osmDataDir == "" {
 			osmDataDir = "/data/osm"
@@ -496,14 +492,14 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		}
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 
-		if err := pipeline.BuildBRouterSegments(bgCtx, regions, osmDataDir, segmentsDir, reporter); err != nil {
+		if err := pipeline.BuildBRouterSegments(ctx, regions, osmDataDir, segmentsDir, reporter); err != nil {
 			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
 		} else {
 			slog.Info("BRouter segment build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
 		}
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status":   "started",
