@@ -169,31 +169,29 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		return nil
 	}
 
-	batch := &pgx.Batch{}
-	for _, s := range streams {
-		batch.Queue(`
-			INSERT INTO activity_streams (
-				time, activity_id,
-				lat, lng, altitude_m, speed_ms, distance_m,
-				heart_rate, power_w, cadence, temperature_c,
-				ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+	columns := []string{
+		"time", "activity_id",
+		"lat", "lng", "altitude_m", "speed_ms", "distance_m",
+		"heart_rate", "power_w", "cadence", "temperature_c",
+		"ground_contact_time_ms", "vertical_oscillation_mm", "stance_time_percent", "left_right_balance",
+	}
+
+	rows := make([][]any, len(streams))
+	for i, s := range streams {
+		rows[i] = []any{
 			s.Time, activityID,
 			s.Lat, s.Lng, s.AltitudeM, s.SpeedMS, s.DistanceM,
 			s.HeartRate, s.PowerW, s.Cadence, s.TemperatureC,
 			s.GroundContactTimeMs, s.VerticalOscillationMm, s.StanceTimePercent, s.LeftRightBalance,
-		)
-	}
-
-	br := db.Pool.SendBatch(ctx, batch)
-	defer br.Close()
-
-	for range streams {
-		if _, err := br.Exec(); err != nil {
-			return fmt.Errorf("insert stream point: %w", err)
 		}
 	}
-	return nil
+
+	_, err := db.Pool.CopyFrom(ctx,
+		pgx.Identifier{"activity_streams"},
+		columns,
+		pgx.CopyFromRows(rows),
+	)
+	return err
 }
 
 // UpdateStreamSpeeds writes smoothed speed_ms values back to activity_streams.

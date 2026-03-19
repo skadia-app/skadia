@@ -123,26 +123,30 @@ func (db *DB) GetRRIntervals(ctx context.Context, activityID string) ([]int16, e
 }
 
 // InsertRRIntervals stores raw R-R intervals (in ms) for an activity.
-// Existing rows for the activity are replaced on conflict (idempotent on re-import).
+// Existing rows for the activity are replaced on re-import (DELETE + CopyFrom).
 func (db *DB) InsertRRIntervals(ctx context.Context, activityID string, intervals []uint16) error {
 	if len(intervals) == 0 {
 		return nil
 	}
-	batch := &pgx.Batch{}
-	for i, rr := range intervals {
-		batch.Queue(
-			`INSERT INTO activity_rr_intervals (activity_id, seq, rr_ms)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (activity_id, seq) DO UPDATE SET rr_ms = EXCLUDED.rr_ms`,
-			activityID, i, int16(rr),
-		)
+
+	if _, err := db.Pool.Exec(ctx,
+		`DELETE FROM activity_rr_intervals WHERE activity_id = $1`, activityID,
+	); err != nil {
+		return fmt.Errorf("delete rr intervals: %w", err)
 	}
-	br := db.Pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for range intervals {
-		if _, err := br.Exec(); err != nil {
-			return fmt.Errorf("insert rr interval: %w", err)
-		}
+
+	rows := make([][]any, len(intervals))
+	for i, rr := range intervals {
+		rows[i] = []any{activityID, i, int16(rr)}
+	}
+
+	_, err := db.Pool.CopyFrom(ctx,
+		pgx.Identifier{"activity_rr_intervals"},
+		[]string{"activity_id", "seq", "rr_ms"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return fmt.Errorf("copy rr intervals: %w", err)
 	}
 	return nil
 }
