@@ -801,42 +801,6 @@ func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GP
 	return points, nil
 }
 
-// VerifySubTrackMatch computes the Hausdorff distance between a sub-track LineString
-// (built from GPS points) and a segment version track. Returns distance in meters.
-func (db *DB) VerifySubTrackMatch(ctx context.Context, versionID string, subTrack []GPSStreamPoint) (*float64, error) {
-	if len(subTrack) < 2 {
-		return nil, nil
-	}
-
-	// Build WKT LINESTRING from sub-track points
-	var sb strings.Builder
-	sb.WriteString("LINESTRING(")
-	for i, p := range subTrack {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(fmt.Sprintf("%.7f %.7f", p.Lng, p.Lat))
-	}
-	sb.WriteString(")")
-
-	var distance *float64
-	err := db.Pool.QueryRow(ctx, `
-		SELECT ST_HausdorffDistance(
-			ST_Transform(ST_SetSRID(ST_GeomFromText($1), 4326), 3857),
-			ST_Transform(sv.track, 3857)
-		)
-		FROM segment_versions sv
-		WHERE sv.id = $2 AND sv.track IS NOT NULL`,
-		sb.String(), versionID,
-	).Scan(&distance)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("verify sub-track match: %w", err)
-	}
-	return distance, nil
-}
 
 // NOTE: GetSegmentEffortMetrics, GetSegmentEffortMetricsAndElevation, and
 // GetSubTrackElevationGain have been replaced by in-memory computeEffortMetrics
