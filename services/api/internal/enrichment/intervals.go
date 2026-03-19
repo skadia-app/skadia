@@ -52,7 +52,7 @@ type classifiedSegment struct {
 // enrichStreamIntervals is the Go port of services/ml/enrichment/intervals.py.
 //
 // Algorithm (binary segmentation, mirrors the Python implementation):
-//  1. Load the activity stream (time, power_w, heart_rate, speed_ms, cadence).
+//  1. Map the shared stream to intervalStream (all points, no NULL filter).
 //  2. Select primary signal channel: power_w > heart_rate > speed_ms.
 //  3. Apply rolling-mean smoothing.
 //  4. Recursively split the signal at the point of maximum variance reduction.
@@ -60,30 +60,17 @@ type classifiedSegment struct {
 //     the global mean.
 //  6. If ≥ 2 hard segments are found, write results to activity_intervals and
 //     apply the auto-tag "Intervalltraining".
-func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string) error {
-	// 1. Load stream.
-	rows, err := db.Pool.Query(ctx, `
-		SELECT time, power_w, heart_rate, speed_ms, cadence
-		FROM activity_streams
-		WHERE activity_id = $1
-		ORDER BY time
-	`, activityID)
-	if err != nil {
-		return fmt.Errorf("intervals: query stream: %w", err)
-	}
-
-	var pts []intervalStream
-	for rows.Next() {
-		var p intervalStream
-		if err := rows.Scan(&p.T, &p.PowerW, &p.HeartRate, &p.SpeedMS, &p.Cadence); err != nil {
-			rows.Close()
-			return fmt.Errorf("intervals: scan stream: %w", err)
+func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
+	// 1. Map shared stream — all points included, nulls handled per-field in extractSignal.
+	pts := make([]intervalStream, len(stream))
+	for i, sp := range stream {
+		pts[i] = intervalStream{
+			T:         sp.Time,
+			PowerW:    sp.PowerW,
+			HeartRate: sp.HeartRate,
+			SpeedMS:   sp.SpeedMs,
+			Cadence:   sp.Cadence,
 		}
-		pts = append(pts, p)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("intervals: stream rows: %w", err)
 	}
 
 	if len(pts) < 2 {

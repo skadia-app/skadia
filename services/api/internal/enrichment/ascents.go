@@ -21,11 +21,11 @@ const (
 //
 // Algorithm:
 //  1. Load per-user thresholds from user_enrichment_settings.
-//  2. Load altitude + distance stream for the activity.
+//  2. Filter altitude + distance points from the shared stream (both must be non-nil).
 //  3. Apply Savitzky-Golay (window=21, polyorder=3) to smooth altitude.
 //  4. Detect ascending segments and filter by elevation gain, length, gradient.
 //  5. DELETE existing activity_climbs + INSERT fresh results.
-func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityID string) error {
+func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
 	// 1. Load user thresholds.
 	minGradient := ascentMinGradientPct
 	minElevation := ascentMinElevationM
@@ -46,32 +46,14 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 	}
 	// Ignore "no rows" — defaults remain.
 
-	// 2. Load altitude + distance stream.
-	rows, err := db.Pool.Query(ctx, `
-		SELECT altitude_m, distance_m
-		FROM activity_streams
-		WHERE activity_id = $1
-		  AND altitude_m IS NOT NULL
-		  AND distance_m IS NOT NULL
-		ORDER BY time
-	`, activityID)
-	if err != nil {
-		return fmt.Errorf("ascents: query stream: %w", err)
-	}
-
+	// 2. Filter to points where altitude_m and distance_m are both non-nil.
 	var altitudes, distances []float64
-	for rows.Next() {
-		var alt, dist float64
-		if err := rows.Scan(&alt, &dist); err != nil {
-			rows.Close()
-			return fmt.Errorf("ascents: scan stream: %w", err)
+	for _, sp := range stream {
+		if sp.AltitudeM == nil || sp.DistanceM == nil {
+			continue
 		}
-		altitudes = append(altitudes, alt)
-		distances = append(distances, dist)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("ascents: stream rows: %w", err)
+		altitudes = append(altitudes, *sp.AltitudeM)
+		distances = append(distances, *sp.DistanceM)
 	}
 
 	// 3. Need an absolute minimum of 7 points for poly-3 SG filter.

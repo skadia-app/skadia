@@ -56,38 +56,30 @@ type detectedStop struct {
 // enrichStreamStops is the Go port of services/ml/enrichment/stops.py.
 //
 // Algorithm:
-//  1. Load GPS+speed stream for the activity.
+//  1. Filter GPS+speed points from the shared stream (lat/lng must be non-nil).
 //  2. Detect consecutive points with speed_ms < 0.5 lasting >= 60 s.
 //  3. Use the midpoint of each stop cluster as the representative location.
 //  4. Batch POI lookup via LATERAL on osm_pois (gastronomy/accommodation).
 //  5. DELETE existing activity_stops + gastronomy geo tags, then INSERT fresh results.
 //  6. If duration >= 600 s AND poi_type is a gastronomy type AND poi_name is set,
 //     also INSERT an activity_geo_tags row with category='gastronomy'.
-func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityID string) error {
-	// 1. Load stream rows.
-	rows, err := db.Pool.Query(ctx, `
-		SELECT time, lat, lng, COALESCE(speed_ms, 0)
-		FROM activity_streams
-		WHERE activity_id = $1
-		  AND lat IS NOT NULL AND lng IS NOT NULL
-		ORDER BY time
-	`, activityID)
-	if err != nil {
-		return fmt.Errorf("stops: query stream: %w", err)
-	}
-
+func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityID string, stream []EnrichmentStreamPoint) error {
+	// 1. Filter to GPS points only (lat/lng non-nil).
 	var points []streamPoint
-	for rows.Next() {
-		var p streamPoint
-		if err := rows.Scan(&p.T, &p.Lat, &p.Lng, &p.SpeedMS); err != nil {
-			rows.Close()
-			return fmt.Errorf("stops: scan stream: %w", err)
+	for _, sp := range stream {
+		if sp.Lat == nil || sp.Lng == nil {
+			continue
 		}
-		points = append(points, p)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("stops: stream rows: %w", err)
+		speedMS := 0.0
+		if sp.SpeedMs != nil {
+			speedMS = *sp.SpeedMs
+		}
+		points = append(points, streamPoint{
+			T:       sp.Time,
+			Lat:     *sp.Lat,
+			Lng:     *sp.Lng,
+			SpeedMS: speedMS,
+		})
 	}
 
 	if len(points) == 0 {

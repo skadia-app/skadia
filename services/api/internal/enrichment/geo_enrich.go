@@ -7,6 +7,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/errgroup"
 )
 
 // GeoEnrichmentSettings contains the per-user flags that gate individual
@@ -56,6 +58,9 @@ func allGeoEnabled() GeoEnrichmentSettings {
 // allGeoEnabled() to run every module regardless of user preferences.
 // Failures are logged per module and do not abort subsequent modules.
 //
+// All enabled modules run in parallel (max 3 concurrent) via errgroup to
+// prevent DB connection pool exhaustion.
+//
 // Track source: activity_tracks.track_full (identical to the Python code).
 func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, settings GeoEnrichmentSettings) error {
 	slog.Info("running geo enrichment (Go SQL)", "activity_id", activityID)
@@ -73,6 +78,9 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		{"borders", settings.EnableBorders, enrichGeoTagsBorders},
 	}
 
+	g, gCtx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, 3) // max 3 parallel — prevent connection pool exhaustion
+
 	for _, m := range modules {
 		if !m.enabled {
 			slog.Debug("geo enrichment module disabled, skipping",
@@ -81,25 +89,35 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 			)
 			continue
 		}
-		if err := m.fn(ctx, db, activityID); err != nil {
-			slog.Warn("geo enrichment module failed",
-				"module", m.name,
-				"activity_id", activityID,
-				"error", err,
-			)
-		}
+		g.Go(func() error {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := m.fn(gCtx, db, activityID); err != nil {
+				slog.Warn("geo enrichment module failed",
+					"module", m.name,
+					"activity_id", activityID,
+					"error", err,
+				)
+			}
+			return nil // individual module failures are NOT fatal
+		})
 	}
 
 	// Surfaces: only active in Full mode (osm_ways must exist and be populated).
 	// Writes to activity_surfaces; skips silently if osm_ways is not present.
 	if settings.EnableSurfaces {
-		if err := EnrichSurfaces(ctx, db, activityID); err != nil {
-			slog.Warn("geo enrichment module failed",
-				"module", "surfaces",
-				"activity_id", activityID,
-				"error", err,
-			)
-		}
+		g.Go(func() error {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := EnrichSurfaces(gCtx, db, activityID); err != nil {
+				slog.Warn("geo enrichment module failed",
+					"module", "surfaces",
+					"activity_id", activityID,
+					"error", err,
+				)
+			}
+			return nil // individual module failures are NOT fatal
+		})
 	} else {
 		slog.Debug("geo enrichment module disabled, skipping",
 			"module", "surfaces",
@@ -107,7 +125,7 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		)
 	}
 
-	return nil
+	return g.Wait()
 }
 
 // enrichGeoTagsPeaks finds peaks and passes within 100 m of the track.
@@ -141,6 +159,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 	}
 	defer rows.Close()
 
+	batch := &pgx.Batch{}
 	for rows.Next() {
 		var osmID int64
 		var name, poiCategory string
@@ -157,17 +176,21 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 			category = "pass"
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_point_lat, map_point_lon, ele_m, dist_m)
 			VALUES ($1, $2, $3, $4, 'point', $5, $6, $7, $8)
-		`, activityID, category, name, osmID, lat, lon, ele, distM); err != nil {
-			slog.Warn("peaks: insert failed", "osm_id", osmID, "error", err)
-		}
+		`, activityID, category, name, osmID, lat, lon, ele, distM)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("peaks: rows iteration: %w", err)
+	}
+
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("peaks: batch insert failed", "activity_id", activityID, "error", err)
+		}
 	}
 	return nil
 }
@@ -200,6 +223,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 	}
 	defer rows.Close()
 
+	batch := &pgx.Batch{}
 	for rows.Next() {
 		var osmID int64
 		var name string
@@ -210,17 +234,21 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			return fmt.Errorf("settlements: scan: %w", err)
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_point_lat, map_point_lon)
 			VALUES ($1, 'settlement', $2, $3, 'point', $4, $5)
-		`, activityID, name, osmID, centerLat, centerLon); err != nil {
-			slog.Warn("settlements: insert failed", "osm_id", osmID, "error", err)
-		}
+		`, activityID, name, osmID, centerLat, centerLon)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("settlements: rows iteration: %w", err)
+	}
+
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("settlements: batch insert failed", "activity_id", activityID, "error", err)
+		}
 	}
 	return nil
 }
@@ -260,6 +288,7 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 	}
 	defer rows.Close()
 
+	batch := &pgx.Batch{}
 	for rows.Next() {
 		var osmID int64
 		var name *string
@@ -275,17 +304,21 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 			displayName = *name
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_bbox_west, map_bbox_south, map_bbox_east, map_bbox_north, length_m)
 			VALUES ($1, 'forest', $2, $3, 'bbox', $4, $5, $6, $7, $8)
-		`, activityID, displayName, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, lengthM); err != nil {
-			slog.Warn("forests: insert failed", "osm_id", osmID, "error", err)
-		}
+		`, activityID, displayName, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, lengthM)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("forests: rows iteration: %w", err)
+	}
+
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("forests: batch insert failed", "activity_id", activityID, "error", err)
+		}
 	}
 	return nil
 }
@@ -322,6 +355,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	}
 	defer stillRows.Close()
 
+	batch := &pgx.Batch{}
 	for stillRows.Next() {
 		var osmID int64
 		var name string
@@ -332,14 +366,12 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			return fmt.Errorf("water: still_water scan: %w", err)
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_bbox_west, map_bbox_south, map_bbox_east, map_bbox_north, dist_m)
 			VALUES ($1, 'still_water', $2, $3, 'bbox', $4, $5, $6, $7, $8)
-		`, activityID, name, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, distM); err != nil {
-			slog.Warn("water: still_water insert failed", "osm_id", osmID, "error", err)
-		}
+		`, activityID, name, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, distM)
 	}
 	if err := stillRows.Err(); err != nil {
 		return fmt.Errorf("water: still_water rows iteration: %w", err)
@@ -377,18 +409,22 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			return fmt.Errorf("water: flowing_water scan: %w", err)
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_section, dist_m)
 			VALUES ($1, 'flowing_water', $2, $3, 'section',
 			        ST_GeomFromWKB($4, 4326), $5)
-		`, activityID, name, osmID, nearbySection, distM); err != nil {
-			slog.Warn("water: flowing_water insert failed", "osm_id", osmID, "error", err)
-		}
+		`, activityID, name, osmID, nearbySection, distM)
 	}
 	if err := flowRows.Err(); err != nil {
 		return fmt.Errorf("water: flowing_water rows iteration: %w", err)
+	}
+
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("water: batch insert failed", "activity_id", activityID, "error", err)
+		}
 	}
 	return nil
 }
@@ -420,6 +456,7 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 	}
 	defer rows.Close()
 
+	batch := &pgx.Batch{}
 	for rows.Next() {
 		var name *string
 		var adminLevel int
@@ -434,16 +471,20 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 			displayName = *name
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, map_type, map_section)
 			VALUES ($1, 'border', $2, 'section', ST_GeomFromWKB($3, 4326))
-		`, activityID, displayName, crossingGeom); err != nil {
-			slog.Warn("borders: insert failed", "admin_level", adminLevel, "error", err)
-		}
+		`, activityID, displayName, crossingGeom)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("borders: rows iteration: %w", err)
+	}
+
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("borders: batch insert failed", "activity_id", activityID, "error", err)
+		}
 	}
 	return nil
 }
