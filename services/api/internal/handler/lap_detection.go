@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"context"
 	"math"
 	"sort"
-	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -37,7 +35,7 @@ type lapBoundary struct {
 //  3. Cluster passages through the hotspot (3x3 neighborhood)
 //  4. Extract laps between consecutive passages
 //  5. Validate: min 2 laps, min distance, min time, similar lengths
-func DetectLaps(ctx context.Context, db *database.DB, activityID string, gpsStream []database.GPSStreamPoint) []model.DetectedLap {
+func DetectLaps(activityID string, gpsStream []database.GPSStreamPoint) []model.DetectedLap {
 	if len(gpsStream) < 20 {
 		return nil
 	}
@@ -142,14 +140,13 @@ func DetectLaps(ctx context.Context, db *database.DB, activityID string, gpsStre
 			lap.AvgSpeedMs = &avgSpeed
 		}
 
-		// Stream-based metrics (HR, power, cadence)
-		if metrics, err := db.GetSegmentEffortMetrics(ctx, activityID, startTime, endTime); err == nil && metrics != nil {
-			lap.AvgHeartRate = metrics.AvgHeartRate
-			lap.AvgPowerW = metrics.AvgPowerW
-		}
+		// In-memory metrics from GPS stream (no DB round-trip).
+		_, avgHR, avgPower, _ := computeEffortMetrics(gpsStream, rl.startIdx, rl.endIdx)
+		lap.AvgHeartRate = avgHR
+		lap.AvgPowerW = avgPower
 
-		// Ascent/descent from GPS altitude
-		ascent, descent := computeAscentDescent(ctx, db, activityID, startTime, endTime)
+		// Ascent/descent from GPS stream altitude data (no DB round-trip).
+		ascent, descent := computeAscentDescentFromStream(gpsStream, rl.startIdx, rl.endIdx)
 		if ascent > 0 {
 			lap.TotalAscentM = &ascent
 		}
@@ -255,42 +252,6 @@ func extractLapBoundaries(stream []database.GPSStreamPoint, hotspot gridCell) []
 	boundaries = append(boundaries, lapBoundary{firstIdx: first, lastIdx: last})
 
 	return boundaries
-}
-
-// computeAscentDescent queries altitude stream data and computes total ascent/descent.
-func computeAscentDescent(ctx context.Context, db *database.DB, activityID string, startTime, endTime time.Time) (float64, float64) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT altitude_m FROM activity_streams
-		WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3
-		  AND altitude_m IS NOT NULL
-		ORDER BY "time" ASC`, activityID, startTime, endTime)
-	if err != nil {
-		return 0, 0
-	}
-	defer rows.Close()
-
-	var altitudes []float64
-	for rows.Next() {
-		var alt float64
-		if err := rows.Scan(&alt); err == nil {
-			altitudes = append(altitudes, alt)
-		}
-	}
-
-	if len(altitudes) < 2 {
-		return 0, 0
-	}
-
-	var ascent, descent float64
-	for i := 1; i < len(altitudes); i++ {
-		diff := altitudes[i] - altitudes[i-1]
-		if diff > 0 {
-			ascent += diff
-		} else {
-			descent -= diff
-		}
-	}
-	return ascent, descent
 }
 
 func median(values []float64) float64 {

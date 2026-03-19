@@ -838,75 +838,9 @@ func (db *DB) VerifySubTrackMatch(ctx context.Context, versionID string, subTrac
 	return distance, nil
 }
 
-// SegmentEffortMetrics holds stream-based metrics for a segment effort.
-type SegmentEffortMetrics struct {
-	AvgSpeedMs   *float64
-	AvgHeartRate *float64
-	AvgPowerW    *float64
-}
-
-// GetSegmentEffortMetrics computes average speed, heart rate and power from
-// the activity_streams table for a given time range within an activity.
-func (db *DB) GetSegmentEffortMetrics(ctx context.Context, activityID string, startTime, endTime time.Time) (*SegmentEffortMetrics, error) {
-	var m SegmentEffortMetrics
-	err := db.Pool.QueryRow(ctx, `
-		SELECT AVG(speed_ms), AVG(heart_rate::double precision), AVG(power_w::double precision)
-		FROM activity_streams
-		WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3`,
-		activityID, startTime, endTime,
-	).Scan(&m.AvgSpeedMs, &m.AvgHeartRate, &m.AvgPowerW)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get segment effort metrics: %w", err)
-	}
-	return &m, nil
-}
-
-// GetSegmentEffortMetricsAndElevation computes average speed, heart rate, power,
-// and total elevation gain from activity_streams for a given time range,
-// all in a single round-trip query.
-func (db *DB) GetSegmentEffortMetricsAndElevation(ctx context.Context,
-	activityID string, startTime, endTime time.Time,
-) (avgSpeed, avgHR, avgPower, elevGain *float64, err error) {
-	err = db.Pool.QueryRow(ctx, `
-		SELECT
-		  (SELECT AVG(speed_ms) FROM activity_streams
-		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
-		  (SELECT AVG(heart_rate::double precision) FROM activity_streams
-		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
-		  (SELECT AVG(power_w::double precision) FROM activity_streams
-		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
-		  (SELECT COALESCE(SUM(CASE WHEN d > 0 THEN d ELSE 0 END), 0) FROM (
-		     SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY "time") AS d
-		     FROM activity_streams
-		     WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3
-		       AND altitude_m IS NOT NULL
-		   ) sub)
-	`, activityID, startTime, endTime).Scan(&avgSpeed, &avgHR, &avgPower, &elevGain)
-	return
-}
-
-// GetSubTrackElevationGain computes the total elevation gain (sum of positive
-// altitude differences) from activity_streams for a given time range.
-func (db *DB) GetSubTrackElevationGain(ctx context.Context, activityID string, startTime, endTime time.Time) (*float64, error) {
-	var gain *float64
-	err := db.Pool.QueryRow(ctx, `
-		SELECT SUM(CASE WHEN d > 0 THEN d ELSE 0 END) AS elevation_gain
-		FROM (
-			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY "time") AS d
-			FROM activity_streams
-			WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3
-			  AND altitude_m IS NOT NULL
-		) sub`,
-		activityID, startTime, endTime,
-	).Scan(&gain)
-	if err != nil {
-		return nil, fmt.Errorf("get sub-track elevation gain: %w", err)
-	}
-	return gain, nil
-}
+// NOTE: GetSegmentEffortMetrics, GetSegmentEffortMetricsAndElevation, and
+// GetSubTrackElevationGain have been replaced by in-memory computeEffortMetrics
+// in handler/segment_matching.go (eliminates per-candidate DB round-trips).
 
 // DeleteSegmentEffortsByActivity removes all segment efforts for a given activity.
 func (db *DB) DeleteSegmentEffortsByActivity(ctx context.Context, activityID string) error {
