@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 // RouteDuplicateResult describes a found duplicate route.
@@ -56,7 +57,7 @@ func CheckRouteDuplicate(
 		return nil, fmt.Errorf("route dup tier-3 bbox: %w", err)
 	}
 
-	newTrack := rdpSimplify(geoJSONToLatLngs(geojson), 20)
+	newTrackLS := geo.SimplifyDouglasPeucker(latLngToLineString(geoJSONToLatLngs(geojson)), 20)
 	lengthDiffM := lengthDiffThresholdKm * 1000
 
 	for _, c := range candidates {
@@ -67,8 +68,8 @@ func CheckRouteDuplicate(
 			}
 		}
 		// Hausdorff distance (expensive — O(n*m))
-		candidateTrack := rdpSimplify(geoJSONToLatLngs(c.GeoJSON), 20)
-		dist := hausdorffDistance(newTrack, candidateTrack)
+		candidateTrackLS := geo.SimplifyDouglasPeucker(latLngToLineString(geoJSONToLatLngs(c.GeoJSON)), 20)
+		dist := geo.HausdorffDistance(newTrackLS, candidateTrackLS)
 		if dist <= hausdorffThresholdM {
 			return &RouteDuplicateResult{ExistingRouteID: c.ID, Confidence: "hausdorff"}, nil
 		}

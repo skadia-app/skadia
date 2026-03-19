@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 // gpxDoc is a minimal GPX document structure supporting both track and route elements.
@@ -72,9 +74,12 @@ func GPXToGeoJSON(data []byte) (geojsonStr string, distM float64, gainM float64,
 		return "", 0, 0, 0, fmt.Errorf("geojson marshal: %w", err)
 	}
 
-	// Calculate distance (Haversine) and elevation gain/loss.
+	// Calculate distance (Haversine via geo.Length) and elevation gain/loss.
+	ls := geo.LineStringFromLatLng(points, func(p gpxPoint) (float64, float64) {
+		return p.Lat, p.Lon
+	})
+	distM = geo.Length(ls)
 	for i := 1; i < len(points); i++ {
-		distM += HaversineM(points[i-1].Lat, points[i-1].Lon, points[i].Lat, points[i].Lon)
 		dEle := points[i].Ele - points[i-1].Ele
 		if dEle > 0 {
 			gainM += dEle
