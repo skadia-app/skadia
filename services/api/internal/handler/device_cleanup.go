@@ -10,29 +10,21 @@ import (
 )
 
 // StartDeviceOrphanCleanupScheduler launches a background goroutine that runs
-// a weekly cleanup of devices that are no longer referenced by any activity or
-// activity sensor. Call once from main after the handler is initialised.
+// a one-time cleanup of devices that are no longer referenced by any activity
+// or activity sensor. The cleanup runs once, 1 hour after startup.
+// Devices only become orphaned when activities are deleted, which is rare, so
+// a periodic ticker is not needed.
+// Call once from main after the handler is initialised.
 func (h *Handler) StartDeviceOrphanCleanupScheduler(ctx context.Context) {
 	go func() {
-		// Run once at startup (after a short delay) so orphans are cleaned
-		// up immediately after a restart without waiting a full week.
+		// Wait 1 hour after startup before running so the server is fully
+		// warmed up and the initial burst of requests has settled.
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(5 * time.Minute):
+		case <-time.After(1 * time.Hour):
 		}
 		h.runDeviceOrphanCleanup(ctx)
-
-		ticker := time.NewTicker(7 * 24 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				h.runDeviceOrphanCleanup(ctx)
-			}
-		}
 	}()
 }
 
