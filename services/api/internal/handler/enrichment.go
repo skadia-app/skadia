@@ -71,7 +71,7 @@ func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		if err := h.runWeatherBackfill(ctx, userID, jobID); err != nil {
 			slog.Warn("weather backfill failed", "job_id", jobID, "error", err)
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 }
@@ -167,7 +167,7 @@ func (h *Handler) runWeatherBackfill(ctx context.Context, userID, jobID string) 
 	}
 
 	slog.Info("weather backfill complete", "job_id", jobID, "succeeded", succeeded, "failed", failed)
-	return h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	return h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 func (h *Handler) buildWeatherRequestsForCandidate(

@@ -61,9 +61,9 @@ func (h *Handler) RebuildRoutingGraph(w http.ResponseWriter, r *http.Request) {
 			})
 		if err != nil {
 			slog.Error("routing graph build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "")
 		} else {
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
 		}
 	})
 
@@ -424,10 +424,10 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 			})
 		if err != nil {
 			slog.Error("tile build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "")
 		} else {
 			slog.Info("tile build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
 		}
 	})
 
@@ -535,10 +535,10 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 
 		if err := pipeline.BuildBRouterSegments(ctx, regions, osmDataDir, segmentsDir, reporter); err != nil {
 			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "")
 		} else {
 			slog.Info("BRouter segment build completed", "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
 		}
 	})
 
@@ -611,7 +611,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		bgCtx := context.Background()
 		if err != nil {
 			slog.Error("brouter download failed", "error", err, "job_id", jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, true, "")
 		} else {
 			// Update entity_name with actual counts so notification is informative.
 			summary := fmt.Sprintf("%d heruntergeladen", res.Downloaded)
@@ -623,7 +623,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 			}
 			_, _ = h.DB.Pool.Exec(bgCtx,
 				"UPDATE background_jobs SET entity_name = $1 WHERE id = $2", summary, jobID)
-			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false, "")
 		}
 	})
 

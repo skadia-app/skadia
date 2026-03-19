@@ -307,10 +307,10 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 				})
 			if err != nil {
 				slog.Error("osm import: tile build failed", "error", err)
-				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, true)
+				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, true, "")
 			} else {
 				slog.Info("osm import: tile build completed", "job_id", tilesJobID)
-				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, false)
+				_ = h.DB.CompleteBackgroundJob(context.Background(), tilesJobID, false, "")
 			}
 		}
 	}
@@ -340,11 +340,11 @@ func (r *jobReporter) Fail(errMsg string) {
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	r.db.Pool.Exec(dbCtx, `UPDATE background_jobs SET error = $1 WHERE id = $2`, errMsg, r.jobID)
-	r.db.CompleteBackgroundJob(dbCtx, r.jobID, true)
+	r.db.CompleteBackgroundJob(dbCtx, r.jobID, true, "")
 }
 
 func (r *jobReporter) Complete() {
-	r.db.CompleteBackgroundJob(context.Background(), r.jobID, false)
+	r.db.CompleteBackgroundJob(context.Background(), r.jobID, false, "")
 }
 
 // regionReporter wraps a ProgressReporter and captures Fail() calls instead

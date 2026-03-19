@@ -60,7 +60,7 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("elevation reset job panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 
@@ -70,7 +70,7 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 	scope := map[string]bool{"streams": true, "metrics": true}
 	if err := h.reprocessActivity(ctx, activityID, userID, scope, 0); err != nil {
 		slog.Error("elevation reset: reprocess failed", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
@@ -78,13 +78,13 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 	// Phase 2: Explicitly mark elevation_source = 'gps'.
 	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"elevation_source": "gps"}); err != nil {
 		slog.Error("elevation reset: failed to update elevation_source", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 2)
 
 	slog.Info("elevation reset: complete", "job_id", jobID, "activity_id", activityID)
-	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 // QueryElevation returns DEM elevations for a list of [lng, lat] coordinate pairs.
@@ -249,7 +249,7 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("dem import job panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 
@@ -261,7 +261,7 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 	}
 	if _, err := h.DB.Pool.Exec(ctx, `ANALYZE dem.raster_tiles`); err != nil {
 		slog.Error("dem import: ANALYZE failed", "error", err, "job_id", jobID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
@@ -292,7 +292,7 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 3)
 
 	slog.Info("dem import: post-import maintenance complete", "job_id", jobID, "source", source)
-	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 // CorrectActivityElevation applies DEM-based elevation correction to an existing
@@ -346,7 +346,7 @@ func (h *Handler) runElevationCorrectionJob(jobID, activityID string) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("elevation correction job panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 
@@ -355,13 +355,13 @@ func (h *Handler) runElevationCorrectionJob(jobID, activityID string) {
 	corrected, source, err := h.DB.CorrectActivityElevationFromDEM(ctx, activityID)
 	if err != nil {
 		slog.Error("elevation correction: DEM query failed", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 
 	if corrected == 0 {
 		slog.Info("elevation correction: no points corrected (no DEM data or no GPS)", "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, false)
+		h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 		return
 	}
 
@@ -369,14 +369,14 @@ func (h *Handler) runElevationCorrectionJob(jobID, activityID string) {
 	fields := map[string]any{"elevation_source": "dem"}
 	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
 		slog.Error("elevation correction: failed to update elevation_source", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
 	slog.Info("elevation correction: complete", "job_id", jobID, "activity_id", activityID,
 		"corrected", corrected, "source", source)
-	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 // runVacuumAnalyzeDEM führt VACUUM ANALYZE über ein psql-Subprocess aus,

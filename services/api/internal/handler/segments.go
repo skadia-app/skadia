@@ -328,7 +328,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed); err != nil {
+			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
 				slog.Warn("segment recompute: complete job failed", "job_id", jobID, "error", err)
 			}
 		}

@@ -449,7 +449,7 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 		}
 
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
@@ -600,7 +600,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 		}
 
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
@@ -677,7 +677,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, published)
 		}
 
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
