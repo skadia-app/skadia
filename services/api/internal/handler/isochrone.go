@@ -228,11 +228,13 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("isochrone: POI lookup failed",
 					"error", poiErr, "user_id", userID)
 			} else {
-				// Estimate minutes for each POI based on nearest reachable node.
+				// Build spatial grid once; then estimate minutes per POI via
+				// 3×3 cell neighbourhood lookup instead of O(N) linear scan.
+				grid := buildReachableGrid(reachable)
 				for i := range found {
 					found[i].Minutes = estimatePOIMinutes(
 						found[i].Lat, found[i].Lng,
-						reachable, budget, float64(maxMinutes),
+						reachable, grid, budget, float64(maxMinutes),
 					)
 				}
 				pois = found
@@ -311,23 +313,87 @@ func (h *Handler) queryPOIsInHull(r *http.Request, hull orb.Ring, poiTypes []str
 	return pois, rows.Err()
 }
 
-// estimatePOIMinutes finds the nearest reachable node to the POI (by
-// Euclidean distance on lat/lon) and converts its cost to estimated minutes.
-func estimatePOIMinutes(poiLat, poiLon float64, reachable []routing.ReachableNode, budget float32, maxMinutes float64) float64 {
+// ---------------------------------------------------------------------------
+// Spatial grid index for O(1) nearest-node lookup
+// ---------------------------------------------------------------------------
+
+// cellSize is ~500 m in lat/lon degrees.
+const cellSize = 0.005
+
+// cellKey is an integer grid coordinate.
+type cellKey struct{ latIdx, lonIdx int }
+
+// buildReachableGrid constructs a spatial grid that maps each cell to the
+// indices of reachable nodes whose coordinates fall inside it.  The grid is
+// built once and reused for every POI lookup, reducing the overall complexity
+// from O(N*M) to O(N + M*9k) where k is the average nodes per cell.
+func buildReachableGrid(reachable []routing.ReachableNode) map[cellKey][]int {
+	grid := make(map[cellKey][]int, len(reachable)/4+1)
+	for i, rn := range reachable {
+		key := cellKey{
+			latIdx: int(math.Floor(rn.Lat / cellSize)),
+			lonIdx: int(math.Floor(rn.Lon / cellSize)),
+		}
+		grid[key] = append(grid[key], i)
+	}
+	return grid
+}
+
+// nearestReachableNode searches the 3×3 cell neighbourhood around (lat, lon)
+// and returns the cost of the closest reachable node.  If no node is found in
+// adjacent cells the function falls back to a full linear scan so correctness
+// is preserved even in sparse areas.
+func nearestReachableNode(lat, lon float64, reachable []routing.ReachableNode, grid map[cellKey][]int) (float32, bool) {
+	centerKey := cellKey{
+		latIdx: int(math.Floor(lat / cellSize)),
+		lonIdx: int(math.Floor(lon / cellSize)),
+	}
+
 	bestDist := math.MaxFloat64
 	var bestCost float32
+	found := false
 
-	for _, rn := range reachable {
-		dlat := rn.Lat - poiLat
-		dlon := rn.Lon - poiLon
-		d := dlat*dlat + dlon*dlon
-		if d < bestDist {
-			bestDist = d
-			bestCost = rn.Cost
+	for dlat := -1; dlat <= 1; dlat++ {
+		for dlon := -1; dlon <= 1; dlon++ {
+			key := cellKey{centerKey.latIdx + dlat, centerKey.lonIdx + dlon}
+			for _, idx := range grid[key] {
+				rn := reachable[idx]
+				dx := rn.Lon - lon
+				dy := rn.Lat - lat
+				d := dx*dx + dy*dy
+				if d < bestDist {
+					bestDist = d
+					bestCost = rn.Cost
+					found = true
+				}
+			}
 		}
 	}
 
-	if budget <= 0 {
+	if found {
+		return bestCost, true
+	}
+
+	// Fallback: full linear scan for sparse regions where the 3×3 window is
+	// empty (e.g. POI very close to the edge of the reachable area).
+	for _, rn := range reachable {
+		dx := rn.Lon - lon
+		dy := rn.Lat - lat
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			bestCost = rn.Cost
+			found = true
+		}
+	}
+	return bestCost, found
+}
+
+// estimatePOIMinutes converts a POI's nearest-node cost to estimated minutes.
+// The caller must build the grid with buildReachableGrid before calling this.
+func estimatePOIMinutes(poiLat, poiLon float64, reachable []routing.ReachableNode, grid map[cellKey][]int, budget float32, maxMinutes float64) float64 {
+	bestCost, ok := nearestReachableNode(poiLat, poiLon, reachable, grid)
+	if !ok || budget <= 0 {
 		return maxMinutes
 	}
 	minutes := (float64(bestCost) / float64(budget)) * maxMinutes

@@ -97,9 +97,15 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Input validation ---
-	if req.Start[0] == 0 && req.Start[1] == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "start coordinate required", r.URL.Path)
+	if req.Start[0] < -180 || req.Start[0] > 180 || req.Start[1] < -90 || req.Start[1] > 90 {
+		writeError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
 		return
+	}
+	if req.End != nil {
+		if req.End[0] < -180 || req.End[0] > 180 || req.End[1] < -90 || req.End[1] > 90 {
+			writeError(w, http.StatusBadRequest, "Bad Request", "end coordinates out of range", r.URL.Path)
+			return
+		}
 	}
 	if req.TargetDistanceM <= 0 {
 		req.TargetDistanceM = 10000 // default 10 km
