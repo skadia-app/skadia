@@ -178,7 +178,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 			slog.Info("resume: segment recompute done", "job_id", job.ID, "segment_id", segmentID)
 		}
 
-		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed); err != nil {
+		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed, ""); err != nil {
 			slog.Warn("resume: complete job failed", "job_id", job.ID, "error", err)
 		}
 	}()

@@ -101,7 +101,7 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 					failed = true
 				}
 				if jobID != "" {
-					_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, failed)
+					_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, failed, "")
 				}
 			}()
 			ctx := context.Background()

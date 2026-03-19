@@ -63,7 +63,7 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("distance correction job panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 
@@ -73,12 +73,12 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 	gpsPoints, err := h.DB.GetActivityGPSStream(ctx, activityID)
 	if err != nil {
 		slog.Error("distance correction: failed to load GPS stream", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 	if len(gpsPoints) < 2 {
 		slog.Warn("distance correction: insufficient GPS points", "activity_id", activityID, "points", len(gpsPoints))
-		h.DB.CompleteBackgroundJob(ctx, jobID, false)
+		h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 		return
 	}
 
@@ -94,14 +94,14 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 	// Update distance_m and distance_source on the activity.
 	if err := h.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"distance_m": totalM, "distance_source": "computed"}); err != nil {
 		slog.Error("distance correction: failed to update distance_m", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
 	slog.Info("distance correction: complete", "job_id", jobID, "activity_id", activityID,
 		"distance_m", totalM)
-	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 // ResetActivityDistance restores the original parsed distance by re-parsing the
@@ -150,7 +150,7 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("distance reset job panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true)
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		}
 	}()
 
@@ -160,7 +160,7 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 	scope := map[string]bool{"streams": true, "metrics": true}
 	if err := h.reprocessActivity(ctx, activityID, userID, scope, 0); err != nil {
 		slog.Error("distance reset: reprocess failed", "error", err, "activity_id", activityID)
-		h.DB.CompleteBackgroundJob(ctx, jobID, true)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 
 	h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
 	slog.Info("distance reset: complete", "job_id", jobID, "activity_id", activityID)
-	h.DB.CompleteBackgroundJob(ctx, jobID, false)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
 // haversineDistanceM returns the great-circle distance in metres between two

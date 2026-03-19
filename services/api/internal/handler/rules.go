@@ -163,7 +163,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs))
 
 		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed); err != nil {
+			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
 				slog.Warn("apply rules: complete job failed", "job_id", jobID, "error", err)
 			}
 		}

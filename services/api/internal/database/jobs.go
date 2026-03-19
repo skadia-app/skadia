@@ -20,6 +20,7 @@ type BackgroundJob struct {
 	ProgressTotal   int64      `json:"progress_total"`
 	StartedAt       time.Time  `json:"started_at"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	Error           *string    `json:"error,omitempty"`
 }
 
 // InsertBackgroundJob schreibt einen neuen Job-Eintrag und gibt die generierte ID zurück.
@@ -61,14 +62,14 @@ func (db *DB) UpdateBackgroundJobTotal(ctx context.Context, jobID string, total 
 
 // CompleteBackgroundJob setzt status auf 'completed' oder 'failed' und trägt finished_at ein.
 // Erzeugt zusätzlich eine Notification für den User (best-effort).
-func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool) error {
+func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool, errorText string) error {
 	status := "completed"
 	if failed {
 		status = "failed"
 	}
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE background_jobs SET status = $1, finished_at = NOW() WHERE id = $2`,
-		status, jobID,
+		`UPDATE background_jobs SET status = $1, finished_at = NOW(), error = NULLIF($3, '') WHERE id = $2`,
+		status, jobID, errorText,
 	)
 	if err != nil {
 		return err
@@ -145,7 +146,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]BackgroundJob, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, job_type, entity_id, entity_name, status, phase,
-		       progress_current, progress_total, started_at, finished_at
+		       progress_current, progress_total, started_at, finished_at, error
 		FROM background_jobs
 		WHERE user_id = $1
 		  AND (
@@ -166,7 +167,7 @@ func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]Ba
 		if err := rows.Scan(
 			&j.ID, &j.UserID, &j.JobType, &j.EntityID, &j.EntityName,
 			&j.Status, &j.Phase,
-			&j.ProgressCurrent, &j.ProgressTotal, &j.StartedAt, &j.FinishedAt,
+			&j.ProgressCurrent, &j.ProgressTotal, &j.StartedAt, &j.FinishedAt, &j.Error,
 		); err != nil {
 			return nil, err
 		}

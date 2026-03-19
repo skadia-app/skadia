@@ -157,7 +157,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 		}
 
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 		slog.Info("phash backfill: completed", "user_id", userID, "job_id", jobID, "processed", processed, "any_failed", anyFailed)
 	}()
 

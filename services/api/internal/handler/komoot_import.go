@@ -376,7 +376,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		}
 
 		failed := len(importErrors) > 0
-		_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, failed)
+		_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, failed, "")
 
 		slog.Info("komoot import completed",
 			"job_id", jobID,
