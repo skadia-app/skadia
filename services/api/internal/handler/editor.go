@@ -352,7 +352,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Trigger a full recompute from original file (re-parse, re-insert streams)
-	if err := h.reprocessActivity(r.Context(), activityID, userID, nil, 0); err != nil {
+	if err := h.reprocessActivity(r.Context(), activityID, userID, nil, 0, false); err != nil {
 		slog.Error("editor: apply recompute failed", "id", activityID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Recompute Error", err.Error(), r.URL.Path)
 		return
