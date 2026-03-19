@@ -736,7 +736,6 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 // getOSMWaysColumns and SplitAtIntersections were removed:
 // osm_ways_noded is no longer consumed. BadRouter's CSR graph builder
 // (routing/graph/topology.go) computes topology from osm_ways directly.
-// pgr_createTopology was removed in pgRouting 4.0.1.
 
 // withDeadlockRetry retries a function up to 3 times on PostgreSQL deadlock (40P01).
 // The enrichment functions are idempotent (WHERE col IS NULL guards), so retry is safe.

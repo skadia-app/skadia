@@ -26,7 +26,7 @@ type Capabilities struct {
 // Detect probes the database and BRouter to determine which features are
 // available at runtime. All checks are best-effort — failures are logged
 // and treated as "not available".
-func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabilities {
+func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string) Capabilities {
 	caps := Capabilities{}
 
 	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
@@ -68,8 +68,18 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL string) Capabili
 		}
 	}
 
-	// Route suggestion requires full routing stack
-	caps.RouteSuggestion = caps.Routing && caps.DEMCorrection && caps.SurfaceEnrich
+	// Check if routing tiles exist (BadRouter tiled reader)
+	if tileDir != "" {
+		if entries, err := os.ReadDir(tileDir); err == nil {
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".bin") {
+					caps.Isochrone = true
+					caps.RouteSuggestion = true
+					break
+				}
+			}
+		}
+	}
 
 	// ML Service availability (cached from background probe)
 	caps.MLService = MLServiceAvailable()

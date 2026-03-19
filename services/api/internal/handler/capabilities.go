@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -20,11 +21,15 @@ func (h *Handler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	brouterURL := ""
+	tileDir := ""
 	if h.Config != nil {
 		brouterURL = h.Config.BRouterURL
+		if h.Config.RoutingGraphPath != "" {
+			tileDir = filepath.Join(filepath.Dir(h.Config.RoutingGraphPath), "tiles")
+		}
 	}
 
-	caps := capabilities.Detect(r.Context(), h.DB.Pool, brouterURL)
+	caps := capabilities.Detect(r.Context(), h.DB.Pool, brouterURL, tileDir)
 
 	slog.Info("capabilities detected",
 		"user_id", userID,
