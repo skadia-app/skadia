@@ -556,24 +556,16 @@ func (h *Handler) rebuildHeatmapForActivity(ctx context.Context, activityID, use
 		return fmt.Errorf("load activity for heatmap rebuild: %w", err)
 	}
 
-	// Delete existing heatmap data
-	if err := h.DB.DeleteHeatmapLines(ctx, activityID); err != nil {
-		return fmt.Errorf("delete heatmap lines: %w", err)
+	// Delete + re-insert heatmap data (lines + points)
+	if err := h.DB.DeleteHeatmapData(ctx, activityID); err != nil {
+		return fmt.Errorf("delete heatmap data: %w", err)
 	}
-	if err := h.DB.DeleteHeatmapPoints(ctx, activityID); err != nil {
-		return fmt.Errorf("delete heatmap points: %w", err)
-	}
-
-	// Re-insert heatmap line + points (uses activity_tracks rebuilt during recompute)
 	subTypePtr := activity.SubType
-	if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt); err != nil {
-		return fmt.Errorf("insert heatmap line: %w", err)
+	interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
+	if err := h.DB.InsertHeatmapData(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt, interval); err != nil {
+		return fmt.Errorf("insert heatmap data: %w", err)
 	}
 	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-	interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
-	if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, activity.SportType, subTypePtr, activity.StartedAt, interval); err != nil {
-		return fmt.Errorf("insert heatmap points: %w", err)
-	}
 
 	return nil
 }

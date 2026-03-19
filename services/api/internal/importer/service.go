@@ -191,20 +191,17 @@ func (s *Service) PostProcess(
 		slog.Error("insert track failed", "error", err)
 	}
 
-	// 3. Insert heatmap line + invalidate Terra Incognita cache
+	// 3. Insert heatmap data (lines + points) + invalidate Terra Incognita cache
 	if len(data.TrackPoints) >= 2 {
 		var subTypePtr *string
 		if data.SubType != "" {
 			subTypePtr = &data.SubType
 		}
-		if err := s.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-			slog.Error("insert heatmap line failed", "error", err)
+		interval, _ := s.DB.GetUserHeatmapInterval(ctx, userID)
+		if err := s.DB.InsertHeatmapData(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
+			slog.Error("insert heatmap data failed", "error", err)
 		}
 		s.DB.InvalidateTerraIncognitaCache(ctx, userID)
-		interval, _ := s.DB.GetUserHeatmapInterval(ctx, userID)
-		if err := s.DB.InsertHeatmapPoints(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-			slog.Error("insert heatmap points failed", "error", err)
-		}
 	}
 
 	// 4a. Insert sensors
