@@ -77,6 +77,10 @@ type ActivityData struct {
 	Sensors     []SensorRecord
 	TrackPoints []TrackPoint
 
+	// RecordingDevice is the primary recording device extracted from the FIT FileId message.
+	// Transient — not persisted directly in ActivityData but handed to the device registry.
+	RecordingDevice *DeviceUpsert
+
 	Laps           []LapRecord
 	Splits         []SplitRecord
 	SplitSummaries []SplitSummaryRecord
