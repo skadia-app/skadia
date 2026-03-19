@@ -13,8 +13,10 @@ import (
 // computeTurnCost returns the turn cost and the normalized direction of the new edge.
 // lastDX/lastDY are the previous edge direction (0,0 if no previous edge).
 // turnCostBase is cfg.TurnCost (0 means no turn costs).
+// edgeDistCm is the edge distance in centimeters — used to scale turn cost proportionally
+// so short edges (< 200m, common after TNE in urban areas) don't accumulate excessive turn costs.
 func computeTurnCost(curLon, curLat, targetLon, targetLat int32,
-	lastDX, lastDY, turnCostBase float32) (turnCost, newDX, newDY float32) {
+	lastDX, lastDY, turnCostBase float32, edgeDistCm uint32) (turnCost, newDX, newDY float32) {
 
 	edgeDX := float32(targetLon - curLon)
 	edgeDY := float32(targetLat - curLat)
@@ -27,7 +29,11 @@ func computeTurnCost(curLon, curLat, targetLon, targetLat int32,
 
 	if turnCostBase > 0 && lastDX != 0 && lenSq > 0 {
 		cosAngle := lastDX*newDX + lastDY*newDY
-		turnCost = turnCostBase * (1.0 - cosAngle) // BRouter: range [0, 2*base]
+		// Scale turn cost by edge distance: short edges (< 200m) get proportionally
+		// less turn cost. Without this, TNE edges in pedestrian zones (2-50m) accumulate
+		// 60+ turn costs that blow the pass0 budget for 2km routes.
+		distScale := min(1.0, float32(edgeDistCm)/20000.0) // 20000 cm = 200m
+		turnCost = turnCostBase * (1.0 - cosAngle) * distScale
 	}
 	return
 }
@@ -164,7 +170,7 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 			tc, newDX, newDY := computeTurnCost(
 				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost)
+				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -273,8 +279,11 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 
 		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
 		// the predicted total (effectiveCur + remaining along pass0 track) tightens the bound.
+		// SAFETY MARGIN: pass0 is inadmissible (c>1, typically 3.0 for trekking) so its track
+		// costs are heavily distorted — remaining from pass0 can underestimate the actual
+		// remaining cost by 15-20%. Use pass0Coefficient as margin to compensate.
 		if remaining, ok := trackIndex[cur.NodeID]; ok {
-			cutoff := effectiveCur + remaining
+			cutoff := effectiveCur + remaining*cfg.Pass0Coefficient
 			if cutoff < maxTotalCost {
 				maxTotalCost = cutoff
 			}
@@ -300,7 +309,7 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			tc, newDX, newDY := computeTurnCost(
 				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost)
+				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -485,7 +494,7 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			tc, newDX, newDY := computeTurnCost(
 				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost)
+				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -591,8 +600,11 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 		// Cost-cutting: if pass1 reaches a node on the pass0 track with lower cost,
 		// the predicted total (effectiveCur + remaining along pass0 track) tightens the bound.
+		// SAFETY MARGIN: pass0 is inadmissible (c>1, typically 3.0 for trekking) so its track
+		// costs are heavily distorted — remaining from pass0 can underestimate the actual
+		// remaining cost by 15-20%. Use pass0Coefficient as margin to compensate.
 		if remaining, ok := trackIndex[cur.NodeID]; ok {
-			cutoff := effectiveCur + remaining
+			cutoff := effectiveCur + remaining*cfg.Pass0Coefficient
 			if cutoff < maxTotalCost {
 				maxTotalCost = cutoff
 			}
@@ -616,7 +628,7 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			tc, newDX, newDY := computeTurnCost(
 				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost)
+				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
