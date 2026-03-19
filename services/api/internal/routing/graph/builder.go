@@ -9,14 +9,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/encoding/wkb"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/trafficformula"
 )
 
@@ -271,7 +272,7 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 const waysQueryBase = `
 	SELECT DISTINCT ON (osm_id)
 		osm_id,
-		ST_AsText(geom) AS geom_wkt,
+		ST_AsBinary(geom) AS geom_wkb,
 		highway,
 		COALESCE(surface, ''), COALESCE(tracktype, ''), COALESCE(smoothness, ''),
 		COALESCE(sac_scale, ''), COALESCE(mtb_scale, ''),
@@ -327,7 +328,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	vd := NewVertexDegree()
 
 	pass1Query := `
-		SELECT DISTINCT ON (osm_id) ST_AsText(geom)
+		SELECT DISTINCT ON (osm_id) ST_AsBinary(geom)
 		FROM osm_ways
 		WHERE highway IS NOT NULL AND highway != 'construction'
 		  AND (tags->>'area') IS DISTINCT FROM 'yes'` + bboxWhereClause(bbox) + `
@@ -338,12 +339,25 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	}
 	var pass1Count int64
 	for rows1.Next() {
-		var geomWKT string
-		if err := rows1.Scan(&geomWKT); err != nil {
+		var geomWKB []byte
+		if err := rows1.Scan(&geomWKB); err != nil {
 			rows1.Close()
 			return nil, fmt.Errorf("pass 1 scan: %w", err)
 		}
-		coords := parseLineStringWKT(geomWKT)
+		geomRaw, err := wkb.Unmarshal(geomWKB)
+		if err != nil {
+			pass1Count++
+			continue
+		}
+		ls, ok := geomRaw.(orb.LineString)
+		if !ok {
+			pass1Count++
+			continue
+		}
+		coords := make([]Coord, len(ls))
+		for i, pt := range ls {
+			coords[i] = Coord{Lat: pt[1], Lon: pt[0]}
+		}
 		if len(coords) >= 2 {
 			vd.AddWay(coords)
 		}
@@ -426,7 +440,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	var pass2Count int64
 	for rows2.Next() {
 		var osmID int64
-		var geomWKT string
+		var geomWKB []byte
 		var highway, surface, tracktype, smoothness string
 		var sacScale, mtbScale string
 		var access, foot, bicycle, horse string
@@ -444,7 +458,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		var width, incline, sidewalk string
 
 		err := rows2.Scan(
-			&osmID, &geomWKT,
+			&osmID, &geomWKB,
 			&highway, &surface, &tracktype, &smoothness,
 			&sacScale, &mtbScale,
 			&access, &foot, &bicycle, &horse,
@@ -480,7 +494,15 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
 		}
-		coords := parseLineStringWKT(geomWKT)
+		var coords []Coord
+		if geomRaw2, err2 := wkb.Unmarshal(geomWKB); err2 == nil {
+			if ls2, ok2 := geomRaw2.(orb.LineString); ok2 {
+				coords = make([]Coord, len(ls2))
+				for i, pt := range ls2 {
+					coords[i] = Coord{Lat: pt[1], Lon: pt[0]}
+				}
+			}
+		}
 		if len(coords) < 2 {
 			pass2Count++
 			continue
@@ -499,10 +521,9 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		// Phase 2: override enrichment from coverage grids (no DB roundtrip).
 		// Route-membership (cycleroute/hikeroute) still comes from SQL.
 		if coverageReader != nil {
-			ls := make(orb.LineString, len(coords))
-			for ci, c := range coords {
-				ls[ci] = orb.Point{c.Lon, c.Lat}
-			}
+			ls := geo.LineStringFromLatLng(coords, func(c Coord) (lat, lng float64) {
+				return c.Lat, c.Lon
+			})
 			cd := coverageReader.SampleWay(ls)
 			enrichment.ForestPct = cd.ForestPct
 			enrichment.NoiseScore = cd.NoiseScore
@@ -623,7 +644,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 	var ways []RawWay
 	for rows.Next() {
 		var w RawWay
-		var geomWKT string
+		var geomWKB []byte
 		var highway, surface, tracktype, smoothness string
 		var sacScale, mtbScale string
 		var access, foot, bicycle, horse string
@@ -641,7 +662,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		var width, incline, sidewalk string
 
 		err := rows.Scan(
-			&w.OSMID, &geomWKT,
+			&w.OSMID, &geomWKB,
 			&highway, &surface, &tracktype, &smoothness,
 			&sacScale, &mtbScale,
 			&access, &foot, &bicycle, &horse,
@@ -684,7 +705,14 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			Urbanization:   urbanization,
 			RiverProximity: riverProximity,
 		}
-		w.Coords = parseLineStringWKT(geomWKT)
+		if geomRaw3, err3 := wkb.Unmarshal(geomWKB); err3 == nil {
+			if ls3, ok3 := geomRaw3.(orb.LineString); ok3 {
+				w.Coords = make([]Coord, len(ls3))
+				for i, pt := range ls3 {
+					w.Coords[i] = Coord{Lat: pt[1], Lon: pt[0]}
+				}
+			}
+		}
 		ways = append(ways, w)
 	}
 	if err := rows.Err(); err != nil {
@@ -699,7 +727,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 func edgeDistanceCm(coords []Coord) uint32 {
 	var total float64
 	for i := 1; i < len(coords); i++ {
-		total += haversineDistM(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
+		total += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
 	cm := uint32(total * 100)
 	if cm == 0 && total > 0 {
@@ -708,70 +736,3 @@ func edgeDistanceCm(coords []Coord) uint32 {
 	return cm
 }
 
-// haversineDistM returns the haversine distance between two points in meters.
-func haversineDistM(lat1, lon1, lat2, lon2 float64) float64 {
-	const R = 6_371_000.0
-	dLat := (lat2 - lat1) * math.Pi / 180
-	dLon := (lon2 - lon1) * math.Pi / 180
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
-			math.Sin(dLon/2)*math.Sin(dLon/2)
-	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-}
-
-func parseLineStringWKT(wkt string) []Coord {
-	const prefix = "LINESTRING("
-	if len(wkt) < len(prefix)+1 || wkt[:len(prefix)] != prefix {
-		return nil
-	}
-	inner := wkt[len(prefix) : len(wkt)-1]
-
-	var coords []Coord
-	for _, pair := range splitComma(inner) {
-		parts := splitSpace(pair)
-		if len(parts) != 2 {
-			continue
-		}
-		lon := parseFloat(parts[0])
-		lat := parseFloat(parts[1])
-		coords = append(coords, Coord{Lat: lat, Lon: lon})
-	}
-	return coords
-}
-
-func splitComma(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == ',' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
-}
-
-func splitSpace(s string) []string {
-	var parts []string
-	start := -1
-	for i := 0; i < len(s); i++ {
-		if s[i] == ' ' {
-			if start >= 0 {
-				parts = append(parts, s[start:i])
-				start = -1
-			}
-		} else if start < 0 {
-			start = i
-		}
-	}
-	if start >= 0 {
-		parts = append(parts, s[start:])
-	}
-	return parts
-}
-
-func parseFloat(s string) float64 {
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}

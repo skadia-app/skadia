@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
@@ -386,10 +387,10 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		Ele: float64(dstEle) / 10.0,
 	})
 
-	// K09: Calculate total distance from coordinates using haversineDist (consistent with result.go)
+	// K09: Calculate total distance from coordinates using geo.DistanceHaversine
 	var totalDist float64
 	for i := 1; i < len(coords); i++ {
-		totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
+		totalDist += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
 
 	// Build RouteSegments: group contiguous edges with same Tags1
