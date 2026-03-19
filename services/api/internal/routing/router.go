@@ -185,28 +185,3 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 	return result, truncated, nil
 }
 
-// routingSpeedKmh returns average speed for a sport type OR profile name.
-// Handles BOTH sport-type names (from SuggestRoutes req.SportType)
-// AND BadRouter profile names (from Isochrone req.Profile).
-func routingSpeedKmh(nameOrType string) float64 {
-	switch nameOrType {
-	// BadRouter profile names
-	case "road":
-		return 25.0
-	case "gravel", "trekking":
-		return 20.0
-	case "mtb":
-		return 12.0
-	// Sport type names (from frontend/SuggestRoutes)
-	case "cycling", "road_cycling", "gravel_cycling":
-		return 20.0
-	case "mountain_biking":
-		return 12.0
-	case "running", "trail_running":
-		return 10.0
-	case "skiing", "cross_country_skiing", "backcountry_skiing":
-		return 12.0
-	default:
-		return 5.0 // hiking / walking / unknown
-	}
-}

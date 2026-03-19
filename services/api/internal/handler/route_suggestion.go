@@ -354,20 +354,6 @@ func selectDiverseViaPoints(
 	return result
 }
 
-// suggestSpeed returns a rough average speed (km/h) for a given sport type,
-// used to convert a target distance into a cost budget.
-func suggestSpeed(sportType string) float64 {
-	switch sportType {
-	case "cycling", "road_cycling", "gravel_cycling":
-		return 20.0
-	case "mountain_biking":
-		return 12.0
-	case "running", "trail_running":
-		return 10.0
-	default:
-		return 5.0
-	}
-}
 
 // bearingDeg returns the initial bearing (0-360 deg) from (lat1, lon1) to
 // (lat2, lon2), where all angles are in decimal degrees.
