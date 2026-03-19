@@ -77,3 +77,39 @@ func TestLength(t *testing.T) {
 		}
 	})
 }
+
+func TestPointToMercator(t *testing.T) {
+	// Reference values from PostGIS (verified 2026-03-19):
+	// SELECT ST_X(ST_Transform(ST_SetSRID(ST_MakePoint(8.5417, 47.3769), 4326), 3857)),
+	//        ST_Y(ST_Transform(ST_SetSRID(ST_MakePoint(8.5417, 47.3769), 4326), 3857));
+	// → X = 950857.6945089049, Y = 6003812.204877847 (Zürich HB)
+	p := PointToMercator(orb.Point{8.5417, 47.3769})
+	if math.Abs(p[0]-950857.69) > 0.1 { // 0.1m tolerance
+		t.Errorf("Zürich X: got %.2f, want ~950857.69", p[0])
+	}
+	if math.Abs(p[1]-6003812.20) > 0.1 {
+		t.Errorf("Zürich Y: got %.2f, want ~6003812.20", p[1])
+	}
+
+	// Equator/prime meridian → (0, 0)
+	p = PointToMercator(orb.Point{0, 0})
+	if p[0] != 0 || p[1] != 0 {
+		t.Errorf("origin: got {%.6f, %.6f}, want {0, 0}", p[0], p[1])
+	}
+}
+
+func TestLineStringToMercator(t *testing.T) {
+	ls := orb.LineString{{8.0, 47.0}, {9.0, 48.0}}
+	merc := LineStringToMercator(ls)
+	if len(merc) != 2 {
+		t.Fatalf("expected 2 points, got %d", len(merc))
+	}
+	// X should be positive (east of prime meridian)
+	if merc[0][0] <= 0 || merc[1][0] <= 0 {
+		t.Error("Mercator X should be positive for eastern hemisphere")
+	}
+	// Original should be unmodified
+	if ls[0][0] != 8.0 || ls[0][1] != 47.0 {
+		t.Error("original LineString was modified")
+	}
+}
