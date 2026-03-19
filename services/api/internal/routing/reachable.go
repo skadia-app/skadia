@@ -22,6 +22,9 @@ const reachableCheckCancel = 4096
 
 // findReachable expands Dijkstra from src until all reachable nodes within
 // maxBudget are found. Uses DeltaEle for hysteresis (speed > accuracy).
+// Unlike findRouteUnified, elevationCorrection is intentionally omitted:
+// the latent buffer state slightly shifts the isochrone boundary but the
+// shape remains correct, and skipping it halves per-node bookkeeping.
 // Returns map[globalNodeID]reachableNode and truncated flag.
 func findReachable(ctx context.Context, reader GraphReader, src uint64,
 	cfg *CostConfig, maxBudget float32, maxExpansions int,

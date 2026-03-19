@@ -95,6 +95,7 @@ export interface IsochronePOI {
 export interface IsochroneResult {
   polygons: IsochronePolygon[]
   pois: IsochronePOI[]
+  truncated?: boolean
 }
 
 export interface RouteSuggestionParams {
