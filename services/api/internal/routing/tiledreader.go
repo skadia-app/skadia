@@ -181,6 +181,19 @@ func (r *TiledGraphReader) EdgeGeometry(handle uint64) ([]int32, []int32) {
 	return g.EdgeGeomLat[geomStart+1 : geomEnd-1], g.EdgeGeomLon[geomStart+1 : geomEnd-1]
 }
 
+func (r *TiledGraphReader) EdgeOSMID(handle uint64) int64 {
+	tileID, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.cache.getOrLoad(tileID, r.tileDir)
+	if g == nil || len(g.EdgeOSMIdx) == 0 || len(g.OSMIDPool) == 0 {
+		return 0
+	}
+	osmIdx := g.EdgeOSMIdx[edgeIdx]
+	if int(osmIdx) >= len(g.OSMIDPool) {
+		return 0
+	}
+	return g.OSMIDPool[osmIdx]
+}
+
 // HasTiles returns true if any tiles exist in the directory.
 func (r *TiledGraphReader) HasTiles() bool {
 	matches, _ := filepath.Glob(filepath.Join(r.tileDir, "tile_*.bin"))
