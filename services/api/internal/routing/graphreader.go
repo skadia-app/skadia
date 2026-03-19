@@ -47,6 +47,11 @@ type GraphReader interface {
 	// EdgeGeometry returns the DP-simplified intermediate geometry points
 	// for route display. Does NOT include start/end node coordinates.
 	EdgeGeometry(handle uint64) (lats, lons []int32)
+
+	// EdgeOSMID returns the OSM way ID for an edge identified by its handle.
+	// Used for Terra Incognita matching in SuggestRoutes.
+	// Returns 0 if not available.
+	EdgeOSMID(handle uint64) int64
 }
 
 // --- Global Node ID helpers are in cross.go ---
@@ -125,4 +130,17 @@ func (r *SingleGraphReader) EdgeGeometry(handle uint64) ([]int32, []int32) {
 		return nil, nil
 	}
 	return g.EdgeGeomLat[geomStart+1 : geomEnd-1], g.EdgeGeomLon[geomStart+1 : geomEnd-1]
+}
+
+func (r *SingleGraphReader) EdgeOSMID(handle uint64) int64 {
+	_, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.G
+	if len(g.EdgeOSMIdx) == 0 || len(g.OSMIDPool) == 0 {
+		return 0
+	}
+	osmIdx := g.EdgeOSMIdx[edgeIdx]
+	if int(osmIdx) >= len(g.OSMIDPool) {
+		return 0
+	}
+	return g.OSMIDPool[osmIdx]
 }
