@@ -49,6 +49,8 @@ const FusionQueuePage = lazy(() => import('@/pages/FusionQueuePage'))
 const RoutesPage = lazy(() => import('@/pages/RoutesPage'))
 const ImportQueuePage = lazy(() => import('@/pages/ImportQueuePage'))
 const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
+const DeviceListPage = lazy(() => import('@/pages/DeviceListPage'))
+const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -136,6 +138,9 @@ export default function App() {
                         <Route path="workshop/tags" element={<TagsPage />} />
                         <Route path="gear" element={<GearPage />} />
                         <Route path="gear/:id" element={<GearDetailPage />} />
+                        <Route path="hardware" element={<DeviceListPage />} />
+                        <Route path="hardware/:type" element={<DeviceListPage />} />
+                        <Route path="hardware/detail/:id" element={<DeviceDetailPage />} />
                         <Route path="settings" element={<SettingsPage />} />
                         <Route path="settings/privacy" element={<PrivacySettingsPage />} />
                         <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
