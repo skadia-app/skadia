@@ -91,7 +91,7 @@ const (
 // Binary format constants.
 const (
 	Magic         = "FRGR"
-	FormatVersion uint32 = 3 // v3: EdgeTags2 bit-shift for 3-bit traffic_class (6 BRouter classes)
+	FormatVersion uint32 = 4 // v4: separated EdgeGeomOff/EdgeElevOff after DP + SectionEdgeElevSegDist for hysteresis
 	HeaderSize    int    = 64
 	EleChunkSize  uint32 = 65536
 )
