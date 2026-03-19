@@ -151,15 +151,17 @@ type ReachableNode struct {
 }
 
 // FindReachableWithCoords returns reachable nodes with coordinates and
-// Terra Incognita flags. Used by SuggestRoutes.
+// Terra Incognita flags. Used by SuggestRoutes and Isochrone.
+// Returns (nodes, truncated, error). truncated is true when the expansion
+// limit (500k) was hit before the budget was exhausted.
 func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 	lat, lon float64, cfg *CostConfig, maxBudget float32,
 	visitedWayIDs map[int64]bool,
-) ([]ReachableNode, error) {
+) ([]ReachableNode, bool, error) {
 
-	nodes, _, err := r.FindReachable(ctx, lat, lon, cfg, maxBudget, 500000)
+	nodes, truncated, err := r.FindReachable(ctx, lat, lon, cfg, maxBudget, 500000)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	result := make([]ReachableNode, 0, len(nodes))
@@ -180,7 +182,7 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 			Unknown: unknown,
 		})
 	}
-	return result, nil
+	return result, truncated, nil
 }
 
 // routingSpeedKmh returns average speed for a sport type OR profile name.
