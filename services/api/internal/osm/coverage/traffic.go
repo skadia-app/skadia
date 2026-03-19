@@ -9,40 +9,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/wkb"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing/trafficformula"
 )
 
 // ClassifyTraffic maps raw traffic score to BRouter 6-class system.
 // Returns 0 for not classified (raw <= 0), 1-6 for traffic classes.
-// Exported for use by graph builder (cross-package).
+// Delegates to trafficformula.Classify to avoid import cycle with graph/.
 func ClassifyTraffic(raw float64) uint8 {
-	switch {
-	case raw <= 0:
-		return 0
-	case raw < 6:
-		return 1
-	case raw < 10:
-		return 2
-	case raw < 19:
-		return 3
-	case raw < 35:
-		return 4
-	case raw < 70:
-		return 5
-	default:
-		return 6
-	}
+	return trafficformula.Classify(raw)
 }
 
 // TrafficRaw computes BRouter's division formula.
 // peak_sum_ele = 0 (DEM not available, TODO Stufe 3b).
-// Exported for use by graph builder (cross-package).
+// Delegates to trafficformula.Raw to avoid import cycle with graph/.
 func TrafficRaw(populate, industrial, motorwayDensity, highwayDensity float64) float64 {
-	numerator := populate*1200 + industrial // (1 + peak_sum_ele) with peak=0 → factor 1
-	denominator := (30 + motorwayDensity) * (50 + highwayDensity)
-	if denominator <= 0 {
-		return 0
-	}
-	return numerator / denominator
+	return trafficformula.Raw(populate, industrial, motorwayDensity, highwayDensity)
 }
 
 // floatGrid is a temporary float64 grid for intermediate calculations.

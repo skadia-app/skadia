@@ -17,6 +17,7 @@ import (
 	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
+	"github.com/skadia-app/skadia/services/api/internal/routing/trafficformula"
 )
 
 // CoverageData holds enrichment values sampled from coverage grids.
@@ -50,41 +51,9 @@ type CoverageReader interface {
 	PreloadTile(tileID uint32) error
 }
 
-// trafficRawFormula computes BRouter's division formula for traffic classification.
-// Inlined from coverage.TrafficRaw to avoid import cycle.
-// peak_sum_ele = 0 (DEM not available, TODO Stufe 3b).
-func trafficRawFormula(populate, industrial, motorwayDensity, highwayDensity float64) float64 {
-	numerator := populate*1200 + industrial
-	denominator := (30 + motorwayDensity) * (50 + highwayDensity)
-	if denominator <= 0 {
-		return 0
-	}
-	return numerator / denominator
-}
-
-// classifyTrafficFormula maps raw traffic score to BRouter 6-class system.
-// Inlined from coverage.ClassifyTraffic to avoid import cycle.
-func classifyTrafficFormula(raw float64) uint8 {
-	switch {
-	case raw <= 0:
-		return 0
-	case raw < 6:
-		return 1
-	case raw < 10:
-		return 2
-	case raw < 19:
-		return 3
-	case raw < 35:
-		return 4
-	case raw < 70:
-		return 5
-	default:
-		return 6
-	}
-}
-
 // computeTrafficFromCoverage applies hwWeight per highway type and classifies traffic.
 // Spec section 8.5: hwWeight modulates populate, not industrial.
+// Uses trafficformula.Raw/Classify (shared package, avoids import cycle with coverage/).
 func computeTrafficFromCoverage(cd CoverageData, highway string) int {
 	var hwWeight float64
 	switch {
@@ -97,9 +66,9 @@ func computeTrafficFromCoverage(cd CoverageData, highway string) int {
 	default:
 		return 0 // no traffic class for non-primary/secondary/tertiary
 	}
-	raw := trafficRawFormula(cd.TrafficPopulate*hwWeight, cd.TrafficIndustrial,
+	raw := trafficformula.Raw(cd.TrafficPopulate*hwWeight, cd.TrafficIndustrial,
 		cd.TrafficMWDensity, cd.TrafficHWDensity)
-	return int(classifyTrafficFormula(raw))
+	return int(trafficformula.Classify(raw))
 }
 
 // BuildFromWays constructs a complete graph from raw ways and pre-computed elevations.
