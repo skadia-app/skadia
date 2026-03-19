@@ -212,6 +212,39 @@ func (s *Service) PostProcess(
 		slog.Error("insert sensors failed", "error", err)
 	}
 
+	// 4a.1 Register Recording Device
+	if data.RecordingDevice != nil {
+		data.RecordingDevice.UserID = userID
+		data.RecordingDevice.SeenAt = data.StartedAt
+		deviceID, err := s.DB.UpsertHWDevice(ctx, *data.RecordingDevice)
+		if err != nil {
+			slog.Error("upsert recording device failed", "activity", activityID, "error", err)
+		} else if deviceID != "" {
+			if err := s.DB.SetRecordingDeviceID(ctx, activityID, deviceID); err != nil {
+				slog.Error("set recording device id failed", "activity", activityID, "error", err)
+			}
+		}
+	}
+
+	// 4a.2 Register Sensor Devices
+	for _, sensor := range data.Sensors {
+		if sensor.DeviceUpsert == nil {
+			continue
+		}
+		sensor.DeviceUpsert.UserID = userID
+		sensor.DeviceUpsert.SeenAt = data.StartedAt
+		deviceID, err := s.DB.UpsertHWDevice(ctx, *sensor.DeviceUpsert)
+		if err != nil {
+			slog.Error("upsert sensor device failed", "activity", activityID, "error", err)
+			continue
+		}
+		if deviceID != "" {
+			if err := s.DB.SetSensorDeviceID(ctx, activityID, sensor, deviceID); err != nil {
+				slog.Error("set sensor device id failed", "activity", activityID, "error", err)
+			}
+		}
+	}
+
 	// 4b. Insert activity details: laps, splits, lengths, climb pro
 	if err := s.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
 		slog.Error("insert laps failed", "error", err)
