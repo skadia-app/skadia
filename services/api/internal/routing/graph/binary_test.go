@@ -1,8 +1,11 @@
 package graph
 
 import (
+	"encoding/binary"
+	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -331,5 +334,100 @@ func TestCorruptedCRCDetected(t *testing.T) {
 	_, err := Deserialize(path)
 	if err == nil {
 		t.Error("expected CRC error for corrupted file")
+	}
+}
+
+func TestSerializeDeserializeV4ElevSegDist(t *testing.T) {
+	g := &Graph{
+		NodeCount: 3,
+		EdgeCount: 2,
+		Version:   FormatVersion,
+		Offsets:   []uint32{0, 1, 2, 2},
+		Targets:   []uint32{1, 2},
+		EdgeDist:  []uint32{10000, 20000},
+		EdgeTags1: []uint64{0, 0},
+		EdgeTags2: []uint64{0, 0},
+		EdgeOSMIdx: []uint32{0, 0},
+		OSMIDPool: []int64{12345},
+		NodeLat:   []int32{470000000, 470100000, 470200000},
+		NodeLon:   []int32{80000000, 80100000, 80200000},
+		NodeEle:   []int32{5000, 5100, 5200},
+		NodeTags:  []uint8{0, 0, 0},
+		// Edge 0: 3 geom points (after DP), 5 elev points (full)
+		EdgeGeomOff: []uint32{0, 3, 5},
+		EdgeGeomLat: []int32{470000000, 470050000, 470100000, 470100000, 470200000},
+		EdgeGeomLon: []int32{80000000, 80050000, 80100000, 80100000, 80200000},
+		// Elevation: 5 points for edge 0, 4 points for edge 1 = 9 total
+		EdgeElevOff:  []uint32{0, 5, 9},
+		EdgeElevProf: []int32{5000, 5020, 5050, 5080, 5100, 5100, 5130, 5170, 5200},
+		// ElevSegDist: 4 for edge 0 (5-1), 3 for edge 1 (4-1) = 7 total
+		EdgeElevSegDist: []uint16{1100, 1200, 1050, 1150, 900, 1300, 1100},
+		IsBorder: []bool{false, false, false},
+	}
+	g.Grid = BuildSpatialIndex(g, 0.01)
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test_v4.bin")
+
+	if err := Serialize(g, path); err != nil {
+		t.Fatalf("serialize: %v", err)
+	}
+
+	g2, err := Deserialize(path)
+	if err != nil {
+		t.Fatalf("deserialize: %v", err)
+	}
+
+	if g2.Version != FormatVersion {
+		t.Errorf("version: got %d, want %d", g2.Version, FormatVersion)
+	}
+
+	// ElevSegDist round-trip
+	if len(g2.EdgeElevSegDist) != len(g.EdgeElevSegDist) {
+		t.Fatalf("ElevSegDist len: got %d, want %d", len(g2.EdgeElevSegDist), len(g.EdgeElevSegDist))
+	}
+	for i := range g.EdgeElevSegDist {
+		if g2.EdgeElevSegDist[i] != g.EdgeElevSegDist[i] {
+			t.Errorf("ElevSegDist[%d]: got %d, want %d", i, g2.EdgeElevSegDist[i], g.EdgeElevSegDist[i])
+		}
+	}
+
+	// Separated ElevOff (different from GeomOff after DP)
+	if len(g2.EdgeElevOff) != len(g.EdgeElevOff) {
+		t.Fatalf("ElevOff len: got %d, want %d", len(g2.EdgeElevOff), len(g.EdgeElevOff))
+	}
+	for i := range g.EdgeElevOff {
+		if g2.EdgeElevOff[i] != g.EdgeElevOff[i] {
+			t.Errorf("ElevOff[%d]: got %d, want %d", i, g2.EdgeElevOff[i], g.EdgeElevOff[i])
+		}
+	}
+}
+
+func TestDeserializeV3Rejected(t *testing.T) {
+	// Create a minimal v3 header with valid CRC so the CRC check passes and
+	// the version check fires with "unsupported version: 3".
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "v3.bin")
+
+	// Build the payload (HeaderSize bytes).
+	payload := make([]byte, HeaderSize)
+	copy(payload[0:4], "FRGR")                                         // magic
+	binary.LittleEndian.PutUint32(payload[4:8], 3)                     // version 3
+	// remaining bytes are zero (nodeCount, edgeCount, poolSize, bbox, buildTime, sectionCnt)
+
+	// Compute Castagnoli CRC32 over payload, append it.
+	crc := crc32.Checksum(payload, castagnoliTable)
+	var crcBuf [4]byte
+	binary.LittleEndian.PutUint32(crcBuf[:], crc)
+
+	fileData := append(payload, crcBuf[:]...)
+	os.WriteFile(path, fileData, 0644)
+
+	_, err := Deserialize(path)
+	if err == nil {
+		t.Fatal("expected error for v3 tile")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("expected 'unsupported' in error, got: %v", err)
 	}
 }

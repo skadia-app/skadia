@@ -89,6 +89,9 @@ func Serialize(g *Graph, path string) error {
 		}
 		sections = append(sections, sectionData{SectionIsBorder, packed})
 	}
+	if len(g.EdgeElevSegDist) > 0 {
+		sections = append(sections, sectionData{SectionEdgeElevSegDist, uint16SliceToBytes(g.EdgeElevSegDist)})
+	}
 
 	sectionCnt := uint16(len(sections))
 	dirSize := int(sectionCnt) * 12
@@ -305,6 +308,9 @@ func Deserialize(path string) (*Graph, error) {
 			g.IsBorder[i] = b != 0
 		}
 	}
+	if d, ok := findSection(SectionEdgeElevSegDist); ok {
+		g.EdgeElevSegDist = bytesToUint16Slice(d)
+	}
 
 	return g, nil
 }
@@ -478,6 +484,9 @@ func DeserializeMmap(path string) (*Graph, error) {
 		for i, b := range d {
 			g.IsBorder[i] = b != 0
 		}
+	}
+	if d, ok := findSection(SectionEdgeElevSegDist); ok {
+		g.EdgeElevSegDist = bytesToUint16Slice(d)
 	}
 
 	runtime.SetFinalizer(g, (*Graph).closeMmap)
