@@ -104,7 +104,7 @@ func evalCondition(c Condition, activity map[string]any) bool {
 	if c.Field == "has_segment_effort" || c.Field == "segment_effort_rank" || c.Field == "segment_effort_time_s" {
 		return evalSegment(c, activity)
 	}
-	if c.Field == "time_of_day" || c.Field == "tags" {
+	if c.Field == "time_of_day" || c.Field == "tags" || c.Field == "has_sensor_type" || c.Field == "sensor_device_ids" {
 		return evalArrayContains(c, activity)
 	}
 
