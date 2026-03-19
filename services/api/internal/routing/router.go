@@ -12,14 +12,16 @@ import (
 type UnifiedRouter struct {
 	reader GraphReader
 	sem    chan struct{}
+	isoSem chan struct{} // separate semaphore for isochrone (2 concurrent)
 }
 
 // NewUnifiedRouter creates a router backed by any GraphReader.
 // maxConcurrent limits simultaneous routing queries (semaphore-based).
 func NewUnifiedRouter(reader GraphReader, maxConcurrent int) *UnifiedRouter {
 	return &UnifiedRouter{
-		reader: reader,
-		sem:    make(chan struct{}, maxConcurrent),
+		reader:  reader,
+		sem:     make(chan struct{}, maxConcurrent),
+		isoSem:  make(chan struct{}, 2),
 	}
 }
 
@@ -115,4 +117,94 @@ func (r *UnifiedRouter) RouteVia(ctx context.Context, waypoints []LatLon,
 		legs = append(legs, leg)
 	}
 	return mergeLegs(legs), nil
+}
+
+// FindReachable finds all nodes reachable within the given cost budget.
+// Uses the isochrone semaphore (2 concurrent) to limit resource usage.
+func (r *UnifiedRouter) FindReachable(ctx context.Context,
+	lat, lon float64, cfg *CostConfig, maxBudget float32, maxExpansions int,
+) (map[uint64]reachableNode, bool, error) {
+
+	select {
+	case r.isoSem <- struct{}{}:
+		defer func() { <-r.isoSem }()
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	}
+
+	src, _, ok := r.reader.NearestNode(lat, lon)
+	if !ok {
+		return nil, false, fmt.Errorf("no graph node within 5km of coordinate")
+	}
+
+	nodes, truncated := findReachable(ctx, r.reader, src, cfg, maxBudget, maxExpansions)
+	return nodes, truncated, nil
+}
+
+// ReachableNode is the exported type for isochrone/suggest consumers.
+type ReachableNode struct {
+	NodeID  uint64
+	Cost    float32
+	Lat     float64
+	Lon     float64
+	Unknown bool // Terra Incognita: incoming edge OSM-ID not in visited set
+}
+
+// FindReachableWithCoords returns reachable nodes with coordinates and
+// Terra Incognita flags. Used by SuggestRoutes.
+func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
+	lat, lon float64, cfg *CostConfig, maxBudget float32,
+	visitedWayIDs map[int64]bool,
+) ([]ReachableNode, error) {
+
+	nodes, _, err := r.FindReachable(ctx, lat, lon, cfg, maxBudget, 500000)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ReachableNode, 0, len(nodes))
+	for nodeID, rn := range nodes {
+		nodeLat, nodeLon, _ := r.reader.NodeCoord(nodeID)
+		unknown := false
+		if visitedWayIDs != nil && rn.EdgeHandle != 0 {
+			osmID := r.reader.EdgeOSMID(rn.EdgeHandle)
+			if osmID != 0 {
+				unknown = !visitedWayIDs[osmID]
+			}
+		}
+		result = append(result, ReachableNode{
+			NodeID:  nodeID,
+			Cost:    rn.Cost,
+			Lat:     float64(nodeLat) / 1e7,
+			Lon:     float64(nodeLon) / 1e7,
+			Unknown: unknown,
+		})
+	}
+	return result, nil
+}
+
+// routingSpeedKmh returns average speed for a sport type OR profile name.
+// Handles BOTH sport-type names (from SuggestRoutes req.SportType)
+// AND BadRouter profile names (from Isochrone req.Profile).
+func routingSpeedKmh(nameOrType string) float64 {
+	switch nameOrType {
+	// BadRouter profile names
+	case "road":
+		return 25.0
+	case "gravel", "trekking":
+		return 20.0
+	case "mtb":
+		return 12.0
+	// Sport type names (from frontend/SuggestRoutes)
+	case "cycling", "road_cycling", "gravel_cycling":
+		return 20.0
+	case "mountain_biking":
+		return 12.0
+	case "running", "trail_running":
+		return 10.0
+	case "skiing", "cross_country_skiing", "backcountry_skiing":
+		return 12.0
+	default:
+		return 5.0 // hiking / walking / unknown
+	}
 }
