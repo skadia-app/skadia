@@ -511,6 +511,20 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("(gear_id IS NULL OR gear_id != ALL($%d))", idx))
 		args = append(args, filters.ExcludeGear)
 	}
+	if len(filters.IncludeDevices) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf(
+			"(recording_device_id = ANY($%d) OR id IN (SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d)))",
+			idx, idx))
+		args = append(args, filters.IncludeDevices)
+	}
+	if len(filters.ExcludeDevices) > 0 {
+		idx++
+		conds = append(conds, fmt.Sprintf(
+			"(recording_device_id IS NULL OR recording_device_id != ALL($%d)) AND id NOT IN (SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d))",
+			idx, idx))
+		args = append(args, filters.ExcludeDevices)
+	}
 
 	if len(conds) == 0 {
 		return "", nil
