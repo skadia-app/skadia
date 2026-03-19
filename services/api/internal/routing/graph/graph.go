@@ -28,8 +28,9 @@ type Graph struct {
 
 	// Edge elevation profile: DEM elevation at each geometry point.
 	// Profile for edge i: EdgeElevProf[EdgeElevOff[i]:EdgeElevOff[i+1]]
-	EdgeElevOff  []uint32 // len = EdgeCount + 1
-	EdgeElevProf []int32  // elevation in decimeters (int32: supports >3276.7m)
+	EdgeElevOff     []uint32 // len = EdgeCount + 1
+	EdgeElevProf    []int32  // elevation in decimeters (int32: supports >3276.7m)
+	EdgeElevSegDist []uint16 // segment distances in cm between ElevProf points (N-1 per edge)
 
 	// Node data (Morton-sorted).
 	NodeLat  []int32 // latitude × 1e7 (fixed-point, ~1cm precision)
@@ -119,6 +120,7 @@ const (
 	SectionBorderNodeIndex uint16 = 18
 	SectionTileMeta        uint16 = 19
 	SectionIsBorder        uint16 = 20
+	SectionEdgeElevSegDist uint16 = 21 // []uint16 cm, segment distances for hysteresis
 )
 
 // OutDegree returns the number of outgoing edges for node i.
