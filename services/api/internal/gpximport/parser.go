@@ -438,10 +438,9 @@ func parseGPXCreator(creator string) (source, device string, du *model.DeviceUps
 	}
 
 	if device != "" {
-		mfr := strings.ToLower(strings.ReplaceAll(source, " ", "_"))
 		du = &model.DeviceUpsert{
 			Type:         "recorder",
-			Manufacturer: mfr,
+			Manufacturer: source,
 			ProductName:  device,
 		}
 	}

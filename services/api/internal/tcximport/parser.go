@@ -380,10 +380,9 @@ func parseTCXCreator(creator tcxCreator) (source, device string, du *model.Devic
 	}
 
 	if device != "" {
-		mfr := strings.ToLower(strings.ReplaceAll(source, " ", "_"))
 		du = &model.DeviceUpsert{
 			Type:         "recorder",
-			Manufacturer: mfr,
+			Manufacturer: source,
 			ProductName:  device,
 		}
 	}
