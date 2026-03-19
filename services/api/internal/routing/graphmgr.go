@@ -44,49 +44,22 @@ func (a *coverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {
 
 // GraphManager manages the in-memory routing graph with atomic pointer swap.
 // It supports two modes:
-//   - Monolithic: a single graph.bin loaded into memory (legacy).
-//   - Tiled: on-demand tile loading via TileManager + TileRouter.
+//   - Monolithic: a single graph.bin loaded into memory (legacy fallback for Rebuild).
+//   - Tiled: TiledGraphReader + UnifiedRouter for on-demand tile loading.
 //
-// When tile mode is initialized, IsTileMode() returns true and
-// TileRoute() delegates to the cross-tile A* implementation.
-// The monolithic graph remains available as fallback.
-//
-// Phase 2: InitTiledReader initializes a TiledGraphReader-backed UnifiedRouter
-// that uses findRouteUnified (pass0→trackIndex→pass1→retrack) instead of
-// the per-tile A* in TileRouter. UnifiedRouter() returns it lazily.
+// The monolithic graph is only used by Rebuild() for non-tiled graph builds.
+// All routing goes through UnifiedRouter().
 type GraphManager struct {
 	graph    atomic.Pointer[graph.Graph]
 	mu       sync.Mutex // serializes rebuilds
 	routerMu sync.Mutex
-	router   *Router
 
-	// Tile-based routing (nil if monolithic mode).
-	tileMgr    *TileManager
-	tileRouter *TileRouter
+	// Tile management (for status display and rebuild rescan).
+	tileMgr *TileManager
 
-	// Phase 2: Unified routing via GraphReader interface.
+	// Unified routing via GraphReader interface.
 	tiledReader   *TiledGraphReader
 	unifiedRouter *UnifiedRouter
-}
-
-// Router returns a Router instance for the current graph.
-// Returns nil if no graph is loaded.
-// The Router is created lazily and replaced when the graph is rebuilt.
-// The caller holds a reference to the returned Router for the duration of
-// the request. A concurrent Rebuild() may replace m.router, but this does
-// not affect in-flight computations; the old graph remains live until all
-// references are dropped.
-func (m *GraphManager) Router() *Router {
-	m.routerMu.Lock()
-	defer m.routerMu.Unlock()
-	g := m.graph.Load()
-	if g == nil {
-		return nil
-	}
-	if m.router == nil || m.router.Graph != g {
-		m.router = NewRouter(g, 3, 10)
-	}
-	return m.router
 }
 
 // Load returns the current graph, or nil if none is loaded.
@@ -103,9 +76,6 @@ func (m *GraphManager) LoadFromFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("deserialize %s: %w", path, err)
 	}
-	m.routerMu.Lock()
-	m.router = nil
-	m.routerMu.Unlock()
 	m.graph.Store(g)
 	slog.Info("routing graph loaded (mmap)",
 		"nodes", g.NodeCount,
@@ -142,37 +112,7 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 	return nil
 }
 
-// InitTileMode attempts to initialize tile-based routing from the given
-// directory. Returns (true, nil) if tiles were found and loaded,
-// (false, nil) if the directory does not exist or contains no tiles,
-// or (false, err) on real errors.
-func (m *GraphManager) InitTileMode(tileDir string, cacheSize int64) (bool, error) {
-	if _, err := os.Stat(tileDir); os.IsNotExist(err) {
-		return false, nil
-	}
-	mgr, err := NewTileManager(tileDir, cacheSize)
-	if err != nil {
-		return false, err
-	}
-	if mgr.TileCount() == 0 {
-		return false, nil
-	}
-	m.tileMgr = mgr
-	m.tileRouter = NewTileRouter(mgr)
-	slog.Info("tile mode initialized",
-		"tiles", mgr.TileCount(),
-		"cache_bytes", cacheSize,
-	)
-	return true, nil
-}
-
-// IsTileMode reports whether tile-based routing is active.
-func (m *GraphManager) IsTileMode() bool {
-	return m.tileRouter != nil
-}
-
-// InitTiledReader initializes a TiledGraphReader and UnifiedRouter for Phase 2
-// unified routing. Complements InitTileMode — both should be called together.
+// InitTiledReader initializes a TiledGraphReader and UnifiedRouter.
 // Returns (true, nil) if tiles were found, (false, nil) if dir is absent/empty,
 // or (false, err) on real errors.
 func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, error) {
@@ -185,6 +125,13 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 	}
 	m.tiledReader = reader
 	m.unifiedRouter = NewUnifiedRouter(reader, 8)
+
+	// Initialize TileManager for status display (tile_count, tile_cached).
+	mgr, err := NewTileManager(tileDir, cacheBytes)
+	if err == nil && mgr.TileCount() > 0 {
+		m.tileMgr = mgr
+	}
+
 	slog.Info("unified tiled reader initialized",
 		"tile_dir", tileDir,
 		"cache_bytes", cacheBytes,
@@ -192,7 +139,7 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 	return true, nil
 }
 
-// UnifiedRouter returns the Phase 2 UnifiedRouter.
+// UnifiedRouter returns the UnifiedRouter.
 // Lazily recreates from tiledReader after a Flush/RebuildTiles cycle.
 // Returns nil if InitTiledReader has not been called or no tiles are available.
 func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
@@ -210,18 +157,8 @@ func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
 	return m.unifiedRouter
 }
 
-// TileRoute computes a route using the tiled routing engine.
-// Returns an error if tile mode has not been initialized.
-func (m *GraphManager) TileRoute(ctx context.Context, req RouteRequest,
-	cfg *CostConfig) (*RouteResult, error) {
-	if m.tileRouter == nil {
-		return nil, fmt.Errorf("tile mode not initialized")
-	}
-	return m.tileRouter.Route(ctx, req, cfg)
-}
-
 // TileManager returns the underlying TileManager, or nil if tile mode
-// is not active. Used by the tile-build handler to rescan after builds.
+// is not active. Used by the status handler for tile_count/tile_cached.
 func (m *GraphManager) TileManager() *TileManager {
 	return m.tileMgr
 }
@@ -251,14 +188,15 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	slog.Info("tile build complete", "tiles_built", len(results))
 
-	// Re-initialize tile mode so new tiles are picked up.
+	// Re-initialize TileManager for status display.
 	if m.tileMgr != nil {
 		if err := m.tileMgr.Rescan(); err != nil {
 			return fmt.Errorf("rescan tiles after build: %w", err)
 		}
 	} else {
-		if _, err := m.InitTileMode(tileDir, cacheSize); err != nil {
-			return fmt.Errorf("init tile mode after build: %w", err)
+		mgr, err := NewTileManager(tileDir, cacheSize)
+		if err == nil && mgr.TileCount() > 0 {
+			m.tileMgr = mgr
 		}
 	}
 

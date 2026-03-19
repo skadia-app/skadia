@@ -108,7 +108,7 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		"bbox":         g.BBox,
 		"version":      g.Version,
 		"file_size_mb": int(fileSizeMB),
-		"tile_mode":    h.GraphManager.IsTileMode(),
+		"tile_mode":    h.GraphManager.UnifiedRouter() != nil,
 	}
 
 	if tm := h.GraphManager.TileManager(); tm != nil {
@@ -119,9 +119,8 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// RouteCalculate computes a route using the internal routing engine.
-// Priority: UnifiedRouter (Phase 2, TiledGraphReader) > TileRouter (Phase 1
-// cross-tile A*) > monolithic Router (legacy). The first available engine is used.
+// RouteCalculate computes a route using the UnifiedRouter (TiledGraphReader).
+// Returns 503 if no routing engine is available.
 func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -130,20 +129,12 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine routing engine: UnifiedRouter > TileRouter > legacy Router.
 	unifiedRouter := h.GraphManager.UnifiedRouter()
-	useTileMode := h.GraphManager.IsTileMode() && unifiedRouter == nil
-
-	// In monolithic mode we need a loaded graph; in tile/unified mode we don't.
-	var router *routing.Router
-	if unifiedRouter == nil && !useTileMode {
-		router = h.GraphManager.Router()
-		if router == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"error": "no routing graph loaded",
-			})
-			return
-		}
+	if unifiedRouter == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "routing not available",
+		})
+		return
 	}
 
 	var req struct {
@@ -229,50 +220,19 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	var result *routing.RouteResult
 	var err error
 
-	buildWaypoints := func() []routing.LatLon {
+	if len(req.Via) > 0 {
 		wp := make([]routing.LatLon, 0, len(req.Via)+2)
 		wp = append(wp, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
 		for _, v := range req.Via {
 			wp = append(wp, routing.LatLon{Lat: v[0], Lon: v[1]})
 		}
 		wp = append(wp, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
-		return wp
-	}
-
-	mode := "monolithic"
-
-	if unifiedRouter != nil {
-		// Phase 2: Unified routing via TiledGraphReader (preferred).
-		mode = "unified"
-		if len(req.Via) > 0 {
-			result, err = unifiedRouter.RouteVia(ctx, buildWaypoints(), cfg)
-		} else {
-			result, err = unifiedRouter.Route(ctx, routing.RouteRequest{
-				FromLat: req.From[0], FromLon: req.From[1],
-				ToLat: req.To[0], ToLon: req.To[1],
-			}, cfg)
-		}
-	} else if useTileMode {
-		// Phase 1: TileRouter (cross-tile A*, fallback when UnifiedRouter absent).
-		mode = "tiled"
-		if len(req.Via) > 0 {
-			result, err = h.tileRouteVia(ctx, buildWaypoints(), cfg)
-		} else {
-			result, err = h.GraphManager.TileRoute(ctx, routing.RouteRequest{
-				FromLat: req.From[0], FromLon: req.From[1],
-				ToLat: req.To[0], ToLon: req.To[1],
-			}, cfg)
-		}
+		result, err = unifiedRouter.RouteVia(ctx, wp, cfg)
 	} else {
-		// Legacy: monolithic in-memory graph.
-		if len(req.Via) > 0 {
-			result, err = router.RouteVia(ctx, buildWaypoints(), cfg)
-		} else {
-			result, err = router.Route(ctx, routing.RouteRequest{
-				FromLat: req.From[0], FromLon: req.From[1],
-				ToLat: req.To[0], ToLon: req.To[1],
-			}, cfg)
-		}
+		result, err = unifiedRouter.Route(ctx, routing.RouteRequest{
+			FromLat: req.From[0], FromLon: req.From[1],
+			ToLat: req.To[0], ToLon: req.To[1],
+		}, cfg)
 	}
 
 	duration := time.Since(start)
@@ -295,7 +255,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("route computed",
-		"mode", mode,
+		"mode", "unified",
 		"from", req.From, "to", req.To,
 		"via_count", len(req.Via),
 		"distance_m", result.DistanceM,
@@ -309,40 +269,6 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(result.ToGeoJSON()); err != nil {
 		slog.Warn("route response write failed", "error", err)
 	}
-}
-
-// tileRouteVia routes through multiple waypoints in tile mode by calling
-// TileRoute for each consecutive pair and concatenating the results.
-func (h *Handler) tileRouteVia(ctx context.Context, waypoints []routing.LatLon,
-	cfg *routing.CostConfig) (*routing.RouteResult, error) {
-
-	if len(waypoints) < 2 {
-		return nil, errors.New("need at least 2 waypoints")
-	}
-
-	combined := &routing.RouteResult{}
-	for i := 0; i < len(waypoints)-1; i++ {
-		seg, err := h.GraphManager.TileRoute(ctx, routing.RouteRequest{
-			FromLat: waypoints[i].Lat, FromLon: waypoints[i].Lon,
-			ToLat: waypoints[i+1].Lat, ToLon: waypoints[i+1].Lon,
-		}, cfg)
-		if err != nil {
-			return nil, err
-		}
-
-		// Concatenate, avoiding duplicate junction points.
-		if i > 0 && len(combined.Coordinates) > 0 && len(seg.Coordinates) > 0 {
-			seg.Coordinates = seg.Coordinates[1:]
-		}
-		combined.Coordinates = append(combined.Coordinates, seg.Coordinates...)
-		combined.DistanceM += seg.DistanceM
-		combined.AscentM += seg.AscentM
-		combined.DescentM += seg.DescentM
-		combined.Cost += seg.Cost
-		combined.PassStats.Pass0Expansions += seg.PassStats.Pass0Expansions
-		combined.PassStats.TotalDurationMs += seg.PassStats.TotalDurationMs
-	}
-	return combined, nil
 }
 
 // RebuildRoutingTiles triggers a background tile build from PostGIS data.
