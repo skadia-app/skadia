@@ -33,26 +33,16 @@ func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes [
 		}, nil
 	}
 
-	// 2. Garmin Activity ID
+	// 2. Garmin Activity ID (single query: returns ID or empty string)
 	if garminID > 0 {
-		exists, err := db.ActivityExistsByGarminID(ctx, userID, garminID)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			id, _ := db.GetActivityIDByGarminID(ctx, userID, garminID)
+		if id, err := db.GetActivityIDByGarminID(ctx, userID, garminID); err == nil && id != "" {
 			return &DuplicateMatch{ExistingActivityID: id, Confidence: "platform_id"}, nil
 		}
 	}
 
-	// 3. Strava Activity ID
+	// 3. Strava Activity ID (single query: returns ID or empty string)
 	if stravaID > 0 {
-		exists, err := db.ActivityExistsByStravaID(ctx, userID, stravaID)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			id, _ := db.GetActivityIDByStravaID(ctx, userID, stravaID)
+		if id, err := db.GetActivityIDByStravaID(ctx, userID, stravaID); err == nil && id != "" {
 			return &DuplicateMatch{ExistingActivityID: id, Confidence: "platform_id"}, nil
 		}
 	}

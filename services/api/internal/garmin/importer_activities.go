@@ -106,6 +106,14 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 	slog.Info("garmin activities: found activity files", "count", total)
 
+	// Cache open ZIP readers to avoid re-opening per file.
+	zipReaders := make(map[string]*zip.ReadCloser)
+	defer func() {
+		for _, r := range zipReaders {
+			r.Close()
+		}
+	}()
+
 	current := 0
 	for _, ref := range allFiles {
 		current++
@@ -120,7 +128,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", ref.fileName, nil, batchIDPtr)
 		tracker.Processing(ctx)
 
-		fileBytes, err := readFileFromZip(filepath.Join(params.Source.BaseDir(), ref.zipPath), ref.fileName)
+		fileBytes, err := readFileFromZipCached(zipReaders, filepath.Join(params.Source.BaseDir(), ref.zipPath), ref.fileName)
 		if err != nil {
 			slog.Warn("garmin activities: cannot read file from zip", "file", ref.fileName, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("read %s: %s", ref.fileName, err))
@@ -322,6 +330,36 @@ func extractActivityID(filename string) int64 {
 	parts := strings.SplitN(rest, "_", 2)
 	id, _ := strconv.ParseInt(parts[0], 10, 64)
 	return id
+}
+
+// readFileFromZipCached extracts a single named file using a cached ZIP reader.
+// The reader is opened on first access and reused for subsequent files from the same ZIP.
+func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName string) ([]byte, error) {
+	zr, ok := cache[zipPath]
+	if !ok {
+		var err error
+		zr, err = zip.OpenReader(zipPath)
+		if err != nil {
+			return nil, fmt.Errorf("open zip %s: %w", zipPath, err)
+		}
+		cache[zipPath] = zr
+	}
+
+	for _, f := range zr.File {
+		if f.Name == fileName {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, fmt.Errorf("open file %s in zip: %w", fileName, err)
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return nil, fmt.Errorf("read file %s in zip: %w", fileName, err)
+			}
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("file %s not found in zip %s", fileName, zipPath)
 }
 
 // readFileFromZip extracts a single named file from a ZIP archive into memory.

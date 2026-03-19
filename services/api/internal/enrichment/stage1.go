@@ -22,7 +22,9 @@ const enableDEMEnrichment = false
 // RunStage1 executes synchronous enrichment for an activity after upload.
 // This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
 // If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub ...*event.Publisher) {
+// When asyncWeather is true, the weather fetch runs in a background goroutine so it
+// does not block the import path (tags are applied later by Stage 2 / automation rules).
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -226,44 +228,12 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// Streams are not yet available here, so summit/midpoint GPS is unknown.
 	// Stream-Refinement (summit/midpoint GPS) runs in service.go after stream insert.
 	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() {
-		var minElevPtr, maxElevPtr *float64
-		if data.MinElevationM != 0 {
-			v := data.MinElevationM
-			minElevPtr = &v
-		}
-		if data.MaxElevationM != 0 {
-			v := data.MaxElevationM
-			maxElevPtr = &v
-		}
-		weatherReqs := BuildWeatherRequests(
-			data.StartLat, data.StartLng, data.StartedAt,
-			data.ElapsedTimeS,
-			minElevPtr, maxElevPtr,
-			nil, nil, 0,  // summit point not yet known
-			0, 0, 0,      // midpoint GPS not yet known
-			nil, nil,
-			model.DefaultWeatherPrefs(),
-		)
-		if len(weatherReqs) > 0 {
-			if readings, err := FetchWeatherReadings(ctx, weatherReqs); err == nil {
-				if err := db.InsertWeatherReadings(ctx, activityID, readings); err != nil {
-					slog.Warn("stage1: weather insert failed (non-fatal)", "activity_id", activityID, "error", err)
-				} else {
-					// Sync weather tags to activity_tags junction table
-					prefs, _ := db.GetWeatherPrefs(ctx, userID)
-					if prefs.AutoTags {
-						var allWeatherTags []string
-						for _, r := range readings {
-							allWeatherTags = append(allWeatherTags, r.Tags...)
-						}
-						if err := db.SyncWeatherTagsToActivityTags(ctx, activityID, userID, allWeatherTags); err != nil {
-							slog.Warn("stage1: sync weather tags failed (non-fatal)", "activity_id", activityID, "error", err)
-						}
-					}
-				}
-			} else {
-				slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
-			}
+		if asyncWeather {
+			// Import path: fire-and-forget so we don't block the import pipeline.
+			// Tags are applied later by automation rules / Stage 2.
+			go fetchAndInsertWeather(db, userID, activityID, data)
+		} else {
+			fetchAndInsertWeather(db, userID, activityID, data)
 		}
 	}
 
@@ -386,7 +356,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	}
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
-	if len(pub) > 0 && pub[0] != nil {
+	if pub != nil {
 		var enabledModules []string
 		if enrichSettings != nil {
 			enabledModules = enrichSettings.EnabledModules()
@@ -415,12 +385,61 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			enabledModules = filtered
 		}
 
-		if err := pub[0].PublishStage2Ready(event.Stage2ReadyEvent{
+		if err := pub.PublishStage2Ready(event.Stage2ReadyEvent{
 			ActivityID:     activityID,
 			UserID:         userID,
 			EnabledModules: enabledModules,
 		}); err != nil {
 			slog.Warn("stage1: failed to publish stage2 event", "activity_id", activityID, "error", err)
+		}
+	}
+}
+
+// fetchAndInsertWeather fetches weather data for an activity and inserts readings + tags.
+// Safe to call from a goroutine (uses context.Background with 30s timeout).
+func fetchAndInsertWeather(db *database.DB, userID, activityID string, data *model.ActivityData) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var minElevPtr, maxElevPtr *float64
+	if data.MinElevationM != 0 {
+		v := data.MinElevationM
+		minElevPtr = &v
+	}
+	if data.MaxElevationM != 0 {
+		v := data.MaxElevationM
+		maxElevPtr = &v
+	}
+	weatherReqs := BuildWeatherRequests(
+		data.StartLat, data.StartLng, data.StartedAt,
+		data.ElapsedTimeS,
+		minElevPtr, maxElevPtr,
+		nil, nil, 0, // summit point not yet known
+		0, 0, 0,     // midpoint GPS not yet known
+		nil, nil,
+		model.DefaultWeatherPrefs(),
+	)
+	if len(weatherReqs) == 0 {
+		return
+	}
+	readings, err := FetchWeatherReadings(ctx, weatherReqs)
+	if err != nil {
+		slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
+		return
+	}
+	if err := db.InsertWeatherReadings(ctx, activityID, readings); err != nil {
+		slog.Warn("stage1: weather insert failed (non-fatal)", "activity_id", activityID, "error", err)
+		return
+	}
+	// Sync weather tags to activity_tags junction table
+	prefs, _ := db.GetWeatherPrefs(ctx, userID)
+	if prefs.AutoTags {
+		var allWeatherTags []string
+		for _, r := range readings {
+			allWeatherTags = append(allWeatherTags, r.Tags...)
+		}
+		if err := db.SyncWeatherTagsToActivityTags(ctx, activityID, userID, allWeatherTags); err != nil {
+			slog.Warn("stage1: sync weather tags failed (non-fatal)", "activity_id", activityID, "error", err)
 		}
 	}
 }
