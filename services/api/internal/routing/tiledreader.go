@@ -3,8 +3,8 @@ package routing
 
 import (
 	"container/list"
-	"fmt"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"golang.org/x/sync/singleflight"
@@ -237,7 +237,7 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 	tc.mu.Unlock()
 
 	// singleflight: only one load per tileID concurrently
-	key := fmt.Sprint(tileID)
+	key := strconv.FormatUint(uint64(tileID), 10)
 	val, _, _ := tc.inflight.Do(key, func() (any, error) {
 		path := filepath.Join(tileDir, tileName(tileID))
 		g, err := graph.DeserializeMmap(path)
@@ -296,5 +296,7 @@ func estimateTileBytes(g *graph.Graph) int64 {
 }
 
 func tileName(tileID uint32) string {
-	return fmt.Sprintf("tile_%d.bin", tileID)
+	lat := int(tileID/360) - 90
+	lon := int(tileID%360) - 180
+	return "tile_" + strconv.Itoa(lat) + "_" + strconv.Itoa(lon) + ".bin"
 }
