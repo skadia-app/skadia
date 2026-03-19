@@ -154,6 +154,9 @@ export interface Activity {
     platform_sport: string
     platform_source: string
   } | null
+  // Recording device (linked to hardware registry)
+  recording_device_id?: string | null
+  recording_device_name?: string | null
 }
 
 export interface ActivitiesResponse {
@@ -191,12 +194,14 @@ export interface Sensor {
   primary_type: string
   primary_type_label: string
   all_types: string[]
+  all_type_labels?: string[]
   manufacturer?: string
   product_name?: string
   serial_number?: number
   ant_device_number?: number
   software_version?: string
   battery_status?: string
+  device_id?: string | null
 }
 
 export interface GeoTag {
