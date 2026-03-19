@@ -9,123 +9,94 @@ import (
 )
 
 // nonGarminProducts maps [manufacturerID, productID] to a human-readable product name.
-// Covers ~55 known non-Garmin devices from popular sport electronics brands.
+// IDs are verified from the FIT SDK where available and device FIT files.
+// Garmin-Produkte (manufacturer_id=1) sind NICHT enthalten — die kommen via GarminProduct.String().
+// Tacx-Produkte post-Akquisition sind ebenfalls unter GarminProduct (IDs 4265–4276, mfr=1).
 var nonGarminProducts = map[[2]uint16]string{
-	// Wahoo Fitness (32)
-	{32, 0}:  "Wahoo TICKR",
-	{32, 1}:  "Wahoo TICKR Run",
-	{32, 2}:  "Wahoo KICKR",
-	{32, 3}:  "Wahoo ELEMNT GPS",
-	{32, 4}:  "Wahoo KICKR SNAP",
-	{32, 22}: "Wahoo TICKR X",
-	{32, 23}: "Wahoo ELEMNT Bolt",
-	{32, 24}: "Wahoo KICKR CORE",
-	{32, 25}: "Wahoo TICKR Fit",
-	{32, 26}: "Wahoo ELEMNT Roam",
-	{32, 27}: "Wahoo KICKR CLIMB",
+	// Wahoo Fitness (32) — verifiziert: ELEMNT prod=28 aus echtem FIT-File
 	{32, 28}: "Wahoo ELEMNT",
-	{32, 29}: "Wahoo KICKR HEADWIND",
-	{32, 31}: "Wahoo ELEMNT Bolt V2",
-	{32, 35}: "Wahoo ELEMNT Roam V2",
-	{32, 43}: "Wahoo ELEMNT Ace",
+	{32, 31}: "Wahoo ELEMNT BOLT",
+	{32, 41}: "Wahoo PowrLink",
 
 	// Polar Electro (123)
-	{123, 1}:  "Polar H7",
-	{123, 2}:  "Polar H10",
-	{123, 3}:  "Polar OH1",
-	{123, 4}:  "Polar Vantage M",
-	{123, 5}:  "Polar Vantage V",
-	{123, 6}:  "Polar Grit X",
-	{123, 7}:  "Polar Ignite",
-	{123, 8}:  "Polar Vantage V2",
-	{123, 9}:  "Polar Ignite 2",
-	{123, 10}: "Polar Pacer",
-	{123, 11}: "Polar Pacer Pro",
+	{123, 2}: "Polar H10",
+	{123, 3}: "Polar H9",
 
-	// Favero Electronics (263)
+	// Favero Electronics (263) — Assioma Uno/Duo im FIT SDK als FaveroProduct definiert
 	{263, 10}: "Favero Assioma Uno",
 	{263, 12}: "Favero Assioma Duo",
+	{263, 22}: "Favero Assioma Pro MX",
 
 	// SRAM (268)
-	{268, 1}: "SRAM AXS Power Meter",
-	{268, 2}: "SRAM Red AXS",
-	{268, 3}: "SRAM Force AXS",
-	{268, 4}: "SRAM Rival AXS",
+	{268, 1037}: "SRAM Rival eTap AXS",
+	{268, 1052}: "SRAM Rival AXS",
 
 	// Stages Cycling (69)
-	{69, 0}: "Stages Power Meter",
-	{69, 1}: "Stages L Power Meter",
-	{69, 2}: "Stages LR Power Meter",
-	{69, 3}: "Stages SC3",
-	{69, 4}: "Stages SB20",
+	{69, 1}: "Stages Power Gen 1",
+	{69, 2}: "Stages Power Gen 2",
+	{69, 3}: "Stages Power Gen 3",
 
 	// SRM (6)
-	{6, 0}: "SRM PC8",
-	{6, 1}: "SRM PC9",
-	{6, 2}: "SRM Origin",
-	{6, 3}: "SRM PC10",
+	{6, 6}: "SRM PC6",
+	{6, 7}: "SRM PC7",
+	{6, 8}: "SRM PC8",
 
 	// Quarq (7)
-	{7, 0}: "Quarq DZero",
-	{7, 1}: "Quarq SRAM DZero",
-	{7, 2}: "Quarq Dfour",
-	{7, 3}: "Quarq Riken",
+	{7, 1}:    "Quarq Cinqo",
+	{7, 9479}: "Quarq DZero",
 
-	// PowerTap (Saris = 9)
-	{9, 0}: "PowerTap P1",
-	{9, 1}: "PowerTap P2",
-	{9, 2}: "PowerTap G3",
-	{9, 3}: "PowerTap C1",
+	// Powertap / Saris (9)
+	{9, 14}:   "Powertap Joule 2.0",
+	{9, 18}:   "Powertap Joule",
+	{9, 19}:   "Powertap Joule GPS",
+	{9, 22}:   "Powertap Joule GPS+",
+	{9, 272}:  "Powertap C1",
+	{9, 288}:  "Powertap P1",
+	{9, 4096}: "Powertap G3",
+	{9, 4353}: "Powertap Powercal",
 
 	// Scosche (83)
-	{83, 0}: "Scosche Rhythm+",
-	{83, 1}: "Scosche Rhythm 24",
+	{83, 3}: "Scosche Rhythm+",
 
 	// BSX Athletics (98)
-	{98, 0}: "BSX Insight",
+	{98, 2}: "BSX Insight 2",
 
-	// Power2max (o_synce = 38)
-	{38, 0}: "Power2max NG",
-	{38, 1}: "Power2max NG eco",
-	{38, 2}: "Power2max Type S",
+	// Saxonar / Power2max (29) — NICHT 38 (o_synce)!
+	{29, 1031}: "Power2max S",
 
-	// IpBike (ibike = 8)
-	{8, 0}: "iBike Newton",
-	{8, 1}: "iBike Arc",
+	// o_synce (38)
+	{38, 1}: "o_synce navi2coach",
 
-	// Morpheus (development = 255)
-	{255, 1}: "Morpheus Sleep Coach",
+	// IpBike / Ifor Powell (54) — NICHT 8 (iBike)!
+	{54, 1}: "IpBike",
+
+	// Fitcare / Morpheus (106)
+	{106, 5}: "Morpheus M7",
 
 	// Sigma Sport (70)
-	{70, 0}:  "Sigma ROX",
-	{70, 1}:  "Sigma BC 14.0",
-	{70, 2}:  "Sigma BC 16.12",
-	{70, 3}:  "Sigma ROX 4.0",
-	{70, 4}:  "Sigma ROX 7.0",
-	{70, 5}:  "Sigma ROX 10.0",
-	{70, 6}:  "Sigma ROX 11.1 Evo",
-	{70, 30}: "Sigma ROX 11.0",
-	{70, 40}: "Sigma ROX 11.1",
+	{70, 15}: "Sigma ROX 10.0",
+	{70, 18}: "Sigma ROX 7.0",
+	{70, 41}: "Sigma ROX 11.0",
+	{70, 42}: "Sigma iD.RUN",
+	{70, 43}: "Sigma iD.RUN HR",
 	{70, 44}: "Sigma ROX 12.0",
-	{70, 50}: "Sigma ROX 12.1 Evo",
+	{70, 45}: "Sigma iD.FREE",
+	{70, 46}: "Sigma iD.TRI",
+	{70, 47}: "Sigma PURE GPS",
+	{70, 49}: "Sigma ROX 11.1",
+	{70, 51}: "Sigma ROX 2.0",
+	{70, 52}: "Sigma ROX 4.0",
+	{70, 54}: "Sigma ROX 12.1 EVO",
+	{70, 69}: "Sigma ROX 4.0 SE",
 
 	// Lezyne (258)
-	{258, 1}: "Lezyne Micro GPS",
-	{258, 2}: "Lezyne Mini GPS",
-	{258, 3}: "Lezyne GPS",
-	{258, 4}: "Lezyne Super GPS",
-	{258, 5}: "Lezyne Mega C GPS",
-	{258, 6}: "Lezyne Mega XL GPS",
+	{258, 4}:  "Lezyne Super GPS",
+	{258, 6}:  "Lezyne Micro GPS",
+	{258, 11}: "Lezyne Mega XL GPS",
 
-	// Tacx (pre-acquisition by Garmin, manufacturer 89)
-	{89, 1}: "Tacx NEO",
-	{89, 2}: "Tacx Flux",
-	{89, 3}: "Tacx Bushido",
-	{89, 4}: "Tacx Vortex",
-	{89, 5}: "Tacx Genius",
-	{89, 6}: "Tacx NEO 2",
-	{89, 7}: "Tacx Flux 2",
-	{89, 8}: "Tacx NEO 2T",
+	// Tacx (89) — Pre-Akquisition IDs, für historische FIT-Dateien
+	{89, 2800}: "Tacx Neo Smart",
+	{89, 2850}: "Tacx Neo 2 Smart",
 }
 
 // ResolveProductName resolves a human-readable device product name from FIT device info fields.
