@@ -29,13 +29,25 @@ type TileBuildResult struct {
 // The tile is built with an expanded bounding box (BorderBuffer) to ensure
 // border nodes overlap with neighboring tiles for cross-tile routing.
 // A per-tile dem.Reader is created from hgtDirs and closed after use.
+// If coverageReader is non-nil, enrichment values are sampled from grids
+// instead of SQL columns (Phase 2 CoverageReader integration).
 func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 	outputDir string, hgtDirs []string,
+	coverageReader CoverageReader,
 	progressFn func(step string, pct int)) (*TileBuildResult, error) {
 
 	start := time.Now()
 	tilePath := TileFilePath(outputDir, tileID)
 	bbox := TileBBoxExpanded(tileID, BorderBuffer)
+
+	// Preload coverage grids for this tile (if reader provided).
+	if coverageReader != nil {
+		if err := coverageReader.PreloadTile(tileID); err != nil {
+			slog.Warn("coverage preload failed, using SQL fallback",
+				"tile", tileID, "error", err)
+			coverageReader = nil
+		}
+	}
 
 	// Create DEM reader for this tile's bounding box.
 	var demReader dem.Reader
@@ -48,7 +60,7 @@ func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 		defer demReader.Close()
 	}
 
-	g, err := Build(ctx, pool, "", &bbox, demReader, progressFn)
+	g, err := Build(ctx, pool, "", &bbox, demReader, coverageReader, progressFn)
 	if err != nil {
 		return nil, fmt.Errorf("build tile %d: %w", tileID, err)
 	}
@@ -124,8 +136,11 @@ func DiscoverTileIDs(ctx context.Context, pool *pgxpool.Pool) ([]uint32, error) 
 //
 // workers controls the degree of parallelism. If workers <= 0, it defaults to
 // min(max(NumCPU/4, 1), 2).
+// If coverageReader is non-nil, enrichment values are sampled from grids
+// instead of SQL columns (Phase 2 CoverageReader integration).
 func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
-	hgtDirs []string, workers int, filterBBox [4]float64, force bool,
+	hgtDirs []string, coverageReader CoverageReader, workers int,
+	filterBBox [4]float64, force bool,
 	progressFn func(tileID uint32, step string, pct int)) ([]TileBuildResult, error) {
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -191,7 +206,7 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 
 		g.Go(func() error {
 			slog.Info("building tile", "tile_id", tileID, "index", i+1, "total", len(tileIDs))
-			result, err := BuildTile(gCtx, pool, tileID, outputDir, hgtDirs,
+			result, err := BuildTile(gCtx, pool, tileID, outputDir, hgtDirs, coverageReader,
 				func(step string, pct int) {
 					if progressFn != nil {
 						progressFn(tileID, fmt.Sprintf("tile %d/%d", i+1, len(tileIDs)), pct)

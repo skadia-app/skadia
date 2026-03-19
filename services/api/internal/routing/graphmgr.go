@@ -99,7 +99,7 @@ func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPa
 
 	// Build produces a heap graph and serializes to outputPath.
 	// Then load the serialized file via mmap for consistent behavior.
-	_, err := graph.Build(ctx, pool, outputPath, nil, nil, progressFn)
+	_, err := graph.Build(ctx, pool, outputPath, nil, nil, nil, progressFn)
 	if err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	defer m.mu.Unlock()
 
-	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, workers, filterBBox, force, progressFn)
+	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, nil, workers, filterBBox, force, progressFn)
 	if err != nil {
 		return err
 	}
