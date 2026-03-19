@@ -42,10 +42,11 @@ GROUP BY a.user_id, a.source, a.source_device
 ON CONFLICT DO NOTHING;
 
 -- 3. activity_sensors.device_id setzen (per serial_number Match)
+-- PostgreSQL UPDATE...FROM: Zieltabelle (s) ist implizit, nicht in JOIN referenzierbar
 UPDATE activity_sensors s SET device_id = d.id
-FROM devices d
-JOIN activities a ON a.id = s.activity_id
-WHERE d.type = 'sensor'
+FROM devices d, activities a
+WHERE a.id = s.activity_id
+  AND d.type = 'sensor'
   AND d.user_id = a.user_id
   AND d.serial_number IS NOT NULL
   AND d.serial_number = s.serial_number
@@ -54,9 +55,9 @@ WHERE d.type = 'sensor'
 
 -- 4. activity_sensors.device_id setzen (per ant_device_number Match)
 UPDATE activity_sensors s SET device_id = d.id
-FROM devices d
-JOIN activities a ON a.id = s.activity_id
-WHERE d.type = 'sensor'
+FROM devices d, activities a
+WHERE a.id = s.activity_id
+  AND d.type = 'sensor'
   AND d.user_id = a.user_id
   AND d.ant_device_number IS NOT NULL
   AND d.ant_device_number = s.ant_device_number
@@ -66,9 +67,9 @@ WHERE d.type = 'sensor'
 
 -- 5. activity_sensors.device_id setzen (per product_name Match)
 UPDATE activity_sensors s SET device_id = d.id
-FROM devices d
-JOIN activities a ON a.id = s.activity_id
-WHERE d.type = 'sensor'
+FROM devices d, activities a
+WHERE a.id = s.activity_id
+  AND d.type = 'sensor'
   AND d.user_id = a.user_id
   AND d.serial_number IS NULL AND d.ant_device_number IS NULL
   AND COALESCE(d.manufacturer_id, 0) = COALESCE(s.manufacturer_id::INTEGER, 0)
