@@ -37,6 +37,10 @@ type CostConfig struct {
 	// Precomputed from above
 	MaxLatentCost float32
 
+	// AvgCostPerKm is the calibrated average BadRouter cost per km of air distance.
+	// Used to convert time-based isochrone budgets to cost budgets.
+	AvgCostPerKm float32
+
 	// Edge cost function — receives packed tag words directly, no Graph pointer needed.
 	// Enables GraphReader abstraction where only tags are available (Phase 2+).
 	EdgeCost func(tags1, tags2 uint64) EdgeCostFactors
