@@ -213,5 +213,11 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 			return fmt.Errorf("init tile mode after build: %w", err)
 		}
 	}
+
+	// Flush the unified reader cache so rebuilt tiles are served fresh.
+	if m.tiledReader != nil {
+		m.tiledReader.Flush()
+		m.unifiedRouter = nil // force lazy re-creation
+	}
 	return nil
 }

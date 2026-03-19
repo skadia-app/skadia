@@ -33,6 +33,9 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 	if g == nil {
 		return
 	}
+	if localID >= g.NodeCount {
+		return // invalid node ID — corrupted parent pointer or stale cache
+	}
 
 	// 1. Local edges within the tile
 	for ei := g.Offsets[localID]; ei < g.Offsets[localID+1]; ei++ {
@@ -202,6 +205,20 @@ func newTiledCache(maxBytes int64) *tiledCache {
 		items:    make(map[uint32]*list.Element),
 		order:    list.New(),
 	}
+}
+
+func (tc *tiledCache) flush() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.items = make(map[uint32]*list.Element)
+	tc.order.Init()
+	tc.usedBytes = 0
+}
+
+// Flush evicts all cached tiles from the TiledGraphReader.
+// Call after a tile rebuild to ensure stale tiles are not served.
+func (r *TiledGraphReader) Flush() {
+	r.cache.flush()
 }
 
 func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
