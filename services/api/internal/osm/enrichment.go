@@ -638,11 +638,9 @@ func EnrichLanduseClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	return nil
 }
 
-// EnrichRouteMembership populates osm_route_way_members junction table
-// and sets is_cycleroute/is_hikeroute flags with network level.
-// NOTE: Uses spatial proximity (ST_DWithin 15m) as proxy for relation membership.
-// This may produce false positives for nearby but unrelated ways.
-// P3-TODO: Import explicit relation membership via Lua script for precise matching.
+// EnrichRouteMembership sets is_cycleroute/is_hikeroute flags with network level
+// on osm_ways by joining through the osm_route_way_members junction table
+// (populated by the Lua import script) and osm_routes.
 func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause string) error {
 	slog.Info("enrichment: starting route_membership")
 
@@ -659,45 +657,25 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 		slog.Warn("enrichment route_membership: SET work_mem failed (non-fatal)", "error", err)
 	}
 
-	// Check if Lua-extracted route members exist (source='relation')
-	var luaCount int64
-	conn.QueryRow(ctx,
-		`SELECT count(*) FROM osm_route_way_members WHERE source = 'relation'`).Scan(&luaCount)
-
-	if luaCount == 0 {
-		// Fallback: populate junction table via spatial proximity
-		slog.Info("enrichment: no Lua route members found, using spatial proximity fallback")
-		_, err := conn.Exec(ctx, `
-			INSERT INTO osm_route_way_members (route_osm_id, way_osm_id, source)
-			SELECT DISTINCT r.osm_id, w.osm_id, 'proximity'
-			FROM osm_routes r
-			JOIN osm_ways w ON ST_DWithin(r.geom::geography, w.geom::geography, 15)
-			WHERE w.highway IS NOT NULL`+bboxClause+`
-			ON CONFLICT DO NOTHING`)
-		if err != nil {
-			return fmt.Errorf("enrichment route_membership: proximity fallback: %w", err)
-		}
-	} else {
-		slog.Info("enrichment: using Lua-extracted route members", "count", luaCount)
-		// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering).
-		// Uses LEFT JOIN instead of NOT EXISTS — PostgreSQL can hash-join which is
-		// faster than nested-loop NOT EXISTS on large tables.
-		tag, err := conn.Exec(ctx, `
-			DELETE FROM osm_route_way_members m
-			USING (
-				SELECT m2.route_osm_id, m2.way_osm_id FROM osm_route_way_members m2
-				LEFT JOIN osm_ways w ON w.osm_id = m2.way_osm_id
-				WHERE m2.source = 'relation' AND w.osm_id IS NULL
-			) orphans
-			WHERE m.route_osm_id = orphans.route_osm_id AND m.way_osm_id = orphans.way_osm_id`)
-		if err != nil {
-			slog.Warn("enrichment: cleanup orphan route members failed", "error", err)
-		} else {
-			slog.Info("enrichment: cleaned orphan route members", "deleted", tag.RowsAffected())
-		}
+	// Clean up orphan members (way_osm_ids not in osm_ways due to tag filtering).
+	// Uses LEFT JOIN instead of NOT EXISTS — PostgreSQL can hash-join which is
+	// faster than nested-loop NOT EXISTS on large tables.
+	tag, err := conn.Exec(ctx, `
+		DELETE FROM osm_route_way_members m
+		USING (
+			SELECT m2.route_osm_id, m2.way_osm_id FROM osm_route_way_members m2
+			LEFT JOIN osm_ways w ON w.osm_id = m2.way_osm_id
+			WHERE w.osm_id IS NULL
+		) orphans
+		WHERE m.route_osm_id = orphans.route_osm_id AND m.way_osm_id = orphans.way_osm_id`)
+	if err != nil {
+		slog.Warn("enrichment: cleanup orphan route members failed", "error", err)
+	} else if tag.RowsAffected() > 0 {
+		slog.Info("enrichment: cleaned orphan route members", "deleted", tag.RowsAffected())
 	}
 
-	// Set cycleroute flags with best network level
+	// Set cycleroute flags with best network level.
+	// JOIN path: osm_ways → osm_route_way_members → osm_routes (explicit relation membership).
 	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET
 			is_cycleroute = true,
@@ -716,13 +694,13 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 			WHERE r.route = 'bicycle'
 			GROUP BY m.way_osm_id
 		) sub
-		WHERE w.osm_id = sub.way_osm_id
+		WHERE w.osm_id = sub.way_osm_id`+bboxClause+`
 	`)
 	if err != nil {
 		return fmt.Errorf("enrichment route_membership: cycleroute: %w", err)
 	}
 
-	// Set hikeroute flags with best network level
+	// Set hikeroute flags with best network level.
 	_, err = conn.Exec(ctx, `
 		UPDATE osm_ways w SET
 			is_hikeroute = true,
@@ -741,7 +719,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 			WHERE r.route IN ('hiking', 'foot')
 			GROUP BY m.way_osm_id
 		) sub
-		WHERE w.osm_id = sub.way_osm_id
+		WHERE w.osm_id = sub.way_osm_id`+bboxClause+`
 	`)
 	if err != nil {
 		return fmt.Errorf("enrichment route_membership: hikeroute: %w", err)
