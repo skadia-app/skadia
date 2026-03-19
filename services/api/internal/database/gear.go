@@ -1329,6 +1329,49 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		m["segment_efforts"] = segEfforts
 	}
 
+	// recording_device_id
+	var recDeviceID *string
+	_ = db.Pool.QueryRow(ctx, `SELECT recording_device_id::TEXT FROM activities WHERE id = $1`, activityID).Scan(&recDeviceID)
+	if recDeviceID != nil {
+		m["recording_device_id"] = *recDeviceID
+	}
+
+	// has_sensor_type — aggregated sensor types from activity_sensors
+	var sensorTypes []string
+	sensorTypeRows, sensorTypeErr := db.Pool.Query(ctx, `
+		SELECT DISTINCT unnest(all_device_types)
+		FROM activity_sensors WHERE activity_id = $1`, activityID)
+	if sensorTypeErr == nil {
+		for sensorTypeRows.Next() {
+			var t string
+			if sensorTypeRows.Scan(&t) == nil {
+				sensorTypes = append(sensorTypes, t)
+			}
+		}
+		sensorTypeRows.Close()
+	}
+	if len(sensorTypes) > 0 {
+		m["has_sensor_type"] = sensorTypes
+	}
+
+	// sensor_device_ids — linked device UUIDs from activity_sensors
+	var sensorDeviceIDs []string
+	sensorDeviceRows, sensorDeviceErr := db.Pool.Query(ctx, `
+		SELECT DISTINCT device_id::TEXT
+		FROM activity_sensors WHERE activity_id = $1 AND device_id IS NOT NULL`, activityID)
+	if sensorDeviceErr == nil {
+		for sensorDeviceRows.Next() {
+			var id string
+			if sensorDeviceRows.Scan(&id) == nil {
+				sensorDeviceIDs = append(sensorDeviceIDs, id)
+			}
+		}
+		sensorDeviceRows.Close()
+	}
+	if len(sensorDeviceIDs) > 0 {
+		m["sensor_device_ids"] = sensorDeviceIDs
+	}
+
 	return m, nil
 }
 
