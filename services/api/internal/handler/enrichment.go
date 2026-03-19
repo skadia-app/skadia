@@ -259,7 +259,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 				MaxHeartRate: a.MaxHR,
 				HasGPS:       true,
 			}
-			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events)
+			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events, false)
 		}
 
 		// Apply automation rules for all activities — Frost/Nacht don't need GPS

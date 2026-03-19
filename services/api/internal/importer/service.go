@@ -95,7 +95,7 @@ func (s *Service) PostProcess(
 	// RunStage1 + ApplyRulesToActivity set metadata used by subsequent steps.
 
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events)
+		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
