@@ -34,6 +34,9 @@ export function deviceTypeBadgeLabel(type: string): string {
     running_dynamics: 'Laufdynamik',
     barometric_altimeter: 'Barometer',
     temperature: 'Temperatur',
+    // Weitere Sensortypen
+    pulse_oximetry: 'Blutsauerstoff',
+    spo2: 'Blutsauerstoff',
     // Fallback-Aliase
     power: 'Leistung',
     speed: 'Geschwindigkeit',
