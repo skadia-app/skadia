@@ -60,10 +60,12 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 
 	// 1. Try to find existing device.
 	if d.SerialNumber != nil {
+		// Serial number allein identifiziert das Gerät — manufacturer_id NICHT im Lookup,
+		// da dasselbe Gerät manchmal als garmin(1) und manchmal als ManufacturerInvalid(-1) auftaucht.
 		err := db.Pool.QueryRow(ctx,
 			`SELECT id FROM devices
-			 WHERE user_id = $1 AND type = $2 AND manufacturer_id = $3 AND serial_number = $4`,
-			d.UserID, d.Type, d.ManufacturerID, *d.SerialNumber,
+			 WHERE user_id = $1 AND type = $2 AND serial_number = $3`,
+			d.UserID, d.Type, *d.SerialNumber,
 		).Scan(&existingID)
 		if err != nil && err != pgx.ErrNoRows {
 			return "", fmt.Errorf("upsert hw device (serial lookup): %w", err)
@@ -114,14 +116,14 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 	// PostgreSQL partial unique indexes require ON CONFLICT (cols) WHERE predicate form.
 	var newID string
 	if d.SerialNumber != nil {
-		// idx_devices_serial: (user_id, type, manufacturer_id, serial_number) WHERE serial_number IS NOT NULL
+		// idx_devices_serial: (user_id, type, serial_number) WHERE serial_number IS NOT NULL
 		err := db.Pool.QueryRow(ctx,
 			`INSERT INTO devices (
 				user_id, type, manufacturer, manufacturer_id, product_name, product_id,
 				serial_number, ant_device_number, device_types, source_type,
 				first_seen_at, last_seen_at
 			 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
-			 ON CONFLICT (user_id, type, manufacturer_id, serial_number) WHERE serial_number IS NOT NULL
+			 ON CONFLICT (user_id, type, serial_number) WHERE serial_number IS NOT NULL
 			 DO UPDATE SET
 				last_seen_at  = GREATEST(devices.last_seen_at, EXCLUDED.last_seen_at),
 				first_seen_at = LEAST(devices.first_seen_at, EXCLUDED.first_seen_at),
