@@ -12,6 +12,7 @@ import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDia
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
+import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
@@ -1187,7 +1188,7 @@ export default function MapPage() {
         display: flex;
         align-items: center;
         justify-content: center;
-        color: ${tag.text_color || '#ffffff'};
+        color: ${getTagTextColor(tag.color || '#6366F1')};
         font-size: 11px;
         font-weight: 700;
         flex-shrink: 0;
@@ -2346,7 +2347,7 @@ export default function MapPage() {
           const center = map ? map.getCenter() : { lat: 47.5, lng: 11.0 }
           return (
             <RouteSuggestionDialog
-              start={[center.lat, center.lng]}
+              start={[center.lng, center.lat]}
               onClose={() => setShowSuggestionDialog(false)}
               onResult={(suggestions) => {
                 // Load first suggested route's waypoints into the planner
@@ -2608,7 +2609,7 @@ export default function MapPage() {
               <div className="px-4 pt-3 pb-2 flex items-center gap-3 flex-shrink-0 border-b border-neutral-100 dark:border-neutral-800">
                 <span
                   className="inline-block px-3 py-1 rounded-full text-sm font-semibold cursor-pointer hover:opacity-80 transition-opacity"
-                  style={{ backgroundColor: selectedLocationTag.color, color: selectedLocationTag.text_color }}
+                  style={getTagBadgeStyle(selectedLocationTag.color)}
                   onClick={() => {
                     navigate(`/workshop/tags?edit=${selectedLocationTag.id}`)
                     setSelectedLocationTagId(null)

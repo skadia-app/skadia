@@ -232,10 +232,37 @@ func AlphaShape(points []orb.Point, alpha float64) orb.Ring {
 			ring = append(ring, orb.Point{dPoints[cur].X, dPoints[cur].Y})
 			neighbors := boundaryEdges[cur]
 			next := -1
-			for _, n := range neighbors {
-				if n != prev && !visited[n] {
-					next = n
-					break
+			if prev >= 0 && len(neighbors) > 1 {
+				// Angle-based selection: pick neighbor with smallest CW turn
+				// (right-hand rule traces outer boundary correctly at degree>2 nodes)
+				inAngle := math.Atan2(dPoints[cur].Y-dPoints[prev].Y, dPoints[cur].X-dPoints[prev].X)
+				reverseAngle := inAngle + math.Pi
+				bestAngle := 4 * math.Pi // larger than any possible
+				for _, n := range neighbors {
+					if n == prev || visited[n] {
+						continue
+					}
+					outAngle := math.Atan2(dPoints[n].Y-dPoints[cur].Y, dPoints[n].X-dPoints[cur].X)
+					// CCW angle from reverse incoming to outgoing, normalized to [0, 2π)
+					angle := outAngle - reverseAngle
+					for angle < 0 {
+						angle += 2 * math.Pi
+					}
+					for angle >= 2*math.Pi {
+						angle -= 2 * math.Pi
+					}
+					if angle < bestAngle {
+						bestAngle = angle
+						next = n
+					}
+				}
+			} else {
+				// First node or single neighbor: pick any unvisited
+				for _, n := range neighbors {
+					if n != prev && !visited[n] {
+						next = n
+						break
+					}
 				}
 			}
 			if next == -1 {
