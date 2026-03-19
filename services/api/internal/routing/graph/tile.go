@@ -72,9 +72,13 @@ func IsBorderCoord(tileID uint32, lat, lon float64, borderDist float64) bool {
 }
 
 func TileFileName(tileID uint32) string {
-	return fmt.Sprintf("tile_%d.bin", tileID)
+	lat := int(tileID/360) - 90
+	lon := int(tileID%360) - 180
+	return fmt.Sprintf("tile_%d_%d.bin", lat, lon)
 }
 
 func TileFilePath(outputDir string, tileID uint32) string {
-	return filepath.Join(outputDir, fmt.Sprintf("tile_%d.bin", tileID))
+	lat := int(tileID/360) - 90
+	lon := int(tileID%360) - 180
+	return filepath.Join(outputDir, fmt.Sprintf("tile_%d_%d.bin", lat, lon))
 }

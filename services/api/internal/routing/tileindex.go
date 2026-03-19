@@ -29,7 +29,19 @@ func ScanTileIndex(dir string) (*TileIndex, error) {
 		if !strings.HasPrefix(name, "tile_") || !strings.HasSuffix(name, ".bin") {
 			continue
 		}
+		// Parse tile_LAT_LON.bin format (e.g. tile_46_14.bin)
 		idStr := strings.TrimPrefix(strings.TrimSuffix(name, ".bin"), "tile_")
+		parts := strings.SplitN(idStr, "_", 2)
+		if len(parts) == 2 {
+			lat, err1 := strconv.Atoi(parts[0])
+			lon, err2 := strconv.Atoi(parts[1])
+			if err1 == nil && err2 == nil {
+				tileID := uint32((lat+90)*360 + (lon + 180))
+				idx.tiles[tileID] = filepath.Join(dir, name)
+				continue
+			}
+		}
+		// Fallback: try numeric tile ID (legacy format)
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
 			continue
