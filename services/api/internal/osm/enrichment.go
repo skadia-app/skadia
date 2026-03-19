@@ -786,16 +786,25 @@ func withDeadlockRetry(ctx context.Context, name string, fn func() error) error 
 
 // repairEnrichmentTables attempts auto-repair on tables used by enrichment Phase 2.
 // Called when a XX001 (corrupted page) error is detected.
-// Uses the same CTAS+TRUNCATE strategy as pipeline.go's repairCorruptedTable.
+// First tries REINDEX on all involved tables (most common: corrupted GIST index).
+// If that doesn't help, falls back to CTAS+TRUNCATE table repair.
 func repairEnrichmentTables(ctx context.Context, pool *pgxpool.Pool) error {
-	// Tables that enrichment Phase 2 reads via JOINs.
-	// osm_ways is excluded — it's the target table and corruption there
-	// would have surfaced in Phase 1 (coverage layer) already.
-	tables := []string{"osm_routes", "osm_route_way_members"}
+	tables := []string{"osm_ways", "osm_routes", "osm_route_way_members"}
+
+	// Step 1: REINDEX — most XX001 errors are corrupted indexes, not table data.
 	for _, table := range tables {
+		slog.Info("enrichment: reindexing table", "table", table)
+		if _, err := pool.Exec(ctx, "REINDEX TABLE "+table); err != nil {
+			slog.Warn("enrichment: reindex failed (non-fatal)", "table", table, "error", err)
+		}
+	}
+
+	// Step 2: CTAS repair for non-osm_ways tables (osm_ways is too large for CTAS).
+	for _, table := range []string{"osm_routes", "osm_route_way_members"} {
 		before, after, err := repairCorruptedTable(ctx, pool, table)
 		if err != nil {
-			return fmt.Errorf("repair %s: %w", table, err)
+			slog.Warn("enrichment: table repair failed (non-fatal)", "table", table, "error", err)
+			continue
 		}
 		if before != after {
 			slog.Warn("enrichment: table repaired with data loss",
