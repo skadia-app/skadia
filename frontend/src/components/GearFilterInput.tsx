@@ -1,7 +1,9 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchGear } from '@/api/gear'
+import { fetchDevices } from '@/api/hardware'
 import type { Gear } from '@/api/types'
+import type { Device } from '@/api/hardware'
 
 export type GearFilterState = 'include' | 'exclude'
 
@@ -12,9 +14,18 @@ export interface GearFilter {
   state: GearFilterState
 }
 
+export interface DeviceFilter {
+  id: string
+  name: string
+  deviceType: 'recorder' | 'sensor'
+  state: GearFilterState
+}
+
 interface Props {
   value: GearFilter[]
   onChange: (filters: GearFilter[]) => void
+  deviceValue?: DeviceFilter[]
+  onDeviceChange?: (filters: DeviceFilter[]) => void
   placeholder?: string
   /** Hide chips and hint — for composite layouts that render chips externally */
   compact?: boolean
@@ -44,7 +55,22 @@ function gearTypeLabel(type: string): string {
   return labels[type] ?? type
 }
 
-export default function GearFilterInput({ value, onChange, placeholder = 'Ausrüstung suchen...', compact }: Props) {
+function deviceLabel(d: Device): string {
+  return d.custom_name || d.product_name || d.manufacturer || d.id
+}
+
+function deviceKindLabel(d: Device): string {
+  return d.type === 'recorder' ? 'Gerät' : 'Sensor'
+}
+
+export default function GearFilterInput({
+  value,
+  onChange,
+  deviceValue = [],
+  onDeviceChange,
+  placeholder = 'Ausrüstung / Gerät suchen...',
+  compact,
+}: Props) {
   const [search, setSearch] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -54,26 +80,51 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
     queryFn: () => fetchGear(),
   })
 
+  const { data: allDevices = [] } = useQuery({
+    queryKey: ['devices-all'],
+    queryFn: () => fetchDevices(),
+    enabled: !!onDeviceChange,
+  })
+
   // Only show active (non-retired) gear
   const activeGear = allGear.filter((g: Gear) => !g.is_retired)
 
   const filterMap = new Map(value.map((f) => [f.id, f]))
+  const deviceFilterMap = new Map(deviceValue.map((f) => [f.id, f]))
 
-  const filtered = activeGear.filter(
-    (g: Gear) => g.name.toLowerCase().includes(search.toLowerCase().trim()),
+  const searchLower = search.toLowerCase().trim()
+  const filteredGear = activeGear.filter(
+    (g: Gear) => g.name.toLowerCase().includes(searchLower),
   )
+  const filteredDevices = onDeviceChange
+    ? allDevices.filter((d: Device) => deviceLabel(d).toLowerCase().includes(searchLower))
+    : []
 
   function cycleGear(gear: Gear) {
     const current = filterMap.get(gear.id)
     if (!current) {
-      // none → include
       onChange([...value, { id: gear.id, name: gear.name, type: gear.type, state: 'include' }])
     } else if (current.state === 'include') {
-      // include → exclude
       onChange(value.map((f) => f.id === gear.id ? { ...f, state: 'exclude' as GearFilterState } : f))
     } else {
-      // exclude → remove
       onChange(value.filter((f) => f.id !== gear.id))
+    }
+  }
+
+  function cycleDevice(device: Device) {
+    if (!onDeviceChange) return
+    const current = deviceFilterMap.get(device.id)
+    if (!current) {
+      onDeviceChange([...deviceValue, {
+        id: device.id,
+        name: deviceLabel(device),
+        deviceType: device.type,
+        state: 'include',
+      }])
+    } else if (current.state === 'include') {
+      onDeviceChange(deviceValue.map((f) => f.id === device.id ? { ...f, state: 'exclude' as GearFilterState } : f))
+    } else {
+      onDeviceChange(deviceValue.filter((f) => f.id !== device.id))
     }
   }
 
@@ -89,24 +140,30 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
     return null
   }
 
-  const hasActive = value.length > 0
+  const hasActiveGear = value.length > 0
+  const hasActiveDevices = deviceValue.length > 0
+  const hasActive = hasActiveGear || hasActiveDevices
 
   function handleOpen() {
     setListOpen(true)
-    // Scroll list into view after render
     requestAnimationFrame(() => {
       listRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     })
   }
 
+  const showList = listOpen && (filteredGear.length > 0 || filteredDevices.length > 0)
+  const showEmpty = listOpen && searchLower !== '' && filteredGear.length === 0 && filteredDevices.length === 0
+
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Ausrüstung</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+          {onDeviceChange ? 'Ausrüstung & Geräte' : 'Ausrüstung'}
+        </span>
         {hasActive && !compact && (
           <button
             type="button"
-            onClick={() => onChange([])}
+            onClick={() => { onChange([]); onDeviceChange?.([]) }}
             className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
             Zurücksetzen
@@ -139,39 +196,95 @@ export default function GearFilterInput({ value, onChange, placeholder = 'Ausrü
         )}
       </div>
 
-      {/* Gear list (inline, not absolute) */}
-      {listOpen && filtered.length > 0 && (
-        <div ref={listRef} className="mt-1.5 space-y-0.5 max-h-40 overflow-y-auto">
-          {filtered.map((gear: Gear) => {
-            const state = filterMap.get(gear.id)?.state
-            return (
-              <button
-                key={gear.id}
-                type="button"
-                onClick={() => cycleGear(gear)}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md border transition-colors cursor-pointer text-left ${stateStyle(state)}`}
-              >
-                <span className="flex-shrink-0" aria-hidden="true">
-                  {gearTypeIcon(gear.type)}
-                </span>
-                <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
-                  {gear.name}
-                </span>
-                {!state && (
-                  <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
-                    {gearTypeLabel(gear.type)}
+      {/* Combined list (inline, not absolute) */}
+      {showList && (
+        <div ref={listRef} className="mt-1.5 space-y-0.5 max-h-52 overflow-y-auto">
+          {/* Gear section */}
+          {filteredGear.length > 0 && (
+            <>
+              {onDeviceChange && filteredDevices.length > 0 && (
+                <div className="px-2 pt-1 pb-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                    Ausrüstung
                   </span>
-                )}
-                {stateIndicator(state)}
-              </button>
-            )
-          })}
+                </div>
+              )}
+              {filteredGear.map((gear: Gear) => {
+                const state = filterMap.get(gear.id)?.state
+                return (
+                  <button
+                    key={gear.id}
+                    type="button"
+                    onClick={() => cycleGear(gear)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md border transition-colors cursor-pointer text-left ${stateStyle(state)}`}
+                  >
+                    <span className="flex-shrink-0" aria-hidden="true">
+                      {gearTypeIcon(gear.type)}
+                    </span>
+                    <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
+                      {gear.name}
+                    </span>
+                    {!state && (
+                      <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
+                        {gearTypeLabel(gear.type)}
+                      </span>
+                    )}
+                    {stateIndicator(state)}
+                  </button>
+                )
+              })}
+            </>
+          )}
+
+          {/* Device section */}
+          {onDeviceChange && filteredDevices.length > 0 && (
+            <>
+              {filteredGear.length > 0 && (
+                <div className="px-2 pt-2 pb-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                    Geräte & Sensoren
+                  </span>
+                </div>
+              )}
+              {filteredGear.length === 0 && (
+                <div className="px-2 pt-1 pb-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                    Geräte & Sensoren
+                  </span>
+                </div>
+              )}
+              {filteredDevices.map((device: Device) => {
+                const state = deviceFilterMap.get(device.id)?.state
+                return (
+                  <button
+                    key={device.id}
+                    type="button"
+                    onClick={() => cycleDevice(device)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md border transition-colors cursor-pointer text-left ${stateStyle(state)}`}
+                  >
+                    <span className="flex-shrink-0 text-neutral-400" aria-hidden="true">
+                      {device.type === 'recorder' ? '📡' : '📶'}
+                    </span>
+                    <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
+                      {deviceLabel(device)}
+                    </span>
+                    {!state && (
+                      <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
+                        {deviceKindLabel(device)}
+                      </span>
+                    )}
+                    {stateIndicator(state)}
+                  </button>
+                )
+              })}
+            </>
+          )}
         </div>
       )}
 
-      {listOpen && search.trim() !== '' && filtered.length === 0 && (
+      {showEmpty && (
         <div className="mt-1.5 px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Ausrüstung gefunden
+          Keine Ergebnisse gefunden
         </div>
       )}
 

@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
+import { fetchDevices } from '@/api/hardware'
+import type { Device } from '@/api/hardware'
 import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction } from '@/api/types'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
@@ -62,6 +64,8 @@ interface ConditionField {
   inputType: 'number' | 'text' | 'bool' | 'enum' | 'tag' | 'segment' | 'geofence' | 'geofence_zone' | 'geofence_proximity'
   unit?: string
   options?: { value: string; label: string }[]
+  /** Override available operators for this specific field */
+  operators?: string[]
 }
 
 interface ConditionCategory {
@@ -204,6 +208,39 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'segment_effort_rank', label: 'Segment-Platzierung', inputType: 'segment' },
     { field: 'segment_effort_time_s', label: 'Segment-Zeit', inputType: 'segment' },
   ]},
+  { key: 'device', label: 'Geräte & Sensoren', fields: [
+    {
+      field: 'recording_device_id',
+      label: 'Aufzeichnungsgerät',
+      inputType: 'enum',
+      options: [], // dynamically filled via devices query in RuleEditor
+    },
+    {
+      field: 'has_sensor_type',
+      label: 'Sensortyp vorhanden',
+      inputType: 'enum',
+      options: [
+        { value: 'heart_rate', label: 'Herzfrequenz' },
+        { value: 'bike_power', label: 'Leistungsmesser' },
+        { value: 'bike_cadence', label: 'Trittfrequenz' },
+        { value: 'bike_speed', label: 'Geschwindigkeit' },
+        { value: 'bike_speed_cadence', label: 'Geschwindigkeit/Trittfrequenz' },
+        { value: 'stride_speed_distance', label: 'Laufpod' },
+        { value: 'bike_radar', label: 'Rückwärtsradar' },
+        { value: 'shifting', label: 'Schaltung (Di2/eTap)' },
+        { value: 'env_sensor', label: 'Umgebungssensor' },
+        { value: 'muscle_oxygen', label: 'Muskel-Sauerstoff' },
+      ],
+      operators: ['contains', 'not_contains'],
+    },
+    {
+      field: 'sensor_device_ids',
+      label: 'Konkreter Sensor',
+      inputType: 'enum',
+      options: [], // dynamically filled via devices query in RuleEditor
+      operators: ['contains'],
+    },
+  ]},
 ]
 
 // Internal-only fields not shown in category dropdown (geofence, round-trip)
@@ -230,6 +267,8 @@ function findCategory(field: string): ConditionCategory | undefined {
 
 // Operators per input type
 function opsForField(cf: ConditionField): string[] {
+  // Field-level override takes precedence
+  if (cf.operators && cf.operators.length > 0) return cf.operators
   switch (cf.inputType) {
     case 'bool': return ['eq']
     case 'enum': return ['eq', 'neq', 'in']
@@ -245,7 +284,7 @@ function opsForField(cf: ConditionField): string[] {
 
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
-  contains: 'enthält', in: 'in',
+  contains: 'enthält', not_contains: 'enthält nicht', in: 'in',
 }
 
 const ACTION_TYPES = [
@@ -770,13 +809,32 @@ function ConditionValueEditor({
   cond,
   onChange,
   tags,
+  recorders,
+  sensors,
 }: {
   fieldDef: ConditionField
   cond: RuleCondition
   onChange: (patch: Partial<RuleCondition>) => void
   tags: Array<{ id: string; name: string; color: string }>
+  recorders?: Device[]
+  sensors?: Device[]
 }) {
   const { inputType } = fieldDef
+
+  // Resolve dynamic options for device fields
+  function deviceOption(d: Device) {
+    return { value: d.id, label: d.custom_name || d.product_name || d.manufacturer || d.id }
+  }
+  const resolvedFieldDef: ConditionField = (() => {
+    if (fieldDef.field === 'recording_device_id' && recorders) {
+      return { ...fieldDef, options: recorders.map(deviceOption) }
+    }
+    if (fieldDef.field === 'sensor_device_ids' && sensors) {
+      return { ...fieldDef, options: sensors.map(deviceOption) }
+    }
+    return fieldDef
+  })()
+  const effectiveOptions = resolvedFieldDef.options ?? fieldDef.options
 
   if (inputType === 'bool') {
     return (
@@ -791,15 +849,15 @@ function ConditionValueEditor({
     )
   }
 
-  if (inputType === 'enum' && fieldDef.options) {
-    if (cond.op === 'in') {
+  if (inputType === 'enum' && effectiveOptions) {
+    if (cond.op === 'in' || cond.op === 'contains' || cond.op === 'not_contains') {
       const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
       function toggle(v: string) {
         onChange({ value: selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v] })
       }
       return (
         <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-          {fieldDef.options.map(s => (
+          {effectiveOptions.map(s => (
             <button
               key={s.value}
               type="button"
@@ -823,7 +881,7 @@ function ConditionValueEditor({
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">Wählen...</option>
-        {fieldDef.options.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        {effectiveOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
       </select>
     )
   }
@@ -949,11 +1007,15 @@ function ConditionRow({
   onUpdate,
   onRemove,
   tags,
+  recorders,
+  sensors,
 }: {
   cond: RuleCondition
   onUpdate: (patch: Partial<RuleCondition>) => void
   onRemove: () => void
   tags: Array<{ id: string; name: string; color: string }>
+  recorders?: Device[]
+  sensors?: Device[]
 }) {
   const currentCat = findCategory(cond.field)
   const currentField = findFieldDef(cond.field)
@@ -964,7 +1026,7 @@ function ConditionRow({
     return (
       <div className={['geofence', 'geofence_zone', 'geofence_proximity'].includes(currentField.inputType) ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
         <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{currentField.label}</span>
-        <ConditionValueEditor fieldDef={currentField} cond={cond} onChange={onUpdate} tags={tags} />
+        <ConditionValueEditor fieldDef={currentField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
         <button type="button" onClick={onRemove}
           className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
           title="Bedingung entfernen"
@@ -1034,7 +1096,7 @@ function ConditionRow({
       )}
 
       {/* Value editor */}
-      <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} />
+      <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
 
       {/* Remove button */}
       <button
@@ -1062,6 +1124,8 @@ function ConditionGroupBlock({
   onChange,
   onRemove,
   tags,
+  recorders,
+  sensors,
 }: {
   group: RuleConditionGroup
   groupIndex: number
@@ -1069,6 +1133,8 @@ function ConditionGroupBlock({
   onChange: (g: RuleConditionGroup) => void
   onRemove: () => void
   tags: Array<{ id: string; name: string; color: string }>
+  recorders?: Device[]
+  sensors?: Device[]
 }) {
   function addCondition() {
     onChange({ ...group, conditions: [...group.conditions, defaultCondition()] })
@@ -1132,6 +1198,8 @@ function ConditionGroupBlock({
               onUpdate={(patch) => updateCondition(i, patch)}
               onRemove={() => removeCondition(i)}
               tags={tags}
+              recorders={recorders}
+              sensors={sensors}
             />
           </div>
         ))}
@@ -1309,8 +1377,18 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
     queryKey: ['tags'],
     queryFn: fetchTags,
   })
+  const { data: recorderList } = useQuery({
+    queryKey: ['devices-recorders'],
+    queryFn: () => fetchDevices('recorder'),
+  })
+  const { data: sensorList } = useQuery({
+    queryKey: ['devices-sensors'],
+    queryFn: () => fetchDevices('sensor'),
+  })
 
   const tags = (tagList ?? []).map(t => ({ id: t.id, name: t.name, color: t.color }))
+  const recorders = recorderList ?? []
+  const sensors = sensorList ?? []
 
   // Groups mutations
   function addGroup() {
@@ -1415,6 +1493,8 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 onChange={(updated) => updateGroup(i, updated)}
                 onRemove={() => removeGroup(i)}
                 tags={tags}
+                recorders={recorders}
+                sensors={sensors}
               />
             </div>
           ))}
