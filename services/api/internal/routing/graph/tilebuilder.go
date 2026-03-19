@@ -147,6 +147,14 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 		return nil, fmt.Errorf("mkdir %s: %w", outputDir, err)
 	}
 
+	// Warn if route membership has not been enriched
+	var nullCount int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM osm_ways WHERE highway IS NOT NULL AND is_cycleroute IS NULL`).Scan(&nullCount); err == nil && nullCount > 1000 {
+		slog.Warn("tile build: route membership not enriched for most ways",
+			"null_count", nullCount,
+			"hint", "Run 'Route-Membership' from Settings before building tiles for cycleroute/hikeroute boost")
+	}
+
 	tileIDs, err := DiscoverTileIDs(ctx, pool)
 	if err != nil {
 		return nil, err
