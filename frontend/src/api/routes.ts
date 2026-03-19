@@ -86,8 +86,10 @@ export interface IsochronePolygon {
 export interface IsochronePOI {
   name: string
   type: string
+  lat: number
+  lng: number
+  osm_id?: number
   minutes: number
-  latlng: [number, number]
 }
 
 export interface IsochroneResult {
@@ -294,6 +296,9 @@ export interface RouteSuggestion {
   variant: number
   profile: string
   via_point?: [number, number]
+  distance_m: number
+  ascent_m: number
+  descent_m: number
   geojson: GeoJSON.FeatureCollection
   is_fallback: boolean
 }

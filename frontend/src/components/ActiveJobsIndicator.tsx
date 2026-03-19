@@ -49,7 +49,6 @@ function JobRow({ job }: { job: ActiveJob }) {
     distance_reset:          'Distanzkorrektur zurücksetzen',
     dem_import:              'Höhenmodell importieren',
     apply_rules:             'Regeln anwenden',
-    routing_graph_build:     'Routing-Graph erstellen',
     weather_backfill:        'Wetter-Daten nachfüllen',
     tile_build:              'Routing-Tiles erstellen',
     brouter_segment_build:   'BRouter-Segmente erstellen',

@@ -298,10 +298,10 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
           </h3>
 
           <PipelinePanel
-            title="Spatial Enrichment"
-            description="Wald-, Lärm-, Verkehrs- und Landnutzungsdaten für Ways"
+            title="Route-Membership"
+            description="Rad- und Wanderrouten-Zugehörigkeit für Ways"
             icon={Sparkles}
-            buttonLabel="Enrichment starten"
+            buttonLabel="Berechnen"
             onStart={() => enrichMut.mutate(enrichRegions)}
             isPending={enrichMut.isPending || !!activeEnrichmentJob}
             disabled={importedRegions.length === 0}
