@@ -3,6 +3,7 @@ package activityutil
 import (
 	"math"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
@@ -18,17 +19,6 @@ func movingThreshold(sportType string) float64 {
 	return sport.MovingThreshold(sportType)
 }
 
-// haversineDistance returns the great-circle distance in metres between two
-// WGS-84 coordinates.
-func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const earthRadius = 6371000.0
-	dLat := (lat2 - lat1) * math.Pi / 180.0
-	dLon := (lon2 - lon1) * math.Pi / 180.0
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*math.Pi/180.0)*math.Cos(lat2*math.Pi/180.0)*
-			math.Sin(dLon/2)*math.Sin(dLon/2)
-	return earthRadius * 2.0 * math.Atan2(math.Sqrt(a), math.Sqrt(1.0-a))
-}
 
 // CalcMovingTime berechnet die Bewegungszeit aus den Stream-Datenpunkten.
 //
@@ -113,7 +103,7 @@ func speedForInterval(prev, curr model.StreamPoint, dt float64) float64 {
 
 	// Compute from GPS coordinates if available.
 	if prev.Lat != nil && prev.Lng != nil && curr.Lat != nil && curr.Lng != nil {
-		dist := haversineDistance(*prev.Lat, *prev.Lng, *curr.Lat, *curr.Lng)
+		dist := geo.DistanceHaversine(*prev.Lat, *prev.Lng, *curr.Lat, *curr.Lng)
 		return dist / dt
 	}
 
