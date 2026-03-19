@@ -116,25 +116,18 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				continue
 			}
 
-			// 8. Get stream-based metrics
-			var avgSpeed, avgHR, avgPower *float64
-			if metrics, err := db.GetSegmentEffortMetrics(matchCtx, activityID, startTime, endTime); err == nil && metrics != nil {
-				avgSpeed = metrics.AvgSpeedMs
-				avgHR = metrics.AvgHeartRate
-				avgPower = metrics.AvgPowerW
+			// 8+9. Get stream-based metrics and elevation gain in a single round-trip.
+			avgSpeed, avgHR, avgPower, elevGain, metricsErr := db.GetSegmentEffortMetricsAndElevation(matchCtx, activityID, startTime, endTime)
+			if metricsErr != nil {
+				slog.Warn("segment matching: metrics+elevation query failed",
+					"activity_id", activityID, "segment_id", cand.SegmentID, "err", metricsErr)
 			}
 
-			// 9. Compute distance and elevation gain for this effort
+			// 9. Compute distance for this effort.
 			distM := estimateSubTrackLength(subTrack)
 			var distPtr *float64
 			if distM > 0 {
 				distPtr = &distM
-			}
-			var elevGain *float64
-			if eg, err := db.GetSubTrackElevationGain(matchCtx, activityID, startTime, endTime); err != nil {
-				slog.Warn("elevation gain query failed", "activity_id", activityID, "segment_id", cand.SegmentID, "err", err)
-			} else {
-				elevGain = eg
 			}
 
 			effort := &model.SegmentEffort{
@@ -367,24 +360,18 @@ func matchLapSegment(
 			continue
 		}
 
-		var avgSpeed, avgHR, avgPower *float64
-		if metrics, err := db.GetSegmentEffortMetrics(ctx, activityID, startTime, endTime); err == nil && metrics != nil {
-			avgSpeed = metrics.AvgSpeedMs
-			avgHR = metrics.AvgHeartRate
-			avgPower = metrics.AvgPowerW
+		// Get stream-based metrics and elevation gain in a single round-trip.
+		avgSpeed, avgHR, avgPower, elevGain, metricsErr := db.GetSegmentEffortMetricsAndElevation(ctx, activityID, startTime, endTime)
+		if metricsErr != nil {
+			slog.Warn("lap segment: metrics+elevation query failed",
+				"activity_id", activityID, "segment_id", cand.SegmentID, "err", metricsErr)
 		}
 
-		// Compute distance and elevation gain for this lap effort
+		// Compute distance for this lap effort.
 		distM := estimateSubTrackLength(subTrack)
 		var distPtr *float64
 		if distM > 0 {
 			distPtr = &distM
-		}
-		var elevGain *float64
-		if eg, err := db.GetSubTrackElevationGain(ctx, activityID, startTime, endTime); err != nil {
-			slog.Warn("elevation gain query failed", "activity_id", activityID, "segment_id", cand.SegmentID, "err", err)
-		} else {
-			elevGain = eg
 		}
 
 		effort := &model.SegmentEffort{
