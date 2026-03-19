@@ -42,12 +42,10 @@ func NewTileGridCache(pool *pgxpool.Pool, noiseCfg NoiseSettings) *TileGridCache
 }
 
 // PreloadTile builds coverage grids for a tile. Idempotent.
-func (c *TileGridCache) PreloadTile(tileID uint32) error {
+func (c *TileGridCache) PreloadTile(ctx context.Context, tileID uint32) error {
 	if _, ok := c.grids[tileID]; ok {
 		return nil // already loaded
 	}
-
-	ctx := context.Background()
 
 	tg, trafficIn, err := buildGridsForTile(ctx, c.pool, tileID, c.noiseCfg)
 	if err != nil {

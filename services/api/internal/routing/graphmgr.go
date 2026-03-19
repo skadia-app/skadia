@@ -21,8 +21,8 @@ type coverageAdapter struct {
 	cache *coverage.TileGridCache
 }
 
-func (a *coverageAdapter) PreloadTile(tileID uint32) error {
-	return a.cache.PreloadTile(tileID)
+func (a *coverageAdapter) PreloadTile(ctx context.Context, tileID uint32) error {
+	return a.cache.PreloadTile(ctx, tileID)
 }
 
 func (a *coverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {

@@ -98,7 +98,8 @@ func ComputeElevSegDist(lats, lons []int32, cosLat float64) []uint16 {
 	return dists
 }
 
-// equirectDistCm returns equirectangular distance in centimeters.
+// equirectDistCm uses math.Cos (not Bhaskara approx) because build-time precision
+// matters more than speed here. See routing/distance.go for the hot-path variant.
 func equirectDistCm(lat1, lon1, lat2, lon2 int32, cosLat float64) int {
 	dlat := float64(lat2-lat1) * dpDegToRad * dpEarthR
 	dlon := float64(lon2-lon1) * dpDegToRad * dpEarthR * cosLat

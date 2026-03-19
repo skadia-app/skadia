@@ -263,6 +263,11 @@ func buildTrackIndexUnified(state *SparseRouterState, src, dst uint64) map[uint6
 		}
 	}
 
+	// NOTE: Uses BestCost (raw g-cost) for remaining calculation, NOT EffectiveCost.
+	// This is intentional: the trackIndex remaining values are scaled by Pass0Coefficient
+	// in the cutoff formula (line ~126), providing a safety margin that compensates for
+	// the BestCost→EffectiveCost gap (elevation correction). Using EffectiveCost here
+	// would double-count the correction.
 	totalCost := state.nodes[dst].BestCost
 	trackIndex := make(map[uint64]float32, len(path))
 	for _, nodeID := range path {

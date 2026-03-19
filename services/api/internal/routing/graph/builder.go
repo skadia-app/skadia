@@ -49,7 +49,8 @@ type CoverageReader interface {
 	// SampleWay samples all coverage layers along a way geometry.
 	SampleWay(geom orb.LineString) CoverageData
 	// PreloadTile builds/caches coverage grids for a tile.
-	PreloadTile(tileID uint32) error
+	// The context is forwarded to cancellable DB queries inside the preload.
+	PreloadTile(ctx context.Context, tileID uint32) error
 }
 
 // computeTrafficFromCoverage applies hwWeight per highway type and classifies traffic.
