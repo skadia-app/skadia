@@ -198,11 +198,6 @@ func main() {
 	} else if unified {
 		slog.Info("routing: unified router active")
 	}
-	// Load monolithic graph for RoutingGraphStatus metadata.
-	if err := graphMgr.LoadFromFile(cfg.RoutingGraphPath); err != nil {
-		slog.Warn("no routing graph loaded", "path", cfg.RoutingGraphPath, "error", err)
-	}
-
 	// Wire Shadow FS callback: delegates to the handler method which needs
 	// both h.DB and h.ShadowFS — set after h is constructed.
 	if shadowFSCfg != nil {
@@ -353,7 +348,6 @@ func main() {
 			r.Get("/admin/osm-schedule", h.GetOSMSchedule)
 			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
-			r.Post("/admin/routing/rebuild-graph", h.RebuildRoutingGraph)
 			r.Post("/admin/routing/rebuild-tiles", h.RebuildRoutingTiles)
 			r.Post("/admin/routing/build-brouter-segments", h.BuildBRouterSegments)
 			r.Post("/admin/routing/download-brouter-segments", h.DownloadBRouterSegments)
