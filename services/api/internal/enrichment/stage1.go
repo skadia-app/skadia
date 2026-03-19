@@ -15,6 +15,11 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 )
 
+// enableDEMEnrichment controls whether Open-Meteo elevation correction is applied.
+// Disabled until a local DEM solution (e.g. SRTM tiles) is available.
+// The Open-Meteo elevation API rate-limits aggressively under any sustained load.
+const enableDEMEnrichment = false
+
 // RunStage1 executes synchronous enrichment for an activity after upload.
 // This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
 // If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
@@ -156,7 +161,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	}
 
 	// DEM-Höhenkorrektur via Open-Meteo (best-effort, vor Reverse-Geocoding)
-	if data.HasGPS && len(data.Streams) > 0 {
+	if enableDEMEnrichment && data.HasGPS && len(data.Streams) > 0 {
 		// Koordinaten aus Streams extrahieren
 		demLats := make([]float64, 0, len(data.Streams))
 		demLngs := make([]float64, 0, len(data.Streams))
@@ -186,6 +191,11 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 				fields["elevation_source"] = "device"
 			}
 		}
+	}
+
+	// Setze elevation_source default falls DEM deaktiviert oder nicht applicable.
+	if _, ok := fields["elevation_source"]; !ok {
+		fields["elevation_source"] = "device"
 	}
 
 	// Reverse geocoding (PostGIS)
