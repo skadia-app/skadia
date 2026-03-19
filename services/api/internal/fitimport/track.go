@@ -38,14 +38,14 @@ func ExtractTrackPoints(records []*mesgdef.Record) []model.TrackPoint {
 	return points
 }
 
-// TrackToWKT converts track points to a WKT LineString.
-// Delegates to geo.MarshalWKT via geo.LineStringFromLatLng.
-func TrackToWKT(points []model.TrackPoint) string {
+// TrackToEWKB converts track points to EWKB binary (SRID 4326).
+// Returns nil, nil when fewer than 2 points are present.
+func TrackToEWKB(points []model.TrackPoint) ([]byte, error) {
 	if len(points) < 2 {
-		return ""
+		return nil, nil
 	}
-	ls := geo.LineStringFromLatLng(points, func(p model.TrackPoint) (float64, float64) {
+	ls := geo.LineStringFromLatLng(points, func(p model.TrackPoint) (lat, lng float64) {
 		return p.Lat, p.Lng
 	})
-	return geo.MarshalWKT(ls)
+	return geo.MarshalEWKB(ls, 4326)
 }

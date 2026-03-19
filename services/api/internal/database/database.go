@@ -240,14 +240,17 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 	ls := geo.LineStringFromLatLng(trackPoints, func(p model.TrackPoint) (float64, float64) {
 		return p.Lat, p.Lng
 	})
-	wkt := geo.MarshalWKT(ls)
+	ewkb, err := geo.MarshalEWKB(ls, 4326)
+	if err != nil {
+		return fmt.Errorf("marshal track ewkb: %w", err)
+	}
 
-	_, err := db.Pool.Exec(ctx, `
-		WITH g AS (SELECT ST_SetSRID(ST_GeomFromText($2), 4326) AS geom)
+	_, err = db.Pool.Exec(ctx, `
+		WITH g AS (SELECT $2::geometry AS geom)
 		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
 		SELECT $1, g.geom, ST_Simplify(g.geom, 0.0001), ST_Envelope(g.geom), $3
 		FROM g`,
-		activityID, wkt, len(trackPoints),
+		activityID, ewkb, len(trackPoints),
 	)
 	if err != nil {
 		return fmt.Errorf("insert track: %w", err)
