@@ -12,6 +12,15 @@ type CoverageResult struct {
 	Urbanization   int // 0-255
 	RiverProximity int // 0-255
 	Water          bool
+
+	// Traffic: Roh-Inputs für Division-Formel (hwWeight=1.0 assumed)
+	// Builder wendet hwWeight basierend auf highway-Typ an:
+	//   raw := trafficRaw(cr.TrafficPopulate * hwWeight, cr.TrafficIndustrial, ...)
+	//   trafficClass := classifyTraffic(raw)
+	TrafficPopulate   float64 // Bevölkerungs-Gravitationsmodell
+	TrafficIndustrial float64 // Industrie/Retail/Flughafen-Proximity
+	TrafficMWDensity  float64 // Motorway-Dichte (resampled von 10km auf 100m)
+	TrafficHWDensity  float64 // Highway-Dichte (resampled von 10km auf 100m)
 }
 
 // CoverageReader provides coverage grid access for the graph builder (Phase 2).
