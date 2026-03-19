@@ -326,12 +326,9 @@ func restoreOne(
 		if data.SubType != "" {
 			subTypePtr = &data.SubType
 		}
-		if err := db.InsertHeatmapLine(ctx, meta.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-			slog.Warn("insert heatmap line fehlgeschlagen", "id", activity.ID, "error", err)
-		}
 		interval, _ := db.GetUserHeatmapInterval(ctx, meta.UserID)
-		if err := db.InsertHeatmapPoints(ctx, meta.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-			slog.Warn("insert heatmap points fehlgeschlagen", "id", activity.ID, "error", err)
+		if err := db.InsertHeatmapData(ctx, meta.UserID, activity.ID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
+			slog.Warn("insert heatmap data fehlgeschlagen", "id", activity.ID, "error", err)
 		}
 	}
 

@@ -11,8 +11,9 @@ import (
 
 func (h *Handler) BackfillHeatmap(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
 
-	count, err := h.DB.BackfillHeatmap(r.Context(), userID)
+	count, err := h.DB.BackfillHeatmapAll(r.Context(), userID, interval)
 	if err != nil {
 		slog.Error("backfill heatmap failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to backfill heatmap", r.URL.Path)
@@ -20,16 +21,14 @@ func (h *Handler) BackfillHeatmap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("heatmap backfill complete", "user_id", userID, "processed", count)
-
 	writeJSON(w, http.StatusOK, map[string]int{"processed": count})
 }
 
 func (h *Handler) BackfillHeatmapPoints(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-
 	interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
 
-	count, err := h.DB.BackfillHeatmapPoints(r.Context(), userID, interval)
+	count, err := h.DB.BackfillHeatmapAll(r.Context(), userID, interval)
 	if err != nil {
 		slog.Error("backfill heatmap points failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to backfill heatmap points", r.URL.Path)

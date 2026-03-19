@@ -271,7 +271,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 				// Fortschritt in DB: eigener Counter verhindert Race beim Modulo-Check.
 				if dbJobID != "" {
 					n := doneCounter.Add(1)
-					if n%20 == 0 {
+					if n%5 == 0 {
 						_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, n)
 					}
 				}
@@ -461,26 +461,20 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
 			return fmt.Errorf("insert track: %w", err)
 		}
-		// Refresh heatmap line
-		if err := h.DB.DeleteHeatmapLines(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete heatmap lines failed", "id", activityID, "error", err)
-		}
-		if err := h.DB.DeleteHeatmapPoints(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete heatmap points failed", "id", activityID, "error", err)
+		// Refresh heatmap data (lines + points)
+		if err := h.DB.DeleteHeatmapData(ctx, activityID); err != nil {
+			slog.Error("reprocess: delete heatmap data failed", "id", activityID, "error", err)
 		}
 		if len(data.TrackPoints) >= 2 {
 			var subTypePtr *string
 			if data.SubType != "" {
 				subTypePtr = &data.SubType
 			}
-			if err := h.DB.InsertHeatmapLine(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt); err != nil {
-				slog.Error("reprocess: insert heatmap line failed", "id", activityID, "error", err)
+			interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
+			if err := h.DB.InsertHeatmapData(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
+				slog.Error("reprocess: insert heatmap data failed", "id", activityID, "error", err)
 			}
 			h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-			interval, _ := h.DB.GetUserHeatmapInterval(ctx, userID)
-			if err := h.DB.InsertHeatmapPoints(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-				slog.Error("reprocess: insert heatmap points failed", "id", activityID, "error", err)
-			}
 		}
 	}
 
@@ -676,7 +670,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 9. Publish NATS event (triggers PMC recalculation).
-	if h.Events != nil {
+	// Im Bulk-Recompute (skipAnalyticsEvent=true) werden ALLE Events unterdrückt:
+	// PublishActivityUploaded löst eine vollständige PMC-Neuberechnung aus — bei 700+
+	// Aktivitäten parallel würde das die DB überlasten. Ein einziges Event wird am Ende
+	// vom Caller (RecomputeAllActivities) via PublishAnalyticsInvalidate gefeuert.
+	if h.Events != nil && !skipAnalyticsEvent {
 		evt := event.ActivityUploadedEvent{
 			ActivityID: activityID,
 			UserID:     userID,
@@ -686,10 +684,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
 		}
-		// Trigger analytics recompute for the user (graceful — never blocks recompute)
-		if !skipAnalyticsEvent {
-			h.Events.PublishAnalyticsInvalidate(userID)
-		}
+		h.Events.PublishAnalyticsInvalidate(userID)
 	}
 
 	return nil
