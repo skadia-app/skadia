@@ -69,9 +69,10 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 
 	// Pass 1: Dijkstra with track-index cost-cutting (passCoeff = 0)
 	// Safety margin: pass0 uses DeltaEle which underestimates on hilly terrain.
-	// DeltaEle sees net elevation change, full profile sees all ups+downs.
-	// Multiply by Pass0Coefficient to give pass1 enough budget.
-	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient
+	// DeltaEle sees net elevation (e.g. +150m), full profile sees actual work (e.g. 250m).
+	// Underestimation can be up to ~1.7x on hilly edges. Single Pass0Coefficient (1.5x)
+	// is insufficient: 0.6 * 1.5 = 0.9 < 1.0. Squared coefficient gives 2.25x headroom.
+	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
 	res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
 		0, pass1MaxCost, trackIndex)
 	if err != nil {

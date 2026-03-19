@@ -147,7 +147,9 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			var elevCost, upWeight, downWeight float32
 
 			if passCoeff > 1.0 {
-				// K04: Pass0 (inadmissible, c>1.0): simple DeltaEle (fast)
+				// Pass0 (inadmissible, c>1.0): DeltaEle for speed.
+				// DeltaEle underestimates on hilly terrain (net vs actual elevation work),
+				// but pass1MaxCost compensates with squared Pass0Coefficient margin.
 				hr := propagateHysteresis(ns.PathState, ev.DeltaEle*100, int32(ev.Dist)*10, cfg)
 				newPathState = hr.State
 				elevCost = hr.ElevCost
