@@ -410,6 +410,38 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
 			return fmt.Errorf("insert sensors: %w", err)
 		}
+
+		// Register Recording Device FK.
+		if data.RecordingDevice != nil {
+			data.RecordingDevice.UserID = userID
+			data.RecordingDevice.SeenAt = data.StartedAt
+			deviceID, err := h.DB.UpsertHWDevice(ctx, *data.RecordingDevice)
+			if err != nil {
+				slog.Error("recompute: upsert recording device failed", "error", err)
+			} else if deviceID != "" {
+				if err := h.DB.SetRecordingDeviceID(ctx, activityID, deviceID); err != nil {
+					slog.Error("recompute: set recording device id failed", "error", err)
+				}
+			}
+		}
+
+		// Register Sensor Device FKs.
+		for _, sensor := range data.Sensors {
+			if sensor.DeviceUpsert != nil {
+				sensor.DeviceUpsert.UserID = userID
+				sensor.DeviceUpsert.SeenAt = data.StartedAt
+				deviceID, err := h.DB.UpsertHWDevice(ctx, *sensor.DeviceUpsert)
+				if err != nil {
+					slog.Error("recompute: upsert sensor device failed", "error", err)
+					continue
+				}
+				if deviceID != "" {
+					if err := h.DB.SetSensorDeviceID(ctx, activityID, sensor, deviceID); err != nil {
+						slog.Error("recompute: set sensor device id failed", "error", err)
+					}
+				}
+			}
+		}
 	}
 
 	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro).
