@@ -3,7 +3,6 @@ package enrichment
 import (
 	"context"
 	"log/slog"
-	"math"
 	"slices"
 	"time"
 
@@ -530,21 +529,6 @@ func Intensity(avgHR, maxHR float64) string {
 	default:
 		return "" // needs better criteria: power zones, TSS, training type — see roadmap
 	}
-}
-
-// haversine returns distance in meters between two lat/lng points.
-func haversine(lat1, lng1, lat2, lng2 float64) float64 {
-	const earthRadiusM = 6371000.0
-	dLat := (lat2 - lat1) * math.Pi / 180.0
-	dLng := (lng2 - lng1) * math.Pi / 180.0
-	lat1Rad := lat1 * math.Pi / 180.0
-	lat2Rad := lat2 * math.Pi / 180.0
-
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
-			math.Sin(dLng/2)*math.Sin(dLng/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return earthRadiusM * c
 }
 
 // SunResult holds the calculated sunrise and sunset times for an activity.
