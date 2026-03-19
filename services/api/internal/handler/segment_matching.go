@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/paulmach/orb"
+
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -68,7 +70,7 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 	for _, cand := range candidates {
 		// Lap segments: use crossing detection instead of sub-track matching
 		if cand.SegmentType == "lap" {
-			lapEfforts, count := matchLapSegment(matchCtx, db, activityID, userID, sportType, subType, gearID, &cand, gpsStream)
+			lapEfforts, count := matchLapSegment(activityID, userID, sportType, subType, gearID, &cand, gpsStream)
 			allEfforts = append(allEfforts, lapEfforts...)
 			matchCount += count
 			if count > 0 {
@@ -89,6 +91,17 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 			continue
 		}
 
+		// Parse segment track from WKB for in-memory Hausdorff
+		var segLSMerc orb.LineString
+		if len(cand.TrackWKB) > 0 {
+			segGeom, wkbErr := geo.UnmarshalWKB(cand.TrackWKB)
+			if wkbErr == nil {
+				if ls, ok := segGeom.(orb.LineString); ok {
+					segLSMerc = geo.LineStringToMercator(ls)
+				}
+			}
+		}
+
 		for _, trav := range traversals {
 			subTrack := gpsStream[trav.startIdx : trav.endIdx+1]
 
@@ -97,14 +110,29 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				continue
 			}
 
-			// 6. Hausdorff on sub-track
-			distance, err := db.VerifySubTrackMatch(matchCtx, cand.VersionID, subTrack)
-			if err != nil {
-				slog.Warn("segment matching: verify sub-track failed",
-					"segment_id", cand.SegmentID, "error", err)
-				continue
+			// 6. In-memory Hausdorff distance (Mercator projection)
+			var hausdorffM float64
+			if segLSMerc != nil {
+				subLS := geo.LineStringFromLatLng(subTrack, func(p database.GPSStreamPoint) (float64, float64) {
+					return p.Lat, p.Lng
+				})
+				subLSMerc := geo.LineStringToMercator(subLS)
+				hausdorffM = geo.HausdorffDistancePlanar(subLSMerc, segLSMerc)
+			} else {
+				// Fallback: PostGIS Hausdorff if WKB was not available
+				pgDist, pgErr := db.VerifySubTrackMatch(matchCtx, cand.VersionID, subTrack)
+				if pgErr != nil {
+					slog.Warn("segment matching: verify sub-track failed",
+						"segment_id", cand.SegmentID, "error", pgErr)
+					continue
+				}
+				if pgDist == nil {
+					continue
+				}
+				hausdorffM = *pgDist
 			}
-			if distance == nil || *distance > segmentMatchThresholdM {
+
+			if hausdorffM > segmentMatchThresholdM {
 				continue
 			}
 
@@ -116,12 +144,8 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 				continue
 			}
 
-			// 8+9. Get stream-based metrics and elevation gain in a single round-trip.
-			avgSpeed, avgHR, avgPower, elevGain, metricsErr := db.GetSegmentEffortMetricsAndElevation(matchCtx, activityID, startTime, endTime)
-			if metricsErr != nil {
-				slog.Warn("segment matching: metrics+elevation query failed",
-					"activity_id", activityID, "segment_id", cand.SegmentID, "err", metricsErr)
-			}
+			// 8+9. In-memory metrics from GPS stream (no DB round-trip).
+			avgSpeed, avgHR, avgPower, elevGain := computeEffortMetrics(gpsStream, trav.startIdx, trav.endIdx)
 
 			// 9. Compute distance for this effort.
 			distM := estimateSubTrackLength(subTrack)
@@ -154,7 +178,7 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 			slog.Info("segment matched",
 				"activity_id", activityID,
 				"segment_id", cand.SegmentID,
-				"hausdorff_m", *distance,
+				"hausdorff_m", hausdorffM,
 				"elapsed_s", elapsedS,
 				"is_reverse", trav.isReverse)
 		}
@@ -321,8 +345,6 @@ const lapMinGapM = 100.0 // minimum GPS distance between two crossings
 // segment_type_meta, groups them into crossing events separated by lapMinGapM,
 // and creates one segment_effort per crossing pair.
 func matchLapSegment(
-	ctx context.Context,
-	db *database.DB,
 	activityID, userID, sportType, subType string,
 	gearID *string,
 	cand *database.CandidateSegment,
@@ -360,12 +382,8 @@ func matchLapSegment(
 			continue
 		}
 
-		// Get stream-based metrics and elevation gain in a single round-trip.
-		avgSpeed, avgHR, avgPower, elevGain, metricsErr := db.GetSegmentEffortMetricsAndElevation(ctx, activityID, startTime, endTime)
-		if metricsErr != nil {
-			slog.Warn("lap segment: metrics+elevation query failed",
-				"activity_id", activityID, "segment_id", cand.SegmentID, "err", metricsErr)
-		}
+		// In-memory metrics from GPS stream (no DB round-trip).
+		avgSpeed, avgHR, avgPower, elevGain := computeEffortMetrics(gpsStream, startIdx, endIdx)
 
 		// Compute distance for this lap effort.
 		distM := estimateSubTrackLength(subTrack)
@@ -415,6 +433,94 @@ func extractFinishPoint(meta map[string]any) (lat, lng float64, ok bool) {
 	lat, ok1 := latV.(float64)
 	lng, ok2 := lngV.(float64)
 	return lat, lng, ok1 && ok2
+}
+
+// computeEffortMetrics computes average speed, heart rate, power and total
+// elevation gain from the GPS stream slice [startIdx, endIdx] (inclusive).
+// Returns nil pointers for metrics that have no data points.
+func computeEffortMetrics(stream []database.GPSStreamPoint, startIdx, endIdx int) (avgSpeed, avgHR, avgPower, elevGain *float64) {
+	sub := stream[startIdx : endIdx+1]
+	if len(sub) == 0 {
+		return
+	}
+
+	var sumSpeed float64
+	var speedCount int
+	var sumHR float64
+	var hrCount int
+	var sumPower float64
+	var powerCount int
+
+	for _, p := range sub {
+		if p.SpeedMs != nil {
+			sumSpeed += *p.SpeedMs
+			speedCount++
+		}
+		if p.HeartRate != nil {
+			sumHR += float64(*p.HeartRate)
+			hrCount++
+		}
+		if p.PowerW != nil {
+			sumPower += float64(*p.PowerW)
+			powerCount++
+		}
+	}
+
+	if speedCount > 0 {
+		v := sumSpeed / float64(speedCount)
+		avgSpeed = &v
+	}
+	if hrCount > 0 {
+		v := sumHR / float64(hrCount)
+		avgHR = &v
+	}
+	if powerCount > 0 {
+		v := sumPower / float64(powerCount)
+		avgPower = &v
+	}
+
+	// Elevation gain: sum of positive altitude differences
+	var gain float64
+	var hasGain bool
+	var prevAlt *float64
+	for _, p := range sub {
+		if p.AltitudeM != nil {
+			if prevAlt != nil {
+				diff := *p.AltitudeM - *prevAlt
+				if diff > 0 {
+					gain += diff
+					hasGain = true
+				}
+			}
+			prevAlt = p.AltitudeM
+		}
+	}
+	if hasGain {
+		elevGain = &gain
+	}
+
+	return
+}
+
+// computeAscentDescentFromStream computes total ascent and descent from
+// the GPS stream slice [startIdx, endIdx] (inclusive) using altitude data.
+func computeAscentDescentFromStream(stream []database.GPSStreamPoint, startIdx, endIdx int) (ascent, descent float64) {
+	sub := stream[startIdx : endIdx+1]
+	var prevAlt *float64
+	for _, p := range sub {
+		if p.AltitudeM != nil {
+			if prevAlt != nil {
+				diff := *p.AltitudeM - *prevAlt
+				if diff > 0 {
+					ascent += diff
+				} else {
+					descent -= diff
+				}
+			}
+			prevAlt = p.AltitudeM
+		}
+	}
+	return
 }
 
 // groupLapCrossings takes all indices near the finish point and returns
