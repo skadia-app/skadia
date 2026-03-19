@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paulmach/orb"
@@ -42,15 +41,9 @@ func (a *coverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {
 	}
 }
 
-// GraphManager manages the in-memory routing graph with atomic pointer swap.
-// It supports two modes:
-//   - Monolithic: a single graph.bin loaded into memory (legacy fallback for Rebuild).
-//   - Tiled: TiledGraphReader + UnifiedRouter for on-demand tile loading.
-//
-// The monolithic graph is only used by Rebuild() for non-tiled graph builds.
-// All routing goes through UnifiedRouter().
+// GraphManager manages the tiled routing graph.
+// All routing goes through UnifiedRouter backed by TiledGraphReader.
 type GraphManager struct {
-	graph    atomic.Pointer[graph.Graph]
 	mu       sync.Mutex // serializes rebuilds
 	routerMu sync.Mutex
 
@@ -60,56 +53,6 @@ type GraphManager struct {
 	// Unified routing via GraphReader interface.
 	tiledReader   *TiledGraphReader
 	unifiedRouter *UnifiedRouter
-}
-
-// Load returns the current graph, or nil if none is loaded.
-func (m *GraphManager) Load() *graph.Graph {
-	return m.graph.Load()
-}
-
-// LoadFromFile deserializes a graph from disk using mmap for cold sections
-// (geometry, OSM IDs) and stores it atomically. The old graph's mmap
-// resources are cleaned up automatically by the GC finalizer after all
-// in-flight requests drop their references.
-func (m *GraphManager) LoadFromFile(path string) error {
-	g, err := graph.DeserializeMmap(path)
-	if err != nil {
-		return fmt.Errorf("deserialize %s: %w", path, err)
-	}
-	m.graph.Store(g)
-	slog.Info("routing graph loaded (mmap)",
-		"nodes", g.NodeCount,
-		"edges", g.EdgeCount,
-		"version", g.Version,
-		"build_time", g.BuildTime,
-	)
-	return nil
-}
-
-// Rebuild builds a new graph from PostGIS data and swaps it atomically.
-// Returns an error if a rebuild is already in progress.
-func (m *GraphManager) Rebuild(ctx context.Context, pool *pgxpool.Pool, outputPath string,
-	progressFn func(step string, pct int)) error {
-
-	if !m.mu.TryLock() {
-		return fmt.Errorf("rebuild already in progress")
-	}
-	defer m.mu.Unlock()
-
-	// Build produces a heap graph and serializes to outputPath.
-	// Then load the serialized file via mmap for consistent behavior.
-	_, err := graph.Build(ctx, pool, outputPath, nil, nil, nil, progressFn)
-	if err != nil {
-		return err
-	}
-
-	if err := m.LoadFromFile(outputPath); err != nil {
-		return fmt.Errorf("load after build: %w", err)
-	}
-	slog.Info("routing graph rebuilt and loaded via mmap",
-		"path", outputPath,
-	)
-	return nil
 }
 
 // InitTiledReader initializes a TiledGraphReader and UnifiedRouter.
