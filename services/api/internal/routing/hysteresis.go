@@ -157,7 +157,8 @@ func propagateHysteresisProfile(parent PathState, elevProfile []int32,
 
 // propagateHysteresisProfileCm processes a full elevation profile with
 // pre-computed segment distances in centimeters (uint16).
-// Converts to millimeters internally (*10).
+// Converts cm→mm inline per segment to avoid allocating a temporary []int32 slice
+// (~800k allocations eliminated on a 50km route).
 func propagateHysteresisProfileCm(parent PathState, elevsDm []int32,
 	segDistsCm []uint16, cfg *CostConfig) HysteresisResult {
 
@@ -165,12 +166,37 @@ func propagateHysteresisProfileCm(parent PathState, elevsDm []int32,
 		return HysteresisResult{State: parent}
 	}
 
-	// Convert to int32 milli and delegate to existing implementation
-	segDistMilli := make([]int32, len(segDistsCm))
-	for i, v := range segDistsCm {
-		segDistMilli[i] = int32(v) * 10 // cm → mm
+	state := parent
+	var totalElevCost float32
+	var totalUpW, totalDownW, totalDist float32
+
+	for i := range len(elevsDm) - 1 {
+		segDistMilli := int32(segDistsCm[i]) * 10              // cm → mm, inline, no alloc
+		deltaEleMilli := (elevsDm[i+1] - elevsDm[i]) * 100    // dm → mm
+		segDistF := float32(segDistMilli)
+
+		res := propagateHysteresis(state, deltaEleMilli, segDistMilli, cfg)
+		state = res.State
+		totalElevCost += res.ElevCost
+
+		// Distance-weighted average for UpWeight/DownWeight
+		totalUpW += res.UpWeight * segDistF
+		totalDownW += res.DownWeight * segDistF
+		totalDist += segDistF
 	}
-	return propagateHysteresisProfile(parent, elevsDm, segDistMilli, cfg)
+
+	var upWeight, downWeight float32
+	if totalDist > 0 {
+		upWeight = totalUpW / totalDist
+		downWeight = totalDownW / totalDist
+	}
+
+	return HysteresisResult{
+		State:      state,
+		ElevCost:   totalElevCost,
+		UpWeight:   upWeight,
+		DownWeight: downWeight,
+	}
 }
 
 // elevationCorrection estimates the latent cost stored in the hysteresis buffers.
