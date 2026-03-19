@@ -4,7 +4,7 @@ package graph
 import "math"
 
 const dpDegToRad = math.Pi / 180.0 / 1e7 // int32 fixed-point → radians
-const dpEarthR = 6_371_000.0              // meters
+const dpEarthR = 6_371_000.0             // meters
 
 // DouglasPeucker returns a keep-mask for geometry points.
 // Start and end points always kept. Uses equirectangular perpendicular

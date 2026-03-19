@@ -68,7 +68,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 ) (*routeResult, error) {
 
 	start := time.Now()
-	state := newSparseRouterState(8192) // C19: value-type map
+	state := newSparseRouterState(8192)                           // C19: value-type map
 	frontier := Frontier{entries: make([]FrontierEntry, 0, 8192)} // K17: capacity hint
 
 	dstLat, dstLon, _ := reader.NodeCoord(dst)
@@ -229,13 +229,13 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				state.nodes[ev.Target] = nodeState{
 					BestCost:      newCost,
 					EffectiveCost: newEffective,
-					FrontierCost:  fCost,              // stale-entry guard: f(n) = g(n) + passCoeff*h(n)
+					FrontierCost:  fCost, // stale-entry guard: f(n) = g(n) + passCoeff*h(n)
 					Parent:        entry.NodeID,
 					EdgeHandle:    ev.ElevHandle,
-					EdgeTags1:     ev.Tags1,          // A09: store Tags1 for O(1) retrack lookup
-					PathState:     newPathState,       // K14: consistent naming
-					LastEdgeDX:    newDX,              // R01: normalized from computeTurnCost
-					LastEdgeDY:    newDY,              // R01: normalized from computeTurnCost
+					EdgeTags1:     ev.Tags1,     // A09: store Tags1 for O(1) retrack lookup
+					PathState:     newPathState, // K14: consistent naming
+					LastEdgeDX:    newDX,        // R01: normalized from computeTurnCost
+					LastEdgeDY:    newDY,        // R01: normalized from computeTurnCost
 					LastWayClass:  ecf.WayClass,
 				}
 				frontier.Push(FrontierEntry{NodeID: ev.Target, Cost: fCost})

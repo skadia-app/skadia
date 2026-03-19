@@ -486,11 +486,11 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			Smoothness: smoothness, SacScale: sacScale, MtbScale: mtbScale,
 			MtbScaleUphill: mtbScaleUphill, ViaFerrataScale: viaFerrataScale,
 			TrailVisibility: trailVisibility,
-			Access: access, Foot: foot, Bicycle: bicycle, Horse: horse,
+			Access:          access, Foot: foot, Bicycle: bicycle, Horse: horse,
 			Cycleway: cw, CyclewayLeft: cwLeft, CyclewayRight: cwRight,
 			CyclewayBoth: cwBoth, Maxspeed: maxspeed,
 			Width: width, Incline: incline, Sidewalk: sidewalk,
-			Lanes: lanes,
+			Lanes:  lanes,
 			Oneway: oneway, OnewayBicycle: onewayBicycle,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
@@ -688,11 +688,11 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			Smoothness: smoothness, SacScale: sacScale, MtbScale: mtbScale,
 			MtbScaleUphill: mtbScaleUphill, ViaFerrataScale: viaFerrataScale,
 			TrailVisibility: trailVisibility,
-			Access: access, Foot: foot, Bicycle: bicycle, Horse: horse,
+			Access:          access, Foot: foot, Bicycle: bicycle, Horse: horse,
 			Cycleway: cw, CyclewayLeft: cwLeft, CyclewayRight: cwRight,
 			CyclewayBoth: cwBoth, Maxspeed: maxspeed,
 			Width: width, Incline: incline, Sidewalk: sidewalk,
-			Lanes: lanes,
+			Lanes:  lanes,
 			Oneway: oneway, OnewayBicycle: onewayBicycle,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
@@ -736,4 +736,3 @@ func edgeDistanceCm(coords []Coord) uint32 {
 	}
 	return cm
 }
-

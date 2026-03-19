@@ -111,13 +111,13 @@ func (c *TileGridCache) SampleWay(geom orb.LineString) CoverageResult {
 	midPt := orb.Point{mid[0], mid[1]}
 
 	result := CoverageResult{
-		ForestPct:     PctNonZero(fSamples),
-		ProtectedArea: WeightedAvg(pSamples),
-		LanduseClass:  Mode(lSamples),
-		NoiseScore:    min(100, MaxVal(nSamples)*100/255),
-		Urbanization:  WeightedAvg(uSamples),
+		ForestPct:      PctNonZero(fSamples),
+		ProtectedArea:  WeightedAvg(pSamples),
+		LanduseClass:   Mode(lSamples),
+		NoiseScore:     min(100, MaxVal(nSamples)*100/255),
+		Urbanization:   WeightedAvg(uSamples),
 		RiverProximity: WeightedAvg(rSamples),
-		Water:         anyNonZero(wSamples),
+		Water:          anyNonZero(wSamples),
 	}
 
 	// Traffic raw inputs from resampled 100m CoverageGrids
