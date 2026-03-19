@@ -183,6 +183,7 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	cfg.EdgeCost = buildEdgeCostClosure(merged)
+	setAvgCostPerKm(cfg, p.Profile)
 	return cfg, nil
 }
 
@@ -889,4 +890,23 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 		}
 	}
 	return base
+}
+
+// setAvgCostPerKm sets the calibrated average cost per km for isochrone budget calculation.
+// Values are empirical estimates accounting for typical costfactors, elevation, and detour.
+func setAvgCostPerKm(cfg *CostConfig, profileName string) {
+	switch profileName {
+	case "hiking":
+		cfg.AvgCostPerKm = 1800
+	case "mtb":
+		cfg.AvgCostPerKm = 1700
+	case "gravel":
+		cfg.AvgCostPerKm = 1500
+	case "trekking":
+		cfg.AvgCostPerKm = 1400
+	case "road":
+		cfg.AvgCostPerKm = 1100
+	default:
+		cfg.AvgCostPerKm = 1800 // hiking fallback
+	}
 }
