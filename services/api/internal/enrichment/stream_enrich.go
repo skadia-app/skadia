@@ -61,18 +61,18 @@ func getEnrichmentStream(ctx context.Context, db *database.DB, activityID string
 // stream-enrichment modules. Pass allStreamEnabled() to run every module
 // regardless of user preferences.
 type StreamEnrichmentSettings struct {
-	EnableStops     bool
-	EnableAscents   bool
-	EnableIntervals bool
+	EnableStopDetection     bool
+	EnableAscentDetection   bool
+	EnableIntervalDetection bool
 }
 
 // streamSettingsFromModel converts a model.EnrichmentSettings into the smaller
 // StreamEnrichmentSettings struct used by RunStreamEnrichment.
 func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
-		EnableStops:     s.EnableStops,
-		EnableAscents:   s.EnableAscents,
-		EnableIntervals: s.EnableIntervals,
+		EnableStopDetection:     s.EnableStopDetection,
+		EnableAscentDetection:   s.EnableAscentDetection,
+		EnableIntervalDetection: s.EnableIntervalDetection,
 	}
 }
 
@@ -80,9 +80,9 @@ func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettin
 // true, used as a fallback when no user settings are available.
 func allStreamEnabled() StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
-		EnableStops:     true,
-		EnableAscents:   true,
-		EnableIntervals: true,
+		EnableStopDetection:     true,
+		EnableAscentDetection:   true,
+		EnableIntervalDetection: true,
 	}
 }
 
@@ -120,9 +120,9 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 		fn      func(context.Context, *database.DB, string, string, []EnrichmentStreamPoint) error
 	}
 	modules := []module{
-		{"stops", settings.EnableStops, enrichStreamStops},
-		{"ascents", settings.EnableAscents, enrichStreamAscents},
-		{"intervals", settings.EnableIntervals, enrichStreamIntervals},
+		{"stops", settings.EnableStopDetection, enrichStreamStops},
+		{"ascents", settings.EnableAscentDetection, enrichStreamAscents},
+		{"intervals", settings.EnableIntervalDetection, enrichStreamIntervals},
 	}
 
 	for _, m := range modules {
