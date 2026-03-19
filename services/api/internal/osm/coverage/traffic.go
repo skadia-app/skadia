@@ -345,6 +345,34 @@ func buildDensityGridFloat(ctx context.Context, pool *pgxpool.Pool, g *floatGrid
 	return rows.Err()
 }
 
+// resampleFloatToGrid resamples a float64 grid (typically 10km) to a uint8
+// CoverageGrid at the given resolution. Each target cell gets the value of
+// its parent cell in the source grid (nearest-neighbor, ratio-based lookup).
+// Values are clamped to [0, 255]. Spec C16: keeps memory bounded.
+func resampleFloatToGrid(src *floatGrid, bound orb.Bound, targetResM float64) *CoverageGrid {
+	if src == nil {
+		return nil
+	}
+	dst := NewGrid(bound, targetResM)
+	for row := range dst.Rows {
+		lat := dst.Bound.Min[1] + (float64(row)+0.5)*dst.LatStep
+		srcRow := int((lat - src.Bound.Min[1]) / src.LatStep)
+		if srcRow < 0 || srcRow >= src.Rows {
+			continue
+		}
+		for col := range dst.Cols {
+			lon := dst.Bound.Min[0] + (float64(col)+0.5)*dst.LonStep
+			srcCol := int((lon - src.Bound.Min[0]) / src.LonStep)
+			if srcCol < 0 || srcCol >= src.Cols {
+				continue
+			}
+			val := src.Data[srcRow*src.Cols+srcCol]
+			dst.Data[row*dst.Cols+col] = uint8(min(255, max(0, val)))
+		}
+	}
+	return dst
+}
+
 // applyMotorwayJunctionOverride: BRouter sets motorway_factor = -15 near junctions.
 func applyMotorwayJunctionOverride(ctx context.Context, pool *pgxpool.Pool, mwGrid *floatGrid, env string) error {
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
