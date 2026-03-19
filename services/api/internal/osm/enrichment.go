@@ -166,7 +166,20 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		}
 		slog.Info("enrichment: step starting", "step", step.name)
 		if err := step.fn(ctx, pool); err != nil {
-			return fmt.Errorf("enrichment step %s: %w", step.name, err)
+			if strings.Contains(err.Error(), "XX001") {
+				slog.Warn("enrichment: corrupted page detected, attempting auto-repair", "step", step.name, "error", err)
+				if repairErr := repairEnrichmentTables(ctx, pool); repairErr != nil {
+					slog.Error("enrichment: auto-repair failed", "error", repairErr)
+					return fmt.Errorf("enrichment step %s (corrupt + repair failed): %w", step.name, err)
+				}
+				// Retry once after repair
+				slog.Info("enrichment: retrying step after repair", "step", step.name)
+				if err := step.fn(ctx, pool); err != nil {
+					return fmt.Errorf("enrichment step %s (after repair): %w", step.name, err)
+				}
+			} else {
+				return fmt.Errorf("enrichment step %s: %w", step.name, err)
+			}
 		}
 		slog.Info("enrichment: step complete", "step", step.name)
 	}
@@ -769,4 +782,25 @@ func withDeadlockRetry(ctx context.Context, name string, fn func() error) error 
 		}
 	}
 	return nil // unreachable
+}
+
+// repairEnrichmentTables attempts auto-repair on tables used by enrichment Phase 2.
+// Called when a XX001 (corrupted page) error is detected.
+// Uses the same CTAS+TRUNCATE strategy as pipeline.go's repairCorruptedTable.
+func repairEnrichmentTables(ctx context.Context, pool *pgxpool.Pool) error {
+	// Tables that enrichment Phase 2 reads via JOINs.
+	// osm_ways is excluded — it's the target table and corruption there
+	// would have surfaced in Phase 1 (coverage layer) already.
+	tables := []string{"osm_routes", "osm_route_way_members"}
+	for _, table := range tables {
+		before, after, err := repairCorruptedTable(ctx, pool, table)
+		if err != nil {
+			return fmt.Errorf("repair %s: %w", table, err)
+		}
+		if before != after {
+			slog.Warn("enrichment: table repaired with data loss",
+				"table", table, "rows_before", before, "rows_after", after)
+		}
+	}
+	return nil
 }
