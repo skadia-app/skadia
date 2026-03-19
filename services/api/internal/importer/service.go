@@ -610,6 +610,12 @@ const mediaBucket = "skadia-media"
 // It mirrors the logic of handler.UploadActivityPhoto but accepts raw bytes + PhotoMetadata
 // instead of an HTTP request.
 func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, photoBytes []byte, meta PhotoMetadata) (*PhotoResult, error) {
+	// Load enrichment settings once — used for pHash threshold, preview size, and clip frames.
+	enrichSettings, err := s.DB.GetEnrichmentSettings(ctx, userID)
+	if err != nil {
+		slog.Warn("ProcessPhoto: get enrichment settings failed", "error", err)
+	}
+
 	// 1. SHA256 exact dedup
 	hashArr := sha256.Sum256(photoBytes)
 	fileHash := hex.EncodeToString(hashArr[:])
@@ -668,8 +674,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		existing, err := s.DB.GetActivityPhotoHashes(ctx, activityID)
 		if err == nil && len(existing) > 0 {
 			pHashThreshold := 3
-			if settings, settErr := s.DB.GetEnrichmentSettings(ctx, userID); settErr == nil && settings.PhashThresholdBits > 0 {
-				pHashThreshold = settings.PhashThresholdBits
+			if enrichSettings != nil && enrichSettings.PhashThresholdBits > 0 {
+				pHashThreshold = enrichSettings.PhashThresholdBits
 			}
 			hashes := make([]uint64, len(existing))
 			for i, e := range existing {
@@ -722,8 +728,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 						previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 2560, midOffset)
 					} else {
 						prevMaxW, prevMaxH := 2048, 2048
-						if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil {
-							if w, h := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); w > 0 {
+						if enrichSettings != nil {
+							if w, h := imageutil.PreviewSizePixels(enrichSettings.PhotoPreviewSize); w > 0 {
 								prevMaxW, prevMaxH = w, h
 							}
 						}
@@ -839,8 +845,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	} else {
 		// Load user preview size setting; default to 2048px on error.
 		maxW, maxH := 2048, 2048
-		if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil {
-			if w, h := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); w > 0 {
+		if enrichSettings != nil {
+			if w, h := imageutil.PreviewSizePixels(enrichSettings.PhotoPreviewSize); w > 0 {
 				maxW, maxH = w, h
 			}
 		}
@@ -954,8 +960,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	// Publish CLIP embed event (best-effort)
 	if s.Events != nil {
 		clipFrames := 4
-		if settings, err := s.DB.GetEnrichmentSettings(ctx, userID); err == nil && settings.VideoClipFrames > 0 {
-			clipFrames = settings.VideoClipFrames
+		if enrichSettings != nil && enrichSettings.VideoClipFrames > 0 {
+			clipFrames = enrichSettings.VideoClipFrames
 		}
 		ev := event.PhotoEmbedEvent{
 			PhotoID:         saved.ID,
