@@ -42,7 +42,7 @@ func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 
 	// Preload coverage grids for this tile (if reader provided).
 	if coverageReader != nil {
-		if err := coverageReader.PreloadTile(tileID); err != nil {
+		if err := coverageReader.PreloadTile(ctx, tileID); err != nil {
 			slog.Warn("coverage preload failed, using SQL fallback",
 				"tile", tileID, "error", err)
 			coverageReader = nil

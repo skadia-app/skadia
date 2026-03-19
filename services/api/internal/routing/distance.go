@@ -1,3 +1,11 @@
+// distance.go contains the A* hot-path distance function.
+// Three distance implementations coexist for different precision/performance tradeoffs:
+//   - equirectDist (this file): int32 coords, float32 result, Bhaskara cos approx.
+//     Used in A* heuristic (~500k calls/route). ~2ns/call. Precision: ±0.3% at DACH latitudes.
+//   - graph.equirectDistCm (dp.go): int32 coords, int result, math.Cos.
+//     Used at build-time only (DP + ElevSegDist). Precision: ±0.1%. Not hot-path.
+//   - geo.DistanceHaversine: float64 coords, float64 result, full haversine.
+//     Used in retrack total distance. Precision: ±0.01%. ~15ns/call.
 package routing
 
 import "math"

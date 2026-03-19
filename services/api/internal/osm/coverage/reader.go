@@ -1,6 +1,10 @@
 package coverage
 
-import "github.com/paulmach/orb"
+import (
+	"context"
+
+	"github.com/paulmach/orb"
+)
 
 // CoverageResult holds all enrichment values from a coverage sampling.
 // Extensible: new fields can be added without breaking existing consumers.
@@ -26,5 +30,5 @@ type CoverageResult struct {
 // CoverageReader provides coverage grid access for the graph builder (Phase 2).
 type CoverageReader interface {
 	SampleWay(geom orb.LineString) CoverageResult
-	PreloadTile(tileID uint32) error
+	PreloadTile(ctx context.Context, tileID uint32) error
 }
