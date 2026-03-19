@@ -6,34 +6,7 @@ import { fetchDevice, fetchDeviceActivities, updateDeviceCustomName } from '@/ap
 import type { DeviceActivity } from '@/api/hardware'
 import { formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/utils'
-
-function connectionTypeLabel(sourceType?: string): string {
-  switch (sourceType) {
-    case 'antplus': return 'ANT+'
-    case 'bluetooth': return 'Bluetooth LE'
-    default: return sourceType ?? 'Unbekannt'
-  }
-}
-
-function deviceTypeBadgeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    heart_rate: 'Herzfrequenz',
-    power: 'Leistung',
-    speed: 'Geschwindigkeit',
-    cadence: 'Trittfrequenz',
-    combined_speed_cadence: 'Geschw. + Kadenz',
-    gps: 'GPS',
-    temperature: 'Temperatur',
-    barometric_altimeter: 'Barometer',
-    bike_radar: 'Radar',
-    lights: 'Beleuchtung',
-    muscle_oxygen: 'Muskel-O2',
-    running_dynamics: 'Laufdynamik',
-    activity_class: 'Aktivitätsklasse',
-    blood_pressure: 'Blutdruck',
-  }
-  return labels[type] ?? type
-}
+import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
 
 function ActivityRow({ activity }: { activity: DeviceActivity }) {
   const date = new Date(activity.started_at).toLocaleDateString('de-DE', {
@@ -50,7 +23,7 @@ function ActivityRow({ activity }: { activity: DeviceActivity }) {
     >
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-          {activity.name}
+          {activity.title || 'Unbenannt'}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
           {sportLabel(activity.sport_type)} · {date}
@@ -136,7 +109,7 @@ export default function DeviceDetailPage() {
     ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
     : 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
 
-  const pageSize = 20
+  const pageSize = 50
   const hasMore = (activities?.length ?? 0) >= pageSize
   const lastActivity = allActivities[allActivities.length - 1]
 

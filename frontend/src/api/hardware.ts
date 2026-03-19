@@ -21,11 +21,10 @@ export interface Device {
 
 export interface DeviceActivity {
   id: string
-  name: string
+  title?: string
   sport_type: string
   started_at: string
   distance_m: number
-  elapsed_time_s: number
 }
 
 export async function fetchDevices(type?: string): Promise<Device[]> {

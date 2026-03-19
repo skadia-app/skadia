@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Smartphone, Radio } from 'lucide-react'
 import { fetchGear } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear } from '@/api/types'
@@ -263,7 +264,9 @@ export default function GearFilterInput({
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md border transition-colors cursor-pointer text-left ${stateStyle(state)}`}
                   >
                     <span className="flex-shrink-0 text-neutral-400" aria-hidden="true">
-                      {device.type === 'recorder' ? '📡' : '📶'}
+                      {device.type === 'recorder'
+                        ? <Smartphone className="w-3.5 h-3.5 inline" />
+                        : <Radio className="w-3.5 h-3.5 inline" />}
                     </span>
                     <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
                       {deviceLabel(device)}
