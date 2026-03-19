@@ -5,8 +5,67 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 )
+
+// compareValues vergleicht zwei Werte typbasiert ohne fmt.Sprintf-Allokation.
+func compareValues(a, b any) bool {
+	switch va := a.(type) {
+	case string:
+		if vb, ok := b.(string); ok {
+			return va == vb
+		}
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	case float64:
+		switch vb := b.(type) {
+		case float64:
+			return va == vb
+		case json.Number:
+			if f, err := vb.Float64(); err == nil {
+				return va == f
+			}
+		}
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	case json.Number:
+		switch vb := b.(type) {
+		case json.Number:
+			return va.String() == vb.String()
+		case float64:
+			if f, err := va.Float64(); err == nil {
+				return f == vb
+			}
+		case string:
+			return va.String() == vb
+		}
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	case bool:
+		if vb, ok := b.(bool); ok {
+			return va == vb
+		}
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// toStringValue konvertiert einen Wert in einen String ohne fmt.Sprintf wenn möglich.
+func toStringValue(v any) string {
+	switch tv := v.(type) {
+	case string:
+		return tv
+	case float64:
+		return strconv.FormatFloat(tv, 'f', -1, 64)
+	case json.Number:
+		return tv.String()
+	case bool:
+		return strconv.FormatBool(tv)
+	case int:
+		return strconv.Itoa(tv)
+	case int64:
+		return strconv.FormatInt(tv, 10)
+	}
+	return fmt.Sprintf("%v", v)
+}
 
 type ConditionGroup struct {
 	Logic      string      `json:"logic"`
@@ -93,7 +152,7 @@ func evalCondition(c Condition, activity map[string]any) bool {
 		liftCount := toFloat(activity["lift_count"])
 		match := liftCount > 0
 		if c.Op == "eq" {
-			want := fmt.Sprintf("%v", c.Value) == "true"
+			want := toStringValue(c.Value) == "true"
 			return match == want
 		}
 		return match
@@ -115,9 +174,9 @@ func evalCondition(c Condition, activity map[string]any) bool {
 
 	switch c.Op {
 	case "eq":
-		return fmt.Sprintf("%v", val) == fmt.Sprintf("%v", c.Value)
+		return compareValues(val, c.Value)
 	case "neq":
-		return fmt.Sprintf("%v", val) != fmt.Sprintf("%v", c.Value)
+		return !compareValues(val, c.Value)
 	case "gt":
 		return toFloat(val) > toFloat(c.Value)
 	case "lt":
@@ -127,13 +186,13 @@ func evalCondition(c Condition, activity map[string]any) bool {
 	case "lte":
 		return toFloat(val) <= toFloat(c.Value)
 	case "contains":
-		return strings.Contains(strings.ToLower(fmt.Sprintf("%v", val)), strings.ToLower(fmt.Sprintf("%v", c.Value)))
+		return strings.Contains(strings.ToLower(toStringValue(val)), strings.ToLower(toStringValue(c.Value)))
 	case "not_contains":
-		return !strings.Contains(strings.ToLower(fmt.Sprintf("%v", val)), strings.ToLower(fmt.Sprintf("%v", c.Value)))
+		return !strings.Contains(strings.ToLower(toStringValue(val)), strings.ToLower(toStringValue(c.Value)))
 	case "starts_with":
-		return strings.HasPrefix(strings.ToLower(fmt.Sprintf("%v", val)), strings.ToLower(fmt.Sprintf("%v", c.Value)))
+		return strings.HasPrefix(strings.ToLower(toStringValue(val)), strings.ToLower(toStringValue(c.Value)))
 	case "ends_with":
-		return strings.HasSuffix(strings.ToLower(fmt.Sprintf("%v", val)), strings.ToLower(fmt.Sprintf("%v", c.Value)))
+		return strings.HasSuffix(strings.ToLower(toStringValue(val)), strings.ToLower(toStringValue(c.Value)))
 	case "in":
 		return evalIn(val, c.Value)
 	case "not_in":
@@ -326,7 +385,7 @@ func evalSeason(c Condition, activity map[string]any) bool {
 	default:
 		actual = "winter"
 	}
-	want := fmt.Sprintf("%v", c.Value)
+	want := toStringValue(c.Value)
 	if c.Op == "eq" {
 		return actual == want
 	}
@@ -341,7 +400,7 @@ func evalHasTag(c Condition, activity map[string]any) bool {
 	if !ok {
 		return false
 	}
-	wantTag := fmt.Sprintf("%v", c.Value)
+	wantTag := toStringValue(c.Value)
 	switch ts := tags.(type) {
 	case []string:
 		if slices.Contains(ts, wantTag) {
@@ -349,7 +408,7 @@ func evalHasTag(c Condition, activity map[string]any) bool {
 		}
 	case []any:
 		for _, t := range ts {
-			if fmt.Sprintf("%v", t) == wantTag {
+			if toStringValue(t) == wantTag {
 				return true
 			}
 		}
@@ -362,7 +421,7 @@ func evalArrayContains(c Condition, activity map[string]any) bool {
 	if !ok {
 		return false
 	}
-	want := fmt.Sprintf("%v", c.Value)
+	want := toStringValue(c.Value)
 	switch arr := val.(type) {
 	case []string:
 		if slices.Contains(arr, want) {
@@ -370,7 +429,7 @@ func evalArrayContains(c Condition, activity map[string]any) bool {
 		}
 	case []any:
 		for _, item := range arr {
-			if fmt.Sprintf("%v", item) == want {
+			if toStringValue(item) == want {
 				return c.Op != "not_contains"
 			}
 		}
@@ -399,7 +458,7 @@ func evalSegment(c Condition, activity map[string]any) bool {
 	case "has_segment_effort":
 		wantID := segmentID(c.Value, params)
 		for _, e := range effortList {
-			if fmt.Sprintf("%v", e["segment_id"]) == wantID {
+			if toStringValue(e["segment_id"]) == wantID {
 				return true
 			}
 		}
@@ -408,7 +467,7 @@ func evalSegment(c Condition, activity map[string]any) bool {
 		wantID := segmentID(c.Value, params)
 		want := toFloat(params["rank"])
 		for _, e := range effortList {
-			if fmt.Sprintf("%v", e["segment_id"]) == wantID {
+			if toStringValue(e["segment_id"]) == wantID {
 				return compareFloat(toFloat(e["rank"]), want, c.Op)
 			}
 		}
@@ -417,7 +476,7 @@ func evalSegment(c Condition, activity map[string]any) bool {
 		wantID := segmentID(c.Value, params)
 		want := toFloat(params["time_s"])
 		for _, e := range effortList {
-			if fmt.Sprintf("%v", e["segment_id"]) == wantID {
+			if toStringValue(e["segment_id"]) == wantID {
 				return compareFloat(toFloat(e["elapsed_time_s"]), want, c.Op)
 			}
 		}
@@ -429,10 +488,10 @@ func evalSegment(c Condition, activity map[string]any) bool {
 func segmentID(raw any, params map[string]any) string {
 	if params != nil {
 		if id, ok := params["segment_id"]; ok {
-			return fmt.Sprintf("%v", id)
+			return toStringValue(id)
 		}
 	}
-	return fmt.Sprintf("%v", raw)
+	return toStringValue(raw)
 }
 
 func compareFloat(actual, want float64, op string) bool {
@@ -451,76 +510,64 @@ func compareFloat(actual, want float64, op string) bool {
 	return false
 }
 
+// actionParams is the consolidated struct for all action parameter fields.
+// A single Unmarshal covers all action types, eliminating repeated per-case allocations.
+type actionParams struct {
+	GearID     string `json:"gear_id"`
+	TagID      string `json:"tag_id"`
+	Visibility string `json:"visibility"`
+	SportType  string `json:"sport_type"`
+	SubType    string `json:"sub_type"`
+	Template   string `json:"template"`
+	Intensity  string `json:"intensity"`
+	Indoor     bool   `json:"indoor"`
+	Field      string `json:"field"`
+	Value      any    `json:"value"`
+}
+
 func Apply(actions []Action) []ActivityChange {
 	var changes []ActivityChange
 	for _, a := range actions {
+		var p actionParams
+		if err := json.Unmarshal(a.Params, &p); err != nil {
+			continue
+		}
 		switch a.Action {
 		case "set_gear":
-			var p struct {
-				GearID string `json:"gear_id"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.GearID != "" {
+			if p.GearID != "" {
 				changes = append(changes, ActivityChange{Field: "gear_id", Value: p.GearID})
 			}
 		case "add_tag":
-			var p struct {
-				TagID string `json:"tag_id"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.TagID != "" {
+			if p.TagID != "" {
 				changes = append(changes, ActivityChange{Field: "add_tag", Value: p.TagID})
 			}
 		case "remove_tag":
-			var p struct {
-				TagID string `json:"tag_id"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.TagID != "" {
+			if p.TagID != "" {
 				changes = append(changes, ActivityChange{Field: "remove_tag", Value: p.TagID})
 			}
 		case "set_visibility":
-			var p struct {
-				Visibility string `json:"visibility"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.Visibility != "" {
+			if p.Visibility != "" {
 				changes = append(changes, ActivityChange{Field: "visibility", Value: p.Visibility})
 			}
 		case "set_sport_type":
-			var p struct {
-				SportType string `json:"sport_type"`
-				SubType   string `json:"sub_type"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.SportType != "" {
+			if p.SportType != "" {
 				changes = append(changes, ActivityChange{Field: "sport_type", Value: p.SportType})
 				if p.SubType != "" {
 					changes = append(changes, ActivityChange{Field: "sub_type", Value: p.SubType})
 				}
 			}
 		case "set_name":
-			var p struct {
-				Template string `json:"template"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.Template != "" {
+			if p.Template != "" {
 				changes = append(changes, ActivityChange{Field: "set_name_template", Value: p.Template})
 			}
 		case "set_intensity":
-			var p struct {
-				Intensity string `json:"intensity"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.Intensity != "" {
+			if p.Intensity != "" {
 				changes = append(changes, ActivityChange{Field: "intensity", Value: p.Intensity})
 			}
 		case "set_indoor":
-			var p struct {
-				Indoor bool `json:"indoor"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil {
-				changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
-			}
+			changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
 		case "set_field":
-			var p struct {
-				Field string `json:"field"`
-				Value any    `json:"value"`
-			}
-			if json.Unmarshal(a.Params, &p) == nil && p.Field != "" {
+			if p.Field != "" {
 				// Whitelist: nur erlaubte Felder
 				switch p.Field {
 				case "is_round_trip", "is_indoor":
@@ -551,11 +598,11 @@ func toFloat(v any) float64 {
 }
 
 func evalIn(val, list any) bool {
-	s := fmt.Sprintf("%v", val)
+	s := toStringValue(val)
 	switch items := list.(type) {
 	case []any:
 		for _, item := range items {
-			if fmt.Sprintf("%v", item) == s {
+			if toStringValue(item) == s {
 				return true
 			}
 		}
