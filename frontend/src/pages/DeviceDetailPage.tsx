@@ -231,14 +231,16 @@ export default function DeviceDetailPage() {
               </div>
             </div>
           )}
-          <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Verbindung</div>
-            <div className="mt-0.5">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${connBadgeStyle}`}>
-                {connType}
-              </span>
+          {connType && (
+            <div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Verbindung</div>
+              <div className="mt-0.5">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${connBadgeStyle}`}>
+                  {connType}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
           {firstSeen && (
             <div>
               <div className="text-xs text-neutral-500 dark:text-neutral-400">Zuerst gesehen</div>
