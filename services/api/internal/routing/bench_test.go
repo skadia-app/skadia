@@ -1,19 +1,17 @@
-// bench_test.go
+// bench_test.go — Benchmarks for UnifiedRouter via SingleGraphReader.
 package routing
 
 import (
 	"context"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
-// makeGridGraph creates a rows×cols grid graph with optional elevation noise.
+// makeGridGraph creates a rows x cols grid graph with optional elevation noise.
 // Each cell is ~100m apart. Total nodes = rows*cols.
 func makeGridGraph(rows, cols int, elevNoise bool) *graph.Graph {
-	nodeCount := uint32(rows * cols)
 	var edgeList [][4]int
 
 	nodeID := func(r, c int) int { return r*cols + c }
@@ -34,12 +32,13 @@ func makeGridGraph(rows, cols int, elevNoise bool) *graph.Graph {
 		}
 	}
 
+	nodeCount := rows * cols
 	nodes := make([][3]float64, nodeCount)
 	for r := range rows {
 		for c := range cols {
 			ele := 5000.0 // 500m in dm
 			if elevNoise {
-				ele += float64(rand.Intn(200) - 100) // ±10m noise
+				ele += float64(rand.Intn(200) - 100) // +/-10m noise
 			}
 			nodes[nodeID(r, c)] = [3]float64{
 				47.0 + float64(r)*0.001,
@@ -54,7 +53,7 @@ func makeGridGraph(rows, cols int, elevNoise bool) *graph.Graph {
 
 func BenchmarkRoute_Grid32x32(b *testing.B) {
 	g := makeGridGraph(32, 32, true) // 1K nodes
-	r := NewRouter(g, 1, 5)
+	r := newTestRouter(g)
 	cfg := simpleCostConfig()
 	ctx := context.Background()
 
@@ -74,7 +73,7 @@ func BenchmarkRoute_Grid32x32(b *testing.B) {
 
 func BenchmarkRoute_Grid100x100(b *testing.B) {
 	g := makeGridGraph(100, 100, true) // 10K nodes
-	r := NewRouter(g, 1, 5)
+	r := newTestRouter(g)
 	cfg := simpleCostConfig()
 	ctx := context.Background()
 
@@ -94,7 +93,7 @@ func BenchmarkRoute_Grid100x100(b *testing.B) {
 
 func BenchmarkRoute_Grid316x316(b *testing.B) {
 	g := makeGridGraph(316, 316, true) // ~100K nodes
-	r := NewRouter(g, 1, 5)
+	r := newTestRouter(g)
 	cfg := simpleCostConfig()
 	ctx := context.Background()
 
@@ -114,7 +113,7 @@ func BenchmarkRoute_Grid316x316(b *testing.B) {
 
 func BenchmarkRoute_Concurrent_5(b *testing.B) {
 	g := makeGridGraph(100, 100, true) // 10K nodes
-	r := NewRouter(g, 3, 5)            // 3 hot-pool states
+	r := newTestRouter(g)
 	cfg := simpleCostConfig()
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -122,28 +121,6 @@ func BenchmarkRoute_Concurrent_5(b *testing.B) {
 		req := RouteRequest{
 			FromLat: 47.0, FromLon: 11.0,
 			ToLat: 47.099, ToLon: 11.099,
-		}
-		for pb.Next() {
-			_, err := r.Route(ctx, req, cfg)
-			if err != nil {
-				b.Error(err)
-				return
-			}
-		}
-	})
-}
-
-func BenchmarkRoute_Concurrent_20_SparseFallback(b *testing.B) {
-	g := makeGridGraph(50, 50, true) // 2.5K nodes (small for speed)
-	r := NewRouter(g, 1, 10)         // 1 hot-pool → most use sparse
-	cfg := simpleCostConfig()
-
-	b.RunParallel(func(pb *testing.PB) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		req := RouteRequest{
-			FromLat: 47.0, FromLon: 11.0,
-			ToLat: 47.049, ToLon: 11.049,
 		}
 		for pb.Next() {
 			_, err := r.Route(ctx, req, cfg)

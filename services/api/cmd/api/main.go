@@ -189,23 +189,16 @@ func main() {
 		},
 	}
 
-	// Routing graph manager — try tile mode first, fall back to monolithic.
+	// Routing graph manager — initialize tiled routing (UnifiedRouter).
 	graphMgr := &routing.GraphManager{}
 	h.GraphManager = graphMgr
 	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
-	if tileMode, err := graphMgr.InitTileMode(tileDir, 1_000_000_000); err != nil {
-		slog.Warn("tile mode init failed", "error", err)
-	} else if tileMode {
-		slog.Info("routing: tile mode active")
-	}
-	// Phase 2: also initialize TiledGraphReader-backed UnifiedRouter.
 	if unified, err := graphMgr.InitTiledReader(tileDir, 1_000_000_000); err != nil {
 		slog.Warn("unified tiled reader init failed", "error", err)
 	} else if unified {
-		slog.Info("routing: unified router active (Phase 2)")
+		slog.Info("routing: unified router active")
 	}
-	// Always try loading the monolithic graph as well (used as fallback and
-	// for RoutingGraphStatus metadata).
+	// Load monolithic graph for RoutingGraphStatus metadata.
 	if err := graphMgr.LoadFromFile(cfg.RoutingGraphPath); err != nil {
 		slog.Warn("no routing graph loaded", "path", cfg.RoutingGraphPath, "error", err)
 	}
@@ -224,7 +217,7 @@ func main() {
 		if db.IsLapDetectionEnabled(bgCtx, userID) {
 			gpsStream, err := db.GetActivityGPSStream(bgCtx, activityID)
 			if err == nil && len(gpsStream) >= 20 {
-				if laps := handler.DetectLaps(bgCtx, db, activityID, gpsStream); len(laps) > 0 {
+				if laps := handler.DetectLaps(activityID, gpsStream); len(laps) > 0 {
 					if err := db.InsertDetectedLaps(bgCtx, activityID, laps); err != nil {
 						slog.Error("import: insert detected laps failed", "id", activityID, "error", err)
 					} else {

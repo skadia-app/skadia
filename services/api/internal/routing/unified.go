@@ -103,11 +103,13 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			continue
 		}
 
-		// Reached destination — return result
+		// Reached destination — return result.
+		// totalCost = EffectiveCost (includes elevationCorrection) because
+		// pass1 uses it as maxCost bound against EffectiveCost comparisons.
 		if entry.NodeID == dst {
 			return &routeResult{
 				state:      state,
-				totalCost:  ns.BestCost,
+				totalCost:  ns.EffectiveCost,
 				expansions: expansions,
 				durationMs: time.Since(start).Milliseconds(),
 			}, nil
