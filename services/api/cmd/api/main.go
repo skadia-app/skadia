@@ -594,6 +594,14 @@ func main() {
 			r.Get("/devices", h.ListDevices)
 			r.Delete("/devices/{id}", h.DeleteDevice)
 
+			// Hardware (Devices & Sensors)
+			r.Get("/hardware", h.ListHardware)
+			r.Post("/hardware/merge", h.MergeHardware)
+			r.Get("/hardware/{id}", h.GetHardware)
+			r.Patch("/hardware/{id}", h.PatchHardware)
+			r.Delete("/hardware/{id}", h.DeleteHardware)
+			r.Get("/hardware/{id}/activities", h.ListHardwareActivities)
+
 			// Mobile: Health Data Ingest
 			r.Post("/import/health-data", h.IngestHealthData)
 
