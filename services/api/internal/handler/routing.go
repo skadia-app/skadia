@@ -120,8 +120,8 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // RouteCalculate computes a route using the internal routing engine.
-// When tile mode is active, routes are computed via the cross-tile A*;
-// otherwise the monolithic in-memory graph is used.
+// Priority: UnifiedRouter (Phase 2, TiledGraphReader) > TileRouter (Phase 1
+// cross-tile A*) > monolithic Router (legacy). The first available engine is used.
 func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -130,11 +130,13 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	useTileMode := h.GraphManager.IsTileMode()
+	// Determine routing engine: UnifiedRouter > TileRouter > legacy Router.
+	unifiedRouter := h.GraphManager.UnifiedRouter()
+	useTileMode := h.GraphManager.IsTileMode() && unifiedRouter == nil
 
-	// In monolithic mode we need a loaded graph; in tile mode we don't.
+	// In monolithic mode we need a loaded graph; in tile/unified mode we don't.
 	var router *routing.Router
-	if !useTileMode {
+	if unifiedRouter == nil && !useTileMode {
 		router = h.GraphManager.Router()
 		if router == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -227,16 +229,34 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	var result *routing.RouteResult
 	var err error
 
-	if useTileMode {
-		// Tile mode: segment-by-segment for via points, single call otherwise.
+	buildWaypoints := func() []routing.LatLon {
+		wp := make([]routing.LatLon, 0, len(req.Via)+2)
+		wp = append(wp, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
+		for _, v := range req.Via {
+			wp = append(wp, routing.LatLon{Lat: v[0], Lon: v[1]})
+		}
+		wp = append(wp, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
+		return wp
+	}
+
+	mode := "monolithic"
+
+	if unifiedRouter != nil {
+		// Phase 2: Unified routing via TiledGraphReader (preferred).
+		mode = "unified"
 		if len(req.Via) > 0 {
-			waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
-			waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
-			for _, v := range req.Via {
-				waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
-			}
-			waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
-			result, err = h.tileRouteVia(ctx, waypoints, cfg)
+			result, err = unifiedRouter.RouteVia(ctx, buildWaypoints(), cfg)
+		} else {
+			result, err = unifiedRouter.Route(ctx, routing.RouteRequest{
+				FromLat: req.From[0], FromLon: req.From[1],
+				ToLat: req.To[0], ToLon: req.To[1],
+			}, cfg)
+		}
+	} else if useTileMode {
+		// Phase 1: TileRouter (cross-tile A*, fallback when UnifiedRouter absent).
+		mode = "tiled"
+		if len(req.Via) > 0 {
+			result, err = h.tileRouteVia(ctx, buildWaypoints(), cfg)
 		} else {
 			result, err = h.GraphManager.TileRoute(ctx, routing.RouteRequest{
 				FromLat: req.From[0], FromLon: req.From[1],
@@ -244,15 +264,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			}, cfg)
 		}
 	} else {
-		// Monolithic mode.
+		// Legacy: monolithic in-memory graph.
 		if len(req.Via) > 0 {
-			waypoints := make([]routing.LatLon, 0, len(req.Via)+2)
-			waypoints = append(waypoints, routing.LatLon{Lat: req.From[0], Lon: req.From[1]})
-			for _, v := range req.Via {
-				waypoints = append(waypoints, routing.LatLon{Lat: v[0], Lon: v[1]})
-			}
-			waypoints = append(waypoints, routing.LatLon{Lat: req.To[0], Lon: req.To[1]})
-			result, err = router.RouteVia(ctx, waypoints, cfg)
+			result, err = router.RouteVia(ctx, buildWaypoints(), cfg)
 		} else {
 			result, err = router.Route(ctx, routing.RouteRequest{
 				FromLat: req.From[0], FromLon: req.From[1],
@@ -279,11 +293,6 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			"error":  err.Error(),
 		})
 		return
-	}
-
-	mode := "monolithic"
-	if useTileMode {
-		mode = "tiled"
 	}
 	slog.Info("route computed",
 		"mode", mode,
