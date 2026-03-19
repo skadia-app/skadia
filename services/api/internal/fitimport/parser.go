@@ -398,7 +398,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	}
 
 	// Source / Device from FileId and DeviceInfo[0]
-	data.Source, data.SourceDevice = extractFITSource(fileId, deviceInfos)
+	data.Source, data.SourceDevice, data.RecordingDevice = extractFITSource(fileId, deviceInfos)
 
 	// Time (uint32, Scale: 1000 → seconds)
 	if session.TotalElapsedTime != 0xFFFFFFFF {
@@ -684,11 +684,16 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 }
 
 // extractFITSource determines source app and recording device from FIT metadata.
-func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo) (source, device string) {
+// It also builds a DeviceUpsert for the recording device (from FileId fields).
+func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo) (source, device string, du *model.DeviceUpsert) {
+	var mfrID uint16
+	var prodID uint16
+
 	// Try FileId first (always present)
 	if fileId != nil {
 		mfr := fileId.Manufacturer
 		mfrStr := mfr.String()
+		mfrID = uint16(mfr)
 
 		// Determine source brand
 		switch {
@@ -729,17 +734,25 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			device = fileId.ProductName
 		}
 
-		// Try GarminProduct via dynamic field
-		if device == "" {
-			prodName, prodVal := fileId.GetProduct()
-			if prodName == "garmin_product" {
-				gp := prodVal.(typedef.GarminProduct)
-				if gp != typedef.GarminProductInvalid {
+		// Try product via dynamic field; also extract prodID for DeviceUpsert
+		prodName, prodVal := fileId.GetProduct()
+		if prodName == "garmin_product" {
+			if gp, ok := prodVal.(typedef.GarminProduct); ok {
+				prodID = uint16(gp)
+				if device == "" && gp != typedef.GarminProductInvalid {
 					gpStr := gp.String()
 					if !strings.HasPrefix(gpStr, "GarminProduct(") {
-						device = formatDeviceName(source, gpStr)
+						device = formatDeviceNameFromEnum(source, gpStr)
 					}
 				}
+			}
+		} else if prodName == "favero_product" {
+			if fp, ok := prodVal.(typedef.FaveroProduct); ok {
+				prodID = uint16(fp)
+			}
+		} else if prodVal != nil {
+			if raw, ok := prodVal.(uint16); ok {
+				prodID = raw
 			}
 		}
 	}
@@ -761,7 +774,26 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		break
 	}
 
-	return source, device
+	// Build DeviceUpsert for the recording device
+	if mfrID != 0 && mfrID != uint16(typedef.ManufacturerInvalid) {
+		var serialNumber *int64
+		if fileId != nil && fileId.SerialNumber != 0 && fileId.SerialNumber != 0xFFFFFFFF {
+			sn := int64(fileId.SerialNumber)
+			serialNumber = &sn
+		}
+		productName := ResolveProductName(mfrID, prodID, "")
+		mfrStr := typedef.Manufacturer(mfrID).String()
+		du = &model.DeviceUpsert{
+			Type:           "recorder",
+			Manufacturer:   FormatManufacturer(mfrStr),
+			ManufacturerID: int(mfrID),
+			ProductName:    productName,
+			ProductID:      int(prodID),
+			SerialNumber:   serialNumber,
+		}
+	}
+
+	return source, device, du
 }
 
 // allSameSport returns true when all elements in sports are identical.
@@ -872,22 +904,3 @@ func mergeSessionTotals(ad *model.ActivityData, sessionMsgs []proto.Message) {
 	// since it operates on ALL records from the merged file.
 }
 
-// formatDeviceName makes GarminProduct enum names human-readable.
-// e.g. "instinct_2x_solar" → "Garmin Instinct 2X Solar"
-func formatDeviceName(brand, product string) string {
-	product = strings.ReplaceAll(product, "_", " ")
-	// Capitalize words
-	words := strings.Fields(product)
-	for i, w := range words {
-		if len(w) <= 2 {
-			words[i] = strings.ToUpper(w) // "2x" → "2X"
-		} else {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
-		}
-	}
-	name := strings.Join(words, " ")
-	if brand != "" && !strings.HasPrefix(strings.ToLower(name), strings.ToLower(brand)) {
-		name = brand + " " + name
-	}
-	return name
-}

@@ -126,6 +126,18 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			rec.BatteryVoltage = float64(di.BatteryVoltage) / 256.0
 		}
 
+		rec.DeviceUpsert = &model.DeviceUpsert{
+			Type:            "sensor",
+			Manufacturer:    FormatManufacturer(typedef.Manufacturer(rec.ManufacturerID).String()),
+			ManufacturerID:  int(rec.ManufacturerID),
+			ProductName:     ResolveProductName(uint16(rec.ManufacturerID), uint16(rec.GarminProductID), rec.ProductName),
+			ProductID:       int(rec.GarminProductID),
+			SerialNumber:    rec.SerialNumber,
+			AntDeviceNumber: rec.AntDeviceNumber,
+			DeviceTypes:     rec.AllDeviceTypes,
+			SourceType:      rec.SourceType,
+		}
+
 		idx := len(result)
 		result = append(result, rec)
 
