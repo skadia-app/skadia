@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Bike, Footprints, Package, Smartphone, Radio } from 'lucide-react'
 import { fetchGear, createGear, fetchGearDocuments, getGearDocumentUrl } from '@/api/gear'
+import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import GearForm from '@/components/GearForm'
@@ -17,13 +19,27 @@ const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
 
 export default function GearPage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const typeFilter = searchParams.get('type')
   const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>('active')
   const [showForm, setShowForm] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
 
-  const { data: gear, isLoading } = useQuery({
+  const { data: gear, isLoading: gearLoading } = useQuery({
     queryKey: ['gear', statusFilter],
     queryFn: () => fetchGear(statusFilter),
+  })
+
+  const { data: recorders } = useQuery({
+    queryKey: ['devices', 'recorder'],
+    queryFn: () => fetchDevices('recorder'),
+    enabled: !typeFilter,
+  })
+
+  const { data: sensors } = useQuery({
+    queryKey: ['devices', 'sensor'],
+    queryFn: () => fetchDevices('sensor'),
+    enabled: !typeFilter,
   })
 
   const createMutation = useMutation({
@@ -34,87 +50,195 @@ export default function GearPage() {
     },
   })
 
-  if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
+  // If a type filter is set via query param, show filtered gear list
+  if (typeFilter) {
+    const filtered = gear?.filter(g => {
+      if (typeFilter === 'bike') return g.type === 'bike'
+      if (typeFilter === 'shoes') return g.type === 'shoes'
+      if (typeFilter === 'other') return g.type !== 'bike' && g.type !== 'shoes'
+      return true
+    }) ?? []
+
+    const typeTitle: Record<string, string> = {
+      bike: 'Räder',
+      shoes: 'Schuhe',
+      other: 'Zubehör',
+    }
+
+    if (gearLoading) {
+      return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              to="/gear"
+              className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+            >
+              ← Ausrüstung
+            </Link>
+            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+              {typeTitle[typeFilter] ?? typeFilter}
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
+              {STATUS_CHIPS.map(({ value, label }) => (
+                <button
+                  key={label}
+                  onClick={() => setStatusFilter(value)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                    statusFilter === value
+                      ? 'bg-accent-DEFAULT text-white'
+                      : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowMerge(s => !s)}
+              className="text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer"
+            >
+              Duplikate zusammenführen
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
+            >
+              Ausrüstung hinzufügen
+            </button>
+          </div>
+        </div>
+
+        <MaintenanceAlerts />
+
+        {showMerge && (
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Gear-Duplikate</h2>
+            </div>
+            <GearMergePanel onClose={() => setShowMerge(false)} />
+          </div>
+        )}
+
+        {showForm && (
+          <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausrüstung</h2>
+            <GearForm
+              onSave={(data) => createMutation.mutate(data)}
+              onCancel={() => setShowForm(false)}
+              isSaving={createMutation.isPending}
+            />
+            {createMutation.isError && (
+              <p className="text-sm text-rose-500 mt-2">
+                Fehler beim Erstellen: {createMutation.error instanceof Error ? createMutation.error.message : 'Unbekannt'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {filtered.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((item) => (
+              <GearCard key={item.id} gear={item} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-16 text-neutral-400">
+            Noch keine Ausrüstung in dieser Kategorie.
+          </div>
+        )}
+      </div>
+    )
   }
+
+  // No type filter — show category tiles
+  const bikeCount = gear?.filter(g => g.type === 'bike').length ?? 0
+  const shoesCount = gear?.filter(g => g.type === 'shoes').length ?? 0
+  const otherCount = gear?.filter(g => g.type !== 'bike' && g.type !== 'shoes').length ?? 0
+  const recorderCount = recorders?.length ?? 0
+  const sensorCount = sensors?.length ?? 0
+
+  const categories = [
+    {
+      to: '/gear?type=bike',
+      title: 'Räder',
+      description: 'Fahrräder, Rennräder, MTBs und Zubehör verwalten',
+      icon: Bike,
+      count: bikeCount,
+    },
+    {
+      to: '/gear?type=shoes',
+      title: 'Schuhe',
+      description: 'Laufschuhe, Radsportschuhe und Sportschuhe verwalten',
+      icon: Footprints,
+      count: shoesCount,
+    },
+    {
+      to: '/gear?type=other',
+      title: 'Zubehör',
+      description: 'Helme, Bekleidung und sonstiges Zubehör verwalten',
+      icon: Package,
+      count: otherCount,
+    },
+    {
+      to: '/hardware/recorder',
+      title: 'Aufzeichnungsgeräte',
+      description: 'Garmin, Wahoo, Apple Watch und andere Aufzeichnungsgeräte',
+      icon: Smartphone,
+      count: recorderCount,
+    },
+    {
+      to: '/hardware/sensor',
+      title: 'Sensoren',
+      description: 'Herzfrequenzsensoren, Powermeter, Trittfrequenzsensoren und mehr',
+      icon: Radio,
+      count: sensorCount,
+    },
+  ]
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausrüstung</h1>
-        <div className="flex items-center gap-3">
-          {/* Status filter chips */}
-          <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
-            {STATUS_CHIPS.map(({ value, label }) => (
-              <button
-                key={label}
-                onClick={() => setStatusFilter(value)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  statusFilter === value
-                    ? 'bg-accent-DEFAULT text-white'
-                    : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => setShowMerge(s => !s)}
-            className="text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer"
-          >
-            Duplikate zusammenführen
-          </button>
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
-          >
-            Ausrüstung hinzufügen
-          </button>
-        </div>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Gear, Geräte und Sensoren verwalten.
+        </p>
       </div>
 
       <MaintenanceAlerts />
 
-      {/* Gear merge panel */}
-      {showMerge && (
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Gear-Duplikate</h2>
-          </div>
-          <GearMergePanel onClose={() => setShowMerge(false)} />
-        </div>
-      )}
-
-      {/* Create form */}
-      {showForm && (
-        <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausrüstung</h2>
-          <GearForm
-            onSave={(data) => createMutation.mutate(data)}
-            onCancel={() => setShowForm(false)}
-            isSaving={createMutation.isPending}
-          />
-          {createMutation.isError && (
-            <p className="text-sm text-rose-500 mt-2">
-              Fehler beim Erstellen: {createMutation.error instanceof Error ? createMutation.error.message : 'Unbekannt'}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Gear grid */}
-      {gear && gear.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {gear.map((item) => (
-            <GearCard key={item.id} gear={item} />
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-16 text-neutral-400">
-          Noch keine Ausrüstung vorhanden.
-        </div>
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {categories.map(({ to, title, description, icon: Icon, count }) => (
+          <Link
+            key={title}
+            to={to}
+            className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
+                       hover:border-accent-400 dark:hover:border-accent-600 hover:shadow-sm transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-100 dark:bg-accent-100/20 text-accent-DEFAULT">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
+                  {title}
+                </h2>
+              </div>
+              {count > 0 && (
+                <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400 tabular-nums">
+                  {count}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }
