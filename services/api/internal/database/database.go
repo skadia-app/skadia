@@ -350,7 +350,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.fusion_sources,
 			a.garmin_activity_id, a.strava_activity_id, a.komoot_tour_id,
 		a.sport_conflict_pending,
-		iq.metadata AS sport_conflict_meta
+		iq.metadata AS sport_conflict_meta,
+		a.recording_device_id,
+		COALESCE(rd.custom_name, rd.product_name) AS recording_device_name
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -361,6 +363,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			  AND iq.user_id = a.user_id
 			LIMIT 1
 		) iq ON true
+		LEFT JOIN devices rd ON rd.id = a.recording_device_id
 		WHERE a.id = $1`, id,
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.Title, &a.TitleAuto, &a.Description,
@@ -390,6 +393,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.GarminActivityID, &a.StravaActivityID, &a.KomootTourID,
 		&a.SportConflictPending,
 		&sportConflictMeta,
+		&a.RecordingDeviceID,
+		&a.RecordingDeviceName,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1018,7 +1023,7 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, device_index, source_type, antplus_device_type, all_device_types,
 			manufacturer, product_name, serial_number, ant_device_number,
-			software_version, battery_status
+			software_version, battery_status, device_id
 		FROM activity_sensors
 		WHERE activity_id = $1
 		ORDER BY device_index`,
@@ -1039,7 +1044,7 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 		if err := rows.Scan(
 			&s.ID, &s.DeviceIndex, &s.SourceType, &primaryType, &allTypes,
 			&manufacturer, &productName, &s.SerialNumber, &s.AntDeviceNumber,
-			&swVersion, &batteryStatus,
+			&swVersion, &batteryStatus, &s.DeviceID,
 		); err != nil {
 			return nil, fmt.Errorf("scan sensor: %w", err)
 		}
