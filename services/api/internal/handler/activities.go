@@ -102,6 +102,12 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("exclude_gear"); v != "" {
 		filters.ExcludeGear = strings.Split(v, ",")
 	}
+	if v := r.URL.Query().Get("include_devices"); v != "" {
+		filters.IncludeDevices = strings.Split(v, ",")
+	}
+	if v := r.URL.Query().Get("exclude_devices"); v != "" {
+		filters.ExcludeDevices = strings.Split(v, ",")
+	}
 
 	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir, filters)
 	if err != nil {

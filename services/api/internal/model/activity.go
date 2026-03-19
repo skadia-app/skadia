@@ -283,8 +283,10 @@ type ActivityFilters struct {
 	Search      string
 	IncludeTags []string
 	ExcludeTags []string
-	IncludeGear []string
-	ExcludeGear []string
+	IncludeGear    []string
+	ExcludeGear    []string
+	IncludeDevices []string
+	ExcludeDevices []string
 }
 
 // StreamResponse is the API response for the streams endpoint.
