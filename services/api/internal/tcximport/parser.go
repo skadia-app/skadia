@@ -92,7 +92,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	act := tcx.Activities.Activity[0]
 
 	sport, subType := mapTCXSport(act.Sport)
-	source, sourceDevice := parseTCXCreator(act.Creator)
+	source, sourceDevice, recordingDevice := parseTCXCreator(act.Creator)
 
 	// E-Bike normalization
 	isEbike := false
@@ -102,13 +102,14 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 
 	data := &model.ActivityData{
-		FileFormat:   "tcx",
-		OriginalName: filename,
-		Source:       source,
-		SourceDevice: sourceDevice,
-		SportType:    sport,
-		SubType:      subType,
-		IsEbike:      isEbike,
+		FileFormat:      "tcx",
+		OriginalName:    filename,
+		Source:          source,
+		SourceDevice:    sourceDevice,
+		SportType:       sport,
+		SubType:         subType,
+		IsEbike:         isEbike,
+		RecordingDevice: recordingDevice,
 	}
 
 	// Aggregate lap data
@@ -342,10 +343,10 @@ func mapTCXSport(sport string) (sportType, subType string) {
 }
 
 // parseTCXCreator extracts source app and device from TCX Creator element.
-func parseTCXCreator(creator tcxCreator) (source, device string) {
+func parseTCXCreator(creator tcxCreator) (source, device string, du *model.DeviceUpsert) {
 	name := strings.TrimSpace(creator.Name)
 	if name == "" {
-		return "", ""
+		return "", "", nil
 	}
 
 	nl := strings.ToLower(name)
@@ -378,6 +379,15 @@ func parseTCXCreator(creator tcxCreator) (source, device string) {
 		source = name
 	}
 
-	return source, device
+	if device != "" {
+		mfr := strings.ToLower(strings.ReplaceAll(source, " ", "_"))
+		du = &model.DeviceUpsert{
+			Type:         "recorder",
+			Manufacturer: mfr,
+			ProductName:  device,
+		}
+	}
+
+	return source, device, du
 }
 

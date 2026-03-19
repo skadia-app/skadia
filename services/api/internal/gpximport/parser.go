@@ -77,7 +77,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 
 	sport, subType := mapGPXType(trk.Type)
-	source, sourceDevice := parseGPXCreator(gpx.Creator)
+	source, sourceDevice, recordingDevice := parseGPXCreator(gpx.Creator)
 
 	// E-Bike normalization
 	isEbike := false
@@ -87,13 +87,14 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	}
 
 	data := &model.ActivityData{
-		FileFormat:   "gpx",
-		OriginalName: filename,
-		Source:       source,
-		SourceDevice: sourceDevice,
-		SportType:    sport,
-		SubType:      subType,
-		IsEbike:      isEbike,
+		FileFormat:      "gpx",
+		OriginalName:    filename,
+		Source:          source,
+		SourceDevice:    sourceDevice,
+		SportType:       sport,
+		SubType:         subType,
+		IsEbike:         isEbike,
+		RecordingDevice: recordingDevice,
 	}
 
 	// Build streams, track points, and calculate stats
@@ -389,7 +390,7 @@ func mapGPXType(gpxType string) (sport, subType string) {
 }
 
 // parseGPXCreator extracts source app and device from the GPX creator attribute.
-func parseGPXCreator(creator string) (source, device string) {
+func parseGPXCreator(creator string) (source, device string, du *model.DeviceUpsert) {
 	c := strings.TrimSpace(creator)
 	cl := strings.ToLower(c)
 
@@ -436,6 +437,15 @@ func parseGPXCreator(creator string) (source, device string) {
 		source = c
 	}
 
-	return source, device
+	if device != "" {
+		mfr := strings.ToLower(strings.ReplaceAll(source, " ", "_"))
+		du = &model.DeviceUpsert{
+			Type:         "recorder",
+			Manufacturer: mfr,
+			ProductName:  device,
+		}
+	}
+
+	return source, device, du
 }
 
