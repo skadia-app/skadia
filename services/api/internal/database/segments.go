@@ -274,14 +274,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Insert first version with track geometry
 	var returnedTrackGeoJSON string
 	err = tx.QueryRow(ctx, `
+		WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
-		VALUES (
-			$1, 1,
-			ST_SetSRID(ST_GeomFromGeoJSON($2), 4326),
-			ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
-			ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
-			CURRENT_DATE, $3
-		)
+		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
+		FROM g
 		RETURNING ST_AsGeoJSON(track)`,
 		s.ID, trackGeoJSON, userID,
 	).Scan(&returnedTrackGeoJSON)
@@ -1050,13 +1046,11 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 		`, osmID).Scan(&segID)
 		if segID != "" {
 			_, _ = db.Pool.Exec(ctx, `
+				WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
 				INSERT INTO segment_versions (segment_id, version_number, track,
 				                              start_point, end_point, valid_from, created_by)
-				VALUES ($1, 1,
-				        ST_SetSRID(ST_GeomFromGeoJSON($2), 4326),
-				        ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
-				        ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
-				        CURRENT_DATE, $3)
+				SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
+				FROM g
 			`, segID, geojson, userID)
 		}
 		count++
