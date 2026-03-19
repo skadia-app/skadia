@@ -246,7 +246,7 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 	}
 
 	_, err = db.Pool.Exec(ctx, `
-		WITH g AS (SELECT $2::geometry AS geom)
+		WITH g AS (SELECT ST_GeomFromEWKB($2) AS geom)
 		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
 		SELECT $1, g.geom, ST_Simplify(g.geom, 0.0001), ST_Envelope(g.geom), $3
 		FROM g`,
