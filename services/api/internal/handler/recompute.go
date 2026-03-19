@@ -43,6 +43,24 @@ type recomputeJobState struct {
 	startedAt time.Time
 }
 
+// segCollector accumulates segment IDs that need rank updates across concurrent
+// reprocessActivity calls. When non-nil it is passed to reprocessActivity to
+// defer ranking until after all workers complete.
+type segCollector struct {
+	m sync.Map // key: segmentID (string) → struct{}
+}
+
+// add records a segment ID for deferred ranking.
+func (c *segCollector) add(segID string) { c.m.Store(segID, struct{}{}) }
+
+// forEach iterates over all collected segment IDs.
+func (c *segCollector) forEach(fn func(segID string)) {
+	c.m.Range(func(k, _ any) bool {
+		fn(k.(string))
+		return true
+	})
+}
+
 // RecomputeActivity re-downloads the original file from S3, parses it again,
 // and replaces all derived data (streams, track, sensors, metrics). User-defined
 // fields (title, description, tags, visibility) are preserved.
@@ -95,7 +113,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			for i, child := range children {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
-				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0, false); err != nil {
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0, false, nil); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
 					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
 					return
@@ -132,7 +150,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow, false); err != nil {
+	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow, false, nil); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
@@ -237,6 +255,9 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		sem := make(chan struct{}, workers)
 		var wg sync.WaitGroup
 
+		// Collect all affected segment IDs across workers; rank once after wg.Wait().
+		var coll segCollector
+
 		for _, id := range ids {
 			// Shutdown-Check: keine neuen Aktivitäten dispatchen wenn Shutdown läuft
 			select {
@@ -257,7 +278,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				if err := h.reprocessActivity(ctx, id, userID, scope, 0, true); err != nil {
+				if err := h.reprocessActivity(ctx, id, userID, scope, 0, true, &coll); err != nil {
 					slog.Error("reprocess-all: activity failed", "id", id, "error", err)
 					h.recomputeJob.errors.Add(1)
 					errMu.Lock()
@@ -280,6 +301,14 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		}
 
 		wg.Wait()
+
+		// Deferred segment ranking: rank each affected segment exactly once,
+		// regardless of how many activities matched it during bulk recompute.
+		coll.forEach(func(segID string) {
+			if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
+				slog.Warn("reprocess-all: deferred segment ranking failed", "segment_id", segID, "error", err)
+			}
+		})
 
 		h.recomputeJob.mu.Lock()
 		h.recomputeJob.running = false
@@ -400,7 +429,11 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
-func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int, skipAnalyticsEvent bool) error {
+//
+// segColl, when non-nil, causes segment ranking to be deferred: affected segment
+// IDs are collected into segColl instead of ranked immediately. The caller is
+// responsible for ranking them after all workers complete.
+func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int, skipAnalyticsEvent bool, segColl *segCollector) error {
 	allScope := len(scope) == 0 // nil/empty = reprocess everything
 	doStreams := allScope || scope["streams"]
 	doSensors := allScope || scope["sensors"]
@@ -602,10 +635,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 8c. Segment-Efforts + Detected Laps recompute (when streams changed or full recompute).
 	if data.HasGPS && (doStreams || doSegments || allScope) {
-		// Collect affected segment IDs before deletion (for rank updates)
+		// Collect affected segment IDs before deletion (for rank updates).
 		affectedSegIDs, _ := h.DB.GetAffectedSegmentIDs(ctx, activityID)
 
-		// Delete existing efforts and detected laps
+		// Delete existing efforts and detected laps.
 		if err := h.DB.DeleteSegmentEffortsByActivity(ctx, activityID); err != nil {
 			slog.Error("reprocess: delete segment efforts failed", "id", activityID, "error", err)
 		}
@@ -613,7 +646,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			slog.Error("reprocess: delete detected laps failed", "id", activityID, "error", err)
 		}
 
-		// Re-run segment matching synchronously (includes lap detection)
+		// Re-run segment matching synchronously (includes lap detection).
 		var gearIDPtr *string
 		var activityStartedAt time.Time
 		activity, aErr := h.DB.GetActivity(ctx, activityID)
@@ -625,7 +658,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 		MatchActivitySegments(ctx, h.DB, activityID, userID, data.SportType, data.SubType, gearIDPtr, activityStartedAt)
 
-		// Lap detection
+		// Lap detection.
 		if h.DB.IsLapDetectionEnabled(ctx, userID) {
 			gpsStream, gpsErr := h.DB.GetActivityGPSStream(ctx, activityID)
 			if gpsErr == nil && len(gpsStream) >= 20 {
@@ -637,10 +670,21 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			}
 		}
 
-		// Update ranks for previously affected segments
-		for _, segID := range affectedSegIDs {
-			if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
-				slog.Warn("reprocess: update segment ranks failed", "segment_id", segID, "error", err)
+		// Segment rank updates: either defer into the collector (bulk recompute)
+		// or update immediately (single-activity recompute).
+		if segColl != nil {
+			// Deferred: add all previously-affected IDs to the collector.
+			// Newly-matched segment IDs are handled by MatchActivitySegments
+			// which calls UpdateSegmentEffortRanks directly; here we ensure
+			// segments that *lost* efforts also get re-ranked.
+			for _, segID := range affectedSegIDs {
+				segColl.add(segID)
+			}
+		} else {
+			for _, segID := range affectedSegIDs {
+				if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
+					slog.Warn("reprocess: update segment ranks failed", "segment_id", segID, "error", err)
+				}
 			}
 		}
 	}

@@ -158,7 +158,7 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 
 	// Re-parse original file (streams + metrics scope) to restore device-recorded distance.
 	scope := map[string]bool{"streams": true, "metrics": true}
-	if err := h.reprocessActivity(ctx, activityID, userID, scope, 0, false); err != nil {
+	if err := h.reprocessActivity(ctx, activityID, userID, scope, 0, false, nil); err != nil {
 		slog.Error("distance reset: reprocess failed", "error", err, "activity_id", activityID)
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, "")
 		return
