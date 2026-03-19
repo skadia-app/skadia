@@ -19,6 +19,7 @@ import (
 type nodeState struct {
 	BestCost      float32   // g(n) — raw accumulated cost
 	EffectiveCost float32   // g(n) + elevationCorrection — for closed-set comparison (C01)
+	FrontierCost  float32   // f(n) = EffectiveCost + passCoeff*h — used for stale-entry detection
 	Parent        uint64    // global node ID of predecessor
 	EdgeHandle    uint64    // for retrack: which edge led to this node
 	EdgeTags1     uint64    // A09: Tags1 of incoming edge — avoids O(degree) ForEachEdge in retrack
@@ -72,7 +73,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 	dstLat, dstLon, _ := reader.NodeCoord(dst)
 
 	// Seed source node
-	state.nodes[src] = nodeState{BestCost: 0, EffectiveCost: 0}
+	state.nodes[src] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0}
 	frontier.Push(FrontierEntry{NodeID: src, Cost: 0})
 
 	expansions := 0
@@ -96,8 +97,9 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		}
 
 		// Stale-entry check: skip if a better path was already found.
-		// Use small epsilon to avoid floating-point drift issues.
-		if entry.Cost > ns.EffectiveCost+0.001 {
+		// A04/A*: entry.Cost is f(n) = g(n) + passCoeff*h(n); compare against
+		// the last pushed FrontierCost so the heuristic does not cause false staleness.
+		if entry.Cost > ns.FrontierCost+0.001 {
 			continue
 		}
 
@@ -224,6 +226,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				state.nodes[ev.Target] = nodeState{
 					BestCost:      newCost,
 					EffectiveCost: newEffective,
+					FrontierCost:  fCost,              // stale-entry guard: f(n) = g(n) + passCoeff*h(n)
 					Parent:        entry.NodeID,
 					EdgeHandle:    ev.ElevHandle,
 					EdgeTags1:     ev.Tags1,          // A09: store Tags1 for O(1) retrack lookup
@@ -348,18 +351,15 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 
 		// DP-simplified intermediate geometry for route display
 		// K08: Ele=-9999 sentinel for DP points (no elevation available)
+		// A04: EdgeGeometry returns ONLY intermediate points (start/end excluded by reader)
 		lats, lons := reader.EdgeGeometry(edgeHandle)
-		// Skip first/last geometry points — they duplicate the node coordinates
-		// added explicitly by NodeCoord calls above/below
-		if len(lats) > 2 {
-			for j := 1; j < len(lats)-1; j++ {
-				coords = append(coords, LatLonEle{
-					Lat: float64(lats[j]) / 1e7,
-					Lon: float64(lons[j]) / 1e7,
-					Ele: -9999, // K08: sentinel — DP points have no elevation
-				})
-			}
-		} // edges with ≤2 geom points have no intermediate points to add
+		for j := range lats {
+			coords = append(coords, LatLonEle{
+				Lat: float64(lats[j]) / 1e7,
+				Lon: float64(lons[j]) / 1e7,
+				Ele: -9999, // K08: sentinel — DP points have no elevation
+			})
+		}
 
 		// Full elevation profile for ascent/descent computation
 		elevs, _ := reader.EdgeElevProfile(edgeHandle)
