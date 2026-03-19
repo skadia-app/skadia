@@ -8,7 +8,7 @@ import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
-import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
+import type { GearFilter, GearFilterState, DeviceFilter } from '@/components/GearFilterInput'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
@@ -23,6 +23,7 @@ export interface ActivityFilterState {
   gearId: string
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
+  deviceFilters: DeviceFilter[]
   search: string
 }
 
@@ -36,6 +37,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   gearId: '',
   tagFilters: [],
   gearFilters: [],
+  deviceFilters: [],
   search: '',
 }
 
@@ -60,6 +62,10 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (excludeTags.length) p.set('exclude_tags', excludeTags.join(','))
   if (includeGear.length) p.set('include_gear', includeGear.join(','))
   if (excludeGear.length) p.set('exclude_gear', excludeGear.join(','))
+  const includeDevices = f.deviceFilters.filter(df => df.state === 'include').map(df => df.id)
+  const excludeDevices = f.deviceFilters.filter(df => df.state === 'exclude').map(df => df.id)
+  if (includeDevices.length) p.set('include_devices', includeDevices.join(','))
+  if (excludeDevices.length) p.set('exclude_devices', excludeDevices.join(','))
   return p
 }
 
@@ -78,9 +84,10 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (ebike !== null) f.isEbike = ebike === 'true'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
-  // tagFilters and gearFilters require full objects and cannot be restored from URL IDs alone
+  // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
   f.tagFilters = []
   f.gearFilters = []
+  f.deviceFilters = []
   return f
 }
 
@@ -90,6 +97,8 @@ export function filtersToApiParams(f: ActivityFilterState) {
   const excludeTags = f.tagFilters.filter(tf => tf.state === 'exclude').map(tf => tf.id)
   const includeGear = f.gearFilters.filter(gf => gf.state === 'include').map(gf => gf.id)
   const excludeGear = f.gearFilters.filter(gf => gf.state === 'exclude').map(gf => gf.id)
+  const includeDevices = f.deviceFilters.filter(df => df.state === 'include').map(df => df.id)
+  const excludeDevices = f.deviceFilters.filter(df => df.state === 'exclude').map(df => df.id)
   const base = {
     dateFrom: f.dateFrom,
     dateTo: f.dateTo,
@@ -102,6 +111,8 @@ export function filtersToApiParams(f: ActivityFilterState) {
     excludeTags: excludeTags.length ? excludeTags : undefined,
     includeGear: includeGear.length ? includeGear : undefined,
     excludeGear: excludeGear.length ? excludeGear : undefined,
+    includeDevices: includeDevices.length ? includeDevices : undefined,
+    excludeDevices: excludeDevices.length ? excludeDevices : undefined,
   }
   if (f.sportTypes.size === 0 || f.sportTypes.size === ALL_SPORT_KEYS.length) {
     return { sportTypes: undefined, ...base }
@@ -163,6 +174,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.gearId) n++
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
+    if (f.deviceFilters.length) n++
     return n
   }
 
@@ -453,11 +465,13 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               />
             </div>
 
-            {/* Gear (tri-state filter) */}
+            {/* Gear & Device (tri-state filter) */}
             <div>
               <GearFilterInput
                 value={filters.gearFilters}
                 onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
+                deviceValue={filters.deviceFilters}
+                onDeviceChange={(v: DeviceFilter[]) => onChange({ ...filters, deviceFilters: v })}
               />
             </div>
 
@@ -475,7 +489,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
       )}
 
       {/* Active filter chips (rendered inline below button) */}
-      {(chips.length > 0 || filters.tagFilters.length > 0 || filters.gearFilters.length > 0) && (
+      {(chips.length > 0 || filters.tagFilters.length > 0 || filters.gearFilters.length > 0 || filters.deviceFilters.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {chips.map(chip => (
             <span
@@ -531,6 +545,27 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               <span className="flex-shrink-0">{gearTypeIcon(gf.type)}</span>
               {gf.name}
               <span className="opacity-60 text-[10px]">{gf.state === 'include' ? '\u2713' : '\u2715'}</span>
+            </button>
+          ))}
+          {filters.deviceFilters.map(df => (
+            <button
+              key={`device-${df.id}`}
+              onClick={() => {
+                if (df.state === 'include') {
+                  onChange({ ...filters, deviceFilters: filters.deviceFilters.map(f => f.id === df.id ? { ...f, state: 'exclude' as GearFilterState } : f) })
+                } else {
+                  onChange({ ...filters, deviceFilters: filters.deviceFilters.filter(f => f.id !== df.id) })
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] rounded-full border cursor-pointer transition-colors ${
+                df.state === 'include'
+                  ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
+                  : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through'
+              }`}
+            >
+              <span className="flex-shrink-0">{df.deviceType === 'recorder' ? '📡' : '📶'}</span>
+              {df.name}
+              <span className="opacity-60 text-[10px]">{df.state === 'include' ? '\u2713' : '\u2715'}</span>
             </button>
           ))}
         </div>
