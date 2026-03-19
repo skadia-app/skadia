@@ -1,8 +1,7 @@
 package activityutil
 
 import (
-	"math"
-
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -227,14 +226,7 @@ func CalcRecordingTime(points []model.StreamPoint) int {
 }
 
 // HaversineMeters returns the great-circle distance in metres between two
-// WGS-84 coordinate pairs.
+// WGS-84 coordinate pairs. Delegates to geo.DistanceHaversine.
 func HaversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
-	const R = 6371000.0
-	phi1 := lat1 * math.Pi / 180
-	phi2 := lat2 * math.Pi / 180
-	dPhi := (lat2 - lat1) * math.Pi / 180
-	dLam := (lng2 - lng1) * math.Pi / 180
-	a := math.Sin(dPhi/2)*math.Sin(dPhi/2) +
-		math.Cos(phi1)*math.Cos(phi2)*math.Sin(dLam/2)*math.Sin(dLam/2)
-	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return geo.DistanceHaversine(lat1, lng1, lat2, lng2)
 }
