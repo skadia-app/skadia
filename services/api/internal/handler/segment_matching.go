@@ -111,26 +111,15 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 			}
 
 			// 6. In-memory Hausdorff distance (Mercator projection)
-			var hausdorffM float64
-			if segLSMerc != nil {
-				subLS := geo.LineStringFromLatLng(subTrack, func(p database.GPSStreamPoint) (float64, float64) {
-					return p.Lat, p.Lng
-				})
-				subLSMerc := geo.LineStringToMercator(subLS)
-				hausdorffM = geo.HausdorffDistancePlanar(subLSMerc, segLSMerc)
-			} else {
-				// Fallback: PostGIS Hausdorff if WKB was not available
-				pgDist, pgErr := db.VerifySubTrackMatch(matchCtx, cand.VersionID, subTrack)
-				if pgErr != nil {
-					slog.Warn("segment matching: verify sub-track failed",
-						"segment_id", cand.SegmentID, "error", pgErr)
-					continue
-				}
-				if pgDist == nil {
-					continue
-				}
-				hausdorffM = *pgDist
+			// TrackWKB is always present since Task 18; skip if somehow nil.
+			if segLSMerc == nil {
+				continue
 			}
+			subLS := geo.LineStringFromLatLng(subTrack, func(p database.GPSStreamPoint) (float64, float64) {
+				return p.Lat, p.Lng
+			})
+			subLSMerc := geo.LineStringToMercator(subLS)
+			hausdorffM := geo.HausdorffDistancePlanar(subLSMerc, segLSMerc)
 
 			if hausdorffM > segmentMatchThresholdM {
 				continue
