@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000188**
+Alle Migrationen im Überblick. Nächste freie: **000192**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -26,3 +26,7 @@ Alle Migrationen im Überblick. Nächste freie: **000188**
 | 000185 | devices                            | devices-Tabelle (Device & Sensor Registry), activity_sensors foreign keys |
 | 000186 | devices_backfill                   | Backfill: bestehende activity_sensors → devices-Tabelle |
 | 000187 | devices_serial_index_fix           | Index-Fix für devices.serial_number |
+| 000188 | segment_efforts_activity_index     | Index auf segment_efforts.activity_id |
+| 000189 | fix_system_tag_text_colors         | Rundtour text_color fix (#10B981 → '#1a1a1a', 7.46:1 contrast) |
+| 000190 | reset_stage2_module_flags          | Daten-Reset: alle stage-2 module flags auf true (Bug: false durch alten UpdateEnrichmentSettings-Pfad ohne merge) |
+| 000191 | drop_pgrouting                     | Monolithischer Graph + pgRouting Extension entfernt; Isochrone + SuggestRoutes auf TiledGraphReader umgestellt |
