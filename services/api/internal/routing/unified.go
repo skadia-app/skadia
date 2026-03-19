@@ -7,7 +7,6 @@ package routing
 import (
 	"context"
 	"fmt"
-	"math"
 	"slices"
 	"time"
 
@@ -348,13 +347,17 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		// DP-simplified intermediate geometry for route display
 		// K08: Ele=-9999 sentinel for DP points (no elevation available)
 		lats, lons := reader.EdgeGeometry(edgeHandle)
-		for j := range lats {
-			coords = append(coords, LatLonEle{
-				Lat: float64(lats[j]) / 1e7,
-				Lon: float64(lons[j]) / 1e7,
-				Ele: -9999, // K08: sentinel — DP points have no elevation
-			})
-		}
+		// Skip first/last geometry points — they duplicate the node coordinates
+		// added explicitly by NodeCoord calls above/below
+		if len(lats) > 2 {
+			for j := 1; j < len(lats)-1; j++ {
+				coords = append(coords, LatLonEle{
+					Lat: float64(lats[j]) / 1e7,
+					Lon: float64(lons[j]) / 1e7,
+					Ele: -9999, // K08: sentinel — DP points have no elevation
+				})
+			}
+		} // edges with ≤2 geom points have no intermediate points to add
 
 		// Full elevation profile for ascent/descent computation
 		elevs, _ := reader.EdgeElevProfile(edgeHandle)
@@ -382,13 +385,10 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		Ele: float64(dstEle) / 10.0,
 	})
 
-	// K09: Calculate total distance from coordinates (with math.Sqrt)
+	// K09: Calculate total distance from coordinates using haversineDist (consistent with result.go)
 	var totalDist float64
 	for i := 1; i < len(coords); i++ {
-		dlat := (coords[i].Lat - coords[i-1].Lat) * 111320
-		cosLat := math.Cos(coords[i].Lat * math.Pi / 180.0)
-		dlon := (coords[i].Lon - coords[i-1].Lon) * 111320 * cosLat
-		totalDist += math.Sqrt(dlat*dlat + dlon*dlon)
+		totalDist += haversineDist(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
 
 	// Build RouteSegments: group contiguous edges with same Tags1

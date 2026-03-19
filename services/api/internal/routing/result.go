@@ -133,6 +133,11 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 
 // buildRetrackResult constructs a RouteResult from parent-pointer arrays.
 // Called during re-tracking phase.
+//
+// DEPRECATED: buildRetrackResult assumes aligned EdgeGeomOff/EdgeElevOff (pre-v4).
+// With FormatVersion 4 (separated offsets after DP), intermediate point elevations
+// are incorrect. Use retrackUnified() from unified.go instead.
+// This function remains for backward compatibility with monolithic pre-v4 graphs.
 func buildRetrackResult(g *graph.Graph, src, dst uint32,
 	parentNode, parentEdge []uint32, nodeGen []uint32, gen uint32) *RouteResult {
 
