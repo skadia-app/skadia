@@ -15,8 +15,8 @@ type CoverageResult struct {
 
 	// Traffic: Roh-Inputs für Division-Formel (hwWeight=1.0 assumed)
 	// Builder wendet hwWeight basierend auf highway-Typ an:
-	//   raw := trafficRaw(cr.TrafficPopulate * hwWeight, cr.TrafficIndustrial, ...)
-	//   trafficClass := classifyTraffic(raw)
+	//   raw := TrafficRaw(cr.TrafficPopulate * hwWeight, cr.TrafficIndustrial, ...)
+	//   trafficClass := ClassifyTraffic(raw)
 	TrafficPopulate   float64 // Bevölkerungs-Gravitationsmodell
 	TrafficIndustrial float64 // Industrie/Retail/Flughafen-Proximity
 	TrafficMWDensity  float64 // Motorway-Dichte (resampled von 10km auf 100m)

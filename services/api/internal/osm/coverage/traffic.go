@@ -11,9 +11,10 @@ import (
 	"github.com/paulmach/orb/encoding/wkb"
 )
 
-// classifyTraffic maps raw traffic score to BRouter 6-class system.
+// ClassifyTraffic maps raw traffic score to BRouter 6-class system.
 // Returns 0 for not classified (raw <= 0), 1-6 for traffic classes.
-func classifyTraffic(raw float64) uint8 {
+// Exported for use by graph builder (cross-package).
+func ClassifyTraffic(raw float64) uint8 {
 	switch {
 	case raw <= 0:
 		return 0
@@ -32,9 +33,10 @@ func classifyTraffic(raw float64) uint8 {
 	}
 }
 
-// trafficRaw computes BRouter's division formula.
+// TrafficRaw computes BRouter's division formula.
 // peak_sum_ele = 0 (DEM not available, TODO Stufe 3b).
-func trafficRaw(populate, industrial, motorwayDensity, highwayDensity float64) float64 {
+// Exported for use by graph builder (cross-package).
+func TrafficRaw(populate, industrial, motorwayDensity, highwayDensity float64) float64 {
 	numerator := populate*1200 + industrial // (1 + peak_sum_ele) with peak=0 → factor 1
 	denominator := (30 + motorwayDensity) * (50 + highwayDensity)
 	if denominator <= 0 {
@@ -246,8 +248,8 @@ func buildTrafficInputs(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, 
 			ind := industrialGrid.sample(center)
 			mw := mwGrid.sample(center)
 			hw := hwGrid.sample(center)
-			raw := trafficRaw(pop*1.0, ind, mw, hw)
-			trafficGrid.Data[row*trafficGrid.Cols+col] = classifyTraffic(raw)
+			raw := TrafficRaw(pop*1.0, ind, mw, hw)
+			trafficGrid.Data[row*trafficGrid.Cols+col] = ClassifyTraffic(raw)
 		}
 	}
 

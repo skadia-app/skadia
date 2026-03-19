@@ -10,12 +10,97 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
+
+// CoverageData holds enrichment values sampled from coverage grids.
+// Mirrors coverage.CoverageResult but defined locally to avoid import cycles
+// (coverage → graph → coverage).
+type CoverageData struct {
+	ForestPct      int // 0-100
+	ProtectedArea  int // 0-3
+	LanduseClass   int // 0-8
+	NoiseScore     int // 0-100
+	Urbanization   int // 0-255
+	RiverProximity int // 0-255
+	Water          bool
+
+	// Traffic raw inputs for BRouter division formula (hwWeight=1.0 assumed).
+	// Builder applies hwWeight based on highway type.
+	TrafficPopulate   float64
+	TrafficIndustrial float64
+	TrafficMWDensity  float64
+	TrafficHWDensity  float64
+}
+
+// CoverageReader provides coverage grid access for the graph builder.
+// Defined locally to avoid import cycles (coverage package imports graph).
+// Callers wrap coverage.TileGridCache with an adapter that converts
+// coverage.CoverageResult → graph.CoverageData.
+type CoverageReader interface {
+	// SampleWay samples all coverage layers along a way geometry.
+	SampleWay(geom orb.LineString) CoverageData
+	// PreloadTile builds/caches coverage grids for a tile.
+	PreloadTile(tileID uint32) error
+}
+
+// trafficRawFormula computes BRouter's division formula for traffic classification.
+// Inlined from coverage.TrafficRaw to avoid import cycle.
+// peak_sum_ele = 0 (DEM not available, TODO Stufe 3b).
+func trafficRawFormula(populate, industrial, motorwayDensity, highwayDensity float64) float64 {
+	numerator := populate*1200 + industrial
+	denominator := (30 + motorwayDensity) * (50 + highwayDensity)
+	if denominator <= 0 {
+		return 0
+	}
+	return numerator / denominator
+}
+
+// classifyTrafficFormula maps raw traffic score to BRouter 6-class system.
+// Inlined from coverage.ClassifyTraffic to avoid import cycle.
+func classifyTrafficFormula(raw float64) uint8 {
+	switch {
+	case raw <= 0:
+		return 0
+	case raw < 6:
+		return 1
+	case raw < 10:
+		return 2
+	case raw < 19:
+		return 3
+	case raw < 35:
+		return 4
+	case raw < 70:
+		return 5
+	default:
+		return 6
+	}
+}
+
+// computeTrafficFromCoverage applies hwWeight per highway type and classifies traffic.
+// Spec section 8.5: hwWeight modulates populate, not industrial.
+func computeTrafficFromCoverage(cd CoverageData, highway string) int {
+	var hwWeight float64
+	switch {
+	case strings.HasPrefix(highway, "primary"):
+		hwWeight = 1.0
+	case strings.HasPrefix(highway, "secondary"):
+		hwWeight = 0.6
+	case strings.HasPrefix(highway, "tertiary"):
+		hwWeight = 0.4
+	default:
+		return 0 // no traffic class for non-primary/secondary/tertiary
+	}
+	raw := trafficRawFormula(cd.TrafficPopulate*hwWeight, cd.TrafficIndustrial,
+		cd.TrafficMWDensity, cd.TrafficHWDensity)
+	return int(classifyTrafficFormula(raw))
+}
 
 // BuildFromWays constructs a complete graph from raw ways and pre-computed elevations.
 func BuildFromWays(ways []RawWay, elevations []int32) *Graph {
@@ -61,8 +146,11 @@ func bboxWhereClause(bbox *[4]float64) string {
 // Edges are written to a temp file by StreamTopology, then read back by
 // BuildCSRFromFile in two passes (degree counting + CSR placement).
 // If bbox is non-nil, only ways intersecting the bounding box are included.
+// If coverageReader is non-nil, enrichment values are sampled from coverage
+// grids instead of SQL columns (Phase 2, eliminates DB roundtrip).
 func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	bbox *[4]float64, demReader dem.Reader,
+	coverageReader CoverageReader,
 	progressFn func(step string, pct int)) (*Graph, error) {
 
 	report := func(step string, pct int) {
@@ -98,7 +186,7 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 	defer os.Remove(edgeTmpPath)
 
 	report("load_topology", 0)
-	topo, err := StreamTopology(ctx, pool, totalWays, edgeTmpPath, bbox, func(loaded int64) {
+	topo, err := StreamTopology(ctx, pool, totalWays, edgeTmpPath, bbox, coverageReader, func(loaded int64) {
 		if totalWays > 0 {
 			report("load_topology", int(loaded*100/totalWays))
 		}
@@ -145,6 +233,52 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 		report("elevation_nodes", 100)
 		report("elevation_edges", 100)
 	}
+
+	// K07: ElevOff = copy of GeomOff BEFORE DP changes GeomOff.
+	// SampleEdgeElevationProfilesFromReader already copies GeomOff→ElevOff,
+	// but this explicit copy ensures correctness even without DEM.
+	g.EdgeElevOff = make([]uint32, len(g.EdgeGeomOff))
+	copy(g.EdgeElevOff, g.EdgeGeomOff)
+
+	// Compute ElevSegDist BEFORE DP (needs original coordinates).
+	report("compute_elev_seg_dist", 0)
+	centerLat := (g.BBox[0] + g.BBox[2]) / 2.0
+	cosLat := math.Cos(centerLat * math.Pi / 180.0)
+
+	var allElevSegDist []uint16
+	for ei := range g.EdgeCount {
+		start := g.EdgeGeomOff[ei]
+		end := g.EdgeGeomOff[ei+1]
+		segDists := ComputeElevSegDist(g.EdgeGeomLat[start:end], g.EdgeGeomLon[start:end], cosLat)
+		allElevSegDist = append(allElevSegDist, segDists...)
+	}
+	g.EdgeElevSegDist = allElevSegDist
+	report("compute_elev_seg_dist", 100)
+
+	// Build assertion (Spec section 4.3): ElevSegDist count = ElevProf count - EdgeCount.
+	if len(g.EdgeElevProf) > 0 {
+		expectedLen := len(g.EdgeElevProf) - int(g.EdgeCount)
+		if len(g.EdgeElevSegDist) != expectedLen {
+			return nil, fmt.Errorf("ElevSegDist/ElevProf mismatch: %d != %d",
+				len(g.EdgeElevSegDist), expectedLen)
+		}
+	}
+
+	// Douglas-Peucker on EdgeGeom (2D, 0.4m threshold).
+	report("douglas_peucker", 0)
+	newGeomOff, newGeomLat, newGeomLon := ApplyDPToEdgeGeometry(
+		g.EdgeCount, g.EdgeGeomOff, g.EdgeGeomLat, g.EdgeGeomLon,
+		cosLat, 0.4)
+
+	savedGeomPts := len(g.EdgeGeomLat)
+	g.EdgeGeomOff = newGeomOff
+	g.EdgeGeomLat = newGeomLat
+	g.EdgeGeomLon = newGeomLon
+
+	slog.Info("douglas-peucker complete",
+		"before", savedGeomPts, "after", len(newGeomLat),
+		"reduction_pct", 100-len(newGeomLat)*100/max(1, savedGeomPts))
+	report("douglas_peucker", 100)
 
 	report("spatial_index", 0)
 	g.Grid = BuildSpatialIndex(g, 0.01)
@@ -212,8 +346,11 @@ const waysQuery = waysQueryBase + `
 // (endpoints, intersections). Pass 2: full query with tags, immediately encoded
 // to uint64 — no string copies in CompactEdge (36 bytes vs ~300 bytes).
 // Intermediate vertices become edge geometry instead of graph nodes.
+// If coverageReader is non-nil, enrichment values are sampled from grids
+// instead of SQL columns (Phase 2 CoverageReader integration).
 func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 	edgeTmpPath string, bbox *[4]float64,
+	coverageReader CoverageReader,
 	progressFn func(loaded int64)) (*CompactTopologyResult, error) {
 
 	// === Pass 1: Degree counting (geometry only, no tags) ===
@@ -374,6 +511,12 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
 		}
+		coords := parseLineStringWKT(geomWKT)
+		if len(coords) < 2 {
+			pass2Count++
+			continue
+		}
+
 		enrichment := RawEnrichment{
 			ForestPct: forestPct, NoiseScore: noiseScore,
 			TrafficClass: trafficClass, ProtectedArea: protectedArea,
@@ -383,14 +526,26 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			Urbanization:   urbanization,
 			RiverProximity: riverProximity,
 		}
+
+		// Phase 2: override enrichment from coverage grids (no DB roundtrip).
+		// Route-membership (cycleroute/hikeroute) still comes from SQL.
+		if coverageReader != nil {
+			ls := make(orb.LineString, len(coords))
+			for ci, c := range coords {
+				ls[ci] = orb.Point{c.Lon, c.Lat}
+			}
+			cd := coverageReader.SampleWay(ls)
+			enrichment.ForestPct = cd.ForestPct
+			enrichment.NoiseScore = cd.NoiseScore
+			enrichment.ProtectedArea = cd.ProtectedArea
+			enrichment.LanduseClass = cd.LanduseClass
+			enrichment.Urbanization = cd.Urbanization
+			enrichment.RiverProximity = cd.RiverProximity
+			enrichment.TrafficClass = computeTrafficFromCoverage(cd, highway)
+		}
+
 		tags1 := EncodeOSMTags(&tags)
 		tags2 := EncodeEdgeTags2(&tags, &enrichment)
-
-		coords := parseLineStringWKT(geomWKT)
-		if len(coords) < 2 {
-			pass2Count++
-			continue
-		}
 
 		isOneway := oneway
 

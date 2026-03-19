@@ -14,22 +14,22 @@ func TestClassifyTraffic(t *testing.T) {
 		{0, 0}, {3, 1}, {8, 2}, {15, 3}, {30, 4}, {50, 5}, {100, 6},
 	}
 	for _, tc := range tests {
-		got := classifyTraffic(tc.raw)
+		got := ClassifyTraffic(tc.raw)
 		if got != tc.want {
-			t.Errorf("classifyTraffic(%v) = %d, want %d", tc.raw, got, tc.want)
+			t.Errorf("ClassifyTraffic(%v) = %d, want %d", tc.raw, got, tc.want)
 		}
 	}
 }
 
 func TestTrafficDivisionFormula(t *testing.T) {
 	// High population, low motorway density → high traffic
-	raw := trafficRaw(100, 10, 5, 20)
+	raw := TrafficRaw(100, 10, 5, 20)
 	if raw < 10 {
 		t.Errorf("high pop + low motorway should be high traffic, got %f", raw)
 	}
 
 	// Same population, high motorway density → lower traffic (motorway absorbs)
-	rawWithMW := trafficRaw(100, 10, 50, 20)
+	rawWithMW := TrafficRaw(100, 10, 50, 20)
 	if rawWithMW >= raw {
 		t.Errorf("motorway should reduce traffic: %f >= %f", rawWithMW, raw)
 	}
@@ -99,19 +99,19 @@ func TestIndustrialDecayFloat(t *testing.T) {
 
 func TestTrafficClassification(t *testing.T) {
 	// Verify boundary values
-	if classifyTraffic(-1) != 0 {
+	if ClassifyTraffic(-1) != 0 {
 		t.Error("negative should be class 0")
 	}
-	if classifyTraffic(5.9) != 1 {
+	if ClassifyTraffic(5.9) != 1 {
 		t.Error("5.9 should be class 1")
 	}
-	if classifyTraffic(6.0) != 2 {
+	if ClassifyTraffic(6.0) != 2 {
 		t.Error("6.0 should be class 2")
 	}
-	if classifyTraffic(69.9) != 5 {
+	if ClassifyTraffic(69.9) != 5 {
 		t.Error("69.9 should be class 5")
 	}
-	if classifyTraffic(70.0) != 6 {
+	if ClassifyTraffic(70.0) != 6 {
 		t.Error("70.0 should be class 6")
 	}
 }

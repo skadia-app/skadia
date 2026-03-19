@@ -605,8 +605,8 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			ind := trafficIn.industrial.sample(mid)
 			mw := trafficIn.mwDensity.sample(mid)
 			hw := trafficIn.hwDensity.sample(mid)
-			raw := trafficRaw(pop*hwWeight, ind, mw, hw)
-			trafficClass = int(classifyTraffic(raw))
+			raw := TrafficRaw(pop*hwWeight, ind, mw, hw)
+			trafficClass = int(ClassifyTraffic(raw))
 		}
 
 		batch = append(batch, wayResult{
