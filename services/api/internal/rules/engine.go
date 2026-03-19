@@ -7,6 +7,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/geojson"
+	"github.com/paulmach/orb/planar"
+
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 // compareValues vergleicht zwei Werte typbasiert ohne fmt.Sprintf-Allokation.
@@ -302,43 +308,24 @@ func evalGeofenceProximity(c Condition, activity map[string]any) bool {
 	return inside
 }
 
-// pointInGeoJSONPolygon performs a ray-casting point-in-polygon test against
-// the first (outer) ring of a GeoJSON Polygon. The polygon coordinates are in
-// [longitude, latitude] order as per the GeoJSON spec. We treat them as (x, y)
-// for the 2-D test which is accurate enough for the small areas used in
-// geofencing (error is negligible compared to the zone sizes involved).
+// pointInGeoJSONPolygon checks whether (lat, lon) lies inside a GeoJSON
+// Polygon using paulmach/orb/planar.PolygonContains.
 func pointInGeoJSONPolygon(lat, lon float64, geoJSONStr string) bool {
-	var poly struct {
-		Coordinates [][][2]float64 `json:"coordinates"`
-	}
-	if err := json.Unmarshal([]byte(geoJSONStr), &poly); err != nil || len(poly.Coordinates) == 0 {
+	g, err := geojson.UnmarshalGeometry([]byte(geoJSONStr))
+	if err != nil {
 		return false
 	}
-	ring := poly.Coordinates[0]
-	// Ray-casting: count crossings of a horizontal ray from (lon, lat)
-	x, y := lon, lat
-	inside := false
-	n := len(ring)
-	j := n - 1
-	for i := range n {
-		xi, yi := ring[i][0], ring[i][1]
-		xj, yj := ring[j][0], ring[j][1]
-		if (yi > y) != (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi {
-			inside = !inside
-		}
-		j = i
+	poly, ok := g.Geometry().(orb.Polygon)
+	if !ok {
+		return false
 	}
-	return inside
+	return planar.PolygonContains(poly, orb.Point{lon, lat})
 }
 
+// HaversineM returns the great-circle distance in meters between two WGS-84 points.
+// Delegates to geo.DistanceHaversine.
 func HaversineM(lat1, lon1, lat2, lon2 float64) float64 {
-	const R = 6371000.0
-	p1 := lat1 * math.Pi / 180
-	p2 := lat2 * math.Pi / 180
-	dp := (lat2 - lat1) * math.Pi / 180
-	dl := (lon2 - lon1) * math.Pi / 180
-	a := math.Sin(dp/2)*math.Sin(dp/2) + math.Cos(p1)*math.Cos(p2)*math.Sin(dl/2)*math.Sin(dl/2)
-	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return geo.DistanceHaversine(lat1, lon1, lat2, lon2)
 }
 
 func evalPace(c Condition, activity map[string]any) bool {

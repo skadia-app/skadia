@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -207,9 +208,11 @@ func geoPointsToGeoJSON(pts []GarminGeoPoint) string {
 
 // courseCalculateDistance computes the total distance of a course in meters using Haversine.
 func courseCalculateDistance(pts []GarminGeoPoint) float64 {
-	var total float64
-	for i := 1; i < len(pts); i++ {
-		total += importer.HaversineM(pts[i-1].Latitude, pts[i-1].Longitude, pts[i].Latitude, pts[i].Longitude)
+	if len(pts) < 2 {
+		return 0
 	}
-	return total
+	ls := geo.LineStringFromLatLng(pts, func(p GarminGeoPoint) (float64, float64) {
+		return p.Latitude, p.Longitude
+	})
+	return geo.Length(ls)
 }

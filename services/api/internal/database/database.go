@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -227,7 +228,10 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 		return nil
 	}
 
-	wkt := trackToWKT(trackPoints)
+	ls := geo.LineStringFromLatLng(trackPoints, func(p model.TrackPoint) (float64, float64) {
+		return p.Lat, p.Lng
+	})
+	wkt := geo.MarshalWKT(ls)
 
 	_, err := db.Pool.Exec(ctx, `
 		WITH g AS (SELECT ST_SetSRID(ST_GeomFromText($2), 4326) AS geom)
@@ -242,21 +246,6 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 	return nil
 }
 
-func trackToWKT(points []model.TrackPoint) string {
-	var sb strings.Builder
-	sb.Grow(len(points) * 25)
-	sb.WriteString("LINESTRING(")
-	for i, p := range points {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(strconv.FormatFloat(p.Lng, 'f', 6, 64)) // WKT: longitude first
-		sb.WriteByte(' ')
-		sb.WriteString(strconv.FormatFloat(p.Lat, 'f', 6, 64))
-	}
-	sb.WriteByte(')')
-	return sb.String()
-}
 
 func (db *DB) InsertSensors(ctx context.Context, activityID string, sensors []model.SensorRecord) error {
 	if len(sensors) == 0 {

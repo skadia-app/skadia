@@ -2,11 +2,10 @@ package fitimport
 
 import (
 	"math"
-	"strconv"
-	"strings"
 
 	"github.com/muktihari/fit/profile/mesgdef"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -40,23 +39,13 @@ func ExtractTrackPoints(records []*mesgdef.Record) []model.TrackPoint {
 }
 
 // TrackToWKT converts track points to a WKT LineString.
-// WKT uses longitude-first order: LINESTRING(lng lat, lng lat, ...)
+// Delegates to geo.MarshalWKT via geo.LineStringFromLatLng.
 func TrackToWKT(points []model.TrackPoint) string {
 	if len(points) < 2 {
 		return ""
 	}
-
-	var sb strings.Builder
-	sb.Grow(len(points) * 25)
-	sb.WriteString("LINESTRING(")
-	for i, p := range points {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(strconv.FormatFloat(p.Lng, 'f', 6, 64))
-		sb.WriteByte(' ')
-		sb.WriteString(strconv.FormatFloat(p.Lat, 'f', 6, 64))
-	}
-	sb.WriteByte(')')
-	return sb.String()
+	ls := geo.LineStringFromLatLng(points, func(p model.TrackPoint) (float64, float64) {
+		return p.Lat, p.Lng
+	})
+	return geo.MarshalWKT(ls)
 }

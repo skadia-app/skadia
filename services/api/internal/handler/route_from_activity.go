@@ -1,16 +1,15 @@
 package handler
 
 import (
-	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -52,7 +51,7 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	simplified := rdpSimplifyGPSPoints(gpsPoints, 50)
+	simplified := simplifyToTarget(gpsPoints, 50)
 	waypoints := make([]model.RouteWaypoint, len(simplified))
 	for i, p := range simplified {
 		wpType := "via"
@@ -63,7 +62,7 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 		}
 		waypoints[i] = model.RouteWaypoint{
 			ID:     uuid.New().String(),
-			LatLng: [2]float64{p.Lat, p.Lng},
+			LatLng: [2]float64{p[1], p[0]}, // orb.Point is [lng, lat]
 			Type:   wpType,
 		}
 	}
@@ -110,10 +109,17 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build GeoJSON LineString from all GPS points.
-	geojson := buildLineStringGeoJSON(gpsPoints)
+	ls := gpsStreamToLineString(gpsPoints)
+	gjBytes, err := geo.MarshalGeoJSON(ls)
+	if err != nil {
+		slog.Error("route from activity: marshal GeoJSON failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to build geometry", r.URL.Path)
+		return
+	}
+	geojsonStr := string(gjBytes)
 
 	// Simplify to ~50 waypoints using Ramer-Douglas-Peucker.
-	simplified := rdpSimplifyGPSPoints(gpsPoints, 50)
+	simplified := simplifyToTarget(gpsPoints, 50)
 	waypoints := make([]model.RouteWaypoint, len(simplified))
 	for i, p := range simplified {
 		wpType := "via"
@@ -124,7 +130,7 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 		}
 		waypoints[i] = model.RouteWaypoint{
 			ID:     uuid.New().String(),
-			LatLng: [2]float64{p.Lat, p.Lng},
+			LatLng: [2]float64{p[1], p[0]}, // orb.Point is [lng, lat]
 			Type:   wpType,
 		}
 	}
@@ -152,7 +158,7 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 		Name:               routeName,
 		SportType:          activity.SportType,
 		Profile:            sportTypeToProfile(activity.SportType),
-		GeometryGeoJSON:    geojson,
+		GeometryGeoJSON:    geojsonStr,
 		Waypoints:          waypoints,
 		Segments:           segments,
 		TotalDistanceM:     activity.DistanceM,
@@ -171,44 +177,27 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, route)
 }
 
-// buildLineStringGeoJSON builds a GeoJSON LineString string from GPS stream points.
-func buildLineStringGeoJSON(points []database.GPSStreamPoint) string {
-	var sb strings.Builder
-	sb.WriteString(`{"type":"LineString","coordinates":[`)
-	for i, p := range points {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(fmt.Sprintf("[%f,%f]", p.Lng, p.Lat))
-	}
-	sb.WriteString("]}")
-	return sb.String()
+// gpsStreamToLineString converts GPS stream points to an orb.LineString.
+func gpsStreamToLineString(points []database.GPSStreamPoint) orb.LineString {
+	return geo.LineStringFromLatLng(points, func(p database.GPSStreamPoint) (float64, float64) {
+		return p.Lat, p.Lng
+	})
 }
 
-// gpsPoint is a lightweight lat/lng point for internal use in simplification.
-type gpsPoint struct {
-	Lat float64
-	Lng float64
-}
-
-// rdpSimplifyGPSPoints reduces the GPS stream to approximately targetCount points
-// using Ramer-Douglas-Peucker with iteratively adjusted epsilon.
-func rdpSimplifyGPSPoints(points []database.GPSStreamPoint, targetCount int) []gpsPoint {
-	all := make([]gpsPoint, len(points))
-	for i, p := range points {
-		all[i] = gpsPoint{Lat: p.Lat, Lng: p.Lng}
+// simplifyToTarget reduces the GPS stream to approximately targetCount points
+// using geo.SimplifyDouglasPeucker with iteratively adjusted threshold (meters).
+func simplifyToTarget(points []database.GPSStreamPoint, targetCount int) orb.LineString {
+	ls := gpsStreamToLineString(points)
+	if len(ls) <= targetCount {
+		return ls
 	}
 
-	if len(all) <= targetCount {
-		return all
-	}
-
-	// Binary search for epsilon that yields ~targetCount points.
-	lo, hi := 0.0, 0.01 // degrees
-	var result []gpsPoint
+	// Binary search for threshold in meters that yields ~targetCount points.
+	lo, hi := 0.0, 5000.0 // meters
+	var result orb.LineString
 	for range 20 {
 		mid := (lo + hi) / 2
-		result = rdpGeo(all, mid)
+		result = geo.SimplifyDouglasPeucker(ls, mid)
 		if len(result) > targetCount {
 			lo = mid
 		} else {
@@ -216,44 +205,6 @@ func rdpSimplifyGPSPoints(points []database.GPSStreamPoint, targetCount int) []g
 		}
 	}
 	return result
-}
-
-// rdpGeo applies Ramer-Douglas-Peucker simplification to geographic points.
-func rdpGeo(points []gpsPoint, epsilon float64) []gpsPoint {
-	if len(points) < 3 {
-		return points
-	}
-
-	maxDist := 0.0
-	maxIdx := 0
-	for i := 1; i < len(points)-1; i++ {
-		d := perpDistGeo(points[i], points[0], points[len(points)-1])
-		if d > maxDist {
-			maxDist = d
-			maxIdx = i
-		}
-	}
-
-	if maxDist < epsilon {
-		return []gpsPoint{points[0], points[len(points)-1]}
-	}
-
-	left := rdpGeo(points[:maxIdx+1], epsilon)
-	right := rdpGeo(points[maxIdx:], epsilon)
-	return append(left[:len(left)-1], right...)
-}
-
-// perpDistGeo computes the perpendicular distance (in degrees, approximate)
-// from point p to the line segment a-b.
-func perpDistGeo(p, a, b gpsPoint) float64 {
-	dx := b.Lng - a.Lng
-	dy := b.Lat - a.Lat
-	if dx == 0 && dy == 0 {
-		return math.Sqrt((p.Lng-a.Lng)*(p.Lng-a.Lng) + (p.Lat-a.Lat)*(p.Lat-a.Lat))
-	}
-	num := math.Abs(dy*p.Lng - dx*p.Lat + b.Lng*a.Lat - b.Lat*a.Lng)
-	den := math.Sqrt(dx*dx + dy*dy)
-	return num / den
 }
 
 // derefFloat64 safely dereferences a *float64, returning 0 if nil.

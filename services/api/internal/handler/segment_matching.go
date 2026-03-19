@@ -3,10 +3,10 @@ package handler
 import (
 	"context"
 	"log/slog"
-	"math"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -253,9 +253,9 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 // nearestInCluster returns the stream index within cluster that is closest to (lat, lng).
 func nearestInCluster(stream []database.GPSStreamPoint, cluster []int, lat, lng float64) int {
 	best := cluster[0]
-	bestDist := haversineM(stream[cluster[0]].Lat, stream[cluster[0]].Lng, lat, lng)
+	bestDist := geo.DistanceHaversine(stream[cluster[0]].Lat, stream[cluster[0]].Lng, lat, lng)
 	for _, idx := range cluster[1:] {
-		d := haversineM(stream[idx].Lat, stream[idx].Lng, lat, lng)
+		d := geo.DistanceHaversine(stream[idx].Lat, stream[idx].Lng, lat, lng)
 		if d < bestDist {
 			best = idx
 			bestDist = d
@@ -269,7 +269,7 @@ func nearestInCluster(stream []database.GPSStreamPoint, cluster []int, lat, lng 
 func findProximityIndices(stream []database.GPSStreamPoint, lat, lng, thresholdM float64) []int {
 	result := make([]int, 0, len(stream)/10+1)
 	for i, p := range stream {
-		if haversineM(p.Lat, p.Lng, lat, lng) <= thresholdM {
+		if geo.DistanceHaversine(p.Lat, p.Lng, lat, lng) <= thresholdM {
 			result = append(result, i)
 		}
 	}
@@ -314,25 +314,10 @@ func estimateSubTrackLength(stream []database.GPSStreamPoint) float64 {
 	if len(stream) < 2 {
 		return 0
 	}
-	total := 0.0
-	for i := 1; i < len(stream); i++ {
-		total += haversineM(stream[i-1].Lat, stream[i-1].Lng, stream[i].Lat, stream[i].Lng)
-	}
-	return total
-}
-
-// haversineM returns distance in meters between two lat/lng points.
-func haversineM(lat1, lng1, lat2, lng2 float64) float64 {
-	const earthRadiusM = 6371000.0
-	dLat := (lat2 - lat1) * math.Pi / 180.0
-	dLng := (lng2 - lng1) * math.Pi / 180.0
-	lat1Rad := lat1 * math.Pi / 180.0
-	lat2Rad := lat2 * math.Pi / 180.0
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
-			math.Sin(dLng/2)*math.Sin(dLng/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return earthRadiusM * c
+	ls := geo.LineStringFromLatLng(stream, func(p database.GPSStreamPoint) (float64, float64) {
+		return p.Lat, p.Lng
+	})
+	return geo.Length(ls)
 }
 
 const lapFinishProximityM = 30.0
