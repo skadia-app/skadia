@@ -118,6 +118,11 @@ func (r *SingleGraphReader) EdgeGeometry(handle uint64) ([]int32, []int32) {
 
 	geomStart := g.EdgeGeomOff[edgeIdx]
 	geomEnd := g.EdgeGeomOff[edgeIdx+1]
+	nPts := geomEnd - geomStart
 
-	return g.EdgeGeomLat[geomStart:geomEnd], g.EdgeGeomLon[geomStart:geomEnd]
+	// A04: return only intermediate points (exclude start/end node coords)
+	if nPts <= 2 {
+		return nil, nil
+	}
+	return g.EdgeGeomLat[geomStart+1 : geomEnd-1], g.EdgeGeomLon[geomStart+1 : geomEnd-1]
 }
