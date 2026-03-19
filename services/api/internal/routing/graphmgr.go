@@ -9,9 +9,38 @@ import (
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/paulmach/orb"
 
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
+
+// coverageAdapter wraps coverage.TileGridCache to satisfy graph.CoverageReader.
+// Needed to avoid import cycles: coverage imports graph, so graph cannot import coverage.
+type coverageAdapter struct {
+	cache *coverage.TileGridCache
+}
+
+func (a *coverageAdapter) PreloadTile(tileID uint32) error {
+	return a.cache.PreloadTile(tileID)
+}
+
+func (a *coverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {
+	cr := a.cache.SampleWay(geom)
+	return graph.CoverageData{
+		ForestPct:         cr.ForestPct,
+		ProtectedArea:     cr.ProtectedArea,
+		LanduseClass:      cr.LanduseClass,
+		NoiseScore:        cr.NoiseScore,
+		Urbanization:      cr.Urbanization,
+		RiverProximity:    cr.RiverProximity,
+		Water:             cr.Water,
+		TrafficPopulate:   cr.TrafficPopulate,
+		TrafficIndustrial: cr.TrafficIndustrial,
+		TrafficMWDensity:  cr.TrafficMWDensity,
+		TrafficHWDensity:  cr.TrafficHWDensity,
+	}
+}
 
 // GraphManager manages the in-memory routing graph with atomic pointer swap.
 // It supports two modes:
@@ -163,9 +192,21 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 	return true, nil
 }
 
-// UnifiedRouter returns the Phase 2 UnifiedRouter, or nil if not initialized.
-// Lazy: created by InitTiledReader; safe for concurrent read after startup.
+// UnifiedRouter returns the Phase 2 UnifiedRouter.
+// Lazily recreates from tiledReader after a Flush/RebuildTiles cycle.
+// Returns nil if InitTiledReader has not been called or no tiles are available.
 func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
+	m.routerMu.Lock()
+	defer m.routerMu.Unlock()
+	if m.unifiedRouter != nil {
+		return m.unifiedRouter
+	}
+	// Lazy recreate: tiledReader is still valid after Flush, only the
+	// unifiedRouter pointer was cleared to force recreation with fresh tiles.
+	if m.tiledReader != nil {
+		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, 8)
+		slog.Info("unified router lazily recreated after tile rebuild")
+	}
 	return m.unifiedRouter
 }
 
@@ -197,7 +238,14 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	defer m.mu.Unlock()
 
-	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, nil, workers, filterBBox, force, progressFn)
+	// A07: Create CoverageReader for Phase 2 (no DB roundtrip per way).
+	// TODO: load noise settings from user/system configuration instead of defaults.
+	noiseCfg := coverage.DefaultNoiseSettings()
+	cr := coverage.NewTileGridCache(pool, noiseCfg)
+	defer cr.ReleaseAll()
+	adapter := &coverageAdapter{cache: cr}
+
+	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, adapter, workers, filterBBox, force, progressFn)
 	if err != nil {
 		return err
 	}
