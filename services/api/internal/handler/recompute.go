@@ -662,7 +662,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if h.DB.IsLapDetectionEnabled(ctx, userID) {
 			gpsStream, gpsErr := h.DB.GetActivityGPSStream(ctx, activityID)
 			if gpsErr == nil && len(gpsStream) >= 20 {
-				if laps := DetectLaps(ctx, h.DB, activityID, gpsStream); len(laps) > 0 {
+				if laps := DetectLaps(activityID, gpsStream); len(laps) > 0 {
 					if err := h.DB.InsertDetectedLaps(ctx, activityID, laps); err != nil {
 						slog.Error("reprocess: insert detected laps failed", "id", activityID, "error", err)
 					}
