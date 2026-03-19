@@ -105,6 +105,8 @@ github.com/decred/dcrd/dcrec/secp256k1/v4
 # github.com/disintegration/imaging v1.6.2
 ## explicit
 github.com/disintegration/imaging
+# github.com/fogleman/delaunay v0.0.0-20180910191513-63f09b4c883d
+## explicit
 # github.com/fsnotify/fsnotify v1.9.0
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
