@@ -659,6 +659,9 @@ func main() {
 	// Start OSM update scheduler (checks every hour whether any region update is due).
 	h.StartOSMUpdateScheduler(ctx)
 
+	// Start weekly cleanup of hardware devices no longer linked to any activity.
+	h.StartDeviceOrphanCleanupScheduler(ctx)
+
 	// Clean up orphaned ZIP-scan temp directories from previous server runs.
 	// These are created by UploadGarminZIPScan / UploadStravaZIPScan and only
 	// removed by the subsequent start-import call. If the user abandons the

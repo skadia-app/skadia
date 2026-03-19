@@ -125,6 +125,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"weather_backfill":        "Wetter-Backfill",
 		"brouter_segment_build":   "BRouter-Segmente erstellen",
 		"brouter_segment_download": "BRouter-Segmente herunterladen",
+		"device_orphan_cleanup":    "Verwaiste Geräte bereinigen",
 	}
 	label := labels[jobType]
 	if label == "" {
