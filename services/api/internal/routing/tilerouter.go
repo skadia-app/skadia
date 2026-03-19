@@ -227,7 +227,7 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 			tc, newDX, newDY := computeTurnCost(
 				g.NodeLon[localNode], g.NodeLat[localNode],
 				g.NodeLon[target], g.NodeLat[target],
-				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost)
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Elevation hysteresis — prefer edge profile over node-level fallback.
 			var hr HysteresisResult

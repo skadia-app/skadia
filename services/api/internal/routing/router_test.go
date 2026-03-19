@@ -678,8 +678,8 @@ func TestRoute_InitialCost_AvoidsFerryHopping(t *testing.T) {
 }
 
 func TestComputeTurnCost_Basic(t *testing.T) {
-	// Straight ahead: cosAngle=1, turnCost=0
-	tc, dx, dy := computeTurnCost(0, 0, 100, 0, 1, 0, 90)
+	// Straight ahead: cosAngle=1, turnCost=0 (long edge = full scale)
+	tc, dx, dy := computeTurnCost(0, 0, 100, 0, 1, 0, 90, 50000) // 500m
 	if tc != 0 {
 		t.Errorf("straight ahead: expected turnCost=0, got %f", tc)
 	}
@@ -688,20 +688,29 @@ func TestComputeTurnCost_Basic(t *testing.T) {
 	}
 	_ = dy
 
-	// 180° turn: cosAngle=-1, turnCost=2*base
-	tc2, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 90)
+	// 180° turn on long edge: cosAngle=-1, turnCost=2*base*distScale
+	tc2, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 90, 50000) // 500m → distScale=1.0
 	if math.Abs(float64(tc2)-180) > 1 {
-		t.Errorf("180° turn: expected turnCost~180, got %f", tc2)
+		t.Errorf("180° turn long edge: expected turnCost~180, got %f", tc2)
+	}
+
+	// 180° turn on SHORT edge: turnCost scaled down
+	tc2short, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 90, 1000) // 10m → distScale=0.05
+	if tc2short >= tc2*0.2 {
+		t.Errorf("180° turn short edge: expected much less than long, got short=%f long=%f", tc2short, tc2)
+	}
+	if tc2short <= 0 {
+		t.Errorf("180° turn short edge: expected >0, got %f", tc2short)
 	}
 
 	// No previous direction: no turn cost
-	tc3, _, _ := computeTurnCost(0, 0, 100, 0, 0, 0, 90)
+	tc3, _, _ := computeTurnCost(0, 0, 100, 0, 0, 0, 90, 50000)
 	if tc3 != 0 {
 		t.Errorf("no prev direction: expected turnCost=0, got %f", tc3)
 	}
 
 	// TurnCost base=0: no turn cost regardless
-	tc4, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 0)
+	tc4, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 0, 50000)
 	if tc4 != 0 {
 		t.Errorf("base=0: expected turnCost=0, got %f", tc4)
 	}
