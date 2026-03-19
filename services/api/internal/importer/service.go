@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
@@ -68,14 +70,13 @@ func NewService(
 }
 
 // PostProcess runs all post-insert steps for a newly stored activity:
-//  1. Stage 1 Enrichment (RunStage1)
-//  2. Streams, R-R intervals, Track
-//  3. Heatmap + InvalidateTerraIncognitaCache
-//  4. Sensors, Laps, Splits, SplitSummaries, Lengths, ClimbPro, TimeInZones
-//  5. File Info + S3 Meta-Sidecar
-//  6. NATS Events (ActivityUploaded, AnalyticsInvalidate)
-//  7. Shadow FS (via ShadowWriter callback)
-//  8. Background Segment-Matching + Lap-Detection (via SegmentMatcher callback)
+//  1. Phase 0 (sequential): Stage 1 Enrichment + ApplyRulesToActivity
+//  2. Phase 1 (parallel):
+//     Group A (sequential): InsertStreams → InsertTrack → InsertHeatmapData
+//     Group C (parallel): RR-Intervals, Sensors+Devices, Laps, Splits, SplitSummaries,
+//                          Lengths, ClimbPro, TimeInZones
+//     Group D (parallel): UpdateActivityFileInfo + S3 Meta Upload
+//  3. NATS Events, Shadow FS, Background Segment-Matching
 func (s *Service) PostProcess(
 	ctx context.Context,
 	userID, activityID string,
@@ -90,199 +91,172 @@ func (s *Service) PostProcess(
 		return err
 	}
 
-	// 1. Stage 1 Enrichment (synchronous, ~50ms)
+	// ── Phase 0 (sequential, MUST run first) ──────────────────────────────
+	// RunStage1 + ApplyRulesToActivity set metadata used by subsequent steps.
+
 	if data.HasGPS && data.StartLat != 0 {
 		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events)
 	}
 
-	// Apply automation rules (alle Aktivitäten — Frost/Nacht brauchen kein GPS)
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
 	}
 
-	// 2a. Insert streams
-	if err := s.DB.InsertStreams(ctx, activityID, data.Streams); err != nil {
-		slog.Error("insert streams failed", "error", err)
-	}
+	// ── Phase 1 (parallel groups) ─────────────────────────────────────────
+	g, gCtx := errgroup.WithContext(ctx)
 
-	// 2a.1 Weather stream refinement — re-fetch with summit/midpoint GPS if relevant.
-	// Runs as a background goroutine to avoid blocking post-processing.
-	// The stage1 weather (start-only) is already stored; this overwrites it with
-	// more accurate readings using actual stream data.
-	if enrichment.NeedsStreamRefinement(data.HasGPS, data.MinElevationM, data.MaxElevationM, data.ElapsedTimeS) {
-		capturedID := activityID
-		capturedUserID := userID
-		capturedData := data
-		go func() {
-			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+	// Group A (sequential): Streams → Track → Heatmap
+	g.Go(func() error {
+		// Streams (fatal on error — downstream depends on it)
+		if err := s.DB.InsertStreams(gCtx, activityID, data.Streams); err != nil {
+			slog.Error("insert streams failed", "error", err)
+			return fmt.Errorf("insert streams: %w", err)
+		}
 
-			prefs := model.DefaultWeatherPrefs()
-			var minPtr, maxPtr *float64
-			if capturedData.MinElevationM != 0 {
-				v := capturedData.MinElevationM
-				minPtr = &v
+		// Weather stream refinement (background, non-blocking)
+		if enrichment.NeedsStreamRefinement(data.HasGPS, data.MinElevationM, data.MaxElevationM, data.ElapsedTimeS) {
+			go s.runWeatherStreamRefinement(activityID, userID, data)
+		}
+
+		// Track (fatal on error)
+		if err := s.DB.InsertTrack(gCtx, activityID, data.TrackPoints); err != nil {
+			slog.Error("insert track failed", "error", err)
+			return fmt.Errorf("insert track: %w", err)
+		}
+
+		// Heatmap (best-effort, logged only)
+		if len(data.TrackPoints) >= 2 {
+			var subTypePtr *string
+			if data.SubType != "" {
+				subTypePtr = &data.SubType
 			}
-			if capturedData.MaxElevationM != 0 {
-				v := capturedData.MaxElevationM
-				maxPtr = &v
+			interval, _ := s.DB.GetUserHeatmapInterval(gCtx, userID)
+			if err := s.DB.InsertHeatmapData(gCtx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
+				slog.Error("insert heatmap data failed", "error", err)
 			}
+			s.DB.InvalidateTerraIncognitaCache(gCtx, userID)
+		}
 
-			var summitLat, summitLng *float64
-			var summitAlt float64
-			var summitAt *time.Time
-			var midLat, midLng, midMeanAlt float64
-			var midAt *time.Time
+		return nil
+	})
 
-			c := enrichment.DetermineWeatherCase(capturedData.ElapsedTimeS, capturedData.MinElevationM, capturedData.MaxElevationM, prefs)
-			if c == enrichment.CaseMountain {
-				if slat, slng, salt, sat, ok := enrichment.SummitPoint(ctx2, s.DB.Pool, capturedID); ok {
-					summitLat, summitLng, summitAlt = &slat, &slng, salt
-					summitAt = &sat
-				}
+	// Group C: independent inserts (all best-effort, logged only)
+	g.Go(func() error {
+		if len(data.RRIntervals) > 0 {
+			if err := s.DB.InsertRRIntervals(gCtx, activityID, data.RRIntervals); err != nil {
+				slog.Error("insert rr intervals failed", "error", err)
 			}
-			if c == enrichment.CaseMountain || c == enrichment.CaseLong {
-				if mlat, mlng, malt, mat, ok := enrichment.MidpointGPS(ctx2, s.DB.Pool, capturedID); ok {
-					midLat, midLng, midMeanAlt = mlat, mlng, malt
-					midAt = &mat
-				}
-			}
+		}
+		return nil
+	})
 
-			reqs := enrichment.BuildWeatherRequests(
-				capturedData.StartLat, capturedData.StartLng, capturedData.StartedAt,
-				capturedData.ElapsedTimeS, minPtr, maxPtr,
-				summitLat, summitLng, summitAlt,
-				midLat, midLng, midMeanAlt,
-				summitAt, midAt,
-				prefs,
-			)
-			readings, err := enrichment.FetchWeatherReadings(ctx2, reqs)
+	g.Go(func() error {
+		if err := s.DB.InsertSensors(gCtx, activityID, data.Sensors); err != nil {
+			slog.Error("insert sensors failed", "error", err)
+		}
+		// Register Recording Device
+		if data.RecordingDevice != nil {
+			data.RecordingDevice.UserID = userID
+			data.RecordingDevice.SeenAt = data.StartedAt
+			deviceID, err := s.DB.UpsertHWDevice(gCtx, *data.RecordingDevice)
 			if err != nil {
-				slog.Warn("stream weather refinement fetch failed", "activity_id", capturedID, "error", err)
-				return
-			}
-			if err := s.DB.InsertWeatherReadings(ctx2, capturedID, readings); err != nil {
-				slog.Warn("stream weather refinement insert failed", "activity_id", capturedID, "error", err)
-			} else {
-				// Sync weather tags to activity_tags junction table
-				weatherPrefs, _ := s.DB.GetWeatherPrefs(ctx2, capturedUserID)
-				if weatherPrefs.AutoTags {
-					var allWeatherTags []string
-					for _, r := range readings {
-						allWeatherTags = append(allWeatherTags, r.Tags...)
-					}
-					if err := s.DB.SyncWeatherTagsToActivityTags(ctx2, capturedID, capturedUserID, allWeatherTags); err != nil {
-						slog.Warn("stream weather refinement: sync weather tags failed", "activity_id", capturedID, "error", err)
-					}
+				slog.Error("upsert recording device failed", "activity", activityID, "error", err)
+			} else if deviceID != "" {
+				if err := s.DB.SetRecordingDeviceID(gCtx, activityID, deviceID); err != nil {
+					slog.Error("set recording device id failed", "activity", activityID, "error", err)
 				}
 			}
-		}()
-	}
-
-	// 2b. Insert R-R intervals (FIT only; empty for GPX/TCX)
-	if len(data.RRIntervals) > 0 {
-		if err := s.DB.InsertRRIntervals(ctx, activityID, data.RRIntervals); err != nil {
-			slog.Error("insert rr intervals failed", "error", err)
 		}
-	}
-
-	// 2c. Insert track
-	if err := s.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
-		slog.Error("insert track failed", "error", err)
-	}
-
-	// 3. Insert heatmap data (lines + points) + invalidate Terra Incognita cache
-	if len(data.TrackPoints) >= 2 {
-		var subTypePtr *string
-		if data.SubType != "" {
-			subTypePtr = &data.SubType
-		}
-		interval, _ := s.DB.GetUserHeatmapInterval(ctx, userID)
-		if err := s.DB.InsertHeatmapData(ctx, userID, activityID, data.SportType, subTypePtr, data.StartedAt, interval); err != nil {
-			slog.Error("insert heatmap data failed", "error", err)
-		}
-		s.DB.InvalidateTerraIncognitaCache(ctx, userID)
-	}
-
-	// 4a. Insert sensors
-	if err := s.DB.InsertSensors(ctx, activityID, data.Sensors); err != nil {
-		slog.Error("insert sensors failed", "error", err)
-	}
-
-	// 4a.1 Register Recording Device
-	if data.RecordingDevice != nil {
-		data.RecordingDevice.UserID = userID
-		data.RecordingDevice.SeenAt = data.StartedAt
-		deviceID, err := s.DB.UpsertHWDevice(ctx, *data.RecordingDevice)
-		if err != nil {
-			slog.Error("upsert recording device failed", "activity", activityID, "error", err)
-		} else if deviceID != "" {
-			if err := s.DB.SetRecordingDeviceID(ctx, activityID, deviceID); err != nil {
-				slog.Error("set recording device id failed", "activity", activityID, "error", err)
+		// Register Sensor Devices
+		for _, sensor := range data.Sensors {
+			if sensor.DeviceUpsert == nil {
+				continue
+			}
+			sensor.DeviceUpsert.UserID = userID
+			sensor.DeviceUpsert.SeenAt = data.StartedAt
+			deviceID, err := s.DB.UpsertHWDevice(gCtx, *sensor.DeviceUpsert)
+			if err != nil {
+				slog.Error("upsert sensor device failed", "activity", activityID, "error", err)
+				continue
+			}
+			if deviceID != "" {
+				if err := s.DB.SetSensorDeviceID(gCtx, activityID, sensor, deviceID); err != nil {
+					slog.Error("set sensor device id failed", "activity", activityID, "error", err)
+				}
 			}
 		}
-	}
+		return nil
+	})
 
-	// 4a.2 Register Sensor Devices
-	for _, sensor := range data.Sensors {
-		if sensor.DeviceUpsert == nil {
-			continue
+	g.Go(func() error {
+		if err := s.DB.InsertLaps(gCtx, activityID, data.Laps); err != nil {
+			slog.Error("insert laps failed", "error", err)
 		}
-		sensor.DeviceUpsert.UserID = userID
-		sensor.DeviceUpsert.SeenAt = data.StartedAt
-		deviceID, err := s.DB.UpsertHWDevice(ctx, *sensor.DeviceUpsert)
-		if err != nil {
-			slog.Error("upsert sensor device failed", "activity", activityID, "error", err)
-			continue
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertSplits(gCtx, activityID, data.Splits); err != nil {
+			slog.Error("insert splits failed", "error", err)
 		}
-		if deviceID != "" {
-			if err := s.DB.SetSensorDeviceID(ctx, activityID, sensor, deviceID); err != nil {
-				slog.Error("set sensor device id failed", "activity", activityID, "error", err)
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertSplitSummaries(gCtx, activityID, data.SplitSummaries); err != nil {
+			slog.Error("insert split summaries failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertLengths(gCtx, activityID, data.Lengths); err != nil {
+			slog.Error("insert lengths failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertClimbProEvents(gCtx, activityID, data.ClimbProEvents); err != nil {
+			slog.Error("insert climb pro events failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if len(data.TimeInZoneData) > 0 {
+			if err := s.DB.SaveTimeInZones(gCtx, activityID, data.TimeInZoneData); err != nil {
+				slog.Error("save time in zones failed", "error", err)
 			}
 		}
-	}
+		return nil
+	})
 
-	// 4b. Insert activity details: laps, splits, lengths, climb pro
-	if err := s.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
-		slog.Error("insert laps failed", "error", err)
-	}
-	if err := s.DB.InsertSplits(ctx, activityID, data.Splits); err != nil {
-		slog.Error("insert splits failed", "error", err)
-	}
-	if err := s.DB.InsertSplitSummaries(ctx, activityID, data.SplitSummaries); err != nil {
-		slog.Error("insert split summaries failed", "error", err)
-	}
-	if err := s.DB.InsertLengths(ctx, activityID, data.Lengths); err != nil {
-		slog.Error("insert lengths failed", "error", err)
-	}
-	if err := s.DB.InsertClimbProEvents(ctx, activityID, data.ClimbProEvents); err != nil {
-		slog.Error("insert climb pro events failed", "error", err)
-	}
-
-	// 4c. Save time-in-zone data
-	if len(data.TimeInZoneData) > 0 {
-		if err := s.DB.SaveTimeInZones(ctx, activityID, data.TimeInZoneData); err != nil {
-			slog.Error("save time in zones failed", "error", err)
+	// Group D: file info + S3 meta sidecar (parallel to everything else)
+	g.Go(func() error {
+		metaKey := s3Key + ".meta"
+		bucket := "skadia-originals"
+		if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
+			slog.Error("update file info failed", "error", err)
 		}
-	}
-
-	// 5a. Update file info
-	metaKey := s3Key + ".meta"
-	bucket := "skadia-originals"
-	if err := s.DB.UpdateActivityFileInfo(ctx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
-		slog.Error("update file info failed", "error", err)
-	}
-
-	// 5b. Write .meta sidecar to S3
-	meta := sidecar.GenerateMeta(activityID, data)
-	metaBytes, marshalErr := meta.Marshal()
-	if marshalErr == nil {
-		if err := s.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-			slog.Error("meta upload failed", "error", err)
+		meta := sidecar.GenerateMeta(activityID, data)
+		metaBytes, marshalErr := meta.Marshal()
+		if marshalErr == nil {
+			if err := s.Storage.Upload(gCtx, metaKey, metaBytes, "application/json"); err != nil {
+				slog.Error("meta upload failed", "error", err)
+			}
 		}
+		return nil
+	})
+
+	// Wait for all parallel groups. Group A errors (streams, track) are fatal.
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	// 6. Publish NATS events
+	// ── Phase 2 (post-parallel) ───────────────────────────────────────────
+
+	// Publish NATS events
 	if s.Events != nil {
 		evt := event.ActivityUploadedEvent{
 			ActivityID: activityID,
@@ -296,14 +270,14 @@ func (s *Service) PostProcess(
 		s.Events.PublishAnalyticsInvalidate(userID)
 	}
 
-	// 7. Write to Shadow FS (best-effort)
+	// Write to Shadow FS (best-effort)
 	if s.ShadowWriter != nil {
 		if err := s.ShadowWriter(ctx, userID, activityID, data, fileBytes); err != nil {
 			slog.Error("shadow fs write failed", "id", activityID, "error", err)
 		}
 	}
 
-	// 8. Segment matching + lap detection (non-blocking background goroutine)
+	// Segment matching + lap detection (non-blocking background goroutine)
 	if data.HasGPS && s.SegmentMatcher != nil {
 		var gearIDPtr *string
 		if activity.GearID != nil {
@@ -325,6 +299,72 @@ func (s *Service) PostProcess(
 		"has_gps", data.HasGPS,
 	)
 	return nil
+}
+
+// runWeatherStreamRefinement re-fetches weather with summit/midpoint GPS after streams are inserted.
+// Runs as a fire-and-forget goroutine with its own background context.
+func (s *Service) runWeatherStreamRefinement(activityID, userID string, data *model.ActivityData) {
+	ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	prefs := model.DefaultWeatherPrefs()
+	var minPtr, maxPtr *float64
+	if data.MinElevationM != 0 {
+		v := data.MinElevationM
+		minPtr = &v
+	}
+	if data.MaxElevationM != 0 {
+		v := data.MaxElevationM
+		maxPtr = &v
+	}
+
+	var summitLat, summitLng *float64
+	var summitAlt float64
+	var summitAt *time.Time
+	var midLat, midLng, midMeanAlt float64
+	var midAt *time.Time
+
+	c := enrichment.DetermineWeatherCase(data.ElapsedTimeS, data.MinElevationM, data.MaxElevationM, prefs)
+	if c == enrichment.CaseMountain {
+		if slat, slng, salt, sat, ok := enrichment.SummitPoint(ctx2, s.DB.Pool, activityID); ok {
+			summitLat, summitLng, summitAlt = &slat, &slng, salt
+			summitAt = &sat
+		}
+	}
+	if c == enrichment.CaseMountain || c == enrichment.CaseLong {
+		if mlat, mlng, malt, mat, ok := enrichment.MidpointGPS(ctx2, s.DB.Pool, activityID); ok {
+			midLat, midLng, midMeanAlt = mlat, mlng, malt
+			midAt = &mat
+		}
+	}
+
+	reqs := enrichment.BuildWeatherRequests(
+		data.StartLat, data.StartLng, data.StartedAt,
+		data.ElapsedTimeS, minPtr, maxPtr,
+		summitLat, summitLng, summitAlt,
+		midLat, midLng, midMeanAlt,
+		summitAt, midAt,
+		prefs,
+	)
+	readings, err := enrichment.FetchWeatherReadings(ctx2, reqs)
+	if err != nil {
+		slog.Warn("stream weather refinement fetch failed", "activity_id", activityID, "error", err)
+		return
+	}
+	if err := s.DB.InsertWeatherReadings(ctx2, activityID, readings); err != nil {
+		slog.Warn("stream weather refinement insert failed", "activity_id", activityID, "error", err)
+	} else {
+		weatherPrefs, _ := s.DB.GetWeatherPrefs(ctx2, userID)
+		if weatherPrefs.AutoTags {
+			var allWeatherTags []string
+			for _, r := range readings {
+				allWeatherTags = append(allWeatherTags, r.Tags...)
+			}
+			if err := s.DB.SyncWeatherTagsToActivityTags(ctx2, activityID, userID, allWeatherTags); err != nil {
+				slog.Warn("stream weather refinement: sync weather tags failed", "activity_id", activityID, "error", err)
+			}
+		}
+	}
 }
 
 // ProcessActivity is the central entry point for all cross-platform imports.
