@@ -10,14 +10,15 @@ import (
 // --- Helper: build a minimal graph for edge cost tests ---
 
 func testGraph(tags1 uint64, tags2 *uint64) *graph.Graph {
-	g := &graph.Graph{
+	t2 := uint64(0)
+	if tags2 != nil {
+		t2 = *tags2
+	}
+	return &graph.Graph{
 		EdgeDist:  []uint32{10000}, // 100m in cm
 		EdgeTags1: []uint64{tags1},
+		EdgeTags2: []uint64{t2},
 	}
-	if tags2 != nil {
-		g.EdgeTags2 = []uint64{*tags2}
-	}
-	return g
 }
 
 func encodeTags(hw, sf string) uint64 {
@@ -98,7 +99,7 @@ func TestEdgeCost_MotorwayBlocked_AllProfiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ecf := cfg.EdgeCost(g, 0)
+		ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 		if ecf.Flat < costBlocked {
 			t.Errorf("%s: motorway should be blocked, got Flat=%f", profile, ecf.Flat)
 		}
@@ -110,7 +111,7 @@ func TestEdgeCost_PathCheap_ForHiking(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	// path=1.0 * earth=1.0 + sacPenalty[0] (untagged, preferred=1) → ~1.05
 	if ecf.Flat < 0.9 || ecf.Flat > 1.5 {
 		t.Errorf("hiking path+earth: Flat=%f, expected ~1.0", ecf.Flat)
@@ -122,7 +123,7 @@ func TestEdgeCost_PathExpensive_ForRoad(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "road"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	// path=10 for road profile
 	if ecf.Flat < 9.0 {
 		t.Errorf("road path: Flat=%f, expected >=10", ecf.Flat)
@@ -135,7 +136,7 @@ func TestEdgeCost_SACBlocked_AboveLimit(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	if ecf.Flat < costBlocked {
 		t.Errorf("SAC T4 with max_sac=3 should be blocked, got Flat=%f", ecf.Flat)
 	}
@@ -147,7 +148,7 @@ func TestEdgeCost_SACPenalty0_NotZero(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 
 	// The total CF for untagged path includes sacPenalty[0].
 	// sacPenalty[0] with sacPref=1: pow(1.05, 1) - 1 = 0.05
@@ -171,8 +172,8 @@ func TestEdgeCost_ForestBonus_Additive(t *testing.T) {
 	g100 := testGraph(tags, &enrich100)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf1 := cfg.EdgeCost(g1, 0)
-	ecf100 := cfg.EdgeCost(g100, 0)
+	ecf1 := cfg.EdgeCost(g1.EdgeTags1[0], g1.EdgeTags2[0])
+	ecf100 := cfg.EdgeCost(g100.EdgeTags1[0], g100.EdgeTags2[0])
 
 	// forestWeight=0.5: almost-no-forest should be ~0.5 more expensive than full-forest
 	diff := ecf1.Flat - ecf100.Flat
@@ -191,8 +192,8 @@ func TestEdgeCost_NoisePenalty_Additive(t *testing.T) {
 	g100 := testGraph(tags, &enrich100)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf0 := cfg.EdgeCost(g0, 0)
-	ecf100 := cfg.EdgeCost(g100, 0)
+	ecf0 := cfg.EdgeCost(g0.EdgeTags1[0], g0.EdgeTags2[0])
+	ecf100 := cfg.EdgeCost(g100.EdgeTags1[0], g100.EdgeTags2[0])
 
 	// noiseWeight=0.4: noise=100 → +0.4*2.0 = +0.8
 	diff := ecf100.Flat - ecf0.Flat
@@ -216,8 +217,8 @@ func TestEdgeCost_CyclerouteBoost_Lerp(t *testing.T) {
 		Profile:         "trekking",
 		CyclerouteBoost: ptr32(1.0),
 	})
-	ecfCR := cfg.EdgeCost(gCR, 0)
-	ecfNone := cfg.EdgeCost(gNone, 0)
+	ecfCR := cfg.EdgeCost(gCR.EdgeTags1[0], gCR.EdgeTags2[0])
+	ecfNone := cfg.EdgeCost(gNone.EdgeTags1[0], gNone.EdgeTags2[0])
 
 	// With boost=1.0, cycleroute CF = 1.0 regardless of baseCF
 	if ecfCR.Flat > 1.5 {
@@ -237,8 +238,8 @@ func TestEdgeCost_WetWeather(t *testing.T) {
 		Profile:    "hiking",
 		WetWeather: ptrBool(true),
 	})
-	ecfDry := cfgDry.EdgeCost(g, 0)
-	ecfWet := cfgWet.EdgeCost(g, 0)
+	ecfDry := cfgDry.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
+	ecfWet := cfgWet.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 
 	// Wet mud penalty = +2.0 (additional to base mud cost)
 	diff := ecfWet.Flat - ecfDry.Flat
@@ -253,7 +254,7 @@ func TestEdgeCost_3Costfactor_Hiking(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 
 	// Hiking with mud: downMod=+0.5 → Down > Flat
 	if ecf.Down <= ecf.Flat {
@@ -277,8 +278,8 @@ func TestEdgeCost_AccessFootOnly_BikePenalty(t *testing.T) {
 	cfgBike, _ := BuildCostConfig(ProfileConfig{Profile: "trekking"})
 	cfgFoot, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
 
-	ecfBike := cfgBike.EdgeCost(g, 0)
-	ecfFoot := cfgFoot.EdgeCost(g, 0)
+	ecfBike := cfgBike.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
+	ecfFoot := cfgFoot.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 
 	// Bike profile should have +4.0 penalty
 	if ecfBike.Flat < ecfFoot.Flat+3.0 {
@@ -299,12 +300,12 @@ func TestEdgeCost_OnewayReverse_BikePenalty(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "trekking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 
 	// Without reverse, primary costfactor is 3.0 for trekking
 	tagsNoRev := encodeTagsFull(&graph.RawTags{Highway: "primary", Oneway: true})
 	gFwd := testGraph(tagsNoRev, nil)
-	ecfFwd := cfg.EdgeCost(gFwd, 0)
+	ecfFwd := cfg.EdgeCost(gFwd.EdgeTags1[0], gFwd.EdgeTags2[0])
 
 	// Reverse penalty for primary = +50
 	diff := ecf.Flat - ecfFwd.Flat
@@ -320,7 +321,7 @@ func TestEdgeCost_EdgeTags2Nil_NoPanic(t *testing.T) {
 
 	for _, profile := range []string{"trekking", "hiking", "mtb", "gravel", "road"} {
 		cfg, _ := BuildCostConfig(ProfileConfig{Profile: profile})
-		ecf := cfg.EdgeCost(g, 0) // must not panic
+		ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0]) // must not panic
 		if ecf.Flat <= 0 {
 			t.Errorf("%s: expected positive costfactor, got %f", profile, ecf.Flat)
 		}
@@ -350,7 +351,7 @@ func TestEdgeCost_StepsBlocked_ForMtb(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "mtb"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	if ecf.Flat < costBlocked {
 		t.Errorf("mtb: steps should be blocked, got %f", ecf.Flat)
 	}
@@ -361,7 +362,7 @@ func TestEdgeCost_StepsAllowed_ForHiking(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	if ecf.Flat >= costBlocked {
 		t.Errorf("hiking: steps should be allowed, got %f", ecf.Flat)
 	}
@@ -372,7 +373,7 @@ func TestEdgeCost_Road_UnpavedTrack_Expensive(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "road"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	if ecf.Flat < 9.0 {
 		t.Errorf("road: unpaved track should be expensive (>=10), got %f", ecf.Flat)
 	}
@@ -384,7 +385,7 @@ func TestEdgeCost_PrivateBlocked_AllProfiles(t *testing.T) {
 
 	for _, profile := range []string{"trekking", "hiking", "mtb", "gravel", "road"} {
 		cfg, _ := BuildCostConfig(ProfileConfig{Profile: profile})
-		ecf := cfg.EdgeCost(g, 0)
+		ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 		if ecf.Flat < costBlocked {
 			t.Errorf("%s: private access should be blocked, got %f", profile, ecf.Flat)
 		}
@@ -397,7 +398,7 @@ func TestEdgeCost_3CF_NotForRoad(t *testing.T) {
 	g := testGraph(tags, nil)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "road"})
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	if ecf.Up != 0 || ecf.Down != 0 {
 		t.Errorf("road should not have 3CF: Up=%f, Down=%f", ecf.Up, ecf.Down)
 	}
@@ -420,8 +421,8 @@ func TestEdgeCost_TrafficPenalty(t *testing.T) {
 	g6 := testGraph(tags, &enrich6)
 
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
-	ecf0 := cfg.EdgeCost(g0, 0)
-	ecf6 := cfg.EdgeCost(g6, 0)
+	ecf0 := cfg.EdgeCost(g0.EdgeTags1[0], g0.EdgeTags2[0])
+	ecf6 := cfg.EdgeCost(g6.EdgeTags1[0], g6.EdgeTags2[0])
 
 	diff := ecf6.Flat - ecf0.Flat
 	// trafficWeight=0.6, class 6 → 6/6 * 0.6 = 0.6

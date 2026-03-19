@@ -218,7 +218,7 @@ func (tr *TileRouter) routeCrossTile(ctx context.Context,
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			ecf := cfg.EdgeCost(g, ei)
+			ecf := cfg.EdgeCost(g.EdgeTags1[ei], g.EdgeTags2[ei])
 			if ecf.Flat >= costBlocked {
 				continue
 			}

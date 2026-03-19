@@ -8,10 +8,10 @@ import (
 
 func TestFrontier_PopReturnsMinCost(t *testing.T) {
 	var f Frontier
-	f.Push(FrontierEntry{NodeID: 1, Cost: 5.0, AirDist: 0})
-	f.Push(FrontierEntry{NodeID: 2, Cost: 2.0, AirDist: 0})
-	f.Push(FrontierEntry{NodeID: 3, Cost: 8.0, AirDist: 0})
-	f.Push(FrontierEntry{NodeID: 4, Cost: 1.0, AirDist: 0})
+	f.Push(FrontierEntry{NodeID: 1, Cost: 5.0})
+	f.Push(FrontierEntry{NodeID: 2, Cost: 2.0})
+	f.Push(FrontierEntry{NodeID: 3, Cost: 8.0})
+	f.Push(FrontierEntry{NodeID: 4, Cost: 1.0})
 
 	got := f.Pop()
 	if got.NodeID != 4 || got.Cost != 1.0 {
@@ -23,7 +23,7 @@ func TestFrontier_PopOrder_1000(t *testing.T) {
 	var f Frontier
 	for i := range 1000 {
 		f.Push(FrontierEntry{
-			NodeID: uint32(i),
+			NodeID: uint64(i),
 			Cost:   rand.Float32() * 10000,
 		})
 	}
@@ -31,22 +31,21 @@ func TestFrontier_PopOrder_1000(t *testing.T) {
 	prev := float32(-1)
 	for f.Len() > 0 {
 		e := f.Pop()
-		key := e.Cost + e.AirDist
-		if key < prev {
-			t.Fatalf("heap order violated: %f < %f", key, prev)
+		if e.Cost < prev {
+			t.Fatalf("heap order violated: %f < %f", e.Cost, prev)
 		}
-		prev = key
+		prev = e.Cost
 	}
 }
 
-func TestFrontier_AirDistAffectsOrder(t *testing.T) {
+func TestFrontier_CostAffectsOrder(t *testing.T) {
 	var f Frontier
-	f.Push(FrontierEntry{NodeID: 1, Cost: 3.0, AirDist: 10.0}) // key=13
-	f.Push(FrontierEntry{NodeID: 2, Cost: 5.0, AirDist: 1.0})  // key=6
+	f.Push(FrontierEntry{NodeID: 1, Cost: 13.0}) // key=13
+	f.Push(FrontierEntry{NodeID: 2, Cost: 6.0})  // key=6
 
 	got := f.Pop()
 	if got.NodeID != 2 {
-		t.Errorf("expected node 2 (key=6), got node %d", got.NodeID)
+		t.Errorf("expected node 2 (cost=6), got node %d", got.NodeID)
 	}
 }
 
@@ -85,7 +84,7 @@ func BenchmarkFrontier_Push1M(b *testing.B) {
 	entries := make([]FrontierEntry, 1_000_000)
 	for i := range entries {
 		entries[i] = FrontierEntry{
-			NodeID: uint32(i),
+			NodeID: uint64(i),
 			Cost:   rand.Float32() * 100000,
 		}
 	}

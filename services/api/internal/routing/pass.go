@@ -111,13 +111,13 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 	airDist := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[src], g.NodeLon[src], dstLat, dstLon)
 	state.frontier.Push(FrontierEntry{
-		NodeID:  src,
-		Cost:    0,
-		AirDist: airDist,
-		Parent:  src,
+		NodeID: uint64(src),
+		Cost:   airDist, // f(src) = 0 + c*h(src)
 	})
 	state.bestCost[src] = 0
 	state.nodeGen[src] = state.generation
+	state.nodeHyState[src] = PathState{}
+	state.nodeLastEdge[src] = crossLastEdge{}
 
 	expansions := 0
 
@@ -133,44 +133,50 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 		}
 
 		cur := state.frontier.Pop()
+		curID := uint32(cur.NodeID)
+
+		// Recover per-node state from maps.
+		curHyState := state.nodeHyState[curID]
+		curLastEdge := state.nodeLastEdge[curID]
+
+		// Recover g(n): f(n) - c*h(n).
+		curHDist := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[curID], g.NodeLon[curID], dstLat, dstLon)
+		curGCost := cur.Cost - curHDist
 
 		// Skip stale entries (must come before destination check in pass0,
 		// because inadmissible A* can revisit nodes with lower cost).
-		// Note: cur.Cost is RAW (no elevation correction), bestCost stores EFFECTIVE
-		// (raw + elevationCorrection). We recompute effective here for comparison.
-		if state.nodeGen[cur.NodeID] == state.generation &&
-			cur.Cost+cur.State.elevationCorrection(cfg) > state.bestCost[cur.NodeID] {
+		if state.nodeGen[curID] == state.generation &&
+			curGCost+curHyState.elevationCorrection(cfg) > state.bestCost[curID] {
 			continue
 		}
 
 		// Reached destination
-		if cur.NodeID == dst {
+		if curID == dst {
 			track := extractTrack(state, src, dst, g.NodeCount)
 			stats := &PassStats{
 				Pass0Expansions: expansions,
 				Pass0DurationMs: time.Since(start).Milliseconds(),
 			}
-			// Return effective cost (not raw) — must match buildTrackIndex semantics
-			effectiveCost := cur.Cost + cur.State.elevationCorrection(cfg)
+			effectiveCost := curGCost + curHyState.elevationCorrection(cfg)
 			return track, effectiveCost, stats, nil
 		}
 
 		// Expand neighbors
-		edgeStart := g.Offsets[cur.NodeID]
-		edgeEnd := g.Offsets[cur.NodeID+1]
+		edgeStart := g.Offsets[curID]
+		edgeEnd := g.Offsets[curID+1]
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			ecf := cfg.EdgeCost(g, ei)
+			ecf := cfg.EdgeCost(g.EdgeTags1[ei], g.EdgeTags2[ei])
 			if ecf.Flat >= costBlocked {
 				continue
 			}
 
 			// Turncost + direction
 			tc, newDX, newDY := computeTurnCost(
-				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
+				g.NodeLon[curID], g.NodeLat[curID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -179,17 +185,17 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
-				hr = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+				hr = propagateHysteresisProfile(curHyState, profile, segDist, cfg)
 			} else {
-				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[curID]) * 100
 				distMilli := int32(g.EdgeDist[ei]) * 10
-				hr = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+				hr = propagateHysteresis(curHyState, deltaEleMilli, distMilli, cfg)
 			}
 
 			// Slope-weighted costfactor interpolation
 			distM := float32(g.EdgeDist[ei]) / 100.0
-			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, cur.LastWayClass)
-			newCost := cur.Cost + edgeCost
+			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, curLastEdge.WayClass)
+			newCost := curGCost + edgeCost
 			effectiveCost := newCost + hr.State.elevationCorrection(cfg)
 
 			// Pruning: bounded early-exit + dominance check
@@ -204,20 +210,15 @@ func pass0(ctx context.Context, g *graph.Graph, state *RouterState,
 
 			state.bestCost[target] = effectiveCost
 			state.nodeGen[target] = state.generation
-			state.parentNode[target] = cur.NodeID
+			state.parentNode[target] = curID
 			state.parentEdge[target] = ei
+			state.nodeHyState[target] = hr.State
+			state.nodeLastEdge[target] = crossLastEdge{DX: newDX, DY: newDY, WayClass: ecf.WayClass}
 
 			airD := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[target], g.NodeLon[target], dstLat, dstLon)
 			state.frontier.Push(FrontierEntry{
-				NodeID:       target,
-				Cost:         newCost,
-				AirDist:      airD,
-				State:        hr.State,
-				Parent:       cur.NodeID,
-				Edge:         ei,
-				LastEdgeDX:   newDX,
-				LastEdgeDY:   newDY,
-				LastWayClass: ecf.WayClass,
+				NodeID: uint64(target),
+				Cost:   newCost + airD, // f(n) = g(n) + c*h(n)
 			})
 		}
 	}
@@ -235,12 +236,13 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 	state.frontier.Reset()
 
 	state.frontier.Push(FrontierEntry{
-		NodeID: src,
+		NodeID: uint64(src),
 		Cost:   0,
-		Parent: src,
 	})
 	state.bestCost[src] = 0
 	state.nodeGen[src] = state.generation
+	state.nodeHyState[src] = PathState{}
+	state.nodeLastEdge[src] = crossLastEdge{}
 
 	expansions := 0
 
@@ -256,21 +258,25 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 		}
 
 		cur := state.frontier.Pop()
+		curID := uint32(cur.NodeID)
 
-		// Compute effective cost (raw + latent hysteresis buffer).
-		// Note: cur.Cost is RAW, bestCost stores EFFECTIVE.
-		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
+		// Recover per-node state from maps.
+		curHyState := state.nodeHyState[curID]
+		curLastEdge := state.nodeLastEdge[curID]
+
+		// In Dijkstra (c=0), cur.Cost = g(n) (raw). bestCost stores effective.
+		effectiveCur := cur.Cost + curHyState.elevationCorrection(cfg)
 
 		// Skip stale entries BEFORE destination check and cost-cutting — ensures
 		// only settled (non-superseded) entries tighten maxTotalCost, and prevents
 		// returning a suboptimal destination entry superseded by a better path.
-		if state.nodeGen[cur.NodeID] == state.generation &&
-			effectiveCur > state.bestCost[cur.NodeID] {
+		if state.nodeGen[curID] == state.generation &&
+			effectiveCur > state.bestCost[curID] {
 			continue
 		}
 
 		// Reached destination (after stale check — guarantees optimal)
-		if cur.NodeID == dst {
+		if curID == dst {
 			return &PassStats{
 				Pass1Expansions: expansions,
 				Pass1DurationMs: time.Since(start).Milliseconds(),
@@ -282,7 +288,7 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 		// SAFETY MARGIN: pass0 is inadmissible (c>1, typically 3.0 for trekking) so its track
 		// costs are heavily distorted — remaining from pass0 can underestimate the actual
 		// remaining cost by 15-20%. Use pass0Coefficient as margin to compensate.
-		if remaining, ok := trackIndex[cur.NodeID]; ok {
+		if remaining, ok := trackIndex[curID]; ok {
 			cutoff := effectiveCur + remaining*cfg.Pass0Coefficient
 			if cutoff < maxTotalCost {
 				maxTotalCost = cutoff
@@ -295,21 +301,21 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 		}
 
 		// Expand neighbors
-		edgeStart := g.Offsets[cur.NodeID]
-		edgeEnd := g.Offsets[cur.NodeID+1]
+		edgeStart := g.Offsets[curID]
+		edgeEnd := g.Offsets[curID+1]
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			ecf := cfg.EdgeCost(g, ei)
+			ecf := cfg.EdgeCost(g.EdgeTags1[ei], g.EdgeTags2[ei])
 			if ecf.Flat >= costBlocked {
 				continue
 			}
 
 			// Turncost + direction
 			tc, newDX, newDY := computeTurnCost(
-				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
+				g.NodeLon[curID], g.NodeLat[curID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -318,16 +324,16 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
-				hr = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+				hr = propagateHysteresisProfile(curHyState, profile, segDist, cfg)
 			} else {
-				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[curID]) * 100
 				distMilli := int32(g.EdgeDist[ei]) * 10
-				hr = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+				hr = propagateHysteresis(curHyState, deltaEleMilli, distMilli, cfg)
 			}
 
 			// Slope-weighted costfactor interpolation
 			distM := float32(g.EdgeDist[ei]) / 100.0
-			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, cur.LastWayClass)
+			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, curLastEdge.WayClass)
 			newCost := cur.Cost + edgeCost
 			effectiveCost := newCost + hr.State.elevationCorrection(cfg)
 
@@ -348,19 +354,15 @@ func pass1(ctx context.Context, g *graph.Graph, state *RouterState,
 
 			state.bestCost[target] = effectiveCost
 			state.nodeGen[target] = state.generation
-			state.parentNode[target] = cur.NodeID
+			state.parentNode[target] = curID
 			state.parentEdge[target] = ei
+			state.nodeHyState[target] = hr.State
+			state.nodeLastEdge[target] = crossLastEdge{DX: newDX, DY: newDY, WayClass: ecf.WayClass}
 
-			// Dijkstra: AirDist = 0 (c=0)
+			// Dijkstra: Cost = g(n) (c=0, no air distance)
 			state.frontier.Push(FrontierEntry{
-				NodeID:       target,
-				Cost:         newCost,
-				State:        hr.State,
-				Parent:       cur.NodeID,
-				Edge:         ei,
-				LastEdgeDX:   newDX,
-				LastEdgeDY:   newDY,
-				LastWayClass: ecf.WayClass,
+				NodeID: uint64(target),
+				Cost:   newCost,
 			})
 		}
 	}
@@ -439,12 +441,12 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 
 	airDist := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[src], g.NodeLon[src], dstLat, dstLon)
 	state.frontier.Push(FrontierEntry{
-		NodeID:  src,
-		Cost:    0,
-		AirDist: airDist,
-		Parent:  src,
+		NodeID: uint64(src),
+		Cost:   airDist, // f(src) = 0 + c*h(src)
 	})
 	state.bestCost[src] = 0
+	state.nodeHyState[src] = PathState{}
+	state.nodeLastEdge[src] = crossLastEdge{}
 
 	expansions := 0
 
@@ -460,41 +462,49 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 		}
 
 		cur := state.frontier.Pop()
+		curID := uint32(cur.NodeID)
+
+		// Recover per-node state from maps.
+		curHyState := state.nodeHyState[curID]
+		curLastEdge := state.nodeLastEdge[curID]
+
+		// Recover g(n): f(n) - c*h(n).
+		curHDist := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[curID], g.NodeLon[curID], dstLat, dstLon)
+		curGCost := cur.Cost - curHDist
 
 		// Skip stale entries (must come before destination check)
-		if best, ok := state.bestCost[cur.NodeID]; ok {
-			if cur.Cost+cur.State.elevationCorrection(cfg) > best {
+		if best, ok := state.bestCost[curID]; ok {
+			if curGCost+curHyState.elevationCorrection(cfg) > best {
 				continue
 			}
 		}
 
 		// Reached destination
-		if cur.NodeID == dst {
+		if curID == dst {
 			track := extractTrackSparse(state, src, dst, g.NodeCount)
 			stats := &PassStats{
 				Pass0Expansions: expansions,
 				Pass0DurationMs: time.Since(start).Milliseconds(),
 			}
-			// Return effective cost (not raw) — must match buildTrackIndexSparse semantics
-			effectiveCost := cur.Cost + cur.State.elevationCorrection(cfg)
+			effectiveCost := curGCost + curHyState.elevationCorrection(cfg)
 			return track, effectiveCost, stats, nil
 		}
 
-		edgeStart := g.Offsets[cur.NodeID]
-		edgeEnd := g.Offsets[cur.NodeID+1]
+		edgeStart := g.Offsets[curID]
+		edgeEnd := g.Offsets[curID+1]
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			ecf := cfg.EdgeCost(g, ei)
+			ecf := cfg.EdgeCost(g.EdgeTags1[ei], g.EdgeTags2[ei])
 			if ecf.Flat >= costBlocked {
 				continue
 			}
 
 			// Turncost + direction
 			tc, newDX, newDY := computeTurnCost(
-				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
+				g.NodeLon[curID], g.NodeLat[curID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -503,17 +513,17 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
-				hr = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+				hr = propagateHysteresisProfile(curHyState, profile, segDist, cfg)
 			} else {
-				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[curID]) * 100
 				distMilli := int32(g.EdgeDist[ei]) * 10
-				hr = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+				hr = propagateHysteresis(curHyState, deltaEleMilli, distMilli, cfg)
 			}
 
 			// Slope-weighted costfactor interpolation
 			distM := float32(g.EdgeDist[ei]) / 100.0
-			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, cur.LastWayClass)
-			newCost := cur.Cost + edgeCost
+			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, curLastEdge.WayClass)
+			newCost := curGCost + edgeCost
 			effectiveCost := newCost + hr.State.elevationCorrection(cfg)
 
 			// Pruning: bounded early-exit + dominance check
@@ -527,20 +537,15 @@ func pass0Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			}
 
 			state.bestCost[target] = effectiveCost
-			state.parentNode[target] = cur.NodeID
+			state.parentNode[target] = curID
 			state.parentEdge[target] = ei
+			state.nodeHyState[target] = hr.State
+			state.nodeLastEdge[target] = crossLastEdge{DX: newDX, DY: newDY, WayClass: ecf.WayClass}
 
 			airD := float32(cfg.Pass0Coefficient) * equirectDist(g.NodeLat[target], g.NodeLon[target], dstLat, dstLon)
 			state.frontier.Push(FrontierEntry{
-				NodeID:       target,
-				Cost:         newCost,
-				AirDist:      airD,
-				State:        hr.State,
-				Parent:       cur.NodeID,
-				Edge:         ei,
-				LastEdgeDX:   newDX,
-				LastEdgeDY:   newDY,
-				LastWayClass: ecf.WayClass,
+				NodeID: uint64(target),
+				Cost:   newCost + airD, // f(n) = g(n) + c*h(n)
 			})
 		}
 	}
@@ -558,11 +563,12 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 	state.frontier.Reset()
 
 	state.frontier.Push(FrontierEntry{
-		NodeID: src,
+		NodeID: uint64(src),
 		Cost:   0,
-		Parent: src,
 	})
 	state.bestCost[src] = 0
+	state.nodeHyState[src] = PathState{}
+	state.nodeLastEdge[src] = crossLastEdge{}
 
 	expansions := 0
 
@@ -578,20 +584,25 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 		}
 
 		cur := state.frontier.Pop()
+		curID := uint32(cur.NodeID)
 
-		effectiveCur := cur.Cost + cur.State.elevationCorrection(cfg)
+		// Recover per-node state from maps.
+		curHyState := state.nodeHyState[curID]
+		curLastEdge := state.nodeLastEdge[curID]
+
+		effectiveCur := cur.Cost + curHyState.elevationCorrection(cfg)
 
 		// Skip stale entries BEFORE destination check and cost-cutting — ensures
 		// only settled (non-superseded) entries tighten maxTotalCost, and prevents
 		// returning a suboptimal destination entry superseded by a better path.
-		if best, ok := state.bestCost[cur.NodeID]; ok {
+		if best, ok := state.bestCost[curID]; ok {
 			if effectiveCur > best {
 				continue
 			}
 		}
 
 		// Reached destination (after stale check — guarantees optimal)
-		if cur.NodeID == dst {
+		if curID == dst {
 			return &PassStats{
 				Pass1Expansions: expansions,
 				Pass1DurationMs: time.Since(start).Milliseconds(),
@@ -603,7 +614,7 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 		// SAFETY MARGIN: pass0 is inadmissible (c>1, typically 3.0 for trekking) so its track
 		// costs are heavily distorted — remaining from pass0 can underestimate the actual
 		// remaining cost by 15-20%. Use pass0Coefficient as margin to compensate.
-		if remaining, ok := trackIndex[cur.NodeID]; ok {
+		if remaining, ok := trackIndex[curID]; ok {
 			cutoff := effectiveCur + remaining*cfg.Pass0Coefficient
 			if cutoff < maxTotalCost {
 				maxTotalCost = cutoff
@@ -614,21 +625,21 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			continue
 		}
 
-		edgeStart := g.Offsets[cur.NodeID]
-		edgeEnd := g.Offsets[cur.NodeID+1]
+		edgeStart := g.Offsets[curID]
+		edgeEnd := g.Offsets[curID+1]
 		for ei := edgeStart; ei < edgeEnd; ei++ {
 			target := g.Targets[ei]
 
-			ecf := cfg.EdgeCost(g, ei)
+			ecf := cfg.EdgeCost(g.EdgeTags1[ei], g.EdgeTags2[ei])
 			if ecf.Flat >= costBlocked {
 				continue
 			}
 
 			// Turncost + direction
 			tc, newDX, newDY := computeTurnCost(
-				g.NodeLon[cur.NodeID], g.NodeLat[cur.NodeID],
+				g.NodeLon[curID], g.NodeLat[curID],
 				g.NodeLon[target], g.NodeLat[target],
-				cur.LastEdgeDX, cur.LastEdgeDY, cfg.TurnCost, g.EdgeDist[ei])
+				curLastEdge.DX, curLastEdge.DY, cfg.TurnCost, g.EdgeDist[ei])
 
 			// Hysteresis
 			var hr HysteresisResult
@@ -637,16 +648,16 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			if profEnd > profStart && profEnd-profStart <= 5000 {
 				profile := g.EdgeElevProf[profStart:profEnd]
 				segDist := edgeSegmentDistances(g, ei)
-				hr = propagateHysteresisProfile(cur.State, profile, segDist, cfg)
+				hr = propagateHysteresisProfile(curHyState, profile, segDist, cfg)
 			} else {
-				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[cur.NodeID]) * 100
+				deltaEleMilli := (g.NodeEle[target] - g.NodeEle[curID]) * 100
 				distMilli := int32(g.EdgeDist[ei]) * 10
-				hr = propagateHysteresis(cur.State, deltaEleMilli, distMilli, cfg)
+				hr = propagateHysteresis(curHyState, deltaEleMilli, distMilli, cfg)
 			}
 
 			// Slope-weighted costfactor interpolation
 			distM := float32(g.EdgeDist[ei]) / 100.0
-			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, cur.LastWayClass)
+			edgeCost := computeEdgeCostWeighted(ecf, distM, hr, tc, curLastEdge.WayClass)
 			newCost := cur.Cost + edgeCost
 			effectiveCost := newCost + hr.State.elevationCorrection(cfg)
 
@@ -666,18 +677,14 @@ func pass1Sparse(ctx context.Context, g *graph.Graph, state *SparseState,
 			}
 
 			state.bestCost[target] = effectiveCost
-			state.parentNode[target] = cur.NodeID
+			state.parentNode[target] = curID
 			state.parentEdge[target] = ei
+			state.nodeHyState[target] = hr.State
+			state.nodeLastEdge[target] = crossLastEdge{DX: newDX, DY: newDY, WayClass: ecf.WayClass}
 
 			state.frontier.Push(FrontierEntry{
-				NodeID:       target,
-				Cost:         newCost,
-				State:        hr.State,
-				Parent:       cur.NodeID,
-				Edge:         ei,
-				LastEdgeDX:   newDX,
-				LastEdgeDY:   newDY,
-				LastWayClass: ecf.WayClass,
+				NodeID: uint64(target),
+				Cost:   newCost, // Dijkstra: c=0
 			})
 		}
 	}

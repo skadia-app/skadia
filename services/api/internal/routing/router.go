@@ -18,16 +18,24 @@ type RouterState struct {
 	nodeGen    []uint32
 	generation uint32
 
+	// Per-node state maps for hysteresis and last-edge direction.
+	// Populated during A* expansion; read when popping (replaces FrontierEntry fields
+	// removed in Task 8). Task 11 (unified A*) will replace this with the NodeState struct.
+	nodeHyState map[uint32]PathState
+	nodeLastEdge map[uint32]crossLastEdge
+
 	frontier Frontier
 }
 
 func newRouterState(nodeCount uint32) *RouterState {
 	return &RouterState{
-		bestCost:   make([]float32, nodeCount),
-		parentNode: make([]uint32, nodeCount),
-		parentEdge: make([]uint32, nodeCount),
-		nodeGen:    make([]uint32, nodeCount),
-		generation: 1, // start at 1, 0 is the "unvisited" sentinel
+		bestCost:     make([]float32, nodeCount),
+		parentNode:   make([]uint32, nodeCount),
+		parentEdge:   make([]uint32, nodeCount),
+		nodeGen:      make([]uint32, nodeCount),
+		generation:   1, // start at 1, 0 is the "unvisited" sentinel
+		nodeHyState:  make(map[uint32]PathState, 500_000),
+		nodeLastEdge: make(map[uint32]crossLastEdge, 500_000),
 	}
 }
 
@@ -40,6 +48,8 @@ func (s *RouterState) advanceGeneration() {
 			s.nodeGen[i] = 0
 		}
 	}
+	clear(s.nodeHyState)
+	clear(s.nodeLastEdge)
 }
 
 // sparseOnlyThreshold: graphs with more nodes than this use sparse-only

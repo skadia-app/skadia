@@ -37,8 +37,9 @@ type CostConfig struct {
 	// Precomputed from above
 	MaxLatentCost float32
 
-	// Edge cost function (closure-based for Phase 4 access to config)
-	EdgeCost func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors
+	// Edge cost function — receives packed tag words directly, no Graph pointer needed.
+	// Enables GraphReader abstraction where only tags are available (Phase 2+).
+	EdgeCost func(tags1, tags2 uint64) EdgeCostFactors
 }
 
 // RouteRequest defines start/destination for a routing query.
@@ -57,12 +58,10 @@ func DefaultTrekkingConfig() *CostConfig {
 
 // trekkingEdgeCost computes edge cost factors for trekking profile.
 // Returns costfactors (NOT pre-multiplied by distance).
-func trekkingEdgeCost(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
-	tags := g.EdgeTags1[edgeIdx]
-
-	hw := graph.DecodeHighway(tags)
-	sf := graph.DecodeSurface(tags)
-	access := graph.DecodeAccess(tags)
+func trekkingEdgeCost(tags1, _ uint64) EdgeCostFactors {
+	hw := graph.DecodeHighway(tags1)
+	sf := graph.DecodeSurface(tags1)
+	access := graph.DecodeAccess(tags1)
 
 	// Block unknown (0), motorways/trunks (1-4) and no-access
 	if hw <= 4 {

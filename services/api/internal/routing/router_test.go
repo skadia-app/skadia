@@ -99,7 +99,7 @@ func simpleCostConfig() *CostConfig {
 	}
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	// Simple cost: costfactor=1.0 for all edges (distance computed in A* loop)
-	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+	cfg.EdgeCost = func(tags1, _ uint64) EdgeCostFactors {
 		return EdgeCostFactors{Flat: 1.0}
 	}
 	return cfg
@@ -537,7 +537,7 @@ func TestRoute_3CostFactor_SlopeWeighted(t *testing.T) {
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 
 	// Use a custom EdgeCost that returns Up/Down factors
-	cfg.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+	cfg.EdgeCost = func(_, _ uint64) EdgeCostFactors {
 		return EdgeCostFactors{
 			Flat: 1.0,
 			Up:   3.0,  // uphill is 3x more expensive
@@ -611,17 +611,20 @@ func TestRoute_InitialCost_AvoidsFerryHopping(t *testing.T) {
 
 	g := makeTestGraph(nodes, allEdges)
 
-	findFrom := func(g *graph.Graph, edgeIdx uint32) uint32 {
+	// Mark ferry edges (A↔B) using bit 62 of tags1 (reserved bit, used as test ferry marker).
+	// Ferry edges are at positions corresponding to {from=1,to=2} and {from=2,to=1}.
+	for ei := uint32(0); ei < g.EdgeCount; ei++ {
+		from := uint32(0)
 		for i := uint32(0); i < g.NodeCount; i++ {
-			if g.Offsets[i] <= edgeIdx && edgeIdx < g.Offsets[i+1] {
-				return i
+			if g.Offsets[i] <= ei && ei < g.Offsets[i+1] {
+				from = i
+				break
 			}
 		}
-		return 0
-	}
-
-	ferryEdgeSet := map[[2]uint32]bool{
-		{1, 2}: true, {2, 1}: true, // A↔B is ferry
+		to := g.Targets[ei]
+		if (from == 1 && to == 2) || (from == 2 && to == 1) {
+			g.EdgeTags1[ei] |= 1 << 62 // ferry marker bit
+		}
 	}
 
 	ctx := context.Background()
@@ -642,12 +645,10 @@ func TestRoute_InitialCost_AvoidsFerryHopping(t *testing.T) {
 	//             B→D (WC=2, last=1→penalty 10000). Total: 700 + 20000 = 20700.
 	// Land path: S→C (WC=2, last=0→skip), C→D (WC=2, same→no penalty). Total: 1200.
 	cfgWC := simpleCostConfig()
-	cfgWC.EdgeCost = func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
-		from := findFrom(g, edgeIdx)
-		to := g.Targets[edgeIdx]
+	cfgWC.EdgeCost = func(tags1, _ uint64) EdgeCostFactors {
 		ecf := EdgeCostFactors{Flat: 1.0}
-		if ferryEdgeSet[[2]uint32{from, to}] {
-			ecf.WayClass = 1 // ferry
+		if (tags1>>62)&1 == 1 {
+			ecf.WayClass = 1 // ferry (bit 62 set)
 		} else {
 			ecf.WayClass = 2 // mainroad (non-zero, so transitions are detected)
 		}

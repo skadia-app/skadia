@@ -266,7 +266,7 @@ func derefBool(p *bool) bool {
 
 // --- EdgeCost closure builder ---
 
-func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
+func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFactors {
 	profile := p.Profile
 	bike := isBikeProfile(profile)
 
@@ -308,9 +308,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) 
 		}
 	}
 
-	return func(g *graph.Graph, edgeIdx uint32) EdgeCostFactors {
-		tags1 := g.EdgeTags1[edgeIdx]
-
+	return func(tags1, tags2 uint64) EdgeCostFactors {
 		hw := graph.DecodeHighway(tags1)
 		sf := graph.DecodeSurface(tags1)
 		access := graph.DecodeAccess(tags1)
@@ -339,10 +337,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) 
 
 		// Via ferrata
 		if hw == 22 { // via_ferrata
-			vfScale := uint8(0)
-			if g.EdgeTags2 != nil && edgeIdx < uint32(len(g.EdgeTags2)) {
-				vfScale = graph.DecodeViaFerrataScale(g.EdgeTags2[edgeIdx])
-			}
+			vfScale := graph.DecodeViaFerrataScale(tags2)
 			if maxVF == 0 && vfScale > 0 {
 				return EdgeCostFactors{Flat: costBlocked}
 			}
@@ -432,43 +427,40 @@ func buildEdgeCostClosure(p ProfileConfig) func(g *graph.Graph, edgeIdx uint32) 
 		baseCF := hwCF*sfCF + penalty + surfacePenalty
 
 		// --- Enrichment (additive, from EdgeTags2) ---
+		// --- Enrichment (additive, from tags2) ---
 		var forestAdd, noiseAdd, trafficAdd, protectedSub float32
-		if g.EdgeTags2 != nil && edgeIdx < uint32(len(g.EdgeTags2)) {
-			tags2 := g.EdgeTags2[edgeIdx]
+		if forestWeight > 0 {
+			forestPct := graph.DecodeForestPct(tags2)
+			if forestPct > 0 { // 0 = no data (don't penalize unknown)
+				forestAdd = (1.0 - float32(forestPct)/100.0) * forestWeight // 1% → +1.0, 100% → +0.0
+			}
+		}
+		if noiseWeight > 0 {
+			noiseScore := graph.DecodeNoiseScore(tags2)
+			if noiseScore > 0 { // 0 = no data
+				noiseAdd = float32(noiseScore) / 100.0 * noiseWeight * 2.0 // max +2.0
+			}
+		}
+		if trafficWeight > 0 {
+			trafficClass := graph.DecodeTrafficClass(tags2)
+			if trafficClass > 0 { // 0 = no data
+				trafficAdd = float32(trafficClass) / 6.0 * trafficWeight // max +1.0 (6 classes now, was 3)
+			}
+		}
+		if protectedWeight > 0 {
+			protectedArea := graph.DecodeProtectedArea(tags2)
+			if protectedArea > 0 { // 0 = no data
+				protectedSub = float32(protectedArea) / 3.0 * protectedWeight * 0.5 // max -0.5
+			}
+		}
 
-			if forestWeight > 0 {
-				forestPct := graph.DecodeForestPct(tags2)
-				if forestPct > 0 { // 0 = no data (don't penalize unknown)
-					forestAdd = (1.0 - float32(forestPct)/100.0) * forestWeight // 1% → +1.0, 100% → +0.0
-				}
-			}
-			if noiseWeight > 0 {
-				noiseScore := graph.DecodeNoiseScore(tags2)
-				if noiseScore > 0 { // 0 = no data
-					noiseAdd = float32(noiseScore) / 100.0 * noiseWeight * 2.0 // max +2.0
-				}
-			}
-			if trafficWeight > 0 {
-				trafficClass := graph.DecodeTrafficClass(tags2)
-				if trafficClass > 0 { // 0 = no data
-					trafficAdd = float32(trafficClass) / 6.0 * trafficWeight // max +1.0 (6 classes now, was 3)
-				}
-			}
-			if protectedWeight > 0 {
-				protectedArea := graph.DecodeProtectedArea(tags2)
-				if protectedArea > 0 { // 0 = no data
-					protectedSub = float32(protectedArea) / 3.0 * protectedWeight * 0.5 // max -0.5
-				}
-			}
-
-			// Cycleroute boost (LERP towards 1.0)
-			if cyclerouteBoost > 0 && graph.DecodeIsCycleroute(tags2) {
-				baseCF = baseCF*(1.0-cyclerouteBoost) + 1.0*cyclerouteBoost
-			}
-			// Hikeroute boost (LERP towards 1.0)
-			if hikerouteBoost > 0 && graph.DecodeIsHikeroute(tags2) {
-				baseCF = baseCF*(1.0-hikerouteBoost) + 1.0*hikerouteBoost
-			}
+		// Cycleroute boost (LERP towards 1.0)
+		if cyclerouteBoost > 0 && graph.DecodeIsCycleroute(tags2) {
+			baseCF = baseCF*(1.0-cyclerouteBoost) + 1.0*cyclerouteBoost
+		}
+		// Hikeroute boost (LERP towards 1.0)
+		if hikerouteBoost > 0 && graph.DecodeIsHikeroute(tags2) {
+			baseCF = baseCF*(1.0-hikerouteBoost) + 1.0*hikerouteBoost
 		}
 
 		finalCF := baseCF + forestAdd + noiseAdd + trafficAdd - protectedSub
