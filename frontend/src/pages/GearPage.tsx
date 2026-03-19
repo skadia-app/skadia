@@ -52,10 +52,11 @@ export default function GearPage() {
 
   // If a type filter is set via query param, show filtered gear list
   if (typeFilter) {
+    const isBikeType = (type: string) => type === 'bike' || type === 'e_bike'
     const filtered = gear?.filter(g => {
-      if (typeFilter === 'bike') return g.type === 'bike'
+      if (typeFilter === 'bike') return isBikeType(g.type)
       if (typeFilter === 'shoes') return g.type === 'shoes'
-      if (typeFilter === 'other') return g.type !== 'bike' && g.type !== 'shoes'
+      if (typeFilter === 'other') return !isBikeType(g.type) && g.type !== 'shoes'
       return true
     }) ?? []
 
@@ -157,9 +158,10 @@ export default function GearPage() {
   }
 
   // No type filter — show category tiles
-  const bikeCount = gear?.filter(g => g.type === 'bike').length ?? 0
+  const isBike = (type: string) => type === 'bike' || type === 'e_bike'
+  const bikeCount = gear?.filter(g => isBike(g.type)).length ?? 0
   const shoesCount = gear?.filter(g => g.type === 'shoes').length ?? 0
-  const otherCount = gear?.filter(g => g.type !== 'bike' && g.type !== 'shoes').length ?? 0
+  const otherCount = gear?.filter(g => !isBike(g.type) && g.type !== 'shoes').length ?? 0
   const recorderCount = recorders?.length ?? 0
   const sensorCount = sensors?.length ?? 0
 
