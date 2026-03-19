@@ -15,12 +15,13 @@ import (
 
 // nodeState holds per-node routing state in the sparse map.
 // Value-type (not pointer) to reduce GC pressure (C19).
-// ~56 bytes padded — small enough for value-type map semantics.
+// ~64 bytes padded — small enough for value-type map semantics.
 type nodeState struct {
 	BestCost      float32   // g(n) — raw accumulated cost
 	EffectiveCost float32   // g(n) + elevationCorrection — for closed-set comparison (C01)
 	Parent        uint64    // global node ID of predecessor
 	EdgeHandle    uint64    // for retrack: which edge led to this node
+	EdgeTags1     uint64    // A09: Tags1 of incoming edge — avoids O(degree) ForEachEdge in retrack
 	PathState     PathState // K14: hysteresis buffers (ehbu, ehbd int32)
 	LastEdgeDX    float32   // R01: NORMALIZED direction vector from computeTurnCost
 	LastEdgeDY    float32   // R01: unit length for dot-product cosine in next expansion
@@ -225,9 +226,10 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 					EffectiveCost: newEffective,
 					Parent:        entry.NodeID,
 					EdgeHandle:    ev.ElevHandle,
-					PathState:     newPathState,     // K14: consistent naming
-					LastEdgeDX:    newDX,             // R01: normalized from computeTurnCost
-					LastEdgeDY:    newDY,             // R01: normalized from computeTurnCost
+					EdgeTags1:     ev.Tags1,          // A09: store Tags1 for O(1) retrack lookup
+					PathState:     newPathState,       // K14: consistent naming
+					LastEdgeDX:    newDX,              // R01: normalized from computeTurnCost
+					LastEdgeDY:    newDY,              // R01: normalized from computeTurnCost
 					LastWayClass:  ecf.WayClass,
 				}
 				frontier.Push(FrontierEntry{NodeID: ev.Target, Cost: fCost})
@@ -370,11 +372,8 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 			}
 		}
 
-		// Resolve Tags1 for segment metadata.
-		// We need to re-read the Tags1 from the edge. Since we only have
-		// the edgeHandle, we scan ForEachEdge to find the matching edge.
-		// This is O(degree) per edge — acceptable for retrack (not hot path).
-		edgeTags1[i] = resolveEdgeTags1(reader, chain[i].nodeID, chain[i+1].nodeID, edgeHandle)
+		// A09: Tags1 for segment metadata — stored in nodeState during A*, O(1) lookup.
+		edgeTags1[i] = state.nodes[chain[i+1].nodeID].EdgeTags1
 	}
 
 	// Add last node (destination)
@@ -403,18 +402,6 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		Cost:        float64(state.nodes[dst].BestCost),
 		Segments:    segments,
 	}
-}
-
-// resolveEdgeTags1 finds Tags1 for an edge by scanning the source node's outgoing edges.
-// Returns 0 if the edge is not found (should not happen for valid routes).
-func resolveEdgeTags1(reader GraphReader, fromNode, toNode, edgeHandle uint64) uint64 {
-	var tags1 uint64
-	reader.ForEachEdge(fromNode, func(ev EdgeView) {
-		if ev.Target == toNode && ev.ElevHandle == edgeHandle {
-			tags1 = ev.Tags1
-		}
-	})
-	return tags1
 }
 
 // buildSegmentsUnified groups edges into RouteSegments by Tags1 identity.
