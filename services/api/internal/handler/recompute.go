@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
@@ -90,9 +93,9 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			for i, child := range children {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
-				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0); err != nil {
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0, false); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
-					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true)
+					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
 					return
 				}
 			}
@@ -101,7 +104,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			if aggrErr := h.DB.AggregateParentMetrics(ctx, parentID); aggrErr != nil {
 				slog.Warn("reprocess multisport: aggregate failed", "id", parentID, "error", aggrErr)
 			}
-			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 			slog.Info("reprocess multisport: done", "id", parentID, "children", len(children))
 		}()
 
@@ -127,7 +130,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow); err != nil {
+	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow, false); err != nil {
 		slog.Error("reprocess: failed", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
 		return
@@ -209,48 +212,124 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		dbJobID = ""
 	}
 
-	// Launch background goroutine. Uses a detached context so it survives
-	// after the HTTP response is sent.
-	go func() {
-		ctx := context.Background()
+	workers := recomputeWorkerCount()
+
+	// Separater Done-Counter für korrekte Modulo-Checks unter Parallelität.
+	// (processed + errors sind zwei separate atomics; wenn beide parallel inkrementiert
+	// werden kann processed+errors%20 mehrfach denselben Wert liefern)
+	var doneCounter atomic.Int64
+
+	// Fehlersammlung (thread-safe, max. 5 Texte)
+	var (
+		errMu    sync.Mutex
+		errTexts []string
+	)
+
+	// Shutdown-aware ID for shutdown.Go registry.
+	shutdownID := dbJobID
+	if shutdownID == "" {
+		shutdownID = "recompute-all-" + jobID
+	}
+
+	shutdown.Go(shutdownID, func(ctx context.Context) {
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
 
 		for _, id := range ids {
-			if err := h.reprocessActivity(ctx, id, userID, scope, 0); err != nil {
-				slog.Error("reprocess-all: activity failed", "id", id, "error", err)
-				h.recomputeJob.errors.Add(1)
-			} else {
-				h.recomputeJob.processed.Add(1)
+			id := id
+			// Shutdown-Check: keine neuen Aktivitäten dispatchen wenn Shutdown läuft
+			select {
+			case <-ctx.Done():
+				wg.Wait()
+				h.recomputeJob.mu.Lock()
+				h.recomputeJob.running = false
+				h.recomputeJob.mu.Unlock()
+				if dbJobID != "" {
+					_ = h.DB.CompleteBackgroundJob(ctx, dbJobID, true, "aborted: server shutdown")
+				}
+				return
+			case sem <- struct{}{}:
 			}
 
-			// Fortschritt alle 20 Aktivitäten in DB schreiben.
-			if dbJobID != "" {
-				done := h.recomputeJob.processed.Load() + h.recomputeJob.errors.Load()
-				if done%20 == 0 {
-					_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, done)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				if err := h.reprocessActivity(ctx, id, userID, scope, 0, true); err != nil {
+					slog.Error("reprocess-all: activity failed", "id", id, "error", err)
+					h.recomputeJob.errors.Add(1)
+					errMu.Lock()
+					if len(errTexts) < 5 {
+						errTexts = append(errTexts, fmt.Sprintf("%s: %v", id, err))
+					}
+					errMu.Unlock()
+				} else {
+					h.recomputeJob.processed.Add(1)
 				}
-			}
+
+				// Fortschritt in DB: eigener Counter verhindert Race beim Modulo-Check.
+				if dbJobID != "" {
+					n := doneCounter.Add(1)
+					if n%20 == 0 {
+						_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, n)
+					}
+				}
+			}()
 		}
+
+		wg.Wait()
 
 		h.recomputeJob.mu.Lock()
 		h.recomputeJob.running = false
 		h.recomputeJob.mu.Unlock()
 
+		processed := h.recomputeJob.processed.Load()
+		errors := h.recomputeJob.errors.Load()
+		total := int64(len(ids))
+
 		if dbJobID != "" {
-			hasFailed := h.recomputeJob.errors.Load() > 0
-			if err := h.DB.CompleteBackgroundJob(ctx, dbJobID, hasFailed); err != nil {
+			// Finaler Progress-Flush (unabhängig von Modulo).
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, processed+errors)
+
+			// Failed = mehr als 10% Aktivitäten hatten fatale Fehler.
+			hasFailed := total > 0 && errors*100/total > 10
+
+			var errorSummary string
+			if errors > 0 {
+				errMu.Lock()
+				msgs := make([]string, len(errTexts))
+				copy(msgs, errTexts)
+				errMu.Unlock()
+				remaining := errors - int64(len(msgs))
+				if remaining > 0 {
+					errorSummary = strings.Join(msgs, "; ") + fmt.Sprintf(" ... und %d weitere", remaining)
+				} else {
+					errorSummary = strings.Join(msgs, "; ")
+				}
+			}
+
+			if err := h.DB.CompleteBackgroundJob(ctx, dbJobID, hasFailed, errorSummary); err != nil {
 				slog.Warn("reprocess-all: complete job failed", "error", err)
 			}
+		}
+
+		// Einmalige Analytics-Invalidierung nach Abschluss aller Workers
+		// (per-activity wurde mit skipAnalyticsEvent=true unterdrückt).
+		if h.Events != nil {
+			h.Events.PublishAnalyticsInvalidate(userID)
 		}
 
 		slog.Info("reprocess-all: finished",
 			"job_id", jobID,
 			"user_id", userID,
 			"total", len(ids),
-			"processed", h.recomputeJob.processed.Load(),
-			"errors", h.recomputeJob.errors.Load(),
+			"processed", processed,
+			"errors", errors,
+			"workers", workers,
 			"duration", time.Since(h.recomputeJob.startedAt).Round(time.Second),
 		)
-	}()
+	})
 
 	slog.Info("reprocess-all: job started",
 		"job_id", jobID,
@@ -317,7 +396,10 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "tags": re-evaluate autotag rules and update tags
 //   - "segments": segment efforts + lap detection
 //   - "geo": Stage 2 geo enrichment (peaks, forests, water, stops, lifts, surfaces, borders)
-func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int) error {
+//
+// skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
+// to avoid flooding — the caller publishes a single invalidation after all workers complete).
+func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int, skipAnalyticsEvent bool) error {
 	allScope := len(scope) == 0 // nil/empty = reprocess everything
 	doStreams := allScope || scope["streams"]
 	doSensors := allScope || scope["sensors"]
@@ -605,7 +687,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
 		}
 		// Trigger analytics recompute for the user (graceful — never blocks recompute)
-		h.Events.PublishAnalyticsInvalidate(userID)
+		if !skipAnalyticsEvent {
+			h.Events.PublishAnalyticsInvalidate(userID)
+		}
 	}
 
 	return nil
@@ -618,4 +702,15 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 		return fmt.Errorf("list rules: %w", err)
 	}
 	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
+}
+
+// recomputeWorkerCount liest RECOMPUTE_WORKERS aus der Umgebung (Default: 4).
+// Gültige Werte: 1–32.
+func recomputeWorkerCount() int {
+	if s := os.Getenv("RECOMPUTE_WORKERS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 1 && n <= 32 {
+			return n
+		}
+	}
+	return 4
 }
