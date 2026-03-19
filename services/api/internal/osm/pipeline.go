@@ -410,10 +410,6 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			// Routing-Spalten (ursprünglich aus 000129 osm_trails)
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS length_m DOUBLE PRECISION",
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS avg_slope DOUBLE PRECISION",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS source BIGINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS target BIGINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cost DOUBLE PRECISION DEFAULT -1",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS reverse_cost DOUBLE PRECISION DEFAULT -1",
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_lift BOOLEAN DEFAULT FALSE",
 			// Enrichment-Spalten (000157)
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS forest_pct SMALLINT",

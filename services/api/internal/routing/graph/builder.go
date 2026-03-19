@@ -521,6 +521,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 
 		// Phase 2: override enrichment from coverage grids (no DB roundtrip).
 		// Route-membership (cycleroute/hikeroute) still comes from SQL.
+		// Test-only path: coverageReader==nil reads from SQL columns.
 		if coverageReader != nil {
 			ls := geo.LineStringFromLatLng(coords, func(c Coord) (lat, lng float64) {
 				return c.Lat, c.Lon

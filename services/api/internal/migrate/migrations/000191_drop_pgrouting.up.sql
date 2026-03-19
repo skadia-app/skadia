@@ -1,0 +1,10 @@
+DROP EXTENSION IF EXISTS pgrouting CASCADE;
+DROP TABLE IF EXISTS osm_ways_vertices_pgr CASCADE;
+ALTER TABLE osm_ways DROP COLUMN IF EXISTS source;
+ALTER TABLE osm_ways DROP COLUMN IF EXISTS target;
+ALTER TABLE osm_ways DROP COLUMN IF EXISTS cost;
+ALTER TABLE osm_ways DROP COLUMN IF EXISTS reverse_cost;
+DROP FUNCTION IF EXISTS tobler_speed(double precision) CASCADE;
+DROP FUNCTION IF EXISTS sac_cost_factor(text) CASCADE;
+DROP FUNCTION IF EXISTS surface_cost_factor(text) CASCADE;
+DROP FUNCTION IF EXISTS nearest_trail_node(geometry) CASCADE;
