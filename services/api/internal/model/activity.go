@@ -129,6 +129,7 @@ type SensorRecord struct {
 	HardwareVersion   int16
 	BatteryStatus     string
 	BatteryVoltage    float64
+	DeviceUpsert      *DeviceUpsert `json:"-"` // Transient, nicht serialisiert
 }
 
 // Activity is the DB/API representation of an activity.
@@ -228,6 +229,9 @@ type Activity struct {
 	// Sport conflict resolution
 	SportConflictPending bool               `json:"sport_conflict_pending"`
 	SportConflictMeta    *SportConflictMeta `json:"sport_conflict,omitempty"`
+	// Device registry link
+	RecordingDeviceID   *string `json:"recording_device_id,omitempty"`
+	RecordingDeviceName *string `json:"recording_device_name,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
@@ -314,6 +318,7 @@ type SensorResponse struct {
 	AntDeviceNumber  *int32   `json:"ant_device_number,omitempty"`
 	SoftwareVersion  string   `json:"software_version,omitempty"`
 	BatteryStatus    string   `json:"battery_status,omitempty"`
+	DeviceID         *string  `json:"device_id,omitempty"`
 }
 
 // LapRecord holds extracted lap data from FIT lap messages.
