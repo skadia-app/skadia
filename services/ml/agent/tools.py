@@ -702,7 +702,7 @@ ALL_TOOL_DEFINITIONS = [
         "function": {
             "name": "get_isochrone",
             "description": (
-                "Calculate a reachability area (isochrone) from a point via pgRouting. "
+                "Calculate a reachability area (isochrone) from a point via BadRouter graph. "
                 "Use for 'was erreiche ich in 2 Stunden ab Innsbruck zu Fuß'. "
                 "Requires routing capability (osm_ways with topology)."
             ),
