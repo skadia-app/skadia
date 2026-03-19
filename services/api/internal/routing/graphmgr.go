@@ -21,6 +21,10 @@ import (
 // When tile mode is initialized, IsTileMode() returns true and
 // TileRoute() delegates to the cross-tile A* implementation.
 // The monolithic graph remains available as fallback.
+//
+// Phase 2: InitTiledReader initializes a TiledGraphReader-backed UnifiedRouter
+// that uses findRouteUnified (pass0→trackIndex→pass1→retrack) instead of
+// the per-tile A* in TileRouter. UnifiedRouter() returns it lazily.
 type GraphManager struct {
 	graph    atomic.Pointer[graph.Graph]
 	mu       sync.Mutex // serializes rebuilds
@@ -30,6 +34,10 @@ type GraphManager struct {
 	// Tile-based routing (nil if monolithic mode).
 	tileMgr    *TileManager
 	tileRouter *TileRouter
+
+	// Phase 2: Unified routing via GraphReader interface.
+	tiledReader   *TiledGraphReader
+	unifiedRouter *UnifiedRouter
 }
 
 // Router returns a Router instance for the current graph.
@@ -132,6 +140,33 @@ func (m *GraphManager) InitTileMode(tileDir string, cacheSize int64) (bool, erro
 // IsTileMode reports whether tile-based routing is active.
 func (m *GraphManager) IsTileMode() bool {
 	return m.tileRouter != nil
+}
+
+// InitTiledReader initializes a TiledGraphReader and UnifiedRouter for Phase 2
+// unified routing. Complements InitTileMode — both should be called together.
+// Returns (true, nil) if tiles were found, (false, nil) if dir is absent/empty,
+// or (false, err) on real errors.
+func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, error) {
+	if _, err := os.Stat(tileDir); os.IsNotExist(err) {
+		return false, nil
+	}
+	reader := NewTiledGraphReader(tileDir, cacheBytes)
+	if !reader.HasTiles() {
+		return false, nil
+	}
+	m.tiledReader = reader
+	m.unifiedRouter = NewUnifiedRouter(reader, 8)
+	slog.Info("unified tiled reader initialized",
+		"tile_dir", tileDir,
+		"cache_bytes", cacheBytes,
+	)
+	return true, nil
+}
+
+// UnifiedRouter returns the Phase 2 UnifiedRouter, or nil if not initialized.
+// Lazy: created by InitTiledReader; safe for concurrent read after startup.
+func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
+	return m.unifiedRouter
 }
 
 // TileRoute computes a route using the tiled routing engine.

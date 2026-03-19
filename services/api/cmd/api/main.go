@@ -198,6 +198,12 @@ func main() {
 	} else if tileMode {
 		slog.Info("routing: tile mode active")
 	}
+	// Phase 2: also initialize TiledGraphReader-backed UnifiedRouter.
+	if unified, err := graphMgr.InitTiledReader(tileDir, 1_000_000_000); err != nil {
+		slog.Warn("unified tiled reader init failed", "error", err)
+	} else if unified {
+		slog.Info("routing: unified router active (Phase 2)")
+	}
 	// Always try loading the monolithic graph as well (used as fallback and
 	// for RoutingGraphStatus metadata).
 	if err := graphMgr.LoadFromFile(cfg.RoutingGraphPath); err != nil {
