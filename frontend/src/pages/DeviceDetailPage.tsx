@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
-import { Pencil, Check, X } from 'lucide-react'
-import { fetchDevice, fetchDeviceActivities, updateDeviceCustomName } from '@/api/hardware'
+import { Link, useParams, useNavigate } from 'react-router-dom'
+import { Pencil, Check, X, Trash2, Merge } from 'lucide-react'
+import { fetchDevice, fetchDevices, fetchDeviceActivities, updateDeviceCustomName, deleteDevice, mergeDevices } from '@/api/hardware'
 import type { DeviceActivity } from '@/api/hardware'
 import { formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/utils'
@@ -41,11 +41,14 @@ function ActivityRow({ activity }: { activity: DeviceActivity }) {
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [allActivities, setAllActivities] = useState<DeviceActivity[]>([])
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [showMerge, setShowMerge] = useState(false)
+  const [mergeTargetId, setMergeTargetId] = useState('')
 
   const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ['device', id],
@@ -79,6 +82,29 @@ export default function DeviceDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       setEditingName(false)
     },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDevice(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      navigate(`/hardware/${device?.type ?? 'recorder'}`)
+    },
+  })
+
+  const mergeMutation = useMutation({
+    mutationFn: (targetId: string) => mergeDevices(id!, targetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      navigate(`/hardware/${device?.type ?? 'recorder'}`)
+    },
+  })
+
+  // Andere Devices gleichen Typs für Merge-Auswahl
+  const { data: mergeTargets } = useQuery({
+    queryKey: ['devices', device?.type],
+    queryFn: () => fetchDevices(device?.type),
+    enabled: showMerge && !!device?.type,
   })
 
   if (deviceLoading) {
@@ -248,6 +274,77 @@ export default function DeviceDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Actions: Merge + Delete */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowMerge(s => !s)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-800
+                     text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100
+                     hover:border-accent-400 dark:hover:border-accent-600 transition-all cursor-pointer"
+        >
+          <Merge className="w-4 h-4" />
+          Zusammenführen
+        </button>
+        <button
+          onClick={() => {
+            if (confirm(`"${displayName}" wirklich löschen? Aktivitäten behalten ihre Daten, verlieren aber die Gerätezuordnung.`))
+              deleteMutation.mutate()
+          }}
+          disabled={deleteMutation.isPending}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 dark:border-rose-800
+                     text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20
+                     transition-colors cursor-pointer disabled:opacity-50"
+        >
+          <Trash2 className="w-4 h-4" />
+          Löschen
+        </button>
+      </div>
+
+      {/* Merge panel */}
+      {showMerge && (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
+          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            Mit anderem Gerät zusammenführen
+          </h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            Alle Aktivitäten dieses Geräts werden dem Zielgerät zugeordnet. Dieses Gerät wird anschließend gelöscht.
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={mergeTargetId}
+              onChange={e => setMergeTargetId(e.target.value)}
+              className="flex-1 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900
+                         text-neutral-900 dark:text-neutral-100 px-3 py-2"
+            >
+              <option value="">Zielgerät auswählen...</option>
+              {mergeTargets?.filter(d => d.id !== id).map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.custom_name || d.product_name || d.manufacturer || 'Unbekannt'}
+                  {d.serial_number ? ` (S/N: ${d.serial_number})` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                if (mergeTargetId && confirm('Geräte wirklich zusammenführen? Diese Aktion kann nicht rückgängig gemacht werden.'))
+                  mergeMutation.mutate(mergeTargetId)
+              }}
+              disabled={!mergeTargetId || mergeMutation.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600
+                         transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {mergeMutation.isPending ? 'Wird zusammengeführt...' : 'Zusammenführen'}
+            </button>
+            <button
+              onClick={() => { setShowMerge(false); setMergeTargetId('') }}
+              className="px-3 py-2 rounded-lg text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Activity list */}
       <div className="space-y-3">
