@@ -24,7 +24,16 @@ type DB struct {
 }
 
 func New(ctx context.Context, databaseURL string) (*DB, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse database config: %w", err)
+	}
+	// Ensure enough connections for parallel geo-enrichment (6 modules × semaphore 3)
+	// + recompute workers (4) + normal API requests.
+	if config.MaxConns < 20 {
+		config.MaxConns = 20
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
