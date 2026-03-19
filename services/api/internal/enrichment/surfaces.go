@@ -4,9 +4,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 )
+
+var (
+	osmWaysExists     bool
+	osmWaysExistsOnce sync.Once
+)
+
+func checkOSMWaysExists(ctx context.Context, db *database.DB) bool {
+	osmWaysExistsOnce.Do(func() {
+		var exists bool
+		err := db.Pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_ways')`).Scan(&exists)
+		if err == nil {
+			osmWaysExists = exists
+		}
+	})
+	return osmWaysExists
+}
 
 // EnrichSurfaces matches the activity track against osm_ways and writes
 // surface-type statistics to activity_surfaces.
@@ -18,27 +36,9 @@ import (
 // On re-enrichment the existing rows for the activity are deleted first.
 func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) error {
 	// Guard: skip silently if osm_ways does not exist (Lite mode).
-	var tableExists bool
-	if err := db.Pool.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'osm_ways')",
-	).Scan(&tableExists); err != nil {
-		return fmt.Errorf("surfaces: check osm_ways existence: %w", err)
-	}
-	if !tableExists {
+	// Result is cached via sync.Once to avoid per-call information_schema queries.
+	if !checkOSMWaysExists(ctx, db) {
 		slog.Debug("surfaces: osm_ways not available, skipping")
-		return nil
-	}
-
-	// Verify the track exists.
-	var trackExists bool
-	if err := db.Pool.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM activity_tracks WHERE activity_id = $1 AND track_full IS NOT NULL)",
-		activityID,
-	).Scan(&trackExists); err != nil {
-		return fmt.Errorf("surfaces: check track existence: %w", err)
-	}
-	if !trackExists {
-		slog.Debug("surfaces: no track_full for activity, skipping", "activity_id", activityID)
 		return nil
 	}
 
@@ -53,6 +53,8 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) err
 	// Match the track against osm_ways using a 10 m buffer (consistent with
 	// surfaces.py BUFFER_M = 10). Aggregate by (surface_type, path_type) and
 	// compute the percentage of total track length.
+	// Returns 0 rows when no track_full exists for the activity (no separate
+	// existence check needed).
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
 			SELECT track_full AS geom,
