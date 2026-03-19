@@ -31,31 +31,4 @@ func computeTurnCost(curLon, curLat, targetLon, targetLat int32,
 	return
 }
 
-// computeEdgeCostWeighted computes the weighted edge cost from costfactors and hysteresis weights.
-func computeEdgeCostWeighted(ecf EdgeCostFactors, distM float32, hr HysteresisResult,
-	turnCost float32, curLastWayClass uint8) float32 {
-
-	cfUp := ecf.Up
-	cfDown := ecf.Down
-	if cfUp == 0 {
-		cfUp = ecf.Flat
-	}
-	if cfDown == 0 {
-		cfDown = ecf.Flat
-	}
-	flatW := 1.0 - hr.UpWeight - hr.DownWeight
-	if flatW < 0 {
-		flatW = 0
-	}
-	costfactor := cfUp*hr.UpWeight + ecf.Flat*flatW + cfDown*hr.DownWeight
-	edgeCost := turnCost + hr.ElevCost + distM*costfactor
-
-	// Initialcost (way class change)
-	if curLastWayClass != ecf.WayClass && curLastWayClass != 0 {
-		if ecf.WayClass == 1 || curLastWayClass == 1 { // ferry transition
-			edgeCost += 10000 // BRouter: 10km equivalent
-		}
-	}
-	return edgeCost
-}
 
