@@ -2,10 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
-import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
+import { connectionTypeLabel, deviceTypeBadgeLabel, cleanDisplayName } from '@/lib/deviceUtils'
 
 function DeviceCard({ device }: { device: Device }) {
-  const name = device.custom_name || device.product_name || device.manufacturer || 'Unbekannt'
+  const manufacturer = cleanDisplayName(device.manufacturer)
+  const productName = cleanDisplayName(device.product_name)
+  const name = device.custom_name || productName || manufacturer || 'Unbekanntes Gerät'
   const connType = connectionTypeLabel(device.source_type)
   const connBadgeStyle = device.source_type === 'antplus'
     ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
@@ -30,13 +32,15 @@ function DeviceCard({ device }: { device: Device }) {
           <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-accent-DEFAULT transition-colors">
             {name}
           </h3>
-          {device.manufacturer && device.product_name && (
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{device.manufacturer}</p>
+          {manufacturer && productName && manufacturer !== productName && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{manufacturer}</p>
           )}
         </div>
-        <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${connBadgeStyle}`}>
-          {connType}
-        </span>
+        {connType && (
+          <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${connBadgeStyle}`}>
+            {connType}
+          </span>
+        )}
       </div>
 
       {/* Sensor type badges */}
