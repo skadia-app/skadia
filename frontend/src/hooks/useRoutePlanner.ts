@@ -64,6 +64,11 @@ function buildSegmentFromFeature(
   feature: GeoJSON.Feature | undefined,
   isFallback: boolean,
 ): RouteSegment {
+  const props = feature?.properties ?? {}
+  // BadRouter uses distance_m/ascent_m/descent_m, BRouter uses track-length/filtered ascend/descend
+  const distance = Number(props['distance_m'] ?? props['track-length']) || 0
+  const gain = Number(props['ascent_m'] ?? props['filtered ascend']) || 0
+  const loss = Number(props['descent_m'] ?? props['filtered descend']) || 0
   return {
     from_waypoint: from.id,
     to_waypoint: to.id,
@@ -71,9 +76,9 @@ function buildSegmentFromFeature(
     geometry: feature?.geometry as GeoJSON.LineString | undefined,
     control_points: isFallback ? [from.latlng, to.latlng] : [],
     smooth: false,
-    distance_m: Number(feature?.properties?.['track-length']) || 0,
-    elevation_gain: Number(feature?.properties?.['filtered ascend']) || 0,
-    elevation_loss: Number(feature?.properties?.['filtered descend']) || 0,
+    distance_m: distance,
+    elevation_gain: gain,
+    elevation_loss: loss,
   }
 }
 
