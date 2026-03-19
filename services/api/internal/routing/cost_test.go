@@ -13,10 +13,11 @@ func TestDefaultTrekkingCost(t *testing.T) {
 	g := &graph.Graph{
 		EdgeDist:  []uint32{10000}, // 100m in cm
 		EdgeTags1: []uint64{tags},
+		EdgeTags2: []uint64{0},
 	}
 
 	cfg := DefaultTrekkingConfig()
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	// path costfactor = 1.0 (highway) * 1.0 (unknown surface) = 1.0
 	if ecf.Flat <= 0 {
 		t.Errorf("trekking costfactor should be positive, got %f", ecf.Flat)
@@ -46,10 +47,11 @@ func TestCostConfig_MotorwayBlocked(t *testing.T) {
 	g := &graph.Graph{
 		EdgeDist:  []uint32{10000},
 		EdgeTags1: []uint64{tags},
+		EdgeTags2: []uint64{0},
 	}
 
 	cfg := DefaultTrekkingConfig()
-	ecf := cfg.EdgeCost(g, 0)
+	ecf := cfg.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	// Motorway should be blocked (costfactor >= costBlocked)
 	if ecf.Flat < costBlocked {
 		t.Errorf("motorway should be blocked (Flat >= %f), got %f", costBlocked, ecf.Flat)

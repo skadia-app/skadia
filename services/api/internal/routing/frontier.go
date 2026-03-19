@@ -1,17 +1,10 @@
 package routing
 
-// FrontierEntry is a priority queue entry for A*/Dijkstra search.
-// Priority key = Cost + AirDist.
+// R07: HeapIdx from Spec §9.2 deliberately omitted — this implementation
+// uses lazy deletion (stale-entry check in A* loop) instead of decrease-key.
 type FrontierEntry struct {
-	NodeID       uint32
-	Cost         float32   // g(n) — accumulated cost
-	AirDist      float32   // coefficient * equirectDist(node, dst)
-	State        PathState // elevation hysteresis state (8 bytes, inline)
-	Parent       uint32    // parent node ID
-	Edge         uint32    // edge index for re-tracking
-	LastEdgeDX   float32   // normalized direction X (lon-component)
-	LastEdgeDY   float32   // normalized direction Y (lat-component)
-	LastWayClass uint8     // 0=normal, 1=ferry, 2=mainroad
+	NodeID uint64  // global node ID
+	Cost   float32 // f(n) = g(n) + c*h(n)
 }
 
 // Frontier is a custom typed binary min-heap over FrontierEntry.
@@ -38,7 +31,7 @@ func (f *Frontier) Push(e FrontierEntry) {
 	f.size++
 }
 
-// Pop removes and returns the entry with the lowest key (Cost + AirDist).
+// Pop removes and returns the entry with the lowest Cost.
 func (f *Frontier) Pop() FrontierEntry {
 	if f.size == 0 {
 		panic("routing: Pop on empty Frontier")
@@ -53,8 +46,7 @@ func (f *Frontier) Pop() FrontierEntry {
 }
 
 func (f *Frontier) key(i int) float32 {
-	e := &f.entries[i]
-	return e.Cost + e.AirDist
+	return f.entries[i].Cost
 }
 
 func (f *Frontier) siftUp(i int) {
