@@ -16,16 +16,16 @@ const ROUTE_SPORT_OPTIONS = [
   { value: 'walking', label: 'Gehen' },
 ]
 
-// BRouter profile map for sport types
+// BadRouter profile map for sport types
 const PROFILE_MAP: Record<string, string> = {
   cycling: 'trekking',
   mountain_biking: 'mtb',
   gravel_cycling: 'gravel',
-  running: 'foot',
-  trail_running: 'foot',
+  running: 'hiking',
+  trail_running: 'hiking',
   hiking: 'hiking',
   mountaineering: 'hiking',
-  walking: 'foot',
+  walking: 'hiking',
 }
 
 interface PreferenceSliderProps {

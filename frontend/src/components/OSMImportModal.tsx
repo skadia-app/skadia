@@ -245,8 +245,8 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   }}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">Enrichment starten</span>
-                <span className="text-xs text-neutral-400">(Wald, Lärm, Verkehr, Landnutzung)</span>
+                <span className="text-neutral-700 dark:text-neutral-300">Route-Membership berechnen</span>
+                <span className="text-xs text-neutral-400">(Radrouten/Wanderrouten)</span>
               </label>
               <label className={`flex items-center gap-2 text-sm ${tilesDisabled ? 'opacity-40' : ''}`}>
                 <input
