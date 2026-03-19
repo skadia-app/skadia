@@ -709,7 +709,7 @@ type EnrichmentSettings struct {
 	EnableSummitDetection   bool    `json:"enable_summit_detection"`
 	EnableWeatherEnrichment bool    `json:"enable_weather_enrichment"`
 	EnableStopDetection     bool    `json:"enable_stop_detection"`
-	EnableClimbDetection    bool    `json:"enable_climb_detection"`
+	EnableAscentDetection   bool    `json:"enable_ascent_detection"`
 	EnableCommuteDetection  bool    `json:"enable_commute_detection"`
 	EnableAutoNaming        bool    `json:"enable_auto_naming"`
 	EnableLapDetection      bool    `json:"enable_lap_detection"`
@@ -719,21 +719,18 @@ type EnrichmentSettings struct {
 	OCRInvoicePrompt        *string `json:"ocr_invoice_prompt,omitempty"`
 	OCRGearPrompt           *string `json:"ocr_gear_prompt,omitempty"`
 
-	// Stage-2 module flags (Migration 000116).
-	// Each flag controls whether the corresponding ML enrichment module runs.
+	// Detection module flags (Migration 000192).
+	// Each flag controls whether the corresponding enrichment module runs.
 	// Default: true (all modules enabled for new and existing users).
-	EnablePeaks       bool `json:"enable_peaks"`
-	EnableLifts       bool `json:"enable_lifts"`
-	EnableSettlements bool `json:"enable_settlements"`
-	EnableCommute     bool `json:"enable_commute"`
-	EnableBorders     bool `json:"enable_borders"`
-	EnableWater       bool `json:"enable_water"`
-	EnableForests     bool `json:"enable_forests"`
-	EnableSurfaces    bool `json:"enable_surfaces"`
-	EnableStops       bool `json:"enable_stops"`
-	EnableIntervals   bool `json:"enable_intervals"`
-	EnableAscents     bool `json:"enable_ascents"`
-	EnableEmbeddings  bool `json:"enable_embeddings"`
+	// Note: module string literals ("peaks", "lifts" etc.) in Go/NATS are NOT renamed.
+	EnableForestDetection     bool `json:"enable_forest_detection"`
+	EnableWaterDetection      bool `json:"enable_water_detection"`
+	EnableSettlementDetection bool `json:"enable_settlement_detection"`
+	EnableBorderDetection     bool `json:"enable_border_detection"`
+	EnableLiftDetection       bool `json:"enable_lift_detection"`
+	EnableSurfaceDetection    bool `json:"enable_surface_detection"`
+	EnableIntervalDetection   bool `json:"enable_interval_detection"`
+	EnableEmbeddings          bool `json:"enable_embeddings"`
 
 	// Photo preview size: "2048" (default), "4k", or "original" (Migration 000120).
 	PhotoPreviewSize string `json:"photo_preview_size"`
@@ -752,27 +749,29 @@ type EnrichmentSettings struct {
 	PhashThresholdBits int `json:"phash_threshold_bits"`
 }
 
-// EnabledModules returns the list of Stage-2 module names that are currently
+// EnabledModules returns the list of enrichment module names that are currently
 // enabled. An empty slice means every module is enabled (backwards-compat
 // default). This list is embedded directly in the NATS Stage2ReadyEvent so
 // that the ML service can skip disabled modules without a DB round-trip.
+// Note: module string literals ("peaks", "lifts" etc.) are stable identifiers
+// and do NOT change when DB column names change.
 func (s *EnrichmentSettings) EnabledModules() []string {
 	type flag struct {
 		name    string
 		enabled bool
 	}
 	flags := []flag{
-		{"peaks", s.EnablePeaks},
-		{"lifts", s.EnableLifts},
-		{"settlements", s.EnableSettlements},
-		{"commute", s.EnableCommute},
-		{"borders", s.EnableBorders},
-		{"water", s.EnableWater},
-		{"forests", s.EnableForests},
-		{"surfaces", s.EnableSurfaces},
-		{"stops", s.EnableStops},
-		{"intervals", s.EnableIntervals},
-		{"ascents", s.EnableAscents},
+		{"peaks", s.EnableSummitDetection},
+		{"lifts", s.EnableLiftDetection},
+		{"settlements", s.EnableSettlementDetection},
+		{"commute", s.EnableCommuteDetection},
+		{"borders", s.EnableBorderDetection},
+		{"water", s.EnableWaterDetection},
+		{"forests", s.EnableForestDetection},
+		{"surfaces", s.EnableSurfaceDetection},
+		{"stops", s.EnableStopDetection},
+		{"intervals", s.EnableIntervalDetection},
+		{"ascents", s.EnableAscentDetection},
 		{"embeddings", s.EnableEmbeddings},
 	}
 

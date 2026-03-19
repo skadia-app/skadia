@@ -17,24 +17,24 @@ import (
 // would skip everything, so always use allGeoEnabled or populate from
 // model.EnrichmentSettings).
 type GeoEnrichmentSettings struct {
-	EnablePeaks       bool
-	EnableSettlements bool
-	EnableForests     bool
-	EnableWater       bool
-	EnableBorders     bool
-	EnableSurfaces    bool
+	EnableSummitDetection     bool
+	EnableSettlementDetection bool
+	EnableForestDetection     bool
+	EnableWaterDetection      bool
+	EnableBorderDetection     bool
+	EnableSurfaceDetection    bool
 }
 
 // geoSettingsFromModel converts a model.EnrichmentSettings into the smaller
 // GeoEnrichmentSettings struct used by RunGeoEnrichment.
 func geoSettingsFromModel(s *model.EnrichmentSettings) GeoEnrichmentSettings {
 	return GeoEnrichmentSettings{
-		EnablePeaks:       s.EnablePeaks,
-		EnableSettlements: s.EnableSettlements,
-		EnableForests:     s.EnableForests,
-		EnableWater:       s.EnableWater,
-		EnableBorders:     s.EnableBorders,
-		EnableSurfaces:    s.EnableSurfaces,
+		EnableSummitDetection:     s.EnableSummitDetection,
+		EnableSettlementDetection: s.EnableSettlementDetection,
+		EnableForestDetection:     s.EnableForestDetection,
+		EnableWaterDetection:      s.EnableWaterDetection,
+		EnableBorderDetection:     s.EnableBorderDetection,
+		EnableSurfaceDetection:    s.EnableSurfaceDetection,
 	}
 }
 
@@ -42,12 +42,12 @@ func geoSettingsFromModel(s *model.EnrichmentSettings) GeoEnrichmentSettings {
 // used as a fallback when no user settings are available.
 func allGeoEnabled() GeoEnrichmentSettings {
 	return GeoEnrichmentSettings{
-		EnablePeaks:       true,
-		EnableSettlements: true,
-		EnableForests:     true,
-		EnableWater:       true,
-		EnableBorders:     true,
-		EnableSurfaces:    true,
+		EnableSummitDetection:     true,
+		EnableSettlementDetection: true,
+		EnableForestDetection:     true,
+		EnableWaterDetection:      true,
+		EnableBorderDetection:     true,
+		EnableSurfaceDetection:    true,
 	}
 }
 
@@ -71,11 +71,11 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		fn      func(context.Context, *database.DB, string) error
 	}
 	modules := []module{
-		{"peaks", settings.EnablePeaks, enrichGeoTagsPeaks},
-		{"settlements", settings.EnableSettlements, enrichGeoTagsSettlements},
-		{"forests", settings.EnableForests, enrichGeoTagsForests},
-		{"water", settings.EnableWater, enrichGeoTagsWater},
-		{"borders", settings.EnableBorders, enrichGeoTagsBorders},
+		{"peaks", settings.EnableSummitDetection, enrichGeoTagsPeaks},
+		{"settlements", settings.EnableSettlementDetection, enrichGeoTagsSettlements},
+		{"forests", settings.EnableForestDetection, enrichGeoTagsForests},
+		{"water", settings.EnableWaterDetection, enrichGeoTagsWater},
+		{"borders", settings.EnableBorderDetection, enrichGeoTagsBorders},
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -105,7 +105,7 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 
 	// Surfaces: only active in Full mode (osm_ways must exist and be populated).
 	// Writes to activity_surfaces; skips silently if osm_ways is not present.
-	if settings.EnableSurfaces {
+	if settings.EnableSurfaceDetection {
 		g.Go(func() error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -270,17 +270,29 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 		),
 		intersected AS (
 			SELECT f.osm_id, f.name,
-			       ST_Intersection(route.geom, f.geom) AS isect,
+			       ROUND(ST_Length(ST_Intersection(route.geom, f.geom)::geography))::int AS length_m,
 			       ST_XMin(f.geom) AS bbox_west, ST_YMin(f.geom) AS bbox_south,
 			       ST_XMax(f.geom) AS bbox_east, ST_YMax(f.geom) AS bbox_north
 			FROM osm_forests f, route
 			WHERE ST_Intersects(f.geom, route.geom)
+			  AND f.name IS NOT NULL
+			  AND f.name != ''
+		),
+		filtered AS (
+			SELECT osm_id, name, length_m,
+			       bbox_west, bbox_south, bbox_east, bbox_north
+			FROM intersected
+			WHERE length_m >= 200
+		),
+		deduped AS (
+			SELECT DISTINCT ON (name) osm_id, name, length_m,
+			       bbox_west, bbox_south, bbox_east, bbox_north
+			FROM filtered
+			ORDER BY name, length_m DESC
 		)
-		SELECT osm_id, name,
-		       ROUND(ST_Length(isect::geography))::int AS length_m,
+		SELECT osm_id, name, length_m,
 		       bbox_west, bbox_south, bbox_east, bbox_north
-		FROM intersected
-		WHERE ST_Length(isect::geography) >= 200
+		FROM deduped
 		ORDER BY length_m DESC
 	`, activityID)
 	if err != nil {
@@ -291,7 +303,7 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 	batch := &pgx.Batch{}
 	for rows.Next() {
 		var osmID int64
-		var name *string
+		var name string
 		var lengthM int
 		var bboxWest, bboxSouth, bboxEast, bboxNorth float64
 
@@ -299,17 +311,12 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 			return fmt.Errorf("forests: scan: %w", err)
 		}
 
-		displayName := "Wald"
-		if name != nil && *name != "" {
-			displayName = *name
-		}
-
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_bbox_west, map_bbox_south, map_bbox_east, map_bbox_north, length_m)
 			VALUES ($1, 'forest', $2, $3, 'bbox', $4, $5, $6, $7, $8)
-		`, activityID, displayName, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, lengthM)
+		`, activityID, name, osmID, bboxWest, bboxSouth, bboxEast, bboxNorth, lengthM)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("forests: rows iteration: %w", err)
