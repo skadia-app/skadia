@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -236,7 +238,6 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		var wg sync.WaitGroup
 
 		for _, id := range ids {
-			id := id
 			// Shutdown-Check: keine neuen Aktivitäten dispatchen wenn Shutdown läuft
 			select {
 			case <-ctx.Done():
@@ -522,35 +523,31 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro).
 	if doDetails {
-		if err := h.DB.DeleteLaps(ctx, activityID); err != nil {
-			return fmt.Errorf("delete laps: %w", err)
+		// Batch all 5 deletes in one round-trip.
+		detailBatch := &pgx.Batch{}
+		detailBatch.Queue("DELETE FROM activity_laps WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_splits WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_split_summaries WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_lengths WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_climb_pro_events WHERE activity_id = $1", activityID)
+		br := h.DB.Pool.SendBatch(ctx, detailBatch)
+		for range 5 {
+			if _, err := br.Exec(); err != nil {
+				br.Close()
+				return fmt.Errorf("batch delete details: %w", err)
+			}
 		}
-		if err := h.DB.DeleteSplits(ctx, activityID); err != nil {
-			return fmt.Errorf("delete splits: %w", err)
-		}
-		if err := h.DB.DeleteSplitSummaries(ctx, activityID); err != nil {
-			return fmt.Errorf("delete split summaries: %w", err)
-		}
-		if err := h.DB.DeleteLengths(ctx, activityID); err != nil {
-			return fmt.Errorf("delete lengths: %w", err)
-		}
-		if err := h.DB.DeleteClimbProEvents(ctx, activityID); err != nil {
-			return fmt.Errorf("delete climb pro events: %w", err)
-		}
-		if err := h.DB.InsertLaps(ctx, activityID, data.Laps); err != nil {
-			return fmt.Errorf("insert laps: %w", err)
-		}
-		if err := h.DB.InsertSplits(ctx, activityID, data.Splits); err != nil {
-			return fmt.Errorf("insert splits: %w", err)
-		}
-		if err := h.DB.InsertSplitSummaries(ctx, activityID, data.SplitSummaries); err != nil {
-			return fmt.Errorf("insert split summaries: %w", err)
-		}
-		if err := h.DB.InsertLengths(ctx, activityID, data.Lengths); err != nil {
-			return fmt.Errorf("insert lengths: %w", err)
-		}
-		if err := h.DB.InsertClimbProEvents(ctx, activityID, data.ClimbProEvents); err != nil {
-			return fmt.Errorf("insert climb pro events: %w", err)
+		br.Close()
+
+		// Parallel inserts via errgroup.
+		g, gCtx := errgroup.WithContext(ctx)
+		g.Go(func() error { return h.DB.InsertLaps(gCtx, activityID, data.Laps) })
+		g.Go(func() error { return h.DB.InsertSplits(gCtx, activityID, data.Splits) })
+		g.Go(func() error { return h.DB.InsertSplitSummaries(gCtx, activityID, data.SplitSummaries) })
+		g.Go(func() error { return h.DB.InsertLengths(gCtx, activityID, data.Lengths) })
+		g.Go(func() error { return h.DB.InsertClimbProEvents(gCtx, activityID, data.ClimbProEvents) })
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("insert details: %w", err)
 		}
 	}
 
@@ -576,18 +573,18 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
 	// slate when "geo" scope is selected without a full recompute.
 	if doGeo {
-		if err := h.DB.DeleteActivityGeoTags(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete geo tags failed", "id", activityID, "error", err)
+		geoBatch := &pgx.Batch{}
+		geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1", activityID)
+		geoBatch.Queue("DELETE FROM activity_stops WHERE activity_id = $1", activityID)
+		geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
+		geoBatch.Queue("DELETE FROM activity_surfaces WHERE activity_id = $1", activityID)
+		gbr := h.DB.Pool.SendBatch(ctx, geoBatch)
+		for range 4 {
+			if _, err := gbr.Exec(); err != nil {
+				slog.Error("reprocess: batch delete geo data failed", "id", activityID, "error", err)
+			}
 		}
-		if err := h.DB.DeleteActivityStops(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete activity stops failed", "id", activityID, "error", err)
-		}
-		if err := h.DB.DeleteActivityLiftCandidates(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete lift candidates failed", "id", activityID, "error", err)
-		}
-		if err := h.DB.DeleteActivitySurfaces(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete activity surfaces failed", "id", activityID, "error", err)
-		}
+		gbr.Close()
 	}
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.

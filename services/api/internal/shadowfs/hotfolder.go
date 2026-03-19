@@ -58,11 +58,7 @@ func (w *Watcher) Start() error {
 	go w.loop()
 
 	// Scan for files already present (dropped while server was down).
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		w.scanExisting()
-	}()
+	w.wg.Go(func() { w.scanExisting() })
 
 	slog.Info("hotfolder watcher started", "dir", w.dir)
 	return nil
