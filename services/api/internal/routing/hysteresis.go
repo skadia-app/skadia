@@ -155,6 +155,24 @@ func propagateHysteresisProfile(parent PathState, elevProfile []int32,
 	}
 }
 
+// propagateHysteresisProfileCm processes a full elevation profile with
+// pre-computed segment distances in centimeters (uint16).
+// Converts to millimeters internally (*10).
+func propagateHysteresisProfileCm(parent PathState, elevsDm []int32,
+	segDistsCm []uint16, cfg *CostConfig) HysteresisResult {
+
+	if len(elevsDm) <= 1 || len(segDistsCm) == 0 {
+		return HysteresisResult{State: parent}
+	}
+
+	// Convert to int32 milli and delegate to existing implementation
+	segDistMilli := make([]int32, len(segDistsCm))
+	for i, v := range segDistsCm {
+		segDistMilli[i] = int32(v) * 10 // cm → mm
+	}
+	return propagateHysteresisProfile(parent, elevsDm, segDistMilli, cfg)
+}
+
 // elevationCorrection estimates the latent cost stored in the hysteresis buffers.
 // Used for closed-set comparison: bestCost stores cost + elevationCorrection.
 //
