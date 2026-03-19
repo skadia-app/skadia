@@ -68,8 +68,12 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	trackIndex := buildTrackIndexUnified(res0.state, src, dst)
 
 	// Pass 1: Dijkstra with track-index cost-cutting (passCoeff = 0)
+	// Safety margin: pass0 uses DeltaEle which underestimates on hilly terrain.
+	// DeltaEle sees net elevation change, full profile sees all ups+downs.
+	// Multiply by Pass0Coefficient to give pass1 enough budget.
+	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient
 	res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
-		0, res0.totalCost, trackIndex)
+		0, pass1MaxCost, trackIndex)
 	if err != nil {
 		return nil, fmt.Errorf("pass1: %w", err)
 	}
