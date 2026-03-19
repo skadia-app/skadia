@@ -646,6 +646,7 @@ type CandidateSegment struct {
 	DistanceM   float64
 	SegmentType string
 	TypeMeta    map[string]any
+	TrackWKB    []byte // NEW: Segment track as WKB for in-memory Hausdorff
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
@@ -655,7 +656,8 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
-		       s.segment_type, COALESCE(sv.segment_type_meta, '{}')
+		       s.segment_type, COALESCE(sv.segment_type_meta, '{}'),
+		       ST_AsBinary(sv.track)
 		FROM segments s
 		JOIN LATERAL (
 			SELECT id, track, segment_type_meta FROM (
@@ -685,7 +687,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		var c CandidateSegment
 		var rawMeta json.RawMessage
 		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
-			&c.SegmentType, &rawMeta); err != nil {
+			&c.SegmentType, &rawMeta, &c.TrackWKB); err != nil {
 			return nil, fmt.Errorf("scan candidate segment: %w", err)
 		}
 		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
@@ -763,16 +765,20 @@ func (db *DB) GetSegmentEndpointsBatch(ctx context.Context, versionIDs []string)
 
 // GPSStreamPoint is a lightweight GPS point with timestamp for matching.
 type GPSStreamPoint struct {
-	Time time.Time
-	Lat  float64
-	Lng  float64
+	Time      time.Time
+	Lat       float64
+	Lng       float64
+	SpeedMs   *float64 // NEW: speed in m/s (nullable)
+	HeartRate *int     // NEW: heart rate in bpm (nullable)
+	PowerW    *int     // NEW: power in watts (nullable)
+	AltitudeM *float64 // NEW: altitude in meters (nullable)
 }
 
 // GetActivityGPSStream returns all GPS stream points (time, lat, lng) for an activity,
 // ordered chronologically. Only points with valid GPS coordinates are returned.
 func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GPSStreamPoint, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT "time", lat, lng
+		SELECT "time", lat, lng, speed_ms, heart_rate, power_w, altitude_m
 		FROM activity_streams
 		WHERE activity_id = $1 AND lat IS NOT NULL AND lng IS NOT NULL
 		ORDER BY "time" ASC`, activityID)
@@ -784,7 +790,7 @@ func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GP
 	var points []GPSStreamPoint
 	for rows.Next() {
 		var p GPSStreamPoint
-		if err := rows.Scan(&p.Time, &p.Lat, &p.Lng); err != nil {
+		if err := rows.Scan(&p.Time, &p.Lat, &p.Lng, &p.SpeedMs, &p.HeartRate, &p.PowerW, &p.AltitudeM); err != nil {
 			return nil, fmt.Errorf("scan GPS stream point: %w", err)
 		}
 		points = append(points, p)
@@ -856,6 +862,30 @@ func (db *DB) GetSegmentEffortMetrics(ctx context.Context, activityID string, st
 		return nil, fmt.Errorf("get segment effort metrics: %w", err)
 	}
 	return &m, nil
+}
+
+// GetSegmentEffortMetricsAndElevation computes average speed, heart rate, power,
+// and total elevation gain from activity_streams for a given time range,
+// all in a single round-trip query.
+func (db *DB) GetSegmentEffortMetricsAndElevation(ctx context.Context,
+	activityID string, startTime, endTime time.Time,
+) (avgSpeed, avgHR, avgPower, elevGain *float64, err error) {
+	err = db.Pool.QueryRow(ctx, `
+		SELECT
+		  (SELECT AVG(speed_ms) FROM activity_streams
+		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
+		  (SELECT AVG(heart_rate::double precision) FROM activity_streams
+		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
+		  (SELECT AVG(power_w::double precision) FROM activity_streams
+		   WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3),
+		  (SELECT COALESCE(SUM(CASE WHEN d > 0 THEN d ELSE 0 END), 0) FROM (
+		     SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY "time") AS d
+		     FROM activity_streams
+		     WHERE activity_id = $1 AND "time" >= $2 AND "time" <= $3
+		       AND altitude_m IS NOT NULL
+		   ) sub)
+	`, activityID, startTime, endTime).Scan(&avgSpeed, &avgHR, &avgPower, &elevGain)
+	return
 }
 
 // GetSubTrackElevationGain computes the total elevation gain (sum of positive
