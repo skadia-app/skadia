@@ -3,6 +3,7 @@ package coverage
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paulmach/orb"
@@ -14,9 +15,11 @@ import (
 // and caching them per tile. Used by the graph builder to eliminate the
 // DB roundtrip for enrichment values.
 //
-// NOT goroutine-safe by design — one tile-build runs sequentially per tile.
-// Grids are built BEFORE the graph-build and freed AFTER.
+// Goroutine-safe: BuildAllTiles runs multiple workers that call PreloadTile
+// and SampleWay concurrently for different tiles. The mutex protects the
+// grids map from concurrent read/write (Go maps are not safe for concurrent access).
 type TileGridCache struct {
+	mu       sync.RWMutex
 	pool     *pgxpool.Pool
 	noiseCfg NoiseSettings
 	grids    map[uint32]*enrichedTileGrids
@@ -43,7 +46,10 @@ func NewTileGridCache(pool *pgxpool.Pool, noiseCfg NoiseSettings) *TileGridCache
 
 // PreloadTile builds coverage grids for a tile. Idempotent.
 func (c *TileGridCache) PreloadTile(ctx context.Context, tileID uint32) error {
-	if _, ok := c.grids[tileID]; ok {
+	c.mu.RLock()
+	_, ok := c.grids[tileID]
+	c.mu.RUnlock()
+	if ok {
 		return nil // already loaded
 	}
 
@@ -73,6 +79,7 @@ func (c *TileGridCache) PreloadTile(ctx context.Context, tileID uint32) error {
 		trafficIn.release() // free original 10km float64 grids
 	}
 
+	c.mu.Lock()
 	c.grids[tileID] = &enrichedTileGrids{
 		coverage:   tg,
 		populate:   pop100,
@@ -80,6 +87,7 @@ func (c *TileGridCache) PreloadTile(ctx context.Context, tileID uint32) error {
 		mwDensity:  mw100,
 		hwDensity:  hw100,
 	}
+	c.mu.Unlock()
 	return nil
 }
 
@@ -92,7 +100,9 @@ func (c *TileGridCache) SampleWay(geom orb.LineString) CoverageResult {
 	mid := geom[len(geom)/2]
 	tileID := graphpkg.TileIDFromCoord(mid[1], mid[0])
 
+	c.mu.RLock()
 	tg, ok := c.grids[tileID]
+	c.mu.RUnlock()
 	if !ok {
 		return CoverageResult{}
 	}
@@ -139,10 +149,15 @@ func (c *TileGridCache) SampleWay(geom orb.LineString) CoverageResult {
 
 // Release frees all cached grids for a tile.
 func (c *TileGridCache) Release(tileID uint32) {
+	c.mu.Lock()
 	tg, ok := c.grids[tileID]
 	if !ok {
+		c.mu.Unlock()
 		return
 	}
+	delete(c.grids, tileID)
+	c.mu.Unlock()
+
 	if tg.coverage != nil {
 		tg.coverage.Release()
 	}
@@ -151,13 +166,23 @@ func (c *TileGridCache) Release(tileID uint32) {
 			g.Release()
 		}
 	}
-	delete(c.grids, tileID)
 }
 
 // ReleaseAll frees all cached grids.
 func (c *TileGridCache) ReleaseAll() {
-	for tileID := range c.grids {
-		c.Release(tileID)
+	c.mu.Lock()
+	grids := c.grids
+	c.grids = make(map[uint32]*enrichedTileGrids)
+	c.mu.Unlock()
+	for _, tg := range grids {
+		if tg.coverage != nil {
+			tg.coverage.Release()
+		}
+		for _, g := range []*CoverageGrid{tg.populate, tg.industrial, tg.mwDensity, tg.hwDensity} {
+			if g != nil {
+				g.Release()
+			}
+		}
 	}
 }
 
