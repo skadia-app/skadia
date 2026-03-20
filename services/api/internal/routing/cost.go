@@ -6,6 +6,18 @@ import (
 
 const costBlocked float32 = 10_000 // effectively impassable
 
+// Type aliases for graph package landmark types (avoids import cycle).
+type LandmarkSetID = graph.LandmarkSetID
+
+const (
+	LandmarkSetA    = graph.LandmarkSetA
+	LandmarkSetB    = graph.LandmarkSetB
+	LandmarkSetC    = graph.LandmarkSetC
+	LandmarkSetD    = graph.LandmarkSetD
+	NumLandmarkSets = graph.NumLandmarkSets
+	LandmarksPerSet = graph.LandmarksPerSet
+)
+
 // EdgeCostFactors are pure costfactor multipliers (NOT pre-multiplied by distance).
 // The A*-Loop computes: distM * interpolated_costfactor.
 // Blocked edges: Flat >= costBlocked (10000).
