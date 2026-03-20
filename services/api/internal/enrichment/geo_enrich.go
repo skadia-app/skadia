@@ -51,6 +51,12 @@ func allGeoEnabled() GeoEnrichmentSettings {
 	}
 }
 
+// geoEnrichSem is a global semaphore that limits concurrent geo-enrichment
+// runs to 1. Without this limit two simultaneous enrichments (e.g. bulk
+// re-enrichment) each spawn up to 6 parallel PostGIS queries, totalling 12+
+// heavy geometry operations that saturate the CPU and freeze the WebUI.
+var geoEnrichSem = make(chan struct{}, 1)
+
 // RunGeoEnrichment executes geo-enrichment queries directly in Go SQL.
 // It covers peaks, settlements, forests, water, borders, and surfaces.
 // Lifts are handled by the Python ML service (segment matching + heuristic detection).
@@ -61,8 +67,22 @@ func allGeoEnabled() GeoEnrichmentSettings {
 // All enabled modules run in parallel (max 3 concurrent) via errgroup to
 // prevent DB connection pool exhaustion.
 //
+// At most 1 activity is geo-enriched at a time (geoEnrichSem) to prevent
+// CPU saturation when multiple enrichment jobs run concurrently.
+//
 // Track source: activity_tracks.track_full (identical to the Python code).
+// Queries use ST_Simplify(track_full, 0.0001) (~11 m tolerance) to reduce
+// 40k-point tracks to ~2k points for spatial lookups — the stored track is
+// never modified.
 func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, settings GeoEnrichmentSettings) error {
+	// Acquire global slot — blocks until the currently running enrichment
+	// (if any) finishes, or until ctx is cancelled.
+	select {
+	case geoEnrichSem <- struct{}{}:
+		defer func() { <-geoEnrichSem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	slog.Info("running geo enrichment (Go SQL)", "activity_id", activityID)
 
 	type module struct {
@@ -142,7 +162,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT p.osm_id, p.name, p.ele, p.category,
@@ -207,7 +227,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT s.osm_id, s.name, s.type,
@@ -265,7 +285,7 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		),
 		intersected AS (
@@ -345,17 +365,17 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	// --- Still water (lakes, reservoirs) ---
 	stillRows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT DISTINCT ON (w.osm_id) w.osm_id, w.name,
+		SELECT DISTINCT ON (w.name) w.osm_id, w.name,
 		       ROUND(ST_Distance(route.geom::geography, w.geom::geography))::int AS min_dist_m,
 		       ST_XMin(w.geom) AS bbox_west, ST_YMin(w.geom) AS bbox_south,
 		       ST_XMax(w.geom) AS bbox_east, ST_YMax(w.geom) AS bbox_north
 		FROM osm_waters w, route
 		WHERE ST_DWithin(route.geom::geography, w.geom::geography, 50)
 		  AND w.name IS NOT NULL
-		ORDER BY w.osm_id, min_dist_m
+		ORDER BY w.name, min_dist_m
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("water: still_water query: %w", err)
@@ -387,10 +407,10 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	// --- Flowing water (rivers, streams) ---
 	flowRows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT DISTINCT ON (ww.osm_id) ww.osm_id, ww.name, ww.waterway,
+		SELECT DISTINCT ON (ww.name) ww.osm_id, ww.name, ww.waterway,
 		       ROUND(ST_Distance(route.geom::geography, ww.geom::geography))::int AS min_dist_m,
 		       ST_AsBinary(ST_Intersection(
 		           ST_Buffer(route.geom::geography, 50)::geometry, ww.geom
@@ -398,7 +418,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		FROM osm_waterways ww, route
 		WHERE ST_DWithin(route.geom::geography, ww.geom::geography, 50)
 		  AND ww.name IS NOT NULL
-		ORDER BY ww.osm_id, min_dist_m
+		ORDER BY ww.name, min_dist_m
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("water: flowing_water query: %w", err)
@@ -448,13 +468,17 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT track_full AS geom
+			SELECT ST_Simplify(track_full, 0.0001) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT b.name, b.admin_level,
-		       ST_Intersection(route.geom, ST_Boundary(b.geom)) AS crossing_geom
+		       CASE
+		           WHEN NOT ST_IsEmpty(ST_Intersection(route.geom, ST_Boundary(b.geom)))
+		               THEN ST_AsBinary(ST_Intersection(route.geom, ST_Boundary(b.geom)))
+		           ELSE ST_AsBinary(ST_ClosestPoint(ST_Boundary(b.geom), route.geom))
+		       END AS crossing_geom
 		FROM osm_boundaries b, route
-		WHERE ST_Crosses(route.geom, ST_Boundary(b.geom))
+		WHERE ST_Intersects(route.geom, b.geom)
 		  AND b.admin_level IN (2, 4)
 		ORDER BY b.admin_level
 	`, activityID)
