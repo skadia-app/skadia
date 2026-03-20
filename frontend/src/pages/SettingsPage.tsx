@@ -18,7 +18,7 @@ import { type OSMStatus, getOSMSchedule, setOSMSchedule, type OSMSchedule, fetch
 import { OSMRegionManager } from '@/components/OSMRegionManager'
 import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
-import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillEnrichment, backfillWeather } from '@/api/enrichment'
+import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillEnrichment } from '@/api/enrichment'
 import type { EnrichmentSettings } from '@/api/types'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -71,7 +71,7 @@ function AutomatischeAnalysenSection() {
   const [localThresholds, setLocalThresholds] = useState<Partial<Record<string, number>>>({})
   const [backfillResult, setBackfillResult] = useState<{ processed: number; errors: number; error_details?: string } | null>(null)
   const [backfillRunning, setBackfillRunning] = useState(false)
-  const [weatherRunning, setWeatherRunning] = useState(false)
+
 
   const mut = useMutation({
     mutationFn: (patch: Partial<EnrichmentSettings>) => updateEnrichmentSettings(patch),
@@ -95,18 +95,6 @@ function AutomatischeAnalysenSection() {
       addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 })
     } finally {
       setBackfillRunning(false)
-    }
-  }
-
-  async function handleBackfillWeather() {
-    setWeatherRunning(true)
-    try {
-      await backfillWeather()
-      addToast({ type: 'info', title: 'Wetter-Nachtrag gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
-    } catch {
-      addToast({ type: 'error', title: 'Wetter-Nachtrag konnte nicht gestartet werden', duration: 0 })
-    } finally {
-      setWeatherRunning(false)
     }
   }
 
@@ -201,7 +189,7 @@ function AutomatischeAnalysenSection() {
       {/* Weather note */}
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
         Wetter-Einstellungen findest du unter{' '}
-        <Link to="/settings" className="text-accent-DEFAULT hover:underline">Allgemein → Wetterdaten</Link>.
+        <Link to="/settings?tab=general" className="text-accent-DEFAULT hover:underline">Allgemein → Wetterdaten</Link>.
       </p>
 
       {/* Backfill actions */}
@@ -209,16 +197,9 @@ function AutomatischeAnalysenSection() {
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Neuberechnung</h3>
         <div className="flex flex-wrap gap-3">
           <button
-            onClick={handleBackfillWeather}
-            disabled={weatherRunning}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {weatherRunning ? 'Wird gestartet…' : 'Wetter nachtragen'}
-          </button>
-          <button
             onClick={handleBackfillEnrichment}
             disabled={backfillRunning}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
           </button>
