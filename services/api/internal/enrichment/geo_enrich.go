@@ -71,9 +71,9 @@ var geoEnrichSem = make(chan struct{}, 1)
 // CPU saturation when multiple enrichment jobs run concurrently.
 //
 // Track source: activity_tracks.track_full (identical to the Python code).
-// Queries use ST_Simplify(track_full, 0.0001) (~11 m tolerance) to reduce
-// 40k-point tracks to ~2k points for spatial lookups — the stored track is
-// never modified.
+// Queries use ST_Simplify(track_full, 0.00005) (~5.5 m tolerance) to reduce
+// 40k-point tracks to ~4-6k points for spatial lookups — the stored track is
+// never modified. Tolerance chosen to be safe for tightest DWithin (surfaces: 10m).
 func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, settings GeoEnrichmentSettings) error {
 	// Acquire global slot — blocks until the currently running enrichment
 	// (if any) finishes, or until ctx is cancelled.
@@ -162,7 +162,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT p.osm_id, p.name, p.ele, p.category,
@@ -227,7 +227,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT s.osm_id, s.name, s.type,
@@ -285,7 +285,7 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		),
 		intersected AS (
@@ -365,7 +365,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	// --- Still water (lakes, reservoirs) ---
 	stillRows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT DISTINCT ON (w.name) w.osm_id, w.name,
@@ -407,7 +407,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	// --- Flowing water (rivers, streams) ---
 	flowRows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT DISTINCT ON (ww.name) ww.osm_id, ww.name, ww.waterway,
@@ -468,7 +468,7 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT b.name, b.admin_level,
