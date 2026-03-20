@@ -12,6 +12,7 @@ import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag 
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
 import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
+import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
@@ -62,6 +63,7 @@ function getSportEmoji(sportType: string): string {
   }
   return map[sportType] ?? '●'
 }
+
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -1658,19 +1660,8 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
 
   function getTagStyle(tagName: string, index: number): CSSProperties {
     const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagName.toLowerCase())
-    if (tagObj?.color) {
-      return {
-        backgroundColor: tagObj.color + '20', // ~12% opacity background
-        color: tagObj.text_color && tagObj.text_color.toLowerCase() !== '#ffffff'
-          ? tagObj.text_color
-          : tagObj.color,
-      }
-    }
-    const fb = fallbackColors[index % fallbackColors.length]
-    return {
-      backgroundColor: fb.bg + '20',
-      color: fb.bg,
-    }
+    if (tagObj?.color) return getTagBadgeStyle(tagObj.color)
+    return getTagBadgeStyle(fallbackColors[index % fallbackColors.length].bg)
   }
 
   const removeMut = useMutation({

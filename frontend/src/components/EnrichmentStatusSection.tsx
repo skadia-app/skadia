@@ -6,20 +6,20 @@ import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import type { EnrichmentSettings } from '@/api/types'
 
-// Maps stage-2 module names to the corresponding API field in EnrichmentSettings.
+// Maps module names (Go backend) to the corresponding API field in EnrichmentSettings.
 // A module is globally disabled when the field is explicitly false (default: true/absent = enabled).
 const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> = {
-  peaks:       'enable_peaks',
-  lifts:       'enable_lifts',
-  settlements: 'enable_settlements',
-  commute:     'enable_commute',
-  borders:     'enable_borders',
-  water:       'enable_water',
-  forests:     'enable_forests',
-  surfaces:    'enable_surfaces',
-  stops:       'enable_stops',
-  intervals:   'enable_intervals',
-  ascents:     'enable_ascents',
+  peaks:       'enable_summit_detection',
+  forests:     'enable_forest_detection',
+  water:       'enable_water_detection',
+  settlements: 'enable_settlement_detection',
+  borders:     'enable_border_detection',
+  stops:       'enable_stop_detection',
+  lifts:       'enable_lift_detection',
+  surfaces:    'enable_surface_detection',
+  ascents:     'enable_ascent_detection',
+  intervals:   'enable_interval_detection',
+  commute:     'enable_commute_detection',
   embeddings:  'enable_embeddings',
 }
 
@@ -155,7 +155,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
           <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
             Aktive Module werden in der Detailansicht angezeigt. Inaktive Module können durch Klick neu berechnet werden.{' '}
             {globallyDisabled.size > 0 && (
-              <Link to="/settings" className="text-accent-DEFAULT hover:underline">
+              <Link to="/settings?tab=analysen" className="text-accent-DEFAULT hover:underline">
                 {globallyDisabled.size === 1 ? '1 Modul ist' : `${globallyDisabled.size} Module sind`} global deaktiviert.
               </Link>
             )}
@@ -196,7 +196,7 @@ function ModuleTile({
     ring = 'ring-neutral-100 dark:ring-neutral-800/30'
     dotColor = 'bg-neutral-200 dark:bg-neutral-700'
     titleColor = 'text-neutral-350 dark:text-neutral-600 opacity-50'
-    tooltip = 'Global deaktiviert — in Einstellungen aktivieren'
+    tooltip = 'Global deaktiviert — unter Einstellungen → Analysen aktivieren'
   } else if (hidden) {
     bg = 'bg-neutral-50 dark:bg-neutral-900/20'
     ring = 'ring-neutral-150 dark:ring-neutral-800/50'

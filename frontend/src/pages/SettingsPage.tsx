@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import OSMImportModal from '@/components/OSMImportModal'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
@@ -17,7 +18,8 @@ import { type OSMStatus, getOSMSchedule, setOSMSchedule, type OSMSchedule, fetch
 import { OSMRegionManager } from '@/components/OSMRegionManager'
 import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
-import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
+import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillEnrichment, backfillWeather } from '@/api/enrichment'
+import type { EnrichmentSettings } from '@/api/types'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import SchemaEditor from '@/components/SchemaEditor'
@@ -26,22 +28,32 @@ import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
 
-// Stage-2 ML enrichment module configuration — backed by /settings/enrichment API.
-const STAGE2_MODULES = [
-  { key: 'peaks',       apiField: 'enable_peaks'       as const, label: 'Gipfel & Pässe',      description: 'Erkennt besuchte Gipfel und Bergsättel',                requiresML: false },
-  { key: 'forests',     apiField: 'enable_forests'     as const, label: 'Wälder',              description: 'Erkennt durchquerte Waldgebiete',                        requiresML: false },
-  { key: 'water',       apiField: 'enable_water'       as const, label: 'Gewässer',             description: 'Erkennt Seen und Fließgewässer entlang der Route',       requiresML: false },
-  { key: 'settlements', apiField: 'enable_settlements' as const, label: 'Ortschaften',          description: 'Erkennt durchquerte Siedlungen',                         requiresML: false },
-  { key: 'borders',     apiField: 'enable_borders'     as const, label: 'Grenzüberquerungen',  description: 'Erkennt überquerte Ländergrenzen',                        requiresML: false },
-  { key: 'stops',       apiField: 'enable_stops'       as const, label: 'Stopps & Einkehr',     description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min)',    requiresML: false },
-  { key: 'lifts',       apiField: 'enable_lifts'       as const, label: 'Lifte / Seilbahnen',  description: 'Erkennt Gondelbahnen und Sessellifte',                    requiresML: true },
-  { key: 'surfaces',    apiField: 'enable_surfaces'    as const, label: 'Untergrundtypen',      description: 'Erkennt Asphalt, Schotter, Trail etc.',                  requiresML: false },
-  { key: 'ascents',     apiField: 'enable_ascents'     as const, label: 'Anstiege',             description: 'Erkennt und klassifiziert Anstiege',                     requiresML: false },
-  { key: 'intervals',   apiField: 'enable_intervals'   as const, label: 'Intervalltraining',    description: 'Erkennt Trainingsintervalle automatisch',                 requiresML: false },
-  { key: 'commute',     apiField: 'enable_commute'     as const, label: 'Pendelrouten',         description: 'Erkennt regelmäßig genutzte Routen',                     requiresML: true },
-] as const
+// Analysis module configuration — enrichment toggles for the Analysen tab.
+interface AnalysisModule {
+  label: string
+  description: string
+  field: keyof EnrichmentSettings
+  requiresML: boolean
+}
 
-function Stage2EnrichmentSection() {
+const ANALYSIS_MODULES: AnalysisModule[] = [
+  { label: 'Automatische Benennung',  description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitätstyp.',        field: 'enable_auto_naming',         requiresML: false },
+  { label: 'Gipfel & Pässe',          description: 'Erkennt besuchte Gipfel und Bergsättel.',                                          field: 'enable_summit_detection',    requiresML: false },
+  { label: 'Wälder',                  description: 'Erkennt durchquerte Waldgebiete.',                                                 field: 'enable_forest_detection',    requiresML: false },
+  { label: 'Gewässer',                description: 'Erkennt Seen und Fließgewässer entlang der Route.',                               field: 'enable_water_detection',     requiresML: false },
+  { label: 'Ortschaften',             description: 'Erkennt durchquerte Siedlungen.',                                                  field: 'enable_settlement_detection',requiresML: false },
+  { label: 'Grenzüberquerungen',      description: 'Erkennt überquerte Ländergrenzen.',                                               field: 'enable_border_detection',    requiresML: false },
+  { label: 'Stopps & Einkehr',        description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min).',                            field: 'enable_stop_detection',      requiresML: false },
+  { label: 'Lifte / Seilbahnen',      description: 'Erkennt Gondelbahnen und Sessellifte.',                                           field: 'enable_lift_detection',      requiresML: true  },
+  { label: 'Untergrundtypen',         description: 'Erkennt Asphalt, Schotter, Trail etc.',                                           field: 'enable_surface_detection',   requiresML: false },
+  { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
+  { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
+  { label: 'Pendelrouten',            description: 'Erkennt regelmäßig genutzte Routen (analysiert mehrere Aktivitäten).',            field: 'enable_commute_detection',   requiresML: true  },
+  { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
+  { label: 'Embeddings',              description: 'Berechnet semantische Vektoren für Ähnlichkeitssuche.',                           field: 'enable_embeddings',          requiresML: true  },
+]
+
+function AutomatischeAnalysenSection() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -53,35 +65,53 @@ function Stage2EnrichmentSection() {
   const { data: capabilities } = useQuery({
     queryKey: ['capabilities'],
     queryFn: getCapabilities,
+    staleTime: 30_000,
   })
 
-  const [pendingField, setPendingField] = useState<string | null>(null)
+  const [localThresholds, setLocalThresholds] = useState<Partial<Record<string, number>>>({})
+  const [backfillResult, setBackfillResult] = useState<{ processed: number; errors: number; error_details?: string } | null>(null)
+  const [backfillRunning, setBackfillRunning] = useState(false)
+  const [weatherRunning, setWeatherRunning] = useState(false)
 
-  const mutation = useMutation({
-    mutationFn: (patch: Parameters<typeof updateEnrichmentSettings>[0]) =>
-      updateEnrichmentSettings(patch),
+  const mut = useMutation({
+    mutationFn: (patch: Partial<EnrichmentSettings>) => updateEnrichmentSettings(patch),
     onSuccess: (updated) => {
       queryClient.setQueryData(['enrichment-settings'], updated)
-      setPendingField(null)
     },
     onError: () => {
-      setPendingField(null)
       queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] })
       addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
     },
   })
 
-  function toggle(apiField: typeof STAGE2_MODULES[number]['apiField']) {
-    if (!settings || pendingField !== null) return
-    const current = settings[apiField] !== false
-    setPendingField(apiField)
-    // Send only the changed field — the backend merges the patch onto
-    // existing settings (raw JSON map merge), so omitted keys stay intact.
-    mutation.mutate({ [apiField]: !current })
+  async function handleBackfillEnrichment() {
+    setBackfillRunning(true)
+    setBackfillResult(null)
+    try {
+      const result = await backfillEnrichment()
+      setBackfillResult(result)
+      addToast({ type: 'success', title: 'Enrichment abgeschlossen', message: `${result.processed} verarbeitet, ${result.errors} Fehler` })
+    } catch {
+      addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 })
+    } finally {
+      setBackfillRunning(false)
+    }
+  }
+
+  async function handleBackfillWeather() {
+    setWeatherRunning(true)
+    try {
+      await backfillWeather()
+      addToast({ type: 'info', title: 'Wetter-Nachtrag gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
+    } catch {
+      addToast({ type: 'error', title: 'Wetter-Nachtrag konnte nicht gestartet werden', duration: 0 })
+    } finally {
+      setWeatherRunning(false)
+    }
   }
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
       <div>
         <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Automatische Analysen</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
@@ -96,22 +126,29 @@ function Stage2EnrichmentSection() {
       )}
 
       <div className="space-y-2">
-        {STAGE2_MODULES.map(({ apiField, label, description, requiresML }) => {
-          const enabled = settings ? (settings[apiField] !== false) : true
-          const isThisPending = pendingField === apiField
-          const mlUnavailable = requiresML && capabilities !== undefined && !capabilities.ml_service
+        {ANALYSIS_MODULES.map((module) => {
+          const enabled = settings ? (settings[module.field] !== false) : true
+          const mlUnavailable = module.requiresML && capabilities !== undefined && !capabilities.ml_service
           return (
-            <div key={apiField} className="flex items-start justify-between gap-4 py-1">
+            <div key={module.field as string} className="flex items-start justify-between gap-4 py-1">
               <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
+                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{module.label}</span>
+                {module.requiresML && (
+                  <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
+                    ML
+                  </span>
+                )}
+                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {module.description}</span>
                 {mlUnavailable && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Benötigt ML-Service</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">ML-Service nicht erreichbar</p>
                 )}
               </div>
               <button
-                onClick={() => toggle(apiField)}
-                disabled={isLoading || isThisPending || mlUnavailable}
+                onClick={() => {
+                  if (!settings) return
+                  mut.mutate({ [module.field]: !(settings[module.field] ?? true) })
+                }}
+                disabled={isLoading || mut.isPending || mlUnavailable}
                 className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-0.5"
                 style={{ backgroundColor: enabled && !mlUnavailable ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
                 role="switch"
@@ -128,8 +165,74 @@ function Stage2EnrichmentSection() {
         })}
       </div>
 
+      {/* Thresholds */}
+      <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-4">
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Schwellenwerte</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { key: 'climb_min_gradient_pct' as const, label: 'Min. Anstiegsgradient', unit: '%', step: 0.5 },
+            { key: 'climb_min_elevation_m' as const,  label: 'Min. Anstiegshöhe',     unit: 'm', step: 10  },
+            { key: 'round_trip_threshold_m' as const, label: 'Rundtour-Schwelle',      unit: 'm', step: 50  },
+          ].map(({ key, label, unit, step }) => (
+            <div key={key} className="space-y-1">
+              <label className="text-xs text-neutral-500 dark:text-neutral-400">{label}</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  step={step}
+                  value={localThresholds[key] ?? settings?.[key] ?? ''}
+                  onChange={e => setLocalThresholds(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                  onBlur={e => {
+                    const val = Number(e.target.value)
+                    if (!isNaN(val) && val !== settings?.[key]) {
+                      mut.mutate({ [key]: val })
+                    }
+                    setLocalThresholds(prev => { const next = { ...prev }; delete next[key]; return next })
+                  }}
+                  className="w-full text-sm bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+                />
+                <span className="text-xs text-neutral-400 whitespace-nowrap">{unit}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Weather note */}
+      <p className="text-xs text-neutral-400 dark:text-neutral-500">
+        Wetter-Einstellungen findest du unter{' '}
+        <Link to="/settings" className="text-accent-DEFAULT hover:underline">Allgemein → Wetterdaten</Link>.
+      </p>
+
+      {/* Backfill actions */}
+      <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Neuberechnung</h3>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleBackfillWeather}
+            disabled={weatherRunning}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {weatherRunning ? 'Wird gestartet…' : 'Wetter nachtragen'}
+          </button>
+          <button
+            onClick={handleBackfillEnrichment}
+            disabled={backfillRunning}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
+          </button>
+        </div>
+        {backfillResult && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            Ergebnis: {backfillResult.processed} verarbeitet, {backfillResult.errors} Fehler
+            {backfillResult.error_details && <span className="block text-red-500 dark:text-red-400 mt-0.5">{backfillResult.error_details}</span>}
+          </p>
+        )}
+      </div>
+
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
-        &Auml;nderungen gelten f&uuml;r neue Aktivit&auml;ten sowie bei manueller Neuberechnung.
+        Änderungen gelten für neue Aktivitäten sowie bei manueller Neuberechnung.
       </p>
     </section>
   )
@@ -422,7 +525,7 @@ function MLServiceSection() {
 // -----------------------------------------------------------------------
 
 const NOTIFICATION_TOGGLES = [
-  { key: 'notify_enrichment', label: 'Enrichment abgeschlossen', description: 'Nach jeder Stage-2-Analyse' },
+  { key: 'notify_enrichment', label: 'Enrichment abgeschlossen', description: 'Nach jeder automatischen Analyse' },
   { key: 'notify_anomaly', label: 'Anomalie erkannt', description: 'Bei ungewöhnlichen Trainingswerten' },
   { key: 'notify_gear', label: 'Ausrüstungs-Alerts', description: 'Wartungshinweise und Verschleiß' },
   { key: 'notify_chat', label: 'Assistent-Antworten', description: 'Wenn der KI-Assistent antwortet' },
@@ -539,7 +642,12 @@ export default function SettingsPage() {
   const { accent, setAccent } = useAccentColor()
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'general' | 'ai'>('general')
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai'>(
+    searchParams.get('tab') === 'ai' ? 'ai'
+      : searchParams.get('tab') === 'analysen' ? 'analysen'
+      : 'general'
+  )
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['shadow-fs-settings'],
@@ -577,8 +685,9 @@ export default function SettingsPage() {
       {/* Tab-Navigation */}
       <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit">
         {[
-          { id: 'general' as const, label: 'Allgemein' },
-          { id: 'ai' as const, label: 'KI & ML' },
+          { id: 'general' as const,  label: 'Allgemein' },
+          { id: 'analysen' as const, label: 'Analysen'  },
+          { id: 'ai' as const,       label: 'KI & ML'   },
         ].map(tab => (
           <button
             key={tab.id}
@@ -594,9 +703,10 @@ export default function SettingsPage() {
         ))}
       </div>
 
+      {activeTab === 'analysen' && <AutomatischeAnalysenSection />}
+
       {activeTab === 'ai' && <>
         <LLMSettingsPage />
-        <Stage2EnrichmentSection />
         <MLServiceSection />
         <NotificationSettingsSection />
         <ChatProfileSettings />
@@ -728,21 +838,6 @@ export default function SettingsPage() {
 
       </section>
 
-      {/* Enrichment Stage 1 */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Enrichment</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Automatische Anreicherung von Aktivitäten mit Wetter, Standort und Tags.
-          </p>
-        </div>
-        <Link
-          to="/settings/enrichment"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-        >
-          Enrichment-Einstellungen
-        </Link>
-      </section>
 
 
       {/* Automatisierung */}

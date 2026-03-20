@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { assignActivitiesToTag, unassignActivitiesFromTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
+import { getTagBadgeStyle } from '@/lib/tagUtils'
 
 interface Props {
   activityId: string
@@ -83,7 +84,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
             <div
               key={tag.id}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              style={{ backgroundColor: tag.color, color: tag.text_color }}
+              style={getTagBadgeStyle(tag.color)}
             >
               <svg className="w-3 h-3 opacity-70" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 15.957 17 13.514 17 10c0-3.866-3.582-7-8-7S2 6.134 2 10c0 3.514 1.698 5.957 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.757.433 5.766 5.766 0 00.282.14l.018.008.006.003zM10 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" clipRule="evenodd" />
@@ -134,7 +135,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
                 onClick={() => assignMutation.mutate(tag.id)}
                 disabled={assignMutation.isPending}
                 className="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 disabled:opacity-50 transition-opacity"
-                style={{ backgroundColor: tag.color, color: tag.text_color }}
+                style={getTagBadgeStyle(tag.color)}
               >
                 {tag.name}
               </button>
