@@ -299,7 +299,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
 
           <PipelinePanel
             title="Route-Membership"
-            description="Rad- und Wanderrouten-Zugehörigkeit für Ways"
+            description="Berechnet Rad- und Wanderrouten-Zugehörigkeit. Coverage-Werte (Wald, Lärm) werden beim Tile-Build automatisch berechnet."
             icon={Sparkles}
             buttonLabel="Berechnen"
             onStart={() => enrichMut.mutate(enrichRegions)}
