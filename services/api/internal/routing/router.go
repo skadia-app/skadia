@@ -4,8 +4,13 @@ package routing
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 )
+
+// altDisabled disables the ALT heuristic when SKADIA_ALT_DISABLED=true.
+// Useful for A/B comparisons and debugging.
+var altDisabled = os.Getenv("SKADIA_ALT_DISABLED") == "true"
 
 // UnifiedRouter is a Router backed by any GraphReader (e.g. TiledGraphReader).
 // Uses a semaphore for concurrency control instead of a pre-allocated pool.
@@ -59,9 +64,17 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		}, nil
 	}
 
-	// Pass 0: inadmissible A* (passCoeff > 1)
+	// Landmark-Heuristik initialisieren
+	meta := r.reader.LandmarkMeta()
+	setID := SelectLandmarkSet(cfg, meta)
+	var landmarkH *LandmarkHeuristic
+	if !altDisabled && meta != nil && meta.LandmarkCount > 0 {
+		landmarkH = NewLandmarkHeuristic(r.reader, dst, setID)
+	}
+
+	// Pass 0: inadmissible A* (passCoeff > 1), MIT Landmark-Heuristik
 	res0, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
-		cfg.Pass0Coefficient, 0, nil)
+		cfg.Pass0Coefficient, 0, nil, landmarkH)
 	if err != nil {
 		return nil, fmt.Errorf("pass0: %w", err)
 	}
@@ -69,14 +82,14 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	// Build track index from pass0 path for pass1 cost-cutting
 	trackIndex := buildTrackIndexUnified(res0.state, src, dst)
 
-	// Pass 1: Dijkstra with track-index cost-cutting (passCoeff = 0)
+	// Pass 1: Dijkstra with track-index cost-cutting (passCoeff = 0), OHNE Heuristik
 	// Safety margin: pass0 uses DeltaEle which underestimates on hilly terrain.
 	// DeltaEle sees net elevation (e.g. +150m), full profile sees actual work (e.g. 250m).
 	// Underestimation can be up to ~1.7x on hilly edges. Single Pass0Coefficient (1.5x)
 	// is insufficient: 0.6 * 1.5 = 0.9 < 1.0. Squared coefficient gives 2.25x headroom.
 	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
 	res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
-		0, pass1MaxCost, trackIndex)
+		0, pass1MaxCost, trackIndex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("pass1: %w", err)
 	}
@@ -149,6 +162,9 @@ type ReachableNode struct {
 	Lon     float64
 	Unknown bool // Terra Incognita: incoming edge OSM-ID not in visited set
 }
+
+// Reader returns the underlying GraphReader.
+func (r *UnifiedRouter) Reader() GraphReader { return r.reader }
 
 // FindReachableWithCoords returns reachable nodes with coordinates and
 // Terra Incognita flags. Used by SuggestRoutes and Isochrone.

@@ -59,12 +59,14 @@ const (
 // passCoeff > 1.0 for pass0 (inadmissible A*), 0 for pass1 (Dijkstra).
 // trackIndex: nil for pass0, map from pass0 path for pass1 cost-cutting (R06).
 // maxCost: 0 for pass0 (unlimited), pass0 totalCost for pass1.
+// landmarkH: optional ALT heuristic (nil = euclidean only).
 //
 // Returns routeResult with state, totalCost, expansions, and duration.
 func findRouteUnified(ctx context.Context, reader GraphReader,
 	src, dst uint64, cfg *CostConfig,
 	passCoeff float32, maxCost float32,
 	trackIndex map[uint64]float32,
+	landmarkH *LandmarkHeuristic, // nil = nur euklidische Heuristik
 ) (*routeResult, error) {
 
 	start := time.Now()
@@ -221,8 +223,15 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				return
 			}
 
-			// Heuristic: air distance to destination
-			h := equirectDist(ev.TargetLat, ev.TargetLon, dstLat, dstLon)
+			// Heuristic: ALT (max of euclidean and landmark lower bound)
+			hEuclid := equirectDist(ev.TargetLat, ev.TargetLon, dstLat, dstLon)
+			var h float32
+			if landmarkH != nil {
+				hALT := landmarkH.LowerBound(ev.Target)
+				h = max(hEuclid, hALT)
+			} else {
+				h = hEuclid
+			}
 			fCost := newEffective + passCoeff*h
 
 			// Dominance check: only update if new effective cost is strictly better
