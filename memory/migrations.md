@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000193**
+Alle Migrationen im Überblick. Nächste freie: **000194**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -31,3 +31,4 @@ Alle Migrationen im Überblick. Nächste freie: **000193**
 | 000190 | reset_stage2_module_flags          | Daten-Reset: alle stage-2 module flags auf true (Bug: false durch alten UpdateEnrichmentSettings-Pfad ohne merge) |
 | 000191 | drop_pgrouting                     | Monolithischer Graph + pgRouting Extension entfernt; Isochrone + SuggestRoutes auf TiledGraphReader umgestellt |
 | 000192 | consolidate_enrichment_fields      | Stage-1/Stage-2 eliminiert: 7 Renames zu _detection-Suffix, 4 Duplikat-Drops (peaks/stops/commute/ascents), climb→ascent Rename+Merge |
+| 000193 | fix_geo_tags_map_section_geometry  | map_section LINESTRING → GEOMETRY (akzeptiert Multi/LineString, fix für water enrichment) |
