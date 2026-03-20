@@ -8,6 +8,16 @@ import (
 
 const BorderBuffer = 0.02
 
+// MakeGlobalNodeID encodes a tile-scoped node into a globally unique 64-bit ID.
+func MakeGlobalNodeID(tileID uint32, localNodeID uint32) uint64 {
+	return uint64(tileID)<<32 | uint64(localNodeID)
+}
+
+// SplitGlobalNodeID decodes a global node ID back into tile ID and local node ID.
+func SplitGlobalNodeID(globalID uint64) (tileID uint32, localNodeID uint32) {
+	return uint32(globalID >> 32), uint32(globalID)
+}
+
 func TileIDFromCoord(lat, lon float64) uint32 {
 	latFloor := int(math.Floor(lat))
 	lonFloor := int(math.Floor(lon))
