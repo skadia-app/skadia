@@ -15,7 +15,7 @@ HAUSDORFF_MAX_M = 50
 MIN_COVERAGE = 0.7
 
 HEURISTIC_MIN_SPEED_MS = 2.0
-HEURISTIC_MAX_SPEED_MS = 5.0
+HEURISTIC_MAX_SPEED_MS = 12.0
 HEURISTIC_MAX_CV = 0.05
 HEURISTIC_MIN_GRADIENT = 0.20
 HEURISTIC_MAX_SINUOSITY = 1.15
@@ -118,7 +118,7 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                      started_at, elapsed_time_s, distance_m, elevation_gain_m,
                      is_reverse, sport_type)
                 SELECT $1, $2, $3, $4, $5,
-                       ST_Length(sv.track_geojson::geometry::geography),
+                       ST_Length(sv.track::geometry::geography),
                        $6, $7, a.sport_type
                 FROM segment_versions sv, activities a
                 WHERE sv.id = $3 AND a.id = $1
