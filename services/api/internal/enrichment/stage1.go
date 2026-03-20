@@ -24,7 +24,10 @@ const enableDEMEnrichment = false
 // If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
 // When asyncWeather is true, the weather fetch runs in a background goroutine so it
 // does not block the import path (tags are applied later by Stage 2 / automation rules).
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool) {
+// When skipStreamEnrichment is true, RunStreamEnrichment is NOT called — the caller is
+// responsible for calling it separately after streams have been written to the DB
+// (import path: activity_streams is empty until InsertStreams completes in Phase 1).
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -347,12 +350,14 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 	}
 
-	streamSettings := allStreamEnabled()
-	if enrichSettings != nil {
-		streamSettings = streamSettingsFromModel(enrichSettings)
-	}
-	if err := RunStreamEnrichment(ctx, db, userID, activityID, streamSettings); err != nil {
-		slog.Warn("stage1: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	if !skipStreamEnrichment {
+		streamSettings := allStreamEnabled()
+		if enrichSettings != nil {
+			streamSettings = streamSettingsFromModel(enrichSettings)
+		}
+		if err := RunStreamEnrichment(ctx, db, userID, activityID, streamSettings); err != nil {
+			slog.Warn("stage1: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
 	}
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)

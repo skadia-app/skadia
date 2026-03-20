@@ -66,9 +66,9 @@ type StreamEnrichmentSettings struct {
 	EnableIntervalDetection bool
 }
 
-// streamSettingsFromModel converts a model.EnrichmentSettings into the smaller
+// StreamSettingsFromModel converts a model.EnrichmentSettings into the smaller
 // StreamEnrichmentSettings struct used by RunStreamEnrichment.
-func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
+func StreamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
 		EnableStopDetection:     s.EnableStopDetection,
 		EnableAscentDetection:   s.EnableAscentDetection,
@@ -76,14 +76,24 @@ func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettin
 	}
 }
 
-// allStreamEnabled returns a StreamEnrichmentSettings with every flag set to
+// streamSettingsFromModel is the package-internal alias kept for stage1.go.
+func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
+	return StreamSettingsFromModel(s)
+}
+
+// AllStreamEnabled returns a StreamEnrichmentSettings with every flag set to
 // true, used as a fallback when no user settings are available.
-func allStreamEnabled() StreamEnrichmentSettings {
+func AllStreamEnabled() StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
 		EnableStopDetection:     true,
 		EnableAscentDetection:   true,
 		EnableIntervalDetection: true,
 	}
+}
+
+// allStreamEnabled is the package-internal alias kept for stage1.go.
+func allStreamEnabled() StreamEnrichmentSettings {
+	return AllStreamEnabled()
 }
 
 // RunStreamEnrichment executes stream-based enrichment modules for an activity.

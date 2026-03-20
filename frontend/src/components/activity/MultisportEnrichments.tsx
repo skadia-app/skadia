@@ -421,9 +421,9 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
                   >
                     <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                       {tag.name}
-                      {tag.ele != null && (groupKey === 'summit' || groupKey === 'pass') && (
+                      {(tag.ele_m ?? tag.ele) != null && (groupKey === 'summit' || groupKey === 'pass') && (
                         <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
-                          ({Math.round(tag.ele)} m)
+                          ({Math.round(tag.ele_m ?? tag.ele!)} m)
                         </span>
                       )}
                     </div>
@@ -431,8 +431,8 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
                       {poiType && (
                         <span>{POI_TYPE_LABELS[poiType] ?? poiType}</span>
                       )}
-                      {tag.ele != null && groupKey !== 'summit' && groupKey !== 'pass' && (
-                        <span>{Math.round(tag.ele)} m</span>
+                      {(tag.ele_m ?? tag.ele) != null && groupKey !== 'summit' && groupKey !== 'pass' && (
+                        <span>{Math.round(tag.ele_m ?? tag.ele!)} m</span>
                       )}
                       {tag.dist_m != null && (
                         <span>

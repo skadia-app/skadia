@@ -2006,7 +2006,7 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
           features: peakTags.map((t) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
-            properties: { name: t.name ?? '', ele: t.ele ?? 0 },
+            properties: { name: t.name ?? '', ele: t.ele_m ?? t.ele ?? 0 },
           })),
         }
         map.addSource('activity-peaks', { type: 'geojson', data: peakGeoJSON })

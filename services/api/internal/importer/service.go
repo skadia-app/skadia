@@ -95,7 +95,9 @@ func (s *Service) PostProcess(
 	// RunStage1 + ApplyRulesToActivity set metadata used by subsequent steps.
 
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true)
+		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
+		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
+		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
@@ -255,6 +257,21 @@ func (s *Service) PostProcess(
 	}
 
 	// ── Phase 2 (post-parallel) ───────────────────────────────────────────
+
+	// Stream-Enrichment runs AFTER InsertStreams (Phase 1) to avoid race condition
+	// where activity_streams is still empty.
+	if data.HasGPS {
+		var streamSettings enrichment.StreamEnrichmentSettings
+		if s, err := s.DB.GetEnrichmentSettings(ctx, userID); err != nil {
+			slog.Warn("postprocess: could not load enrichment settings for stream enrichment", "user_id", userID, "error", err)
+			streamSettings = enrichment.AllStreamEnabled()
+		} else {
+			streamSettings = enrichment.StreamSettingsFromModel(s)
+		}
+		if err := enrichment.RunStreamEnrichment(ctx, s.DB, userID, activityID, streamSettings); err != nil {
+			slog.Warn("postprocess: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+	}
 
 	// Publish NATS events
 	if s.Events != nil {
