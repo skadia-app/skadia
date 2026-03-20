@@ -18,7 +18,7 @@ const ALL_CATEGORIES = [
   { id: 'sport',          label: 'Sportanlagen',             group: 'POIs' },
   { id: 'camping',        label: 'Camping & Feuerstellen',   group: 'POIs' },
   { id: 'information',    label: 'Wegweiser & Info',         group: 'POIs' },
-  { id: 'landmarks',      label: 'Gipfelkreuze & Landmarks', group: 'POIs' },
+  { id: 'landmarks',      label: 'Landmarks & Natur',        group: 'POIs' },
   { id: 'religion',       label: 'Kapellen & Wegkreuze',     group: 'POIs' },
   { id: 'wind_turbines', label: 'Windkraftanlagen',         group: 'POIs' },
   // Wege
