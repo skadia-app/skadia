@@ -392,9 +392,9 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		)
 		SELECT DISTINCT ON (ww.osm_id) ww.osm_id, ww.name, ww.waterway,
 		       ROUND(ST_Distance(route.geom::geography, ww.geom::geography))::int AS min_dist_m,
-		       ST_Intersection(
+		       ST_AsBinary(ST_Intersection(
 		           ST_Buffer(route.geom::geography, 50)::geometry, ww.geom
-		       ) AS nearby_section
+		       )) AS nearby_section
 		FROM osm_waterways ww, route
 		WHERE ST_DWithin(route.geom::geography, ww.geom::geography, 50)
 		  AND ww.name IS NOT NULL
