@@ -78,7 +78,7 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) err
 		SELECT surface,
 		       COALESCE(highway, 'unknown') AS highway,
 		       ROUND(SUM(match_length_m))::int          AS total_m,
-		       ROUND(SUM(match_length_m) / NULLIF(MAX(total_length_m), 0) * 100, 1) AS pct
+		       ROUND((SUM(match_length_m) / NULLIF(MAX(total_length_m), 0) * 100)::numeric, 1) AS pct
 		FROM matched
 		GROUP BY surface, highway
 		HAVING SUM(match_length_m) > 10
