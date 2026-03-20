@@ -57,9 +57,10 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string) err
 	// existence check needed).
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			-- total_length_m uses the full track for accuracy;
-			-- geom is simplified (~11 m tolerance) to speed up spatial ops.
-			SELECT ST_Simplify(track_full, 0.0001) AS geom,
+			-- Surfaces uses the FULL track (no simplification) because
+			-- ST_DWithin tolerance is only 10 m — trails can run 5-10 m apart
+			-- and simplification could match the wrong path.
+			SELECT track_full AS geom,
 			       ST_Length(track_full::geography)       AS total_length_m
 			FROM activity_tracks
 			WHERE activity_id = $1
