@@ -9,6 +9,88 @@ import (
 	"time"
 )
 
+// WriteLandmarkSectionsForSet writes one landmark distance set + metadata into each tile.
+// Per-Set-Strategie: each set is written separately.
+// When writing Set B, Set A's data is carried over from cold sections
+// (Serialize overwrites the entire file).
+func WriteLandmarkSectionsForSet(
+	tileDir string,
+	tiles []TileScanResult,
+	meta *LandmarkMetaData,
+	sectionID uint16,
+	tileDistArrays map[uint32][]float32,
+) error {
+	isFirstSet := sectionID == SectionLandmarkDistA
+	written := 0
+
+	for _, tile := range tiles {
+		dists, ok := tileDistArrays[tile.TileID]
+		if !ok {
+			continue
+		}
+
+		tilePath := TileFilePath(tileDir, tile.TileID)
+
+		// Load existing tile via mmap
+		g, err := DeserializeMmap(tilePath)
+		if err != nil {
+			slog.Warn("skip tile for landmark write", "tile", tile.TileID, "error", err)
+			continue
+		}
+
+		if g.pendingLandmarkSections == nil {
+			g.pendingLandmarkSections = make(map[uint16][]float32)
+		}
+
+		// Add THIS set's distance array
+		g.pendingLandmarkSections[sectionID] = dists
+
+		// Carry over PREVIOUSLY written landmark sets from cold storage
+		for prevSetID := SectionLandmarkDistA; prevSetID < sectionID; prevSetID++ {
+			if _, alreadyPending := g.pendingLandmarkSections[prevSetID]; alreadyPending {
+				continue
+			}
+			entry, hasCold := g.coldSections[prevSetID]
+			if !hasCold {
+				continue
+			}
+			prevDists, readErr := ReadColdFloat32Section(g.backingFile, entry, 0,
+				uint32(g.NodeCount)*LandmarksPerSet)
+			if readErr != nil {
+				slog.Warn("could not carry over previous landmark set",
+					"tile", tile.TileID, "section", prevSetID, "error", readErr)
+				continue
+			}
+			g.pendingLandmarkSections[prevSetID] = prevDists
+		}
+
+		// Write LandmarkMeta on first set (or if missing)
+		if isFirstSet || g.LandmarkMeta == nil {
+			g.LandmarkMeta = meta
+		}
+
+		// Re-serialize
+		if err := Serialize(g, tilePath); err != nil {
+			slog.Warn("landmark write failed", "tile", tile.TileID, "error", err)
+			g.closeMmap()
+			continue
+		}
+
+		// Release mmap handle
+		g.closeMmap()
+
+		written++
+		if written%100 == 0 {
+			slog.Info("landmark sections progress", "section", sectionID,
+				"written", written, "total", len(tiles))
+		}
+	}
+
+	slog.Info("landmark sections written", "section", sectionID,
+		"written", written, "total", len(tiles))
+	return nil
+}
+
 // TileScanResult holds per-tile node coordinates from a landmark scan pass.
 type TileScanResult struct {
 	TileID    uint32
