@@ -53,6 +53,11 @@ type Graph struct {
 	BuildTime time.Time
 	BBox      [4]float64 // minLat, minLon, maxLat, maxLon
 
+	// Landmark metadata (from Section 26, loaded eagerly — only 276 bytes)
+	LandmarkMeta *LandmarkMetaData
+
+	// Pending landmark data for serialization (not kept after Serialize)
+	pendingLandmarkSections map[uint16][]float32
 
 	// Lazy I/O for cold sections. The backing file is kept open;
 	// cold section data (geometry, elevation profiles, OSM IDs) is read
@@ -121,6 +126,25 @@ const (
 	SectionTileMeta        uint16 = 19
 	SectionIsBorder        uint16 = 20
 	SectionEdgeElevSegDist uint16 = 21 // []uint16 cm, segment distances for hysteresis
+
+	// Landmark ALT-Heuristik Sections (optional, FormatVersion bleibt 4)
+	SectionLandmarkDistA uint16 = 22
+	SectionLandmarkDistB uint16 = 23
+	SectionLandmarkDistC uint16 = 24
+	SectionLandmarkDistD uint16 = 25
+	SectionLandmarkMeta  uint16 = 26
+)
+
+// LandmarkSetID identifies one of the 4 landmark cost-config sets.
+type LandmarkSetID uint8
+
+const (
+	LandmarkSetA    LandmarkSetID = 0 // uphillcost=7, downhillcost=7
+	LandmarkSetB    LandmarkSetID = 1 // uphillcost=7, downhillcost=0
+	LandmarkSetC    LandmarkSetID = 2 // uphillcost=0, downhillcost=7
+	LandmarkSetD    LandmarkSetID = 3 // uphillcost=0, downhillcost=0
+	NumLandmarkSets               = 4
+	LandmarksPerSet               = 16
 )
 
 // OutDegree returns the number of outgoing edges for node i.
@@ -131,6 +155,17 @@ func (g *Graph) OutDegree(i uint32) int {
 // Edges returns the target node indices for outgoing edges of node i.
 func (g *Graph) Edges(i uint32) []uint32 {
 	return g.Targets[g.Offsets[i]:g.Offsets[i+1]]
+}
+
+// LandmarkMetaData stores the 16 global landmark positions + thresholds.
+type LandmarkMetaData struct {
+	NodeIDs           [16]uint64
+	Lats              [16]int32 // ×1e7
+	Lons              [16]int32 // ×1e7
+	UphillThreshold   float32   // 7.0
+	DownhillThreshold float32   // 7.0
+	LandmarkCount     int
+	PreprocessingTime time.Time
 }
 
 // closeMmap releases mmap resources. Called by GC finalizer, not directly.
