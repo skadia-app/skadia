@@ -55,8 +55,12 @@ interface AggregatedSurface {
   percentage: number
 }
 
+// Always show at least MIN_SHOWN surface types before collapsing to "Sonstige",
+// regardless of their percentage. This prevents routes that are 98% asphalt
+// from hiding all other surfaces (gravel, compacted, etc.) in a single
+// "Sonstige 2%" bucket.
 const MAX_DISPLAYED = 7
-const MIN_PERCENTAGE = 1
+const MIN_SHOWN = 5
 
 function aggregateSurfaces(raw: ActivitySurface[]): AggregatedSurface[] {
   // Group by surface_type, summing length_m
@@ -77,15 +81,12 @@ function aggregateSurfaces(raw: ActivitySurface[]): AggregatedSurface[] {
     }))
     .sort((a, b) => b.length_m - a.length_m)
 
-  // Separate significant entries from "other"
-  const significant = sorted.filter(s => s.percentage >= MIN_PERCENTAGE)
-  const negligible = sorted.filter(s => s.percentage < MIN_PERCENTAGE)
+  // Show at least MIN_SHOWN entries, up to MAX_DISPLAYED — remainder → "Sonstige"
+  const showCount = Math.min(Math.max(sorted.length, MIN_SHOWN), MAX_DISPLAYED)
+  let displayed = sorted.slice(0, showCount)
+  const overflow = sorted.slice(showCount)
 
-  // Cap at MAX_DISPLAYED — move overflow into "other"
-  let displayed = significant.slice(0, MAX_DISPLAYED)
-  const overflow = significant.slice(MAX_DISPLAYED)
-
-  const otherLength = [...negligible, ...overflow].reduce((a, s) => a + s.length_m, 0)
+  const otherLength = overflow.reduce((a, s) => a + s.length_m, 0)
   if (otherLength > 0) {
     displayed = [
       ...displayed,
