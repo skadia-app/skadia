@@ -174,8 +174,16 @@ func (g *Graph) closeMmap() {
 		syscall.Munmap(g.mmapData)
 		g.mmapData = nil
 	}
-	if g.mmapFile != nil {
-		g.mmapFile.Close()
-		g.mmapFile = nil
+	mf := g.mmapFile
+	bf := g.backingFile
+	g.mmapFile = nil
+	g.backingFile = nil
+	if mf != nil {
+		mf.Close()
+	}
+	// backingFile may alias mmapFile (set by DeserializeMmap) or be independent.
+	// Only close if distinct to avoid double-close.
+	if bf != nil && bf != mf {
+		bf.Close()
 	}
 }

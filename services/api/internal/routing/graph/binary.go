@@ -93,6 +93,19 @@ func Serialize(g *Graph, path string) error {
 		sections = append(sections, sectionData{SectionEdgeElevSegDist, uint16SliceToBytes(g.EdgeElevSegDist)})
 	}
 
+	// Landmark ALT sections (optional, cold)
+	for setID := range NumLandmarkSets {
+		sectionID := SectionLandmarkDistA + uint16(setID)
+		if data, ok := g.pendingLandmarkSections[sectionID]; ok && len(data) > 0 {
+			sections = append(sections, sectionData{sectionID, float32SliceToBytes(data)})
+		}
+	}
+
+	// Landmark metadata (Section 26, tiny: ~276 bytes)
+	if g.LandmarkMeta != nil {
+		sections = append(sections, sectionData{SectionLandmarkMeta, serializeLandmarkMeta(g.LandmarkMeta)})
+	}
+
 	sectionCnt := uint16(len(sections))
 	dirSize := int(sectionCnt) * 12
 
@@ -312,6 +325,23 @@ func Deserialize(path string) (*Graph, error) {
 		g.EdgeElevSegDist = bytesToUint16Slice(d)
 	}
 
+	// Landmark cold sections — register entries for on-demand ReadAt access.
+	// The full data is in `data` (heap), so we keep the sectionEntry offsets.
+	if g.coldSections == nil {
+		g.coldSections = make(map[uint16]sectionEntry)
+	}
+	for _, e := range entries {
+		switch e.Type {
+		case SectionLandmarkDistA, SectionLandmarkDistB,
+			SectionLandmarkDistC, SectionLandmarkDistD:
+			g.coldSections[e.Type] = e
+		}
+	}
+
+	if d, ok := findSection(SectionLandmarkMeta); ok && len(d) >= 276 {
+		g.LandmarkMeta = deserializeLandmarkMeta(d)
+	}
+
 	return g, nil
 }
 
@@ -487,6 +517,24 @@ func DeserializeMmap(path string) (*Graph, error) {
 	}
 	if d, ok := findSection(SectionEdgeElevSegDist); ok {
 		g.EdgeElevSegDist = bytesToUint16Slice(d)
+	}
+
+	// Landmark cold sections — keep the backing file open for ReadAt access.
+	// The mmap'd data is NOT used for landmark dists (they're accessed via backingFile).
+	g.backingFile = f
+	if g.coldSections == nil {
+		g.coldSections = make(map[uint16]sectionEntry)
+	}
+	for _, e := range entries {
+		switch e.Type {
+		case SectionLandmarkDistA, SectionLandmarkDistB,
+			SectionLandmarkDistC, SectionLandmarkDistD:
+			g.coldSections[e.Type] = e
+		}
+	}
+
+	if d, ok := findSection(SectionLandmarkMeta); ok && len(d) >= 276 {
+		g.LandmarkMeta = deserializeLandmarkMeta(d)
 	}
 
 	runtime.SetFinalizer(g, (*Graph).closeMmap)
@@ -773,4 +821,64 @@ func appendInt64(buf []byte, v int64) []byte {
 
 func appendFloat64(buf []byte, v float64) []byte {
 	return le.AppendUint64(buf, math.Float64bits(v))
+}
+
+// --- Landmark section helpers ---
+
+func float32SliceToBytes(s []float32) []byte {
+	buf := make([]byte, len(s)*4)
+	for i, v := range s {
+		le.PutUint32(buf[i*4:], math.Float32bits(v))
+	}
+	return buf
+}
+
+func serializeLandmarkMeta(m *LandmarkMetaData) []byte {
+	buf := make([]byte, 276)
+	off := 0
+	for i := range 16 {
+		le.PutUint64(buf[off:], m.NodeIDs[i])
+		off += 8
+	}
+	for i := range 16 {
+		le.PutUint32(buf[off:], uint32(m.Lats[i]))
+		off += 4
+	}
+	for i := range 16 {
+		le.PutUint32(buf[off:], uint32(m.Lons[i]))
+		off += 4
+	}
+	le.PutUint32(buf[off:], math.Float32bits(m.UphillThreshold))
+	off += 4
+	le.PutUint32(buf[off:], math.Float32bits(m.DownhillThreshold))
+	off += 4
+	le.PutUint32(buf[off:], uint32(m.LandmarkCount))
+	off += 4
+	le.PutUint64(buf[off:], uint64(m.PreprocessingTime.Unix()))
+	return buf
+}
+
+func deserializeLandmarkMeta(d []byte) *LandmarkMetaData {
+	m := &LandmarkMetaData{}
+	off := 0
+	for i := range 16 {
+		m.NodeIDs[i] = le.Uint64(d[off:])
+		off += 8
+	}
+	for i := range 16 {
+		m.Lats[i] = int32(le.Uint32(d[off:]))
+		off += 4
+	}
+	for i := range 16 {
+		m.Lons[i] = int32(le.Uint32(d[off:]))
+		off += 4
+	}
+	m.UphillThreshold = math.Float32frombits(le.Uint32(d[off:]))
+	off += 4
+	m.DownhillThreshold = math.Float32frombits(le.Uint32(d[off:]))
+	off += 4
+	m.LandmarkCount = int(le.Uint32(d[off:]))
+	off += 4
+	m.PreprocessingTime = time.Unix(int64(le.Uint64(d[off:])), 0)
+	return m
 }
