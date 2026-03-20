@@ -215,7 +215,12 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 	return nil
 }
 
-// enrichGeoTagsSettlements finds settlements within 200 m of the track.
+// enrichGeoTagsSettlements finds settlements within 500 m of the track.
+// The radius is 500 m (not 200 m) because settlement POI points are placed at
+// the geographic centre of the settlement, which can be hundreds of metres
+// away from the road the cyclist actually rides through (e.g. Beispielstadt town
+// centre is ~244 m from the track even though the route passes through the
+// town). 200 m was too tight and silently dropped large towns.
 // Category: 'settlement'. Mirrors settlements.py.
 func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID string) error {
 	if _, err := db.Pool.Exec(ctx,
@@ -234,7 +239,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 		       ST_Y(ST_Centroid(s.geom)) AS center_lat,
 		       ST_X(ST_Centroid(s.geom)) AS center_lon
 		FROM osm_pois s, route
-		WHERE ST_DWithin(route.geom::geography, s.geom::geography, 200)
+		WHERE ST_DWithin(route.geom::geography, s.geom::geography, 500)
 		  AND s.category = 'settlement'
 		ORDER BY s.type, s.name
 	`, activityID)
@@ -404,6 +409,16 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		return fmt.Errorf("water: still_water rows iteration: %w", err)
 	}
 
+	// Flush still_water batch before querying flowing water.
+	// Keeping the two batches separate ensures that a geometry-type error in a
+	// flowing_water row (MULTILINESTRING vs. LINESTRING constraint) does not
+	// roll back the already-collected still_water inserts.
+	if batch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
+			slog.Warn("water: still_water batch insert failed", "activity_id", activityID, "error", err)
+		}
+	}
+
 	// --- Flowing water (rivers, streams) ---
 	flowRows, err := db.Pool.Query(ctx, `
 		WITH route AS (
@@ -425,6 +440,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	}
 	defer flowRows.Close()
 
+	flowBatch := &pgx.Batch{}
 	for flowRows.Next() {
 		var osmID int64
 		var name string
@@ -436,7 +452,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			return fmt.Errorf("water: flowing_water scan: %w", err)
 		}
 
-		batch.Queue(`
+		flowBatch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_section, dist_m)
@@ -448,9 +464,9 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		return fmt.Errorf("water: flowing_water rows iteration: %w", err)
 	}
 
-	if batch.Len() > 0 {
-		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
-			slog.Warn("water: batch insert failed", "activity_id", activityID, "error", err)
+	if flowBatch.Len() > 0 {
+		if err := db.Pool.SendBatch(ctx, flowBatch).Close(); err != nil {
+			slog.Warn("water: flowing_water batch insert failed", "activity_id", activityID, "error", err)
 		}
 	}
 	return nil
