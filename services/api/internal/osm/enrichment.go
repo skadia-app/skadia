@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -123,28 +124,22 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		progressFn(0, totalWays)
 	}
 
-	// Cumulative progress across all enrichment steps.
-	// Each chunkedExec callback reports a delta; we accumulate here.
-	var cumulative int64
-	chunkCb := func(delta int64) {
-		cumulative += delta
-		if progressFn != nil {
-			progressFn(cumulative, totalWays)
-		}
-	}
-
-	// === Phase 1: Coverage Layer (tile-based, Go in-memory rasterization) ===
-	// Replaces old SQL-based polygon joins (forest_pct, protected_area, landuse, noise, urbanization, river_proximity).
-	slog.Info("enrichment: phase 1 — coverage layer (tile-based)")
+	// === Phase 1: Coverage Layer — DEPRECATED (default aus) ===
+	writeCoverageToDB := os.Getenv("SKADIA_WRITE_COVERAGE_TO_DB") == "true"
 	halfTotal := totalWays / 2
-	if err := coverage.RunCoverageEnrichment(ctx, pool, bboxClause, 4, func(done, total int) {
-		if total > 0 && progressFn != nil {
-			progressFn(int64(done)*halfTotal/int64(total), totalWays)
+	if writeCoverageToDB {
+		slog.Info("enrichment: phase 1 — coverage layer (opt-in, writing to DB)")
+		if err := coverage.RunCoverageEnrichment(ctx, pool, bboxClause, 4, func(done, total int) {
+			if total > 0 && progressFn != nil {
+				progressFn(int64(done)*halfTotal/int64(total), totalWays)
+			}
+		}); err != nil {
+			return fmt.Errorf("enrichment phase 1 (coverage): %w", err)
 		}
-	}); err != nil {
-		return fmt.Errorf("enrichment phase 1 (coverage): %w", err)
+	} else {
+		slog.Info("enrichment: phase 1 — SKIPPED (coverage values computed on-the-fly by tile build)")
 	}
-	cumulative = halfTotal
+	_ = halfTotal // used for progress reporting above
 
 	// === Phase 2: SQL-based enrichment (landuse derivation, route membership) ===
 	// traffic_class is now computed by the Coverage Layer (coverage/traffic.go).
@@ -153,9 +148,6 @@ func RunSpatialEnrichment(ctx context.Context, pool *pgxpool.Pool, regionFilter 
 		name string
 		fn   func(context.Context, *pgxpool.Pool) error
 	}{
-		{"landuse_class", func(ctx context.Context, p *pgxpool.Pool) error {
-			return EnrichLanduseClass(ctx, p, bboxClause, chunkCb)
-		}},
 		{"route_membership", func(ctx context.Context, p *pgxpool.Pool) error {
 			return EnrichRouteMembership(ctx, p, bboxClause)
 		}},

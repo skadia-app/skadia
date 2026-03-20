@@ -609,11 +609,22 @@ func enrichWaysFromGrids(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 			trafficClass = int(ClassifyTraffic(raw))
 		}
 
+		forestPct := PctNonZero(forestSamples)
+		landuseClass := Mode(landuseSamples)
+
+		// landuse_class derivation (moved from EnrichLanduseClass)
+		if forestPct >= 60 && landuseClass == 0 {
+			landuseClass = 1
+		}
+		if landuseClass == 0 && (highway == "residential" || highway == "living_street") {
+			landuseClass = 3
+		}
+
 		batch = append(batch, wayResult{
 			wayID:          wayID,
-			forestPct:      PctNonZero(forestSamples),
+			forestPct:      forestPct,
 			protectedArea:  WeightedAvg(protectedSamples),
-			landuseClass:   Mode(landuseSamples),
+			landuseClass:   landuseClass,
 			noiseScore:     noiseMax * 100 / 255,
 			urbanization:   WeightedAvg(urbanSamples),
 			riverProximity: WeightedAvg(riverSamples),
