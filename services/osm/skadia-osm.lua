@@ -504,6 +504,34 @@ function classify_poi(tags)
             table.insert(results, {
                 category = 'landmark', poi_type = 'historic', subtype = tags.historic,
             })
+        elseif tags.man_made == 'cairn' then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'man_made', subtype = 'cairn',
+            })
+        elseif tags.natural == 'rock' and tags.name then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'natural', subtype = 'rock',
+            })
+        elseif tags.natural == 'cave_entrance' then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'natural', subtype = 'cave_entrance',
+            })
+        elseif tags.natural == 'beach' then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'natural', subtype = 'beach',
+            })
+        elseif tags.leisure == 'swimming_area' then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'leisure', subtype = 'swimming_area',
+            })
+        elseif tags.landuse == 'cemetery' and tags.name then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'landuse', subtype = 'cemetery',
+            })
+        elseif tags.man_made == 'windmill' then
+            table.insert(results, {
+                category = 'landmark', poi_type = 'man_made', subtype = 'windmill',
+            })
         end
     end
 
