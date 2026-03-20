@@ -892,6 +892,42 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 	return base
 }
 
+// BuildLandmarkEdgeCostClosure returns an edge-cost closure suitable for landmark
+// preprocessing. It uses the hiking profile as base (most universal for outdoor
+// routing) with ALL enrichment/preference weights zeroed out so that landmark
+// distances represent pure infrastructure + elevation cost — a guaranteed lower
+// bound for any real profile that adds enrichment penalties on top.
+func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
+	p := ProfileConfig{
+		Profile:           "hiking",
+		UphillCost:        ptr32(0),  // overridden per LandmarkCostConfig
+		DownhillCost:      ptr32(0),  // overridden per LandmarkCostConfig
+		UphillCutoffPct:   ptr32(3),
+		DownhillCutoffPct: ptr32(3),
+		ElevPenaltyBuffer: ptr32(5),
+		ElevMaxBuffer:     ptr32(10),
+		ElevBufferReduce:  ptr32(0.01),
+		MaxSacScale:       ptrInt(6),        // allow everything
+		SacPreferred:      ptrInt(0),        // no preference penalty
+		MaxMtbScale:       ptrInt(5),        // allow everything
+		MaxViaFerrata:     ptrInt(6),        // allow everything
+		AllowSteps:        ptrBool(true),
+		AllowFerries:      ptrBool(true),
+		// ALL enrichment weights = 0 (lower bound guarantee)
+		ForestBonus:    ptr32(0),
+		NoisePenalty:   ptr32(0),
+		TrafficPenalty: ptr32(0),
+		ProtectedBonus: ptr32(0),
+		CyclerouteBoost: ptr32(0),
+		HikerouteBoost:  ptr32(0),
+		WetWeather:      ptrBool(false),
+		PathPreference:  ptr32(0),
+		TurnCost:        ptr32(0),
+		InitialCostRoad: ptr32(0),
+	}
+	return buildEdgeCostClosure(p)
+}
+
 // setAvgCostPerKm sets the calibrated average cost per km for isochrone budget calculation.
 // Values are empirical estimates accounting for typical costfactors, elevation, and detour.
 func setAvgCostPerKm(cfg *CostConfig, profileName string) {
