@@ -231,32 +231,31 @@ export interface GeoTag {
 
 export interface EnrichmentSettings {
   user_id: string
+  // Detection modules
   enable_summit_detection: boolean
-  enable_weather_enrichment: boolean
   enable_stop_detection: boolean
-  enable_climb_detection: boolean
   enable_commute_detection: boolean
-  enable_auto_naming: boolean
+  enable_ascent_detection: boolean
   enable_lap_detection: boolean
+  enable_forest_detection: boolean
+  enable_water_detection: boolean
+  enable_settlement_detection: boolean
+  enable_border_detection: boolean
+  enable_lift_detection: boolean
+  enable_surface_detection: boolean
+  enable_interval_detection: boolean
+  enable_embeddings: boolean
+  // Non-detection features
+  enable_weather_enrichment: boolean
+  enable_auto_naming: boolean
+  // Thresholds
   climb_min_gradient_pct: number
   climb_min_elevation_m: number
   round_trip_threshold_m: number
+  // OCR
   ocr_invoice_prompt?: string | null
   ocr_gear_prompt?: string | null
-  // Stage-2 ML module toggles (optional for backward-compat; default true when absent)
-  enable_peaks?: boolean
-  enable_lifts?: boolean
-  enable_settlements?: boolean
-  enable_commute?: boolean
-  enable_borders?: boolean
-  enable_water?: boolean
-  enable_forests?: boolean
-  enable_surfaces?: boolean
-  enable_stops?: boolean
-  enable_intervals?: boolean
-  enable_ascents?: boolean
-  enable_embeddings?: boolean
-  // Photo preview size: '2048' (default), '4k', or 'original' (Migration 000120)
+  // Other settings
   photo_preview_size?: string
   // Terra Incognita Sichtweite in Metern (100–10000, Default 1000). Migration 000121.
   terra_incognita_radius_m?: number

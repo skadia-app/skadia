@@ -29,7 +29,6 @@ const PhysiologicalProfilePage = lazy(() => import('@/pages/PhysiologicalProfile
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
-const EnrichmentSettingsPage = lazy(() => import('@/pages/EnrichmentSettingsPage'))
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
 const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
 const PeakCollectionPage = lazy(() => import('@/pages/PeakCollectionPage'))
@@ -143,7 +142,7 @@ export default function App() {
                         <Route path="hardware/detail/:id" element={<DeviceDetailPage />} />
                         <Route path="settings" element={<SettingsPage />} />
                         <Route path="settings/privacy" element={<PrivacySettingsPage />} />
-                        <Route path="settings/enrichment" element={<EnrichmentSettingsPage />} />
+                        <Route path="settings/enrichment" element={<Navigate to="/settings?tab=analysen" replace />} />
                         <Route path="workshop/rules" element={<AutomationRulesPage />} />
                         <Route path="workshop/document-review" element={<DocumentReviewPage />} />
                         <Route path="workshop/peaks" element={<PeakCollectionPage />} />

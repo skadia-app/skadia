@@ -4,6 +4,8 @@ import {
   fetchLLMConfig, saveLLMRole, fetchOllamaModels, testLLMConnection,
   type LLMSystemConfig, type LLMTestResult,
 } from '@/api/llmSettings'
+import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
+import type { EnrichmentSettings } from '@/api/types'
 
 const ROLE_LABELS: Record<string, string> = {
   default: 'Standard-LLM',
@@ -26,6 +28,66 @@ const DEFAULT_URLS: Record<string, string> = {
   llama_server: 'http://host.containers.internal:8181/v1',
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com',
+}
+
+function OcrPromptsSection() {
+  const queryClient = useQueryClient()
+  const [localPrompts, setLocalPrompts] = useState<Record<string, string>>({})
+
+  const { data: settings } = useQuery({
+    queryKey: ['enrichment-settings'],
+    queryFn: fetchEnrichmentSettings,
+  })
+
+  const mut = useMutation({
+    mutationFn: (patch: Partial<EnrichmentSettings>) => updateEnrichmentSettings(patch),
+    onSuccess: (updated) => queryClient.setQueryData(['enrichment-settings'], updated),
+  })
+
+  if (!settings) return null
+
+  const fields = [
+    { key: 'ocr_invoice_prompt' as const, label: 'Rechnungen' },
+    { key: 'ocr_gear_prompt' as const, label: 'Gear-Dokumente' },
+  ]
+
+  return (
+    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">OCR-Prompts</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+          Eigene Anweisungen für die Dokumentenerkennung. Leer lassen = Standard-Prompt.
+        </p>
+      </div>
+      {fields.map(({ key, label }) => (
+        <div key={key} className="space-y-2">
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</h3>
+          <textarea
+            value={localPrompts[key] ?? settings[key] ?? ''}
+            placeholder="Standard-Prompt verwenden (leer lassen)"
+            onChange={e => setLocalPrompts(prev => ({ ...prev, [key]: e.target.value }))}
+            onBlur={e => {
+              const val = e.target.value || null
+              if (val !== (settings[key] ?? null)) {
+                mut.mutate({ [key]: val })
+              }
+              setLocalPrompts(prev => { const next = { ...prev }; delete next[key]; return next })
+            }}
+            rows={6}
+            className="w-full text-sm font-mono bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg p-3 resize-y text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+          />
+          {settings[key] && (
+            <button
+              onClick={() => mut.mutate({ [key]: null })}
+              className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+            >
+              Auf Standard zurücksetzen
+            </button>
+          )}
+        </div>
+      ))}
+    </section>
+  )
 }
 
 export default function LLMSettingsPage() {
@@ -61,6 +123,7 @@ export default function LLMSettingsPage() {
           )
         })}
       </div>
+      <OcrPromptsSection />
     </div>
   )
 }

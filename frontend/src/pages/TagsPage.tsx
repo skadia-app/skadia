@@ -2,6 +2,7 @@ import { Fragment, useRef, useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
 import { fetchTags, createTag, updateTag, deleteTag, mergeTags, fetchTagActivities, unassignActivitiesFromTag, upsertTagZone, deleteTagZone, deleteOrphanTag, seedDefaultTags } from '@/api/tags'
+import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import type { Tag, TagActivity } from '@/api/tags'
 import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
@@ -130,7 +131,6 @@ function TagForm({
   const queryClient = useQueryClient()
   const [name, setName] = useState(tag?.name ?? '')
   const [color, setColor] = useState(tag?.color ?? colorPalette[0].color)
-  const [textColor, setTextColor] = useState(tag?.text_color ?? colorPalette[0].text)
   const [description, setDescription] = useState(tag?.description ?? '')
 
   // Location state
@@ -160,7 +160,7 @@ function TagForm({
       const newTag = await createTag({
         name: name.trim(),
         color,
-        text_color: textColor,
+        text_color: getTagTextColor(color),
         description: description.trim() || undefined,
         lat: isLocationTag ? (lat ?? null) : undefined,
         lng: isLocationTag ? (lng ?? null) : undefined,
@@ -186,7 +186,7 @@ function TagForm({
       const updatedTag = await updateTag(tag!.id, {
         name: name.trim(),
         color,
-        text_color: textColor,
+        text_color: getTagTextColor(color),
         description: description.trim() || undefined,
         lat: isLocationTag ? lat : null,
         lng: isLocationTag ? lng : null,
@@ -221,15 +221,10 @@ function TagForm({
 
   function selectColor(c: typeof colorPalette[number]) {
     setColor(c.color)
-    setTextColor(c.text)
   }
 
   function selectCustomColor(hex: string) {
     setColor(hex)
-    const r = parseInt(hex.slice(1, 3), 16)
-    const g = parseInt(hex.slice(3, 5), 16)
-    const b = parseInt(hex.slice(5, 7), 16)
-    setTextColor((0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff')
   }
 
   // Inline (table row edit) — keep simple: name + colour only
@@ -253,7 +248,7 @@ function TagForm({
           ))}
           <ColorPicker value={color} onChange={selectCustomColor} />
         </div>
-        <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
+        <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={getTagBadgeStyle(color)}>
           {name || 'Vorschau'}
         </span>
         <div className="flex items-center gap-2">
@@ -307,7 +302,7 @@ function TagForm({
             />
           ))}
           <ColorPicker value={color} onChange={selectCustomColor} />
-          <span className="ml-1 px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: color, color: textColor }}>
+          <span className="ml-1 px-2.5 py-1 rounded-full text-xs font-medium" style={getTagBadgeStyle(color)}>
             {name || 'Vorschau'}
           </span>
         </div>
@@ -730,7 +725,7 @@ export default function TagsPage() {
                       <div className="flex items-center gap-2">
                         <span
                           className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
-                          style={{ backgroundColor: tag.color || '#f3f4f6', color: tag.text_color || '#374151' }}
+                          style={getTagBadgeStyle(tag.color || '#f3f4f6')}
                         >
                           {tag.name}
                         </span>
@@ -1003,7 +998,7 @@ export default function TagsPage() {
               <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Tag löschen</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 Soll der Tag{' '}
-                <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: tagToDelete.color || '#f3f4f6', color: tagToDelete.text_color || '#374151' }}>
+                <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={getTagBadgeStyle(tagToDelete.color || '#f3f4f6')}>
                   {tagToDelete.name}
                 </span>
                 {' '}wirklich gelöscht werden?
