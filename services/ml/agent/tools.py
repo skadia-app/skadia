@@ -718,6 +718,35 @@ ALL_TOOL_DEFINITIONS = [
             },
         },
     },
+    # ── 21. query_coverage ──────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "query_coverage",
+            "description": (
+                "Query spatial coverage data at a location. Returns 0–255 values from "
+                "Coverage Grid layers. Use for 'Wie viel Wald?', 'Ist es laut hier?', "
+                "'Wie urbanisiert ist diese Gegend?', 'Gibt es Gewässer in der Nähe?'. "
+                "Values are uint8 (0=none, 255=maximum); -1 means layer unavailable."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "description": "Latitude (WGS84)"},
+                    "lon": {"type": "number", "description": "Longitude (WGS84)"},
+                    "layers": {
+                        "type": "string",
+                        "description": (
+                            "Comma-separated layer names: "
+                            "noise, forest, traffic, protected, urbanization, "
+                            "river_proximity, water, landuse"
+                        ),
+                    },
+                },
+                "required": ["lat", "lon", "layers"],
+            },
+        },
+    },
 ]
 
 # Backward-compatible alias used by existing call sites
@@ -809,6 +838,7 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
         "plan_route": _plan_route,
         "search_pois_on_route": _search_pois_on_route,
         "get_isochrone": _get_isochrone,
+        "query_coverage": _query_coverage,
         # Legacy aliases kept for backward compatibility
         "get_hrv_trend": _get_hrv_trend_legacy,
         "get_readiness": _get_readiness_legacy,
@@ -1556,3 +1586,26 @@ async def _get_isochrone(
         if hull_row:
             hull = hull_row["geojson"]
     return {"points": points, "hull_geojson": hull, "count": len(points), "center": {"lat": lat, "lng": lng}}
+
+
+async def _query_coverage(
+    pool, user_id,
+    lat: float, lon: float, layers: str,
+) -> dict:
+    """Query coverage grid values at a geographic point from the Go API."""
+    import httpx
+
+    api_url = os.environ.get("API_INTERNAL_URL", "http://api:8080")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{api_url}/api/v1/coverage/query",
+                params={"lat": lat, "lon": lon, "layers": layers},
+                timeout=30.0,
+            )
+            if resp.status_code != 200:
+                return {"error": f"Coverage query returned HTTP {resp.status_code}", "values": {}}
+            return {"lat": lat, "lon": lon, "layers": resp.json()}
+    except Exception as e:
+        logger.warning("query_coverage failed: %s", e)
+        return {"error": f"Coverage query nicht verfügbar: {e}", "values": {}}

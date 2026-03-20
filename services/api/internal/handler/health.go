@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
@@ -24,6 +25,7 @@ type Handler struct {
 	Config        *HandlerConfig           // LLM/LiteLLM configuration
 	ImportService *importer.Service        // shared post-processing pipeline
 	GraphManager  *routing.GraphManager    // nil when routing graph is not configured
+	CoverageCache *coverage.TileGridCache  // nil when coverage cache is not initialized
 
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
