@@ -141,9 +141,32 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Compute half-budget ---
+	// Start coordinates (needed for budget computation and FindReachableWithCoords)
+	startLat := req.Start[1]
+	startLon := req.Start[0]
+
+	// --- Compute half-budget (dynamic from landmark distances, fallback static) ---
 	halfDistKm := (req.TargetDistanceM / 1000.0) / 2.0
-	halfBudgetCost := float32(halfDistKm) * cfg.AvgCostPerKm
+	var halfBudgetCost float32
+	{
+		rdr := router.Reader()
+		startNode, _, snapOk := rdr.NearestNode(startLat, startLon)
+		meta := rdr.LandmarkMeta()
+		if snapOk && meta != nil && meta.LandmarkCount > 0 {
+			setID := routing.SelectLandmarkSet(cfg, meta)
+			dynamicAvg := routing.EstimateAvgCostPerKm(rdr, startNode, setID)
+			if dynamicAvg > 0 {
+				edgeCostFn := routing.BuildLandmarkEdgeCostClosure()
+				lcfg := routing.BuildLandmarkCostConfig(routing.LandmarkCostConfigs[setID], edgeCostFn)
+				landmarkCf := routing.ComputeAvgCostfactor(lcfg.EdgeCost)
+				profileCf := routing.ComputeAvgCostfactor(cfg.EdgeCost)
+				halfBudgetCost = float32(halfDistKm) * routing.ScaledAvgCostPerKm(dynamicAvg, profileCf, landmarkCf)
+			}
+		}
+		if halfBudgetCost <= 0 {
+			halfBudgetCost = float32(halfDistKm) * cfg.AvgCostPerKm // Fallback
+		}
+	}
 
 	// --- Terra Incognita: load visited way IDs ---
 	var visitedWayIDs map[int64]bool
@@ -165,9 +188,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Step 1: FindReachableWithCoords (P18: BEFORE spawning variant goroutines) ---
-	startLat := req.Start[1]
-	startLon := req.Start[0]
-
 	reachable, _, err := router.FindReachableWithCoords(r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
 	if err != nil {
 		slog.Error("suggest routes: FindReachableWithCoords failed", "error", err, "user_id", userID)

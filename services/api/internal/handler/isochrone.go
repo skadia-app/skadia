@@ -127,7 +127,28 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	maxMinutes := sortedMinutes[0]
 	speedKmh := isochroneSpeed(req.Profile)
 	radiusKm := (float64(maxMinutes) / 60.0) * speedKmh
-	budget := float32(radiusKm) * cfg.AvgCostPerKm
+
+	// Dynamic budget from landmark distances (falls back to static AvgCostPerKm)
+	var budget float32
+	{
+		rdr := router.Reader()
+		startNode, _, snapOk := rdr.NearestNode(req.Start[1], req.Start[0])
+		meta := rdr.LandmarkMeta()
+		if snapOk && meta != nil && meta.LandmarkCount > 0 {
+			setID := routing.SelectLandmarkSet(cfg, meta)
+			dynamicAvg := routing.EstimateAvgCostPerKm(rdr, startNode, setID)
+			if dynamicAvg > 0 {
+				edgeCostFn := routing.BuildLandmarkEdgeCostClosure()
+				lcfg := routing.BuildLandmarkCostConfig(routing.LandmarkCostConfigs[setID], edgeCostFn)
+				landmarkCf := routing.ComputeAvgCostfactor(lcfg.EdgeCost)
+				profileCf := routing.ComputeAvgCostfactor(cfg.EdgeCost)
+				budget = float32(radiusKm) * routing.ScaledAvgCostPerKm(dynamicAvg, profileCf, landmarkCf)
+			}
+		}
+		if budget <= 0 {
+			budget = float32(radiusKm) * cfg.AvgCostPerKm // Fallback
+		}
+	}
 
 	// ----- Dijkstra expansion -----
 	startLat := req.Start[1]
