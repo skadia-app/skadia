@@ -199,7 +199,7 @@ function AutomatischeAnalysenSection() {
           <button
             onClick={handleBackfillEnrichment}
             disabled={backfillRunning}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
           </button>
@@ -758,8 +758,7 @@ export default function SettingsPage() {
           </p>
           <button
             onClick={() => setRenameOpen(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white
-                       bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
           >
             Vorschau anzeigen
           </button>
