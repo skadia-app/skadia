@@ -421,7 +421,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			    (activity_id, category, name, osm_id, map_type,
 			     map_section, dist_m)
 			VALUES ($1, 'flowing_water', $2, $3, 'section',
-			        ST_GeomFromWKB($4, 4326), $5)
+			        ST_LineMerge(ST_GeomFromWKB($4, 4326)), $5)
 		`, activityID, name, osmID, nearbySection, distM)
 	}
 	if err := flowRows.Err(); err != nil {
