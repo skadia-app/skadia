@@ -186,6 +186,45 @@ func (c *TileGridCache) ReleaseAll() {
 	}
 }
 
+// SamplePointByLayer samples a single point for the given coverage layer.
+// It loads the tile on-demand if not yet cached.
+func (c *TileGridCache) SamplePointByLayer(ctx context.Context, layer string, lat, lon float64) (uint8, error) {
+	tileID := graphpkg.TileIDFromCoord(lat, lon)
+	if err := c.PreloadTile(ctx, tileID); err != nil {
+		return 0, err
+	}
+	c.mu.RLock()
+	tg, ok := c.grids[tileID]
+	c.mu.RUnlock()
+	if !ok {
+		return 0, fmt.Errorf("tile %d not loaded", tileID)
+	}
+
+	pt := orb.Point{lon, lat}
+
+	switch layer {
+	case LayerForest, LayerLanduse, LayerWater, LayerProtected,
+		LayerUrbanization, LayerRiverProximity, LayerNoise, LayerTraffic:
+		g := tg.coverage.Get(layer)
+		if g == nil {
+			return 0, fmt.Errorf("layer %q not built for tile %d", layer, tileID)
+		}
+		return g.SamplePoint(pt), nil
+	case "populate":
+		if tg.populate == nil {
+			return 0, nil
+		}
+		return tg.populate.SamplePoint(pt), nil
+	case "industrial":
+		if tg.industrial == nil {
+			return 0, nil
+		}
+		return tg.industrial.SamplePoint(pt), nil
+	default:
+		return 0, fmt.Errorf("unknown coverage layer: %q", layer)
+	}
+}
+
 // anyNonZero returns true if any sample is >0 (ignoring OutOfBounds).
 func anyNonZero(samples []uint8) bool {
 	for _, v := range samples {

@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -198,6 +199,9 @@ func main() {
 	} else if unified {
 		slog.Info("routing: unified router active")
 	}
+
+	// Coverage cache — on-demand tile loading for coverage query endpoint.
+	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
 	// Wire Shadow FS callback: delegates to the handler method which needs
 	// both h.DB and h.ShadowFS — set after h is constructed.
 	if shadowFSCfg != nil {
@@ -448,6 +452,9 @@ func main() {
 			r.Post("/elevation/query", h.QueryElevation)
 			r.Post("/elevation/profile", h.ElevationProfile)
 			r.Post("/dem/import", h.ImportDEM)
+
+			// Coverage query
+			r.Get("/coverage/query", h.QueryCoverage)
 
 			// Entdeckungskarte
 			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
