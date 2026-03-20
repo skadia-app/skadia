@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000192**
+Alle Migrationen im Überblick. Nächste freie: **000193**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -30,3 +30,4 @@ Alle Migrationen im Überblick. Nächste freie: **000192**
 | 000189 | fix_system_tag_text_colors         | Rundtour text_color fix (#10B981 → '#1a1a1a', 7.46:1 contrast) |
 | 000190 | reset_stage2_module_flags          | Daten-Reset: alle stage-2 module flags auf true (Bug: false durch alten UpdateEnrichmentSettings-Pfad ohne merge) |
 | 000191 | drop_pgrouting                     | Monolithischer Graph + pgRouting Extension entfernt; Isochrone + SuggestRoutes auf TiledGraphReader umgestellt |
+| 000192 | consolidate_enrichment_fields      | Stage-1/Stage-2 eliminiert: 7 Renames zu _detection-Suffix, 4 Duplikat-Drops (peaks/stops/commute/ascents), climb→ascent Rename+Merge |
