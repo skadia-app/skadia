@@ -1,7 +1,11 @@
 // Package routing — GraphReader interface and SingleGraphReader implementation.
 package routing
 
-import "github.com/skadia-app/skadia/services/api/internal/routing/graph"
+import (
+	"math"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
+)
 
 // EdgeView contains all data needed per edge expansion in A*.
 // Stack-allocated in ForEachEdge callback — no heap allocation.
@@ -52,6 +56,20 @@ type GraphReader interface {
 	// Used for Terra Incognita matching in SuggestRoutes.
 	// Returns 0 if not available.
 	EdgeOSMID(handle uint64) int64
+
+	// === ALT Heuristic ===
+
+	// LandmarkLowerBound returns the max(|d(node,lk) - d(dst,lk)|) lower bound
+	// for the given cost-config set. Returns 0 if landmarks not available.
+	LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32
+
+	// LandmarkDists returns precomputed distances from nodeID to all 16 landmarks
+	// for the given set. Returns nil if not available.
+	LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32
+
+	// LandmarkMeta returns the landmark metadata (positions, thresholds).
+	// Returns nil if no landmarks are loaded.
+	LandmarkMeta() *graph.LandmarkMetaData
 }
 
 // --- Global Node ID helpers are in cross.go ---
@@ -143,4 +161,37 @@ func (r *SingleGraphReader) EdgeOSMID(handle uint64) int64 {
 		return 0
 	}
 	return g.OSMIDPool[osmIdx]
+}
+
+func (r *SingleGraphReader) LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32 {
+	_, nodeLocal := SplitGlobalNodeID(nodeID)
+	_, dstLocal := SplitGlobalNodeID(dstID)
+	nodeDists := r.G.LandmarkDists(graph.LandmarkSetID(setID), nodeLocal)
+	dstDists := r.G.LandmarkDists(graph.LandmarkSetID(setID), dstLocal)
+	if nodeDists == nil || dstDists == nil {
+		return 0
+	}
+	var best float32
+	for k := range LandmarksPerSet {
+		if nodeDists[k] >= math.MaxFloat32 || dstDists[k] >= math.MaxFloat32 {
+			continue
+		}
+		diff := nodeDists[k] - dstDists[k]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > best {
+			best = diff
+		}
+	}
+	return best
+}
+
+func (r *SingleGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {
+	_, localID := SplitGlobalNodeID(nodeID)
+	return r.G.LandmarkDists(graph.LandmarkSetID(setID), localID)
+}
+
+func (r *SingleGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
+	return r.G.LandmarkMeta
 }

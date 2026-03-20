@@ -3,6 +3,7 @@ package routing
 
 import (
 	"container/list"
+	"math"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -192,6 +193,56 @@ func (r *TiledGraphReader) EdgeOSMID(handle uint64) int64 {
 		return 0
 	}
 	return g.OSMIDPool[osmIdx]
+}
+
+func (r *TiledGraphReader) LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32 {
+	nodeTileID, nodeLocalID := SplitGlobalNodeID(nodeID)
+	dstTileID, dstLocalID := SplitGlobalNodeID(dstID)
+	nodeGraph := r.cache.getOrLoad(nodeTileID, r.tileDir)
+	dstGraph := r.cache.getOrLoad(dstTileID, r.tileDir)
+	if nodeGraph == nil || dstGraph == nil {
+		return 0
+	}
+	nodeDists := nodeGraph.LandmarkDists(graph.LandmarkSetID(setID), nodeLocalID)
+	dstDists := dstGraph.LandmarkDists(graph.LandmarkSetID(setID), dstLocalID)
+	if nodeDists == nil || dstDists == nil {
+		return 0
+	}
+	var best float32
+	for k := range LandmarksPerSet {
+		if nodeDists[k] >= math.MaxFloat32 || dstDists[k] >= math.MaxFloat32 {
+			continue
+		}
+		diff := nodeDists[k] - dstDists[k]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > best {
+			best = diff
+		}
+	}
+	return best
+}
+
+func (r *TiledGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {
+	tileID, localID := SplitGlobalNodeID(nodeID)
+	g := r.cache.getOrLoad(tileID, r.tileDir)
+	if g == nil {
+		return nil
+	}
+	return g.LandmarkDists(graph.LandmarkSetID(setID), localID)
+}
+
+func (r *TiledGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
+	r.cache.mu.Lock()
+	defer r.cache.mu.Unlock()
+	for _, elem := range r.cache.items {
+		ce := elem.Value.(*tiledCacheEntry)
+		if ce.g != nil && ce.g.LandmarkMeta != nil {
+			return ce.g.LandmarkMeta
+		}
+	}
+	return nil
 }
 
 // HasTiles returns true if any tiles exist in the directory.
