@@ -24,6 +24,43 @@ func (db *DB) RebuildActivityTrack(ctx context.Context, activityID string) error
 	return err
 }
 
+// EnsureActivityTrack creates or updates the activity track from GPS streams.
+// Unlike RebuildActivityTrack (which only UPDATEs an existing row), this uses
+// INSERT ON CONFLICT to handle activities that have streams but no
+// activity_tracks row yet (e.g. GPX imports where TrackPoints was empty).
+// The HAVING COUNT(*) >= 2 ensures we don't create degenerate single-point
+// tracks. Returns nil if no GPS points exist (no row created).
+func (db *DB) EnsureActivityTrack(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		WITH pts AS (
+			SELECT ST_SetSRID(ST_MakePoint(lng, lat), 4326) AS geom,
+			       time AS ts
+			FROM activity_streams
+			WHERE activity_id = $1
+			  AND lat IS NOT NULL AND lng IS NOT NULL
+			ORDER BY time
+		),
+		track AS (
+			SELECT ST_MakeLine(geom ORDER BY ts) AS full_track,
+			       COUNT(*) AS cnt
+			FROM pts
+			HAVING COUNT(*) >= 2
+		)
+		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
+		SELECT $1, full_track,
+		       ST_Simplify(full_track, 0.0001),
+		       ST_Envelope(full_track),
+		       cnt
+		FROM track
+		ON CONFLICT (activity_id) DO UPDATE SET
+		    track_full = EXCLUDED.track_full,
+		    track_simplified = EXCLUDED.track_simplified,
+		    bbox = EXCLUDED.bbox,
+		    point_count = EXCLUDED.point_count`,
+		activityID)
+	return err
+}
+
 // RebuildHeatmapData deletes and re-inserts both heatmap_lines and heatmap_points
 // for a single activity after its track geometry has changed (e.g. following a
 // GPS merge). Uses a transaction with a shared temp table so the expensive track
