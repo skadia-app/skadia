@@ -31,7 +31,7 @@ func TestResolveProductName(t *testing.T) {
 	}
 
 	// Dynamischer Garmin-Test (SDK-versionsabhängig)
-	if edge530Str != "" && !strings.HasPrefix(edge530Str, "GarminProduct(") {
+	if edge530Str != "" && !strings.HasPrefix(edge530Str, "GarminProduct") {
 		tests = append(tests, struct {
 			name           string
 			manufacturerID uint16

@@ -101,11 +101,9 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 				last_seen_at  = GREATEST(last_seen_at, $2),
 				first_seen_at = LEAST(first_seen_at, $2),
 				product_name  = CASE
-				WHEN NULLIF($3, '') IS NOT NULL
-				     AND (product_name IS NULL
-				          OR product_name LIKE 'GarminProduct%'
-				          OR length($3) > length(product_name))
-				THEN $3
+				WHEN NULLIF($3, '') IS NULL THEN product_name
+				WHEN $3 NOT LIKE 'GarminProduct%' THEN $3
+				WHEN product_name IS NULL OR product_name LIKE 'GarminProduct%' THEN $3
 				ELSE product_name
 				END,
 				device_types  = CASE WHEN array_length($4::text[], 1) > 0 THEN $4 ELSE device_types END,
@@ -135,11 +133,9 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 				last_seen_at  = GREATEST(devices.last_seen_at, EXCLUDED.last_seen_at),
 				first_seen_at = LEAST(devices.first_seen_at, EXCLUDED.first_seen_at),
 				product_name  = CASE
-					WHEN NULLIF(EXCLUDED.product_name, '') IS NOT NULL
-					     AND (devices.product_name IS NULL
-					          OR devices.product_name LIKE 'GarminProduct%'
-					          OR length(EXCLUDED.product_name) > length(devices.product_name))
-					THEN EXCLUDED.product_name
+					WHEN NULLIF(EXCLUDED.product_name, '') IS NULL THEN devices.product_name
+					WHEN EXCLUDED.product_name NOT LIKE 'GarminProduct%' THEN EXCLUDED.product_name
+					WHEN devices.product_name IS NULL OR devices.product_name LIKE 'GarminProduct%' THEN EXCLUDED.product_name
 					ELSE devices.product_name
 					END,
 				device_types  = CASE WHEN array_length(EXCLUDED.device_types, 1) > 0 THEN EXCLUDED.device_types ELSE devices.device_types END,
@@ -164,11 +160,9 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 				last_seen_at  = GREATEST(devices.last_seen_at, EXCLUDED.last_seen_at),
 				first_seen_at = LEAST(devices.first_seen_at, EXCLUDED.first_seen_at),
 				product_name  = CASE
-					WHEN NULLIF(EXCLUDED.product_name, '') IS NOT NULL
-					     AND (devices.product_name IS NULL
-					          OR devices.product_name LIKE 'GarminProduct%'
-					          OR length(EXCLUDED.product_name) > length(devices.product_name))
-					THEN EXCLUDED.product_name
+					WHEN NULLIF(EXCLUDED.product_name, '') IS NULL THEN devices.product_name
+					WHEN EXCLUDED.product_name NOT LIKE 'GarminProduct%' THEN EXCLUDED.product_name
+					WHEN devices.product_name IS NULL OR devices.product_name LIKE 'GarminProduct%' THEN EXCLUDED.product_name
 					ELSE devices.product_name
 					END,
 				device_types  = CASE WHEN array_length(EXCLUDED.device_types, 1) > 0 THEN EXCLUDED.device_types ELSE devices.device_types END,
