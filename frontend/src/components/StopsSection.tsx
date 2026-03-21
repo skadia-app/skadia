@@ -96,7 +96,7 @@ function PoiIcon({ poiType }: { poiType?: string }) {
       </svg>
     )
   }
-  if (['summit', 'saddle', 'mountain_pass'].includes(poiType)) {
+  if (['peak', 'summit', 'saddle', 'mountain_pass'].includes(poiType)) {
     // Mountain triangle
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -187,6 +187,7 @@ const POI_TYPE_LABELS: Record<string, string> = {
   kiosk: 'Kiosk',
   bakery: 'Bäckerei',
   butcher: 'Metzgerei',
+  peak: 'Gipfel',
   summit: 'Gipfel',
   saddle: 'Sattel',
   mountain_pass: 'Bergpass',
@@ -209,7 +210,7 @@ function getStopTitle(stop: ActivityStop): string {
   if (stop.poi_name) return stop.poi_name
   if (stop.poi_type && POI_TYPE_LABELS[stop.poi_type]) return POI_TYPE_LABELS[stop.poi_type]
   if (stop.name) return stop.name
-  return 'Aufenthalt'
+  return 'Rast'
 }
 
 export default function StopsSection({ activityId }: Props) {
@@ -260,7 +261,7 @@ export default function StopsSection({ activityId }: Props) {
                   <span className={isFallback ? 'text-neutral-500 dark:text-neutral-400' : 'font-medium text-neutral-800 dark:text-neutral-200'}>
                     {title}
                   </span>
-                  {stop.confidence === 'speed_fallback' && (
+                  {stop.confidence === 'speed_fallback' && stop.poi_type && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500">
                       Pause
                     </span>
