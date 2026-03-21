@@ -135,35 +135,16 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	// === Landmark Preprocessing (best-effort, non-fatal) ===
 	slog.Info("starting landmark preprocessing after tile build")
 	tmpReader := NewTiledGraphReader(tileDir, 2_000_000_000) // 2 GB cache
-	lmResult, landmarkErr := RunLandmarkPreprocessing(ctx, tmpReader, tileDir,
-		func(step string, current, total int) {
-			if progressFn != nil {
-				progressFn(math.MaxUint32, fmt.Sprintf("landmarks: %s", step), 0)
-			}
-		})
+	landmarkProgressFn := func(step string, current, total int) {
+		if progressFn != nil {
+			progressFn(math.MaxUint32, fmt.Sprintf("landmarks: %s", step), 0)
+		}
+	}
+	meta, landmarkErr := RunLandmarkPreprocessing(ctx, tmpReader, tileDir, landmarkProgressFn)
 	if landmarkErr != nil {
 		slog.Warn("landmark preprocessing failed (non-fatal)", "error", landmarkErr)
 	} else {
-		// Write landmark sections per set
-		lmTiles, scanErr := graph.ScanTilesForLandmarks(tileDir)
-		if scanErr == nil {
-			lmIdx := graph.BuildDenseIndex(lmTiles)
-			for setIdx := range NumLandmarkSets {
-				sectionID := graph.SectionLandmarkDistA + uint16(setIdx)
-				tileDistArrays := lmResult.PerTileLandmarkDists(LandmarkSetID(setIdx), lmTiles, lmIdx)
-				if writeErr := graph.WriteLandmarkSectionsForSet(tileDir, lmTiles, lmResult.Meta, sectionID, tileDistArrays); writeErr != nil {
-					slog.Warn("landmark section write failed", "set", setIdx, "error", writeErr)
-				}
-				// Free per-set arrays
-				for lk := range LandmarksPerSet {
-					lmResult.PerSetDists[setIdx][lk] = nil
-				}
-				tileDistArrays = nil
-			}
-		} else {
-			slog.Warn("landmark tile scan failed (non-fatal)", "error", scanErr)
-		}
-		slog.Info("landmark preprocessing complete")
+		slog.Info("landmark preprocessing complete", "landmarks", meta.LandmarkCount)
 	}
 	tmpReader.Flush()
 

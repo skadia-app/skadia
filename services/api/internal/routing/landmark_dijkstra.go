@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -148,25 +149,19 @@ func landmarkDijkstra(
 	return costs
 }
 
-// LandmarkPreprocessResult holds the per-set distance arrays for all nodes.
-// Used as intermediate result before writing to tiles.
-type LandmarkPreprocessResult struct {
-	Meta *graph.LandmarkMetaData
-	// PerSetDists[setID][landmarkIdx] = flat []float32 of length TotalNodes
-	PerSetDists [NumLandmarkSets][LandmarksPerSet][]float32
-}
-
 // RunLandmarkPreprocessing orchestrates full landmark preprocessing:
 //  1. Scan tiles + build DenseIndex
 //  2. Select 16 landmarks (farthest uses Set A Dijkstra)
-//  3. For each set SEQUENTIALLY: run 16 Dijkstras with errgroup.SetLimit(4),
-//     store results, return for tile writing.
+//  3. For each set SEQUENTIALLY: run 16 Dijkstras with dynamic parallelism,
+//     write landmark sections to tiles, FREE arrays, next set.
+//
+// Peak memory: ~2.3 GB (1 set × 16 landmarks × totalNodes) instead of ~12 GB.
 func RunLandmarkPreprocessing(
 	ctx context.Context,
 	reader GraphReader,
 	tileDir string,
 	progressFn func(step string, current, total int),
-) (*LandmarkPreprocessResult, error) {
+) (*graph.LandmarkMetaData, error) {
 	t0 := time.Now()
 
 	if progressFn == nil {
@@ -231,14 +226,22 @@ func RunLandmarkPreprocessing(
 		"elapsed", time.Since(t0).Round(time.Millisecond),
 	)
 
-	result := &LandmarkPreprocessResult{Meta: meta}
-
-	// 3. For each set SEQUENTIALLY: run 16 Dijkstras with errgroup.SetLimit(4)
+	// 3. For each set SEQUENTIALLY: run Dijkstras, write to tiles, FREE, next set.
 	totalDijkstras := NumLandmarkSets * meta.LandmarkCount
-	dijkstrasDone := 0
+	var dijkstrasDone atomic.Int64
+
+	// W4: Dynamic parallelism based on memory budget.
+	// Each Dijkstra needs ~12 bytes per node (costs float32 + pathStates 8 bytes).
+	bytesPerRun := int64(idx.TotalNodes) * 12
+	maxParallel := 4
+	if bytesPerRun > 0 {
+		// Target max 3 GB for parallel Dijkstras (leave room for tile cache + other).
+		maxByBudget := int(3_000_000_000 / bytesPerRun)
+		maxParallel = max(1, min(4, maxByBudget))
+	}
+	slog.Info("landmark dijkstra parallelism", "bytesPerRun", bytesPerRun, "maxParallel", maxParallel)
 
 	for setIdx := range NumLandmarkSets {
-		_ = LandmarkSetID(setIdx) // type-check only; setIdx used for indexing
 		setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[setIdx], edgeCostFn)
 
 		slog.Info("landmark preprocessing: starting set",
@@ -247,7 +250,7 @@ func RunLandmarkPreprocessing(
 		)
 
 		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(4)
+		g.SetLimit(maxParallel)
 
 		// Per-landmark cost arrays for this set
 		setDists := make([][]float32, meta.LandmarkCount)
@@ -261,8 +264,8 @@ func RunLandmarkPreprocessing(
 				costs := landmarkDijkstra(gctx, reader, src, setCfg, idx)
 				setDists[lk] = costs
 
-				dijkstrasDone++
-				progressFn("dijkstra runs", dijkstrasDone, totalDijkstras)
+				done := dijkstrasDone.Add(1)
+				progressFn("dijkstra runs", int(done), totalDijkstras)
 				return nil
 			})
 		}
@@ -271,10 +274,38 @@ func RunLandmarkPreprocessing(
 			return nil, fmt.Errorf("landmark dijkstra set %d: %w", setIdx, err)
 		}
 
-		// Store in result
-		for lk := range meta.LandmarkCount {
-			result.PerSetDists[setIdx][lk] = setDists[lk]
+		// K2: Write landmark sections for this set immediately, then free arrays.
+		tileDistArrays := make(map[uint32][]float32, len(tiles))
+		for _, tile := range tiles {
+			dists := make([]float32, int(tile.NodeCount)*LandmarksPerSet)
+			for i := range dists {
+				dists[i] = math.MaxFloat32
+			}
+			base, ok := idx.TileOffset[tile.TileID]
+			if !ok {
+				continue
+			}
+			for lk := range meta.LandmarkCount {
+				if setDists[lk] == nil {
+					continue
+				}
+				for localID := range tile.NodeCount {
+					dists[localID*LandmarksPerSet+uint32(lk)] = setDists[lk][base+localID]
+				}
+			}
+			tileDistArrays[tile.TileID] = dists
 		}
+
+		sectionID := graph.SectionLandmarkDistA + uint16(setIdx)
+		if writeErr := graph.WriteLandmarkSectionsForSet(tileDir, tiles, meta, sectionID, tileDistArrays); writeErr != nil {
+			return nil, fmt.Errorf("write landmark sections set %d: %w", setIdx, writeErr)
+		}
+
+		// Free per-set arrays immediately.
+		for lk := range meta.LandmarkCount {
+			setDists[lk] = nil
+		}
+		tileDistArrays = nil
 
 		slog.Info("landmark preprocessing: set complete",
 			"set", setIdx,
@@ -291,48 +322,6 @@ func RunLandmarkPreprocessing(
 		"elapsed", time.Since(t0).Round(time.Second),
 	)
 
-	return result, nil
+	return meta, nil
 }
 
-// PerTileLandmarkDists extracts per-tile distance arrays from the preprocessing result.
-// Returns a map: tileID -> flat []float32 of length nodeCount * LandmarksPerSet.
-// The layout is: for each node (0..nodeCount-1), 16 consecutive float32 distances.
-// This is the format expected by graph.pendingLandmarkSections.
-func (r *LandmarkPreprocessResult) PerTileLandmarkDists(
-	setID LandmarkSetID,
-	tiles []graph.TileScanResult,
-	idx *graph.DenseIndex,
-) map[uint32][]float32 {
-	result := make(map[uint32][]float32, len(tiles))
-
-	for _, tile := range tiles {
-		nc := tile.NodeCount
-		dists := make([]float32, nc*LandmarksPerSet)
-
-		base, ok := idx.TileOffset[tile.TileID]
-		if !ok {
-			continue
-		}
-
-		for localID := range nc {
-			denseID := base + localID
-			for lk := range r.Meta.LandmarkCount {
-				var cost float32
-				if r.PerSetDists[setID][lk] != nil && denseID < uint32(len(r.PerSetDists[setID][lk])) {
-					cost = r.PerSetDists[setID][lk][denseID]
-				} else {
-					cost = math.MaxFloat32
-				}
-				dists[localID*LandmarksPerSet+uint32(lk)] = cost
-			}
-			// Fill remaining landmark slots with MaxFloat32
-			for lk := r.Meta.LandmarkCount; lk < LandmarksPerSet; lk++ {
-				dists[localID*LandmarksPerSet+uint32(lk)] = math.MaxFloat32
-			}
-		}
-
-		result[tile.TileID] = dists
-	}
-
-	return result
-}
