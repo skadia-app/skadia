@@ -1,0 +1,3 @@
+ALTER TABLE activity_geo_tags
+    ADD COLUMN IF NOT EXISTS source TEXT,
+    ADD COLUMN IF NOT EXISTS admin_level SMALLINT;
