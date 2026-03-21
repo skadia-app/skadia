@@ -305,9 +305,21 @@ func viterbiMatch(
 			prevT--
 		}
 
-		if prevT < 0 || prevK < 0 {
-			// No predecessor — fill remaining steps as offroad.
+		if prevT < 0 {
 			break
+		}
+		if prevK < 0 {
+			// Re-init boundary: current step has no backpointer to prevT.
+			// Start a fresh local backtrack using the best candidate at prevT.
+			bestLocalK := 0
+			for k := 1; k < len(steps[prevT]); k++ {
+				if steps[prevT][k].prob > steps[prevT][bestLocalK].prob {
+					bestLocalK = k
+				}
+			}
+			curT = prevT
+			curK = bestLocalK
+			continue
 		}
 
 		// Check for re-init boundary: gap > 5.
