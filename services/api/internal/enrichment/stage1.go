@@ -12,6 +12,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 // enableDEMEnrichment controls whether Open-Meteo elevation correction is applied.
@@ -27,7 +28,7 @@ const enableDEMEnrichment = false
 // When skipStreamEnrichment is true, RunStreamEnrichment is NOT called — the caller is
 // responsible for calling it separately after streams have been written to the DB
 // (import path: activity_streams is empty until InsertStreams completes in Phase 1).
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool) {
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -361,9 +362,14 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	}
 
 	// Surfaces enrichment — separated from RunGeoEnrichment because it needs
-	// its own orchestration (SQL now, Graph later with graphReader + stream).
+	// its own orchestration (Graph preferred, SQL fallback).
 	surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-	if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, nil, nil); err != nil {
+	// Load stream for graph path (nil if skipStreamEnrichment — stream not yet available)
+	var surfStream []EnrichmentStreamPoint
+	if !skipStreamEnrichment && graphReader != nil {
+		surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+	}
+	if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
 		slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 	}
 

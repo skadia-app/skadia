@@ -242,6 +242,26 @@ func (r *TiledGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
 	return nil
 }
 
+// GraphAt returns the graph for the tile containing (lat, lon), or nil.
+func (r *TiledGraphReader) GraphAt(lat, lon float64) *graph.Graph {
+	return r.tile(graph.TileIDFromCoord(lat, lon))
+}
+
+// HasTilesFor checks if tiles exist covering the bounding box corners.
+func (r *TiledGraphReader) HasTilesFor(minLat, minLon, maxLat, maxLon float64) bool {
+	// Check all four corners — if all corner tiles load, the bbox is covered.
+	corners := [][2]float64{
+		{minLat, minLon}, {minLat, maxLon},
+		{maxLat, minLon}, {maxLat, maxLon},
+	}
+	for _, c := range corners {
+		if r.tile(graph.TileIDFromCoord(c[0], c[1])) == nil {
+			return false
+		}
+	}
+	return true
+}
+
 // HasTiles returns true if any tiles exist in the directory.
 func (r *TiledGraphReader) HasTiles() bool {
 	matches, _ := filepath.Glob(filepath.Join(r.tileDir, "tile_*.bin"))

@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -85,7 +86,11 @@ func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
 
 	// Dispatch async
 	shutdown.Go(jobID, func(ctx context.Context) {
-		enrichment.ReEnrichBatch(ctx, h.DB, h.Events, userID, req.Modules, ids, jobID)
+		var gr routing.GraphReader
+		if h.GraphManager != nil {
+			gr = h.GraphManager.Reader()
+		}
+		enrichment.ReEnrichBatch(ctx, h.DB, h.Events, userID, req.Modules, ids, jobID, gr)
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{

@@ -200,6 +200,12 @@ func main() {
 		slog.Info("routing: unified router active")
 	}
 
+	// Wire GraphReader into the import service so surface enrichment can use
+	// the tiled graph during initial import (graph path preferred over SQL).
+	if gr := graphMgr.Reader(); gr != nil {
+		importSvc.GraphReader = gr
+	}
+
 	// Coverage cache — on-demand tile loading for coverage query endpoint.
 	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
 	// Wire Shadow FS callback: delegates to the handler method which needs

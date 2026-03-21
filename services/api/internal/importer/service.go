@@ -20,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
@@ -49,6 +50,10 @@ type Service struct {
 	// circular imports. Both are optional (nil is safe – the step is skipped).
 	ShadowWriter   ShadowWriterFunc
 	SegmentMatcher SegmentMatcherFunc
+
+	// GraphReader provides tile-level graph access for surface enrichment.
+	// Optional — nil when no tiles are loaded.
+	GraphReader routing.GraphReader
 }
 
 // NewService constructs a Service with the provided dependencies.
@@ -97,7 +102,7 @@ func (s *Service) PostProcess(
 	if data.HasGPS && data.StartLat != 0 {
 		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
 		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true)
+		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
