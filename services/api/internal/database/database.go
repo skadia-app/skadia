@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1031,12 +1032,14 @@ func (db *DB) UpdateMovingTime(ctx context.Context, activityID, userID string, m
 
 func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.SensorResponse, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, device_index, source_type, antplus_device_type, all_device_types,
-			manufacturer, product_name, serial_number, ant_device_number,
-			software_version, battery_status, device_id
-		FROM activity_sensors
-		WHERE activity_id = $1
-		ORDER BY device_index`,
+		SELECT s.id, s.device_index, s.source_type, s.antplus_device_type, s.all_device_types,
+			s.manufacturer, s.product_name, s.serial_number, s.ant_device_number,
+			s.software_version, s.battery_status, s.device_id,
+			COALESCE(d.custom_name, d.product_name) AS device_display_name
+		FROM activity_sensors s
+		LEFT JOIN devices d ON d.id = s.device_id
+		WHERE s.activity_id = $1
+		ORDER BY s.device_index`,
 		activityID,
 	)
 	if err != nil {
@@ -1044,48 +1047,87 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 	}
 	defer rows.Close()
 
-	var sensors []model.SensorResponse
+	// Collect raw rows, then dedup by device_id (RC3: legacy activities may have
+	// multiple rows for the same physical sensor with different device_types).
+	type rawSensor struct {
+		resp       model.SensorResponse
+		deviceName *string
+	}
+	var raws []rawSensor
+
 	for rows.Next() {
-		var s model.SensorResponse
+		var rs rawSensor
 		var primaryType, manufacturer, productName, batteryStatus *string
 		var allTypes []string
 		var swVersion *float64
 
 		if err := rows.Scan(
-			&s.ID, &s.DeviceIndex, &s.SourceType, &primaryType, &allTypes,
-			&manufacturer, &productName, &s.SerialNumber, &s.AntDeviceNumber,
-			&swVersion, &batteryStatus, &s.DeviceID,
+			&rs.resp.ID, &rs.resp.DeviceIndex, &rs.resp.SourceType, &primaryType, &allTypes,
+			&manufacturer, &productName, &rs.resp.SerialNumber, &rs.resp.AntDeviceNumber,
+			&swVersion, &batteryStatus, &rs.resp.DeviceID,
+			&rs.deviceName,
 		); err != nil {
 			return nil, fmt.Errorf("scan sensor: %w", err)
 		}
 
 		if primaryType != nil {
-			s.PrimaryType = *primaryType
-			s.PrimaryTypeLabel = sensorTypeLabel(s.PrimaryType)
+			rs.resp.PrimaryType = *primaryType
+			rs.resp.PrimaryTypeLabel = sensorTypeLabel(rs.resp.PrimaryType)
 		}
 		if manufacturer != nil {
-			s.Manufacturer = *manufacturer
+			rs.resp.Manufacturer = *manufacturer
 		}
-		if productName != nil {
-			s.ProductName = *productName
-
+		// Product name priority: devices table (resolved) > activity_sensors (raw FIT)
+		if rs.deviceName != nil && *rs.deviceName != "" {
+			rs.resp.ProductName = *rs.deviceName
+		} else if productName != nil {
+			rs.resp.ProductName = *productName
 		}
 		if batteryStatus != nil {
-			s.BatteryStatus = *batteryStatus
+			rs.resp.BatteryStatus = *batteryStatus
 		}
-		s.AllTypes = allTypes
-		if s.AllTypes == nil {
-			s.AllTypes = []string{}
+		rs.resp.AllTypes = allTypes
+		if rs.resp.AllTypes == nil {
+			rs.resp.AllTypes = []string{}
 		}
 		if swVersion != nil {
-			s.SoftwareVersion = fmt.Sprintf("%.1f", *swVersion)
+			rs.resp.SoftwareVersion = fmt.Sprintf("%.1f", *swVersion)
 		}
 
-		sensors = append(sensors, s)
+		raws = append(raws, rs)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get sensors: %w", err)
 	}
+
+	// Dedup: merge rows with same device_id into one response (RC3).
+	sensors := make([]model.SensorResponse, 0, len(raws))
+	seen := map[string]int{} // device_id → index in sensors
+	for _, rs := range raws {
+		if rs.resp.DeviceID != nil && *rs.resp.DeviceID != "" {
+			if idx, ok := seen[*rs.resp.DeviceID]; ok {
+				// Merge: add device types from this row
+				for _, dt := range rs.resp.AllTypes {
+					if !slices.Contains(sensors[idx].AllTypes, dt) {
+						sensors[idx].AllTypes = append(sensors[idx].AllTypes, dt)
+					}
+				}
+				if sensors[idx].SerialNumber == nil && rs.resp.SerialNumber != nil {
+					sensors[idx].SerialNumber = rs.resp.SerialNumber
+				}
+				if sensors[idx].AntDeviceNumber == nil && rs.resp.AntDeviceNumber != nil {
+					sensors[idx].AntDeviceNumber = rs.resp.AntDeviceNumber
+				}
+				if sensors[idx].BatteryStatus == "" && rs.resp.BatteryStatus != "" {
+					sensors[idx].BatteryStatus = rs.resp.BatteryStatus
+				}
+				continue
+			}
+			seen[*rs.resp.DeviceID] = len(sensors)
+		}
+		sensors = append(sensors, rs.resp)
+	}
+
 	if sensors == nil {
 		sensors = []model.SensorResponse{}
 	}
