@@ -48,12 +48,13 @@ func TestSplitTypeKeys_ContainsAllWorkoutTypes(t *testing.T) {
 	}
 }
 
-// TestNeverIntervalSports verifies the sport gate map contains expected entries.
+// TestNeverIntervalSports verifies that non-eligible foot sports are excluded
+// from interval detection (not in any whitelist map).
 func TestNeverIntervalSports_ContainsHiking(t *testing.T) {
-	expected := []string{"hiking", "walking", "mountaineering", "rock_climbing"}
-	for _, sport := range expected {
-		if !neverIntervalSports[sport] {
-			t.Errorf("neverIntervalSports[%q] = false, want true", sport)
+	excluded := []string{"hiking", "walking", "mountaineering", "rock_climbing"}
+	for _, sp := range excluded {
+		if intervalEligibleFoot[sp] || intervalEligibleExtra[sp] {
+			t.Errorf("sport %q should not be eligible for interval detection", sp)
 		}
 	}
 }
@@ -114,7 +115,7 @@ func TestComputeIntervalConfidence_HighConfidence(t *testing.T) {
 	hr299 := 299.0
 
 	classified := []classifiedSegment{
-		{durationS: 180, intensity: "hard", avgHR: intPtr(150)},
+		{durationS: 180, intensity: "hard", avgPower: &hr300},
 		{durationS: 90, intensity: "recovery"},
 		{durationS: 182, intensity: "hard", avgPower: &hr300},
 		{durationS: 90, intensity: "recovery"},
@@ -131,7 +132,6 @@ func TestComputeIntervalConfidence_HighConfidence(t *testing.T) {
 	if got < 0.7 {
 		t.Errorf("got %.2f, want >= 0.7 for high-confidence intervals", got)
 	}
-	_ = hr300
 }
 
 // TestComputeIntervalConfidence_IntensityCVDefault verifies that missing
