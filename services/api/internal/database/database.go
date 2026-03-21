@@ -29,9 +29,9 @@ func New(ctx context.Context, databaseURL string) (*DB, error) {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
 	// Ensure enough connections for parallel geo-enrichment (6 modules × semaphore 3)
-	// + recompute workers (4) + normal API requests.
-	if config.MaxConns < 20 {
-		config.MaxConns = 20
+	// + recompute workers (4) + normal API requests + 4 parallel tile builds (2 conns each).
+	if config.MaxConns < 40 {
+		config.MaxConns = 40
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
