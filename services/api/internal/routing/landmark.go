@@ -149,8 +149,9 @@ func ScaledAvgCostPerKm(landmarkAvg, profileCf, landmarkCf float32) float32 {
 	return landmarkAvg * (profileCf / landmarkCf)
 }
 
-// equirectDistKm computes the equirectangular approximation distance in km
-// between two fixed-point coordinates (×1e7).
+// equirectDistKm computes approximate distance in km between two int32 coords (×1e7).
+// Uses standard math.Cos for build-time precision.
+// See also: equirectDist() in distance.go (float32 meters, Bhaskara approx for hot path).
 func equirectDistKm(lat1, lon1, lat2, lon2 int32) float64 {
 	const degToRad = 1.745329252e-9 // pi / (180 * 1e7)
 	const earthRKm = 6371.0
