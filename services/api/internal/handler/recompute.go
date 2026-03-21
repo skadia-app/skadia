@@ -150,21 +150,38 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.reprocessActivity(r.Context(), id, userID, scope, smoothWindow, false, nil); err != nil {
-		slog.Error("reprocess: failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Reprocess Error", err.Error(), r.URL.Path)
-		return
+	// Run recompute in background — client disconnect must not cancel the work.
+	// Same pattern as multisport recompute above (context.Background + 202 Accepted).
+	activityName := activity.Title
+	if activityName == nil {
+		auto := activity.SportType
+		activityName = &auto
+	}
+	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", &id, activityName, 1)
+	if jobErr != nil {
+		slog.Warn("reprocess: failed to insert job", "id", id, "error", jobErr)
 	}
 
-	// Return updated activity.
-	updated, err := h.DB.GetActivity(r.Context(), id)
-	if err != nil || updated == nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
-		return
-	}
+	go func() {
+		ctx := context.Background()
+		if err := h.reprocessActivity(ctx, id, userID, scope, smoothWindow, false, nil); err != nil {
+			slog.Error("reprocess: failed", "id", id, "error", err)
+			if jobID != "" {
+				_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+			}
+			return
+		}
+		slog.Info("reprocess: activity updated", "id", id)
+		if jobID != "" {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+		}
+	}()
 
-	slog.Info("reprocess: activity updated", "id", id)
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "running",
+		"job_id": jobID,
+	})
 }
 
 // RecomputeAllActivities starts an async background job that reprocesses all
