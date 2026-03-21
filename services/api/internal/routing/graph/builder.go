@@ -271,8 +271,9 @@ func Build(ctx context.Context, pool *pgxpool.Pool, outputPath string,
 // waysQueryBase is the SQL for loading routing-eligible ways from PostGIS,
 // without the ORDER BY clause — allows injecting additional WHERE filters.
 // Includes all enrichment columns (used when coverageReader == nil).
+// W6: No DISTINCT ON — osm_id is unique (Migration 000195).
 const waysQueryBase = `
-	SELECT DISTINCT ON (osm_id)
+	SELECT
 		osm_id,
 		ST_AsBinary(geom) AS geom_wkb,
 		highway,
@@ -309,8 +310,9 @@ const waysQueryBase = `
 // (forest_pct, noise_score, traffic_class, protected_area, landuse_class,
 // urbanization, river_proximity) that are overwritten by coverageReader anyway.
 // W5: used in pass 2 when coverageReader != nil to skip JSONB/int column decompression.
+// W6: No DISTINCT ON — osm_id is unique (Migration 000195).
 const waysQueryBaseMinimal = `
-	SELECT DISTINCT ON (osm_id)
+	SELECT
 		osm_id,
 		ST_AsBinary(geom) AS geom_wkb,
 		highway,
@@ -336,9 +338,9 @@ const waysQueryBaseMinimal = `
 	FROM osm_ways
 	WHERE highway != 'construction'`
 
-// waysQuery is the full SQL including ORDER BY (used by LoadWays).
-const waysQuery = waysQueryBase + `
-	ORDER BY osm_id, way_id DESC`
+// waysQuery is the full SQL (used by LoadWays).
+// W6: No ORDER BY needed — osm_id is unique (Migration 000195), no DISTINCT ON.
+const waysQuery = waysQueryBase
 
 // StreamTopology streams ways from PostGIS in two passes and builds a compact
 // topology with transfer-node elimination (TNE).
@@ -464,12 +466,12 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 
 	// W5: When coverageReader is provided, use the minimal query that omits the
 	// 7 enrichment columns immediately overwritten from grid data anyway.
+	// W6: No ORDER BY — osm_id is unique (Migration 000195), no DISTINCT ON needed.
 	pass2Base := waysQueryBase
 	if coverageReader != nil {
 		pass2Base = waysQueryBaseMinimal
 	}
-	pass2Query := pass2Base + bboxWhereClause(bbox) + `
-	ORDER BY osm_id, way_id DESC`
+	pass2Query := pass2Base + bboxWhereClause(bbox)
 	rows2, err := pool.Query(ctx, pass2Query)
 	if err != nil {
 		return nil, fmt.Errorf("pass 2 query: %w", err)
