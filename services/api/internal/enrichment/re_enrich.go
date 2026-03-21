@@ -159,7 +159,7 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	// Surfaces — separated from RunGeoEnrichment, has its own orchestration.
 	if containsAny(modules, "surfaces") {
 		enabled := settings == nil || settings.EnableSurfaceDetection
-		if err := EnrichSurfaces(ctx, db, activityID, enabled); err != nil {
+		if err := EnrichSurfaces(ctx, db, activityID, enabled, nil, nil); err != nil {
 			slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
 		}
 	}
