@@ -275,6 +275,7 @@ func (tc *tiledCache) flush() {
 // Flush evicts all cached tiles from the TiledGraphReader.
 // Call after a tile rebuild to ensure stale tiles are not served.
 func (r *TiledGraphReader) Flush() {
+	r.cachedLMeta.Store(nil)
 	r.cache.flush()
 }
 
