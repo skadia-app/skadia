@@ -824,16 +824,24 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
     },
   })
 
-  // Track background job for spinner — polls until job completes, then refreshes data
-  const [reprocessJobId, setReprocessJobId] = useState<string | null>(null)
+  // Track background recompute jobs — spinner stays active across page reloads
   const { activeJobs } = useActiveJobs()
 
+  // On mount + whenever activeJobs changes: check if a recompute job exists for THIS activity
+  const hasActiveRecomputeJob = activeJobs.some(
+    j => j.entity_id === activity.id &&
+         (j.job_type === 'activity_recompute_all' || j.job_type === 'recompute_multisport')
+  )
+  const prevHadJob = useRef(false)
+
   useEffect(() => {
-    if (!reprocessJobId) return
-    const job = activeJobs.find(j => j.id === reprocessJobId)
-    if (!job) {
-      // Job finished (no longer in active list) — refresh data
-      setReprocessJobId(null)
+    if (hasActiveRecomputeJob) {
+      // Job running → show spinner
+      setReprocessState('loading')
+      prevHadJob.current = true
+    } else if (prevHadJob.current) {
+      // Job just finished → refresh all enrichment data
+      prevHadJob.current = false
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
@@ -844,19 +852,18 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
       setReprocessState('success')
       setTimeout(() => setReprocessState('idle'), 2000)
     }
-  }, [reprocessJobId, activeJobs])
+  }, [hasActiveRecomputeJob])
 
   const reprocessMutation = useMutation({
     mutationFn: () => reprocessActivity(activity.id),
     onMutate: () => setReprocessState('loading'),
     onSuccess: (result) => {
       if (result && 'job_id' in result) {
-        // 202 Accepted: background job started — keep spinner, poll via useActiveJobs
-        setReprocessJobId(result.job_id)
+        // 202 Accepted: background job started — spinner stays via useEffect/hasActiveRecomputeJob
         setMultisportConfirm(false)
-        // reprocessState stays 'loading' — spinner keeps spinning
         return
       }
+      // Synchronous 200 response (legacy/fallback)
       queryClient.setQueryData(['activity', activity.id], result)
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })

@@ -150,8 +150,8 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Run recompute in background — client disconnect must not cancel the work.
-	// Same pattern as multisport recompute above (context.Background + 202 Accepted).
+	// Run in background goroutine with context.Background — client disconnect
+	// must NOT cancel the work. Returns 202 immediately with job_id for polling.
 	activityName := activity.Title
 	if activityName == nil {
 		auto := activity.SportType
@@ -159,7 +159,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", &id, activityName, 1)
 	if jobErr != nil {
-		slog.Warn("reprocess: failed to insert job", "id", id, "error", jobErr)
+		slog.Warn("reprocess: failed to insert background job", "id", id, "error", jobErr)
 	}
 
 	go func() {
