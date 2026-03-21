@@ -96,7 +96,7 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 
 	// Determine which module types are requested
 	hasStream := containsAny(modules, "ascents", "stops", "intervals")
-	hasGeo := containsAny(modules, "peaks", "settlements", "forests", "water", "borders", "surfaces")
+	hasGeo := containsAny(modules, "peaks", "settlements", "forests", "water", "borders")
 
 	// Load stream once if needed
 	var stream []EnrichmentStreamPoint
@@ -153,6 +153,14 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	if hasGeo {
 		if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
 			slog.Warn("re-enrich: geo enrichment failed", "activity_id", activityID, "error", err)
+		}
+	}
+
+	// Surfaces — separated from RunGeoEnrichment, has its own orchestration.
+	if containsAny(modules, "surfaces") {
+		enabled := settings == nil || settings.EnableSurfaceDetection
+		if err := EnrichSurfaces(ctx, db, activityID, enabled); err != nil {
+			slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
 		}
 	}
 

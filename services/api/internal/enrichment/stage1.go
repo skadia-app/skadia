@@ -360,6 +360,13 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Surfaces enrichment — separated from RunGeoEnrichment because it needs
+	// its own orchestration (SQL now, Graph later with graphReader + stream).
+	surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+	if err := EnrichSurfaces(ctx, db, activityID, surfEnabled); err != nil {
+		slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	}
+
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
 	if pub != nil {
 		var enabledModules []string
