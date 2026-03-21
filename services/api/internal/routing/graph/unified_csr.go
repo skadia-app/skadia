@@ -20,9 +20,10 @@ type EdgeCostFactors struct {
 // 16 bytes (aligned). CostFactor = min(Flat, Up>0?Up:Flat, Down>0?Down:Flat).
 type PrecomputedEdge struct {
 	Target     uint32  // Dense Node-ID
-	Dist       uint32  // Distance in cm (uint32 — edges >655m exist in outdoor graphs)
-	CostFactor float32 // Pre-computed min costfactor
-	_          uint32  // Padding (reserved for DeltaEle in 4-Set follow-up)
+	Dist       uint32  // Distance in cm
+	CostFactor float32 // Pre-computed min costfactor (flat distance component)
+	DeltaEle   int16   // Elevation difference in dm (for hysteresis in Sets A/B/C)
+	_          int16   // Padding for 16-byte alignment
 }
 
 // UnifiedCSR is a temporary flat graph for landmark Dijkstra preprocessing.
@@ -208,11 +209,15 @@ func BuildUnifiedCSR(
 					cf = ecf.Down
 				}
 
+				// DeltaEle: elevation difference from source to target (dm)
+				deltaEle := int16(g.NodeEle[target] - g.NodeEle[i])
+
 				pos := writePos[denseID]
 				csr.Edges[pos] = PrecomputedEdge{
 					Target:     targetDense,
 					Dist:       g.EdgeDist[ei],
 					CostFactor: cf,
+					DeltaEle:   deltaEle,
 				}
 				writePos[denseID]++
 			}

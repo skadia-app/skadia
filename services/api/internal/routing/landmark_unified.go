@@ -18,24 +18,28 @@ import (
 )
 
 // landmarkDijkstraUnified runs a single-source Dijkstra on the unified flat CSR.
-// No hysteresis (Set D: UphillCost=0, DownhillCost=0). No mutex, no DenseIndex.
-func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uint32) []float32 {
+// For Set D (UphillCost=0): no hysteresis (pure flat distance).
+// For Sets A/B/C: includes propagateHysteresis using DeltaEle from edges.
+func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uint32, cfg *CostConfig) []float32 {
 	costs := make([]float32, csr.NodeCount)
 	for i := range costs {
 		costs[i] = math.MaxFloat32
 	}
 	costs[src] = 0
 
-	// Pre-allocate frontier to reduce GC pressure during full-graph Dijkstra
+	useHysteresis := cfg.UphillCost > 0 || cfg.DownhillCost > 0
+	var pathStates []PathState
+	if useHysteresis {
+		pathStates = make([]PathState, csr.NodeCount)
+	}
+
 	frontier := &Frontier{}
-	frontier.Reset() // ensure size=0
-	// entries will grow via append — pre-allocation not critical with lazy deletion
 	frontier.Push(FrontierEntry{NodeID: uint64(src), Cost: 0})
 
 	expansions := 0
 	for frontier.Len() > 0 {
 		entry := frontier.Pop()
-		nd := uint32(entry.NodeID) // Safe: denseID always < uint32 max (NodeCount is uint32)
+		nd := uint32(entry.NodeID)
 		if entry.Cost > costs[nd]+0.001 {
 			continue
 		}
@@ -53,10 +57,28 @@ func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uin
 			if edge.CostFactor >= costBlocked {
 				continue
 			}
-			newCost := costs[nd] + float32(edge.Dist)/100.0*edge.CostFactor
-			if newCost < costs[edge.Target] {
-				costs[edge.Target] = newCost
-				frontier.Push(FrontierEntry{NodeID: uint64(edge.Target), Cost: newCost})
+
+			distCost := float32(edge.Dist) / 100.0 * edge.CostFactor
+			var elevCost float32
+
+			if useHysteresis {
+				deltaEleMilli := int32(edge.DeltaEle) * 100 // dm → mm
+				distMilli := int32(edge.Dist) * 10           // cm → mm
+				hr := propagateHysteresis(pathStates[nd], deltaEleMilli, distMilli, cfg)
+				elevCost = hr.ElevCost
+
+				newCost := costs[nd] + distCost + elevCost
+				if newCost < costs[edge.Target] {
+					costs[edge.Target] = newCost
+					pathStates[edge.Target] = hr.State
+					frontier.Push(FrontierEntry{NodeID: uint64(edge.Target), Cost: newCost})
+				}
+			} else {
+				newCost := costs[nd] + distCost
+				if newCost < costs[edge.Target] {
+					costs[edge.Target] = newCost
+					frontier.Push(FrontierEntry{NodeID: uint64(edge.Target), Cost: newCost})
+				}
 			}
 		}
 	}
@@ -80,11 +102,11 @@ func BuildLandmarkEdgeCostClosureCSR() graph.EdgeCostFunc {
 }
 
 // checkpointPath returns the file path for a landmark Dijkstra checkpoint.
-func checkpointPath(tileDir string, lk int) string {
-	return filepath.Join(tileDir, fmt.Sprintf("landmark_checkpoint_%02d.bin", lk))
+// Format: landmark_checkpoint_S{set}_L{landmark}.bin
+func checkpointPath(tileDir string, setIdx, lk int) string {
+	return filepath.Join(tileDir, fmt.Sprintf("landmark_checkpoint_S%d_L%02d.bin", setIdx, lk))
 }
 
-// saveDijkstraCheckpoint writes a costs array to disk as a binary checkpoint.
 func saveDijkstraCheckpoint(path string, costs []float32) error {
 	f, err := os.CreateTemp(filepath.Dir(path), "lm_ckpt_*.tmp")
 	if err != nil {
@@ -100,10 +122,9 @@ func saveDijkstraCheckpoint(path string, costs []float32) error {
 		return err
 	}
 	f.Close()
-	return os.Rename(f.Name(), path) // atomic
+	return os.Rename(f.Name(), path)
 }
 
-// loadDijkstraCheckpoint reads a costs array from a binary checkpoint.
 func loadDijkstraCheckpoint(path string, nodeCount uint32) ([]float32, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -120,7 +141,6 @@ func loadDijkstraCheckpoint(path string, nodeCount uint32) ([]float32, error) {
 	return costs, nil
 }
 
-// cleanupCheckpoints removes all landmark checkpoint files.
 func cleanupCheckpoints(tileDir string) {
 	matches, _ := filepath.Glob(filepath.Join(tileDir, "landmark_checkpoint_*.bin"))
 	for _, m := range matches {
@@ -128,15 +148,11 @@ func cleanupCheckpoints(tileDir string) {
 	}
 }
 
-// RunUnifiedLandmarkPreprocessing computes landmarks using Set D only (UphillCost=0,
-// DownhillCost=0). This is admissible for ALL profiles but provides a loose bound
-// for elevation-heavy profiles (Hiking/MTB). Profiles selecting Set A/B/C will
-// degrade to LowerBound()=0 (euclidean-only heuristic) until elevation-aware sets
-// are implemented via unified CSR. Route quality is unaffected — only search speed.
-//
-// Checkpoints: Each Dijkstra result is saved to disk immediately after completion.
-// On crash/restart, existing checkpoints are loaded instead of re-computed.
-// CSR is freed BEFORE the write-back phase to reduce peak memory.
+// RunUnifiedLandmarkPreprocessing computes landmarks for ALL 4 cost-config sets
+// (A=7/7, B=7/0, C=0/7, D=0/0). Each set has 16 landmarks = 64 Dijkstras total.
+// Sets are processed SEQUENTIALLY to limit memory. Within each set, 2 Dijkstras
+// run in parallel. Each result is checkpointed to disk for crash-recovery.
+// CSR is freed BEFORE write-back to reduce peak memory.
 func RunUnifiedLandmarkPreprocessing(
 	ctx context.Context,
 	tileDir string,
@@ -147,7 +163,7 @@ func RunUnifiedLandmarkPreprocessing(
 	}
 	t0 := time.Now()
 
-	// 1. Build unified CSR from all tiles.
+	// 1. Build unified CSR
 	progressFn("building unified CSR", 0, 0)
 	csr, nodeMapping, tiles, err := graph.BuildUnifiedCSR(ctx, tileDir, BuildLandmarkEdgeCostClosureCSR(), progressFn)
 	if err != nil {
@@ -155,41 +171,38 @@ func RunUnifiedLandmarkPreprocessing(
 	}
 
 	slog.Info("unified landmark preprocessing: CSR built",
-		"nodes", csr.NodeCount,
-		"edges", csr.EdgeCount,
+		"nodes", csr.NodeCount, "edges", csr.EdgeCount,
 		"elapsed", time.Since(t0).Round(time.Millisecond),
 	)
 
-	// 2. Select landmarks with farthestDijkstra closure
+	// 2. Select landmarks
 	progressFn("selecting landmarks", 0, 16)
 	farthestDijkstra := func(src uint64) (graph.LandmarkCandidate, error) {
 		srcTileID, srcLocalID := graph.SplitGlobalNodeID(src)
 		mapping := nodeMapping[srcTileID]
 		if mapping == nil || uint32(len(mapping)) <= srcLocalID {
-			return graph.LandmarkCandidate{}, fmt.Errorf("node %d not in CSR mapping (tile %d, local %d)", src, srcTileID, srcLocalID)
+			return graph.LandmarkCandidate{}, fmt.Errorf("node %d not in mapping", src)
 		}
-		srcDense := mapping[srcLocalID]
-		costs := landmarkDijkstraUnified(ctx, csr, srcDense)
+		// Use Set D (flat) for farthest selection
+		setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+		costs := landmarkDijkstraUnified(ctx, csr, mapping[srcLocalID], setCfg)
 		var best graph.LandmarkCandidate
 		var bestCost float32
 		for _, tile := range tiles {
-			tileMapping := nodeMapping[tile.TileID]
-			if tileMapping == nil {
+			tm := nodeMapping[tile.TileID]
+			if tm == nil {
 				continue
 			}
 			for localID := range tile.NodeCount {
-				if localID >= uint32(len(tileMapping)) {
+				if localID >= uint32(len(tm)) {
 					continue
 				}
-				denseID := tileMapping[localID]
-				cost := costs[denseID]
+				cost := costs[tm[localID]]
 				if cost > bestCost && cost < math.MaxFloat32 {
 					bestCost = cost
 					best = graph.LandmarkCandidate{
 						GlobalNodeID: graph.MakeGlobalNodeID(tile.TileID, localID),
-						Lat:          tile.NodeLats[localID],
-						Lon:          tile.NodeLons[localID],
-						Ele:          tile.NodeEles[localID],
+						Lat: tile.NodeLats[localID], Lon: tile.NodeLons[localID], Ele: tile.NodeEles[localID],
 					}
 				}
 			}
@@ -207,118 +220,114 @@ func RunUnifiedLandmarkPreprocessing(
 		"elapsed", time.Since(t0).Round(time.Millisecond),
 	)
 
-	// 3. Run 16 Dijkstras with errgroup.SetLimit(2)
-	// Each result is checkpointed to disk immediately.
-	// On resume: existing checkpoints are loaded instead of re-computed.
-	var dijkstrasDone atomic.Int64
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(2)
+	totalDijkstras := NumLandmarkSets * meta.LandmarkCount
+	var globalDone atomic.Int64
 
-	for lk := range meta.LandmarkCount {
-		eg.Go(func() error {
-			ckptPath := checkpointPath(tileDir, lk)
+	// 3. Process each set SEQUENTIALLY
+	for setIdx := range NumLandmarkSets {
+		lcfg := LandmarkCostConfigs[setIdx]
+		setCfg := BuildLandmarkCostConfig(lcfg, BuildLandmarkEdgeCostClosure())
+		sectionID := graph.SectionLandmarkDistA + uint16(setIdx)
 
-			// Resume: load existing checkpoint if valid
-			if existing, loadErr := loadDijkstraCheckpoint(ckptPath, csr.NodeCount); loadErr == nil {
-				done := dijkstrasDone.Add(1)
-				slog.Info("landmark dijkstra loaded from checkpoint",
-					"landmark", lk, "run", done, "total", meta.LandmarkCount)
-				progressFn("dijkstra runs", int(done), meta.LandmarkCount)
-				// Save to a temporary in-memory reference — will be re-loaded from checkpoint during write-back
-				_ = existing
+		slog.Info("landmark set starting",
+			"set", setIdx, "uphill", lcfg.UphillCost, "downhill", lcfg.DownhillCost)
+
+		// 3a. Run 16 Dijkstras (2 parallel) with checkpoints
+		eg, egCtx := errgroup.WithContext(ctx)
+		eg.SetLimit(2)
+
+		for lk := range meta.LandmarkCount {
+			eg.Go(func() error {
+				ckptPath := checkpointPath(tileDir, setIdx, lk)
+				if _, loadErr := loadDijkstraCheckpoint(ckptPath, csr.NodeCount); loadErr == nil {
+					done := globalDone.Add(1)
+					slog.Info("landmark dijkstra resumed from checkpoint",
+						"set", setIdx, "landmark", lk, "run", done, "total", totalDijkstras)
+					progressFn("dijkstra runs", int(done), totalDijkstras)
+					return nil
+				}
+
+				srcTileID, srcLocalID := graph.SplitGlobalNodeID(meta.NodeIDs[lk])
+				mapping := nodeMapping[srcTileID]
+				if mapping == nil || uint32(len(mapping)) <= srcLocalID {
+					return fmt.Errorf("set %d landmark %d: node not in mapping", setIdx, lk)
+				}
+				costs := landmarkDijkstraUnified(egCtx, csr, mapping[srcLocalID], setCfg)
+
+				if saveErr := saveDijkstraCheckpoint(ckptPath, costs); saveErr != nil {
+					slog.Warn("checkpoint save failed", "set", setIdx, "landmark", lk, "error", saveErr)
+				}
+
+				done := globalDone.Add(1)
+				slog.Info("landmark dijkstra complete",
+					"set", setIdx, "landmark", lk, "run", done, "total", totalDijkstras)
+				progressFn("dijkstra runs", int(done), totalDijkstras)
 				return nil
-			}
-
-			tileID, localID := graph.SplitGlobalNodeID(meta.NodeIDs[lk])
-			mapping := nodeMapping[tileID]
-			if mapping == nil || uint32(len(mapping)) <= localID {
-				return fmt.Errorf("landmark %d node not in CSR mapping (tile %d, local %d)", lk, tileID, localID)
-			}
-			srcDense := mapping[localID]
-			costs := landmarkDijkstraUnified(egCtx, csr, srcDense)
-
-			// Checkpoint to disk immediately (atomic write)
-			if saveErr := saveDijkstraCheckpoint(ckptPath, costs); saveErr != nil {
-				slog.Warn("failed to save landmark checkpoint", "landmark", lk, "error", saveErr)
-				// Non-fatal: we still have costs in memory for this run
-			}
-
-			done := dijkstrasDone.Add(1)
-			slog.Info("landmark dijkstra complete", "landmark", lk, "run", done, "total", meta.LandmarkCount)
-			progressFn("dijkstra runs", int(done), meta.LandmarkCount)
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		return nil, fmt.Errorf("landmark dijkstras: %w", err)
-	}
-
-	slog.Info("unified landmark preprocessing: all dijkstras complete",
-		"elapsed", time.Since(t0).Round(time.Millisecond),
-	)
-
-	// 4. FREE CSR before write-back to reduce peak memory.
-	// The Dijkstra results are on disk as checkpoints.
-	// We reload them one-at-a-time during write-back.
-	nodeCount := csr.NodeCount
-	csr.Close()
-	csr = nil
-	debug.FreeOSMemory()
-
-	slog.Info("unified landmark preprocessing: CSR freed, starting write-back")
-
-	// 5. Write back to tiles — load checkpoints one-at-a-time
-	progressFn("writing landmark distances", 0, len(tiles))
-
-	// Load ALL checkpoints (16 × 191 MB = ~3 GB — fits after CSR freed)
-	allCosts := make([][]float32, meta.LandmarkCount)
-	for lk := range meta.LandmarkCount {
-		ckptPath := checkpointPath(tileDir, lk)
-		costs, loadErr := loadDijkstraCheckpoint(ckptPath, nodeCount)
-		if loadErr != nil {
-			return nil, fmt.Errorf("load landmark checkpoint %d: %w", lk, loadErr)
+			})
 		}
-		allCosts[lk] = costs
-	}
+		if err := eg.Wait(); err != nil {
+			return nil, fmt.Errorf("dijkstras set %d: %w", setIdx, err)
+		}
 
-	tileDistArrays := make(map[uint32][]float32, len(tiles))
-	for _, tile := range tiles {
-		dists := make([]float32, int(tile.NodeCount)*graph.LandmarksPerSet)
-		for i := range dists {
-			dists[i] = math.MaxFloat32
+		slog.Info("landmark set dijkstras complete", "set", setIdx,
+			"elapsed", time.Since(t0).Round(time.Second))
+
+		// 3b. Load checkpoints + write to tiles for THIS set
+		// (CSR still needed for nodeMapping, freed after ALL sets)
+		allCosts := make([][]float32, meta.LandmarkCount)
+		for lk := range meta.LandmarkCount {
+			ckptPath := checkpointPath(tileDir, setIdx, lk)
+			costs, loadErr := loadDijkstraCheckpoint(ckptPath, csr.NodeCount)
+			if loadErr != nil {
+				return nil, fmt.Errorf("load checkpoint set %d lm %d: %w", setIdx, lk, loadErr)
+			}
+			allCosts[lk] = costs
 		}
-		mapping := nodeMapping[tile.TileID]
-		if mapping == nil {
-			continue
-		}
-		for localID := range tile.NodeCount {
-			if localID >= uint32(len(mapping)) {
+
+		tileDistArrays := make(map[uint32][]float32, len(tiles))
+		for _, tile := range tiles {
+			dists := make([]float32, int(tile.NodeCount)*graph.LandmarksPerSet)
+			for i := range dists {
+				dists[i] = math.MaxFloat32
+			}
+			mapping := nodeMapping[tile.TileID]
+			if mapping == nil {
 				continue
 			}
-			denseID := mapping[localID]
-			for lk := range meta.LandmarkCount {
-				dists[int(localID)*graph.LandmarksPerSet+lk] = allCosts[lk][denseID]
+			for localID := range tile.NodeCount {
+				if localID >= uint32(len(mapping)) {
+					continue
+				}
+				denseID := mapping[localID]
+				for lk := range meta.LandmarkCount {
+					dists[int(localID)*graph.LandmarksPerSet+lk] = allCosts[lk][denseID]
+				}
 			}
+			tileDistArrays[tile.TileID] = dists
 		}
-		tileDistArrays[tile.TileID] = dists
+
+		// Free allCosts before tile write
+		allCosts = nil
+
+		progressFn(fmt.Sprintf("writing set %d", setIdx), setIdx, NumLandmarkSets)
+		if err := graph.WriteLandmarkSectionsForSet(tileDir, tiles, meta, sectionID, tileDistArrays); err != nil {
+			return nil, fmt.Errorf("write sections set %d: %w", setIdx, err)
+		}
+		tileDistArrays = nil
+		debug.FreeOSMemory()
+
+		slog.Info("landmark set written", "set", setIdx,
+			"elapsed", time.Since(t0).Round(time.Second))
 	}
 
-	// Free allCosts before tile serialization
-	allCosts = nil
-	debug.FreeOSMemory()
-
-	if err := graph.WriteLandmarkSectionsForSet(tileDir, tiles, meta, graph.SectionLandmarkDistD, tileDistArrays); err != nil {
-		return nil, fmt.Errorf("write landmark sections: %w", err)
-	}
-
-	// 6. Cleanup checkpoints (success — no longer needed)
+	// 4. Cleanup
+	csr.Close()
 	cleanupCheckpoints(tileDir)
 
 	slog.Info("unified landmark preprocessing complete",
-		"landmarks", meta.LandmarkCount,
+		"landmarks", meta.LandmarkCount, "sets", NumLandmarkSets,
 		"tiles", len(tiles),
 		"totalElapsed", time.Since(t0).Round(time.Second),
 	)
-
 	return meta, nil
 }
