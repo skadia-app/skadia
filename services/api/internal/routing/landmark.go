@@ -8,11 +8,16 @@ import (
 )
 
 // LandmarkHeuristic caches destination distances for fast per-node lookups.
+// Pre-allocated buffers (nodeBuf, byteBuf) eliminate heap allocations in the
+// A* hot path — LandmarkHeuristic is created once per route, not shared.
 type LandmarkHeuristic struct {
 	reader   GraphReader
 	setID    LandmarkSetID
 	dstDists [LandmarksPerSet]float32
 	valid    bool
+	// Pre-allocated buffers for zero-alloc LowerBound
+	nodeBuf [LandmarksPerSet]float32
+	byteBuf [LandmarksPerSet * 4]byte
 }
 
 // NewLandmarkHeuristic creates a heuristic pre-loaded with destination distances.
@@ -27,11 +32,12 @@ func NewLandmarkHeuristic(reader GraphReader, dstNode uint64, setID LandmarkSetI
 }
 
 // LowerBound returns the ALT lower bound for the cost from nodeID to the destination.
+// Uses pre-allocated buffers to avoid any heap allocation per call.
 func (h *LandmarkHeuristic) LowerBound(nodeID uint64) float32 {
 	if !h.valid {
 		return 0
 	}
-	nodeDists := h.reader.LandmarkDists(h.setID, nodeID)
+	nodeDists := h.reader.LandmarkDistsInto(h.setID, nodeID, h.nodeBuf[:], h.byteBuf[:])
 	if nodeDists == nil {
 		return 0
 	}

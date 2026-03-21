@@ -61,6 +61,12 @@ type GraphReader interface {
 	// for the given set. Returns nil if not available.
 	LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32
 
+	// LandmarkDistsInto reads landmark distances into pre-allocated buffers,
+	// avoiding allocation in the A* hot path.
+	// dst must have length >= LandmarksPerSet; byteBuf must have length >= LandmarksPerSet*4.
+	// Returns the filled slice or nil if no data is available.
+	LandmarkDistsInto(setID LandmarkSetID, nodeID uint64, dst []float32, byteBuf []byte) []float32
+
 	// LandmarkMeta returns the landmark metadata (positions, thresholds).
 	// Returns nil if no landmarks are loaded.
 	LandmarkMeta() *graph.LandmarkMetaData
@@ -160,6 +166,11 @@ func (r *SingleGraphReader) EdgeOSMID(handle uint64) int64 {
 func (r *SingleGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {
 	_, localID := SplitGlobalNodeID(nodeID)
 	return r.G.LandmarkDists(graph.LandmarkSetID(setID), localID)
+}
+
+func (r *SingleGraphReader) LandmarkDistsInto(setID LandmarkSetID, nodeID uint64, dst []float32, byteBuf []byte) []float32 {
+	_, localID := SplitGlobalNodeID(nodeID)
+	return r.G.LandmarkDistsInto(graph.LandmarkSetID(setID), localID, dst, byteBuf)
 }
 
 func (r *SingleGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
