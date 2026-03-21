@@ -248,6 +248,9 @@ func main() {
 		r.Post("/mobile-refresh", h.MobileRefreshToken)
 	})
 
+	// Internal routes (no JWT auth — service-to-service only, network-level access control)
+	r.Get("/internal/coverage/query", h.QueryCoverage)
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		if cfg.DevAuth {
@@ -453,9 +456,6 @@ func main() {
 			r.Post("/elevation/query", h.QueryElevation)
 			r.Post("/elevation/profile", h.ElevationProfile)
 			r.Post("/dem/import", h.ImportDEM)
-
-			// Coverage query
-			r.Get("/coverage/query", h.QueryCoverage)
 
 			// Entdeckungskarte
 			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
