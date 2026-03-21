@@ -1100,9 +1100,16 @@ var sensorLabels = map[string]string{
 	"bike_power":                 "Leistungsmesser",
 	"stride_speed_distance":      "Laufpod / Running Dynamics",
 	"radar":                      "Rückwärtsradar",
+	"bike_radar":                 "Rückwärtsradar",
 	"shift":                      "Schaltung (Di2 / eTap)",
+	"shifting":                   "Schaltung (Di2 / eTap)",
 	"environment_sensor_legacy":  "Temperatursensor",
+	"env_sensor":                 "Temperatursensor",
 	"multi_sport_speed_distance": "Multi-Sport Sensor",
+	"muscle_oxygen":              "Muskel-Sauerstoffsensor",
+	"lights":                     "Fahrradbeleuchtung",
+	"weight_scale":               "Waage",
+	"fitness_equipment":          "Fitnessgerät",
 }
 
 func sensorTypeLabel(deviceType string) string {
@@ -3285,8 +3292,8 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 // GetActivitySurfaces returns detected surfaces for an activity.
 func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]model.ActivitySurface, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, surface_type, path_type, length_m, percentage
-		 FROM activity_surfaces WHERE activity_id = $1 ORDER BY percentage DESC`,
+		`SELECT id, category, surface_type, path_type, length_m, percentage
+		 FROM activity_surfaces WHERE activity_id = $1 ORDER BY category, percentage DESC`,
 		activityID)
 	if err != nil {
 		return nil, fmt.Errorf("get activity surfaces: %w", err)
@@ -3295,7 +3302,7 @@ func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]mod
 	var surfaces []model.ActivitySurface
 	for rows.Next() {
 		var s model.ActivitySurface
-		if err := rows.Scan(&s.ID, &s.SurfaceType, &s.PathType, &s.LengthM, &s.Percentage); err != nil {
+		if err := rows.Scan(&s.ID, &s.Category, &s.SurfaceType, &s.PathType, &s.LengthM, &s.Percentage); err != nil {
 			return nil, fmt.Errorf("scan activity surface: %w", err)
 		}
 		surfaces = append(surfaces, s)
