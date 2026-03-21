@@ -151,6 +151,7 @@ export default function ActivityDetailPage() {
 
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
+  const [hoveredClimbRange, setHoveredClimbRange] = useState<{ startKm: number; endKm: number } | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
   const multisportMapRef = useRef<MultisportMapHandle>(null)
@@ -527,6 +528,7 @@ export default function ActivityDetailPage() {
           sunriseAt={activity.sunrise_at}
           sunsetAt={activity.sunset_at}
           defaultXMode={!activity.has_gps ? 'time' : 'distance'}
+          highlightRange={hoveredClimbRange}
         />
       )}
 
@@ -550,7 +552,7 @@ export default function ActivityDetailPage() {
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
 
       {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
-      {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} />}
+      {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} onClimbHover={setHoveredClimbRange} />}
 
       {/* Intervalltraining */}
       <IntervalSection activityId={activity.id} />

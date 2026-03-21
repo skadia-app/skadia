@@ -9,6 +9,7 @@ import {
   BrushComponent,
   MarkLineComponent,
   MarkPointComponent,
+  MarkAreaComponent,
   ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -23,6 +24,7 @@ echarts.use([
   BrushComponent,
   MarkLineComponent,
   MarkPointComponent,
+  MarkAreaComponent,
   ToolboxComponent,
   CanvasRenderer,
 ])
@@ -169,6 +171,8 @@ interface Props {
   splitMarkers?: SplitMarker[]
   /** Initial X-axis mode. Defaults to 'distance'. Pass 'time' for indoor/no-GPS activities. */
   defaultXMode?: XMode
+  /** Distanzbereich (in km) der im Höhenprofil als markArea hervorgehoben wird. */
+  highlightRange?: { startKm: number; endKm: number } | null
 }
 
 function computeSunMarkLines(
@@ -206,7 +210,7 @@ function computeSunMarkLines(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
@@ -231,6 +235,23 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const unregisterChart = useCallback((id: string) => {
     chartInstancesRef.current.delete(id)
   }, [])
+
+  // ── Climb highlight: markArea on altitude chart ─────────────────────────────
+  useEffect(() => {
+    const altChart = chartInstancesRef.current.get('altitude')
+    if (!altChart) return
+    altChart.setOption({
+      series: [{
+        markArea: highlightRange
+          ? {
+              silent: true,
+              itemStyle: { color: 'rgba(249, 115, 22, 0.3)' },
+              data: [[{ xAxis: highlightRange.startKm }, { xAxis: highlightRange.endKm }]],
+            }
+          : { data: [] },
+      }],
+    })
+  }, [highlightRange])
 
   // ── Helper: convert percentage-based zoom range to km + stream indices for map
   const pctToZoomRange = useCallback((startPct: number, endPct: number): ZoomRange => {
