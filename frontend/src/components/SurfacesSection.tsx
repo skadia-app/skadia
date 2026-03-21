@@ -69,8 +69,14 @@ const HIGHWAY_COLORS: Record<string, string> = {
   steps: '#78716c',
   pedestrian: '#64748b',
   motorway: '#991b1b',
-  trunk: '#b91c1c',
+  trunk: '#7f1d1d',
   offroad: '#b91c1c',
+  motorway_link: '#991b1b',
+  trunk_link: '#7f1d1d',
+  primary_link: '#1e40af',
+  secondary_link: '#2563eb',
+  tertiary_link: '#3b82f6',
+  via_ferrata: '#a21caf',
   unknown: '#d1d5db',
 }
 
@@ -92,6 +98,12 @@ const HIGHWAY_LABELS: Record<string, string> = {
   motorway: 'Schnellstraße',
   trunk: 'Schnellstraße',
   offroad: 'Offroad',
+  motorway_link: 'Schnellstraße',
+  trunk_link: 'Schnellstraße',
+  primary_link: 'Bundesstraße',
+  secondary_link: 'Landstraße',
+  tertiary_link: 'Kreisstraße',
+  via_ferrata: 'Klettersteig',
   unknown: 'Unbekannt',
 }
 
