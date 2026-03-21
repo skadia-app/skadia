@@ -123,28 +123,6 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		})
 	}
 
-	// Surfaces: only active in Full mode (osm_ways must exist and be populated).
-	// Writes to activity_surfaces; skips silently if osm_ways is not present.
-	if settings.EnableSurfaceDetection {
-		g.Go(func() error {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if err := EnrichSurfaces(gCtx, db, activityID); err != nil {
-				slog.Warn("geo enrichment module failed",
-					"module", "surfaces",
-					"activity_id", activityID,
-					"error", err,
-				)
-			}
-			return nil // individual module failures are NOT fatal
-		})
-	} else {
-		slog.Debug("geo enrichment module disabled, skipping",
-			"module", "surfaces",
-			"activity_id", activityID,
-		)
-	}
-
 	return g.Wait()
 }
 
