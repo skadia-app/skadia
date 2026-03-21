@@ -147,7 +147,8 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
 		       ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
 		FROM osm_pois p, route
-		WHERE ST_DWithin(route.geom::geography, p.geom::geography, 100)
+		WHERE p.geom && ST_Expand(route.geom, 0.002)
+		  AND ST_DWithin(route.geom::geography, p.geom::geography, 100)
 		  AND p.category IN ('summit', 'pass')
 		  AND p.name IS NOT NULL
 		ORDER BY dist_m
@@ -226,7 +227,8 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			       ST_Y(ST_Centroid(p.geom)) AS center_lat,
 			       ST_X(ST_Centroid(p.geom)) AS center_lon
 			FROM osm_pois p, route
-			WHERE ST_DWithin(route.geom::geography, p.geom::geography, 500)
+			WHERE p.geom && ST_Expand(route.geom, 0.007)
+			  AND ST_DWithin(route.geom::geography, p.geom::geography, 500)
 			  AND p.category = 'settlement'
 			  AND NOT EXISTS (
 			      SELECT 1 FROM osm_boundaries b
@@ -377,7 +379,8 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		       ST_XMin(w.geom) AS bbox_west, ST_YMin(w.geom) AS bbox_south,
 		       ST_XMax(w.geom) AS bbox_east, ST_YMax(w.geom) AS bbox_north
 		FROM osm_waters w, route
-		WHERE ST_DWithin(route.geom::geography, w.geom::geography, 50)
+		WHERE w.geom && ST_Expand(route.geom, 0.001)
+		  AND ST_DWithin(route.geom::geography, w.geom::geography, 50)
 		  AND w.name IS NOT NULL
 		ORDER BY w.name, min_dist_m
 	`, activityID)
@@ -430,7 +433,8 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 		           ST_Buffer(route.geom::geography, 50)::geometry, ww.geom
 		       )) AS nearby_section
 		FROM osm_waterways ww, route
-		WHERE ST_DWithin(route.geom::geography, ww.geom::geography, 50)
+		WHERE ww.geom && ST_Expand(route.geom, 0.001)
+		  AND ST_DWithin(route.geom::geography, ww.geom::geography, 50)
 		  AND ww.name IS NOT NULL
 		ORDER BY ww.name, min_dist_m
 	`, activityID)
