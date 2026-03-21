@@ -149,35 +149,10 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 		}
 	}
 
-	// Run geo modules (geoEnrichSem gates concurrency internally)
+	// Run geo modules via RunGeoEnrichment which manages geoEnrichSem internally
 	if hasGeo {
-		for _, m := range modules {
-			switch m {
-			case "peaks":
-				if geoSettings.EnableSummitDetection {
-					enrichGeoTagsPeaks(ctx, db, activityID)
-				}
-			case "settlements":
-				if geoSettings.EnableSettlementDetection {
-					enrichGeoTagsSettlements(ctx, db, activityID)
-				}
-			case "forests":
-				if geoSettings.EnableForestDetection {
-					enrichGeoTagsForests(ctx, db, activityID)
-				}
-			case "water":
-				if geoSettings.EnableWaterDetection {
-					enrichGeoTagsWater(ctx, db, activityID)
-				}
-			case "borders":
-				if geoSettings.EnableBorderDetection {
-					enrichGeoTagsBorders(ctx, db, activityID)
-				}
-			case "surfaces":
-				if geoSettings.EnableSurfaceDetection {
-					EnrichSurfaces(ctx, db, activityID)
-				}
-			}
+		if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
+			slog.Warn("re-enrich: geo enrichment failed", "activity_id", activityID, "error", err)
 		}
 	}
 
