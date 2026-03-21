@@ -180,3 +180,135 @@ func HysteresisGainLoss(smoothed []float64, threshold float64) (gain, loss float
 	}
 	return
 }
+
+// sgFilter applies a Savitzky-Golay filter with arbitrary odd window and polynomial order.
+// It computes the center-point coefficient vector once and applies it with edge reflection.
+func sgFilter(data []float64, window, polyOrder int) []float64 {
+	n := len(data)
+	coeffs := sgCoefficients(window, polyOrder)
+	half := window / 2
+	result := make([]float64, n)
+
+	for i := range n {
+		val := 0.0
+		for j, c := range coeffs {
+			idx := i - half + j
+			// Reflect at boundaries.
+			if idx < 0 {
+				idx = -idx - 1
+			}
+			if idx >= n {
+				idx = 2*(n-1) - idx
+			}
+			// Clamp as fallback.
+			if idx < 0 {
+				idx = 0
+			}
+			if idx >= n {
+				idx = n - 1
+			}
+			val += c * data[idx]
+		}
+		result[i] = val
+	}
+	return result
+}
+
+// sgCoefficients computes the Savitzky-Golay convolution coefficients for the
+// center point of a window of size `window` and polynomial order `polyOrder`.
+//
+// Method: least-squares polynomial fit via normal equations.
+func sgCoefficients(window, polyOrder int) []float64 {
+	half := window / 2
+	m := polyOrder + 1 // number of basis polynomials
+
+	// Build Vandermonde matrix A (window × m): A[i][k] = (i-half)^k
+	A := make([][]float64, window)
+	for i := range window {
+		x := float64(i - half)
+		A[i] = make([]float64, m)
+		xk := 1.0
+		for k := range m {
+			A[i][k] = xk
+			xk *= x
+		}
+	}
+
+	// Compute A^T A (m × m)
+	AtA := make([][]float64, m)
+	for i := range m {
+		AtA[i] = make([]float64, m)
+		for j := range m {
+			for r := range window {
+				AtA[i][j] += A[r][i] * A[r][j]
+			}
+		}
+	}
+
+	// Compute (A^T A)^{-1} via Gaussian elimination with partial pivoting.
+	inv := matInverse(AtA, m)
+
+	// The filter coefficients for center point (position 0) are:
+	// c[j] = sum_k inv[0][k] * A[j][k]   (k=0..m-1, j=0..window-1)
+	coeffs := make([]float64, window)
+	for j := range window {
+		for k := range m {
+			coeffs[j] += inv[0][k] * A[j][k]
+		}
+	}
+	return coeffs
+}
+
+// matInverse computes the inverse of an m×m matrix using Gaussian elimination
+// with partial pivoting. Returns an m×m inverse matrix.
+func matInverse(a [][]float64, m int) [][]float64 {
+	// Augment with identity.
+	aug := make([][]float64, m)
+	for i := range m {
+		aug[i] = make([]float64, 2*m)
+		copy(aug[i], a[i])
+		aug[i][m+i] = 1.0
+	}
+
+	// Forward elimination.
+	for col := range m {
+		// Find pivot.
+		pivot := col
+		maxVal := math.Abs(aug[col][col])
+		for row := col + 1; row < m; row++ {
+			if v := math.Abs(aug[row][col]); v > maxVal {
+				maxVal = v
+				pivot = row
+			}
+		}
+		aug[col], aug[pivot] = aug[pivot], aug[col]
+
+		// Scale pivot row.
+		scale := aug[col][col]
+		if math.Abs(scale) < 1e-14 {
+			continue
+		}
+		for j := range 2 * m {
+			aug[col][j] /= scale
+		}
+
+		// Eliminate column.
+		for row := range m {
+			if row == col {
+				continue
+			}
+			factor := aug[row][col]
+			for j := range 2 * m {
+				aug[row][j] -= factor * aug[col][j]
+			}
+		}
+	}
+
+	// Extract inverse.
+	inv := make([][]float64, m)
+	for i := range m {
+		inv[i] = make([]float64, m)
+		copy(inv[i], aug[i][m:])
+	}
+	return inv
+}
