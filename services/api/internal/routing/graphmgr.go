@@ -141,21 +141,19 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	slog.Info("tile build complete", "tiles_built", len(results))
 
-	// === Landmark Preprocessing (best-effort, non-fatal) ===
-	slog.Info("starting landmark preprocessing after tile build")
-	tmpReader := NewTiledGraphReader(tileDir, 2_000_000_000) // 2 GB cache
-	landmarkProgressFn := func(step string, current, total int) {
-		if progressFn != nil {
-			progressFn(math.MaxUint32, fmt.Sprintf("landmarks: %s", step), 0)
-		}
-	}
-	meta, landmarkErr := RunLandmarkPreprocessing(ctx, tmpReader, tileDir, landmarkProgressFn)
+	// === Landmark Preprocessing (Unified CSR, best-effort) ===
+	slog.Info("starting landmark preprocessing (unified CSR)")
+	meta, landmarkErr := RunUnifiedLandmarkPreprocessing(ctx, tileDir,
+		func(step string, current, total int) {
+			if progressFn != nil {
+				progressFn(math.MaxUint32, fmt.Sprintf("landmarks: %s", step), 0)
+			}
+		})
 	if landmarkErr != nil {
 		slog.Warn("landmark preprocessing failed (non-fatal)", "error", landmarkErr)
 	} else {
 		slog.Info("landmark preprocessing complete", "landmarks", meta.LandmarkCount)
 	}
-	tmpReader.Flush()
 
 	// Re-initialize TileManager for status display.
 	if m.tileMgr != nil {
