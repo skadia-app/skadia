@@ -44,7 +44,7 @@ func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string, ena
 		}
 	}
 
-	// SQL path (always available)
+	// SQL path (fallback)
 	return enrichSurfacesSQL(ctx, db, activityID)
 }
 
