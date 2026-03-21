@@ -663,6 +663,8 @@ type GeoTag struct {
 	EleM         *float64  `json:"ele_m,omitempty"          db:"ele_m"`
 	// MapSection is a geometry column — read from DB as GeoJSON via ST_AsGeoJSON.
 	MapSection *string `json:"map_section,omitempty" db:"-"`
+	Source     *string `json:"source,omitempty"`
+	AdminLevel *int16  `json:"admin_level,omitempty" db:"admin_level"`
 }
 
 // Tag represents a user-defined tag for categorizing activities.
@@ -1083,9 +1085,11 @@ type ActivityStop struct {
 	Lat       *float64  `json:"lat,omitempty"`
 	Lng       *float64  `json:"lng,omitempty"`
 	Name      *string   `json:"name,omitempty"`
-	PoiType   *string   `json:"poi_type,omitempty"   db:"poi_type"`
-	PoiName   *string   `json:"poi_name,omitempty"   db:"poi_name"`
-	PoiOsmID  *int64    `json:"poi_osm_id,omitempty" db:"poi_osm_id"`
+	PoiType     *string `json:"poi_type,omitempty"     db:"poi_type"`
+	PoiName     *string `json:"poi_name,omitempty"     db:"poi_name"`
+	PoiOsmID    *int64  `json:"poi_osm_id,omitempty"   db:"poi_osm_id"`
+	PoiCategory *string `json:"poi_category,omitempty" db:"poi_category"`
+	Confidence  *string `json:"confidence,omitempty"`
 }
 
 // ActivitySurface represents a detected surface type within an activity.
