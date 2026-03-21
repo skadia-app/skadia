@@ -100,7 +100,14 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			`UPDATE devices SET
 				last_seen_at  = GREATEST(last_seen_at, $2),
 				first_seen_at = LEAST(first_seen_at, $2),
-				product_name  = COALESCE(NULLIF($3, ''), product_name),
+				product_name  = CASE
+				WHEN NULLIF($3, '') IS NOT NULL
+				     AND (product_name IS NULL
+				          OR product_name LIKE 'GarminProduct%'
+				          OR length($3) > length(product_name))
+				THEN $3
+				ELSE product_name
+				END,
 				device_types  = CASE WHEN array_length($4::text[], 1) > 0 THEN $4 ELSE device_types END,
 				source_type   = COALESCE(NULLIF($5, ''), source_type)
 			 WHERE id = $1`,
@@ -127,7 +134,14 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			 DO UPDATE SET
 				last_seen_at  = GREATEST(devices.last_seen_at, EXCLUDED.last_seen_at),
 				first_seen_at = LEAST(devices.first_seen_at, EXCLUDED.first_seen_at),
-				product_name  = COALESCE(NULLIF(EXCLUDED.product_name, ''), devices.product_name),
+				product_name  = CASE
+					WHEN NULLIF(EXCLUDED.product_name, '') IS NOT NULL
+					     AND (devices.product_name IS NULL
+					          OR devices.product_name LIKE 'GarminProduct%'
+					          OR length(EXCLUDED.product_name) > length(devices.product_name))
+					THEN EXCLUDED.product_name
+					ELSE devices.product_name
+					END,
 				device_types  = CASE WHEN array_length(EXCLUDED.device_types, 1) > 0 THEN EXCLUDED.device_types ELSE devices.device_types END,
 				source_type   = COALESCE(NULLIF(EXCLUDED.source_type, ''), devices.source_type)
 			 RETURNING id`,
@@ -149,7 +163,14 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			 DO UPDATE SET
 				last_seen_at  = GREATEST(devices.last_seen_at, EXCLUDED.last_seen_at),
 				first_seen_at = LEAST(devices.first_seen_at, EXCLUDED.first_seen_at),
-				product_name  = COALESCE(NULLIF(EXCLUDED.product_name, ''), devices.product_name),
+				product_name  = CASE
+					WHEN NULLIF(EXCLUDED.product_name, '') IS NOT NULL
+					     AND (devices.product_name IS NULL
+					          OR devices.product_name LIKE 'GarminProduct%'
+					          OR length(EXCLUDED.product_name) > length(devices.product_name))
+					THEN EXCLUDED.product_name
+					ELSE devices.product_name
+					END,
 				device_types  = CASE WHEN array_length(EXCLUDED.device_types, 1) > 0 THEN EXCLUDED.device_types ELSE devices.device_types END,
 				source_type   = COALESCE(NULLIF(EXCLUDED.source_type, ''), devices.source_type)
 			 RETURNING id`,
