@@ -1095,6 +1095,7 @@ type ActivityStop struct {
 // ActivitySurface represents a detected surface type within an activity.
 type ActivitySurface struct {
 	ID          string  `json:"id"`
+	Category    string  `json:"category"`     // "surface" or "highway" (Migration 000201)
 	SurfaceType string  `json:"surface_type"`
 	PathType    string  `json:"path_type"`
 	LengthM     float64 `json:"length_m"`
