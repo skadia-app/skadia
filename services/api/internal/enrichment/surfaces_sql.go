@@ -86,7 +86,7 @@ func enrichSurfacesSQL(ctx context.Context, db *database.DB, activityID string) 
 			if p.Highway != nil {
 				p.HighwayClass = *p.Highway
 			} else {
-				p.HighwayClass = "offroad"
+				p.HighwayClass = "unknown"
 			}
 		} else {
 			p.SurfaceClass = *p.Surface
