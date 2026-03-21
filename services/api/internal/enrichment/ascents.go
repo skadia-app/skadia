@@ -48,14 +48,14 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		WHERE user_id = $1
 	`, userID)
 	if err := row.Scan(&gradPct, &elevM); err == nil {
-		if gradPct != nil {
+		if gradPct != nil && *gradPct > 0 {
 			minGradient = *gradPct
 		}
-		if elevM != nil {
+		if elevM != nil && *elevM > 0 {
 			minElevation = *elevM
 		}
 	}
-	// Ignore "no rows" — defaults remain.
+	// Ignore "no rows" — defaults remain. Zero values are treated as "use default".
 
 	// 2. Load sport group for sport-adaptive classification.
 	// Also load elevation_source: when 'dem', the device track was replaced with
