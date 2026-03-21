@@ -180,7 +180,11 @@ func detectPOIStops(points []streamPoint, pois []poiCandidate) []confirmedStop {
 				continue
 			}
 
-			// Compute spatial spread (stddev of positions in meters)
+			// Compute spatial spread (stddev of positions in meters).
+			// Note: spread includes all points between start/end, including brief
+			// excursions outside the POI radius (tolerated by gap merging). This may
+			// slightly inflate the spread, but gap tolerance is conservative enough
+			// that the effect is negligible in practice.
 			spread, meanLat, meanLng := spatialSpread(points, w.startIdx, w.endIdx)
 			if spread > poi.Config.ConfinementM {
 				continue // not confined — likely walking/cycling through
@@ -492,7 +496,7 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 
 	slog.Info("stops: enrichment complete",
 		"activity_id", activityID,
-		"poi_stops", len(allStops),
+		"total_stops", len(allStops),
 		"gastronomy_tags", gastronomyCount,
 	)
 	return nil
