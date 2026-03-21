@@ -327,6 +327,11 @@ func Deserialize(path string) (*Graph, error) {
 
 	// Landmark cold sections — register entries for on-demand ReadAt access.
 	// The full data is in `data` (heap), so we keep the sectionEntry offsets.
+	//
+	// NOTE: Cold landmark sections are registered but not readable via Deserialize
+	// because backingFile is not set (heap path has no file handle).
+	// Use DeserializeMmap for landmark-aware tile loading.
+	// Graph.LandmarkDists() will return nil for heap-deserialized tiles.
 	if g.coldSections == nil {
 		g.coldSections = make(map[uint16]sectionEntry)
 	}
