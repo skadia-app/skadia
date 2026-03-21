@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	ascentMinGradientPct = 3.0   // default minimum average gradient (%)
+	ascentMinGradientPct = 5.0   // default minimum average gradient (%)
 	ascentMinElevationM  = 20.0  // default minimum elevation gain (m)
 	ascentMinLengthM     = 100.0 // minimum segment length (m)
 )
@@ -149,8 +149,10 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		maybeAdd(startIdx, len(smoothed)-1)
 	}
 
-	// 6. Merge adjacent ascents separated by shallow dips (<3m elevation, <50m distance).
-	ascents = mergeShallowDips(ascents, smoothed, distances, 3.0, 50.0)
+	// 6. Merge adjacent ascents separated by shallow dips.
+	// Dip threshold is relative: 50% of previous ascent's elevation gain (not fixed 3m).
+	// Max merge distance: 300m (gap between end of prev and start of next ascent).
+	ascents = mergeShallowDips(ascents, smoothed, distances, 0.0, 300.0)
 
 	// 7. Delete existing climbs + insert fresh results.
 	if _, err := db.Pool.Exec(ctx,
@@ -309,7 +311,11 @@ func mergeShallowDips(ascents []ascent, smoothed, distances []float64, maxDipEle
 		}
 		dipElev := endElev - minElev
 
-		if dipElev <= maxDipElevM {
+		// Relative dip threshold: merge if dip is < 50% of previous ascent's gain.
+		// This handles both small and large ascents correctly — a 200m climb
+		// tolerates a 100m dip, while a 10m climb only tolerates 5m.
+		dipThreshold := prev.elevationGain * 0.5
+		if dipElev <= dipThreshold {
 			// Merge: extend prev to include curr.
 			prev.endDistM = curr.endDistM
 			prev.lengthM = prev.endDistM - prev.startDistM

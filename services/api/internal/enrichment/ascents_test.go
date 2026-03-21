@@ -92,9 +92,9 @@ func TestMergeShallowDips_MergesSmallDip(t *testing.T) {
 		{startDistM: 280, endDistM: 500, lengthM: 220, elevationGain: 44, avgGradient: 20},
 	}
 
-	merged := mergeShallowDips(ascents, smoothed, distances, 3.0, 50.0)
+	merged := mergeShallowDips(ascents, smoothed, distances, 0, 300.0)
 	if len(merged) != 1 {
-		t.Fatalf("got %d ascents, want 1 (merged)", len(merged))
+		t.Fatalf("got %d ascents, want 1 (merged, 2m dip = 4%% of 50m gain)", len(merged))
 	}
 	if merged[0].endDistM != 500 {
 		t.Errorf("merged end: got %.0f, want 500", merged[0].endDistM)
@@ -102,17 +102,17 @@ func TestMergeShallowDips_MergesSmallDip(t *testing.T) {
 }
 
 func TestMergeShallowDips_KeepsDeepDip(t *testing.T) {
-	// Two ascents separated by 10m dip → should NOT merge
+	// Two ascents (50m gain each) separated by 30m dip (60% of gain) → should NOT merge
 	smoothed := make([]float64, 200)
 	distances := make([]float64, 200)
 	for i := range 200 {
 		distances[i] = float64(i) * 5.0
 		if distances[i] < 250 {
-			smoothed[i] = distances[i] * 0.2
+			smoothed[i] = distances[i] * 0.2 // 0→50m
 		} else if distances[i] < 280 {
-			smoothed[i] = 50 - (distances[i]-250)*0.333 // ~10m dip
+			smoothed[i] = 50 - (distances[i]-250)*1.0 // 50→20m (30m dip = 60% of 50m)
 		} else {
-			smoothed[i] = 40 + (distances[i]-280)*0.2
+			smoothed[i] = 20 + (distances[i]-280)*0.2
 		}
 	}
 
@@ -121,9 +121,9 @@ func TestMergeShallowDips_KeepsDeepDip(t *testing.T) {
 		{startDistM: 280, endDistM: 500, lengthM: 220, elevationGain: 44, avgGradient: 20},
 	}
 
-	merged := mergeShallowDips(ascents, smoothed, distances, 3.0, 50.0)
+	merged := mergeShallowDips(ascents, smoothed, distances, 0, 300.0)
 	if len(merged) != 2 {
-		t.Fatalf("got %d ascents, want 2 (deep dip, no merge)", len(merged))
+		t.Fatalf("got %d ascents, want 2 (deep dip >50%% of gain, no merge)", len(merged))
 	}
 }
 
