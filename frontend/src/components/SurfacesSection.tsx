@@ -8,47 +8,84 @@ interface Props {
 }
 
 const SURFACE_COLORS: Record<string, string> = {
-  asphalt: '#374151',
-  paved: '#6b7280',
-  unpaved: '#92400e',
-  gravel: '#b45309',
-  fine_gravel: '#d97706',
-  dirt: '#78350f',
-  ground: '#7c5533',
-  grass: '#166534',
-  cobblestone: '#4b5563',
-  pebblestone: '#4b5563',
-  paving_stones: '#4b5563',
-  sett: '#6b7280',
-  sand: '#d97706',
-  compacted: '#a16207',
-  concrete: '#9ca3af',
-  rock: '#6b7280',
-  mud: '#78350f',
-  wood: '#92400e',
-  unknown: '#d1d5db',
-  offroad: '#b91c1c',
+  // Befestigte Oberflächen
+  asphalt: '#374151',        // dunkelgrau
+  concrete: '#9ca3af',       // hellgrau
+  paved: '#6b7280',          // mittelgrau
+  paving_stones: '#78716c',  // warmgrau/stein
+  sett: '#57534e',           // dunkler stein
+  cobblestone: '#57534e',    // wie sett
+  unhewn_cobblestone: '#57534e',
+  bricks: '#b45309',         // ziegelrot-braun
+  concrete_lanes: '#9ca3af', // wie concrete (concrete:lanes → underscore in DB)
+  concrete_plates: '#9ca3af',
+  // Lose Oberflächen
+  compacted: '#b8976a',      // sandiger ton
+  fine_gravel: '#d4a76a',    // heller sand
+  gravel: '#a8885a',         // schotter-braun
+  pebblestone: '#8d7355',    // kiesel-braun
+  shells: '#f5e6c8',         // muschel-creme
+  // Naturböden
+  ground: '#8b6c42',         // erdig-braun
+  earth: '#7c5e3a',          // dunkle erde
+  dirt: '#7c5e3a',           // wie earth (OSM Wiki: identisch)
+  mud: '#5c4033',            // dunkler schlamm
+  sand: '#dbb778',           // sandgelb
+  clay: '#c97f3a',           // terracotta/lehm
+  // Vegetation
+  grass: '#4d7c0f',          // natürliches grün
+  grass_paver: '#65a30d',    // helleres grün
+  // Sonstiges
+  wood: '#92400e',           // holzbraun
+  woodchips: '#a0522d',      // sienna
+  rock: '#78716c',           // felsgrau
+  metal: '#71717a',          // zinkgrau
+  metal_grid: '#71717a',
+  snow: '#e2e8f0',           // fast weiß
+  ice: '#bae6fd',            // eisblau
+  tartan: '#dc2626',         // laufbahn-rot
+  artificial_turf: '#22c55e', // kunstrasen-grün
+  rubber: '#451a03',         // dunkel gummi
+  // Spezial
+  unknown: '#d1d5db',        // neutralgrau
+  offroad: '#b91c1c',        // rot
 }
 
 const SURFACE_LABELS: Record<string, string> = {
   asphalt: 'Asphalt',
-  gravel: 'Schotter',
-  dirt: 'Feldweg',
-  pebblestone: 'Kopfsteinpflaster',
-  compacted: 'Befestigt',
-  fine_gravel: 'Feinkies',
-  ground: 'Naturweg',
-  grass: 'Gras',
-  sand: 'Sand',
-  paving_stones: 'Pflaster',
-  sett: 'Naturstein',
   concrete: 'Beton',
-  unpaved: 'Unbefestigt',
   paved: 'Befestigt',
-  rock: 'Fels',
-  mud: 'Schlamm',
-  wood: 'Holz',
+  paving_stones: 'Pflastersteine',
+  sett: 'Natursteinpflaster',
   cobblestone: 'Kopfsteinpflaster',
+  unhewn_cobblestone: 'Rohes Kopfsteinpflaster',
+  bricks: 'Klinker',
+  concrete_lanes: 'Betonspurplatten',
+  concrete_plates: 'Betonplatten',
+  compacted: 'Fester Kies',
+  fine_gravel: 'Feinkies',
+  gravel: 'Schotter',
+  pebblestone: 'Kieselsteine',
+  shells: 'Muschelschalen',
+  ground: 'Naturweg',
+  earth: 'Erde',
+  dirt: 'Erde',
+  mud: 'Schlamm',
+  sand: 'Sand',
+  clay: 'Lehm',
+  grass: 'Gras',
+  grass_paver: 'Rasengitter',
+  wood: 'Holz',
+  woodchips: 'Hackschnitzel',
+  rock: 'Fels',
+  metal: 'Metall',
+  metal_grid: 'Metallgitter',
+  snow: 'Schnee',
+  ice: 'Eis',
+  tartan: 'Tartanbahn',
+  artificial_turf: 'Kunstrasen',
+  rubber: 'Gummi',
+  unpaved: 'Unbefestigt',
   unknown: 'Unbekannt',
   offroad: 'Offroad',
 }
@@ -61,7 +98,7 @@ const HIGHWAY_COLORS: Record<string, string> = {
   residential: '#93c5fd',
   living_street: '#bfdbfe',
   service: '#6b7280',
-  track: '#a16207',
+  track: '#c2956a',
   path: '#166534',
   footway: '#15803d',
   cycleway: '#0891b2',
