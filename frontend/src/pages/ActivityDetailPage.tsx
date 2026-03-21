@@ -52,6 +52,7 @@ import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
 import { useToast } from '@/lib/toast'
+import { useActiveJobs } from '@/lib/useActiveJobs'
 
 function getSportEmoji(sportType: string): string {
   const map: Record<string, string> = {
@@ -823,14 +824,37 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
     },
   })
 
+  // Track background job for spinner — polls until job completes, then refreshes data
+  const [reprocessJobId, setReprocessJobId] = useState<string | null>(null)
+  const { activeJobs } = useActiveJobs()
+
+  useEffect(() => {
+    if (!reprocessJobId) return
+    const job = activeJobs.find(j => j.id === reprocessJobId)
+    if (!job) {
+      // Job finished (no longer in active list) — refresh data
+      setReprocessJobId(null)
+      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['geo-tags', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-climbs', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-stops', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-intervals', activity.id] })
+      setReprocessState('success')
+      setTimeout(() => setReprocessState('idle'), 2000)
+    }
+  }, [reprocessJobId, activeJobs])
+
   const reprocessMutation = useMutation({
     mutationFn: () => reprocessActivity(activity.id),
     onMutate: () => setReprocessState('loading'),
     onSuccess: (result) => {
       if (result && 'job_id' in result) {
-        // 202 Accepted: multisport background job started — progress visible in header
-        setReprocessState('idle')
+        // 202 Accepted: background job started — keep spinner, poll via useActiveJobs
+        setReprocessJobId(result.job_id)
         setMultisportConfirm(false)
+        // reprocessState stays 'loading' — spinner keeps spinning
         return
       }
       queryClient.setQueryData(['activity', activity.id], result)
