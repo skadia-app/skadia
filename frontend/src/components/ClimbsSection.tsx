@@ -5,6 +5,7 @@ import type { Climb } from '@/api/types'
 
 interface Props {
   activityId: string
+  onClimbHover?: (range: { startKm: number; endKm: number } | null) => void
 }
 
 const categoryStyles: Record<string, { label: string; bg: string; text: string }> = {
@@ -78,8 +79,9 @@ function GradientBar({ pct }: { pct: number }) {
   )
 }
 
-export default function ClimbsSection({ activityId }: Props) {
+export default function ClimbsSection({ activityId, onClimbHover }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+  const [pinnedId, setPinnedId] = useState<string | null>(null)
 
   const { data: climbs = [], isLoading, isError } = useQuery({
     queryKey: ['activity-climbs', activityId],
@@ -132,12 +134,29 @@ export default function ClimbsSection({ activityId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {climbs.map((climb, i) => (
+              {climbs.map((climb, i) => {
+                const range = { startKm: climb.start_distance_m / 1000, endKm: climb.end_distance_m / 1000 }
+                const pinned = pinnedId === climb.id
+                return (
                 <tr
                   key={climb.id}
-                  className={`border-b border-neutral-100 dark:border-neutral-800 transition-colors ${
-                    i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''
+                  className={`border-b border-neutral-100 dark:border-neutral-800 transition-colors cursor-default hover:bg-orange-50 dark:hover:bg-orange-900/10 ${
+                    pinned ? 'bg-orange-50 dark:bg-orange-900/10' : i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''
                   }`}
+                  onMouseEnter={() => onClimbHover?.(range)}
+                  onMouseLeave={() => {
+                    if (pinnedId) {
+                      const p = climbs.find(c => c.id === pinnedId)
+                      if (p) onClimbHover?.({ startKm: p.start_distance_m / 1000, endKm: p.end_distance_m / 1000 })
+                    } else {
+                      onClimbHover?.(null)
+                    }
+                  }}
+                  onClick={() => {
+                    const next = pinned ? null : climb.id
+                    setPinnedId(next)
+                    onClimbHover?.(next ? range : null)
+                  }}
                 >
                   <td className="px-3 py-2 text-center text-xs text-neutral-600 dark:text-neutral-400">
                     {climb.climb_number}
@@ -160,7 +179,8 @@ export default function ClimbsSection({ activityId }: Props) {
                     <CategoryBadge climb={climb} />
                   </td>
                 </tr>
-              ))}
+              )
+              })}
             </tbody>
           </table>
         </div>
