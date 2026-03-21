@@ -183,11 +183,12 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 		progressFn(0, "discovering", len(tileIDs))
 	}
 
-	// Default worker count.
+	// Default worker count: up to 4 parallel tile builds.
+	// Each tile needs ~3 DB connections (COUNT removed → 2 now) and ~2-4 GB RAM.
 	if workers <= 0 {
 		workers = max(runtime.NumCPU()/4, 1)
-		if workers > 2 {
-			workers = 2
+		if workers > 4 {
+			workers = 4
 		}
 	}
 	slog.Info("tile build parallelism", "workers", workers)
