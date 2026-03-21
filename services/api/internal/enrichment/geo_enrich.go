@@ -58,7 +58,7 @@ func allGeoEnabled() GeoEnrichmentSettings {
 var geoEnrichSem = make(chan struct{}, 1)
 
 // RunGeoEnrichment executes geo-enrichment queries directly in Go SQL.
-// It covers peaks, settlements, forests, water, borders, and surfaces.
+// It covers peaks, settlements, forests, water, and borders.
 // Lifts are handled by the Python ML service (segment matching + heuristic detection).
 // Each module is gated by the corresponding flag in settings; pass
 // allGeoEnabled() to run every module regardless of user preferences.
@@ -73,7 +73,7 @@ var geoEnrichSem = make(chan struct{}, 1)
 // Track source: activity_tracks.track_full (identical to the Python code).
 // Queries use ST_Simplify(track_full, 0.00005) (~5.5 m tolerance) to reduce
 // 40k-point tracks to ~4-6k points for spatial lookups — the stored track is
-// never modified. Tolerance chosen to be safe for tightest DWithin (surfaces: 10m).
+// never modified. Tolerance chosen to be safe for tightest DWithin (water: 50m).
 func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, settings GeoEnrichmentSettings) error {
 	// Acquire global slot — blocks until the currently running enrichment
 	// (if any) finishes, or until ctx is cancelled.

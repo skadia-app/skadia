@@ -239,7 +239,7 @@ func persistSurfaceResults(
 		batch.Queue(
 			`INSERT INTO activity_surfaces
 			    (activity_id, category, surface_type, path_type, length_m, percentage)
-			VALUES ($1, $2, $3, '', $4, $5)`,
+			VALUES ($1, $2, $3, '-', $4, $5)`,
 			activityID, "surface", s.Type, s.LengthM, s.Percentage,
 		)
 	}
@@ -248,7 +248,7 @@ func persistSurfaceResults(
 		batch.Queue(
 			`INSERT INTO activity_surfaces
 			    (activity_id, category, surface_type, path_type, length_m, percentage)
-			VALUES ($1, 'highway', '', $2, $3, $4)`,
+			VALUES ($1, 'highway', '-', $2, $3, $4)`,
 			activityID, h.Type, h.LengthM, h.Percentage,
 		)
 	}

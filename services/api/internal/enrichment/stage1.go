@@ -345,7 +345,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		geoSettings = geoSettingsFromModel(enrichSettings)
 	}
 
-	// Geo enrichment (peaks, settlements, forests, water, borders, lifts, surfaces) — Go SQL, no NATS.
+	// Geo enrichment (peaks, settlements, forests, water, borders) — Go SQL, no NATS.
 	// Best-effort: failures are logged but do not block the Stage-2 event.
 	if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
 		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
@@ -361,16 +361,16 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// Surfaces enrichment — separated from RunGeoEnrichment because it needs
-	// its own orchestration (Graph preferred, SQL fallback).
-	surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-	// Load stream for graph path (nil if skipStreamEnrichment — stream not yet available)
-	var surfStream []EnrichmentStreamPoint
-	if !skipStreamEnrichment && graphReader != nil {
-		surfStream, _ = getEnrichmentStream(ctx, db, activityID)
-	}
-	if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
-		slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	// Surfaces enrichment — requires GPS track data.
+	if data.HasGPS {
+		surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+		var surfStream []EnrichmentStreamPoint
+		if !skipStreamEnrichment && graphReader != nil {
+			surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+		}
+		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+			slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
 	}
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
