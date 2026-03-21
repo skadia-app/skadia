@@ -77,7 +77,9 @@ function JobRow({ job }: { job: ActiveJob }) {
         : job.job_type === 'phash_backfill'
         ? `${job.progress_current} / ${job.progress_total} Fotos analysiert`
         : job.job_type === 'tile_build'
-        ? `${job.progress_current} / ${job.progress_total} Tiles`
+        ? job.phase?.startsWith('landmarks:')
+          ? job.phase
+          : `${job.progress_current} / ${job.progress_total} Tiles`
         : job.job_type === 'activity_recompute_all' || job.job_type === 'activity_recompute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten`
         : `${Math.round((job.progress_current / job.progress_total) * 100)}%`

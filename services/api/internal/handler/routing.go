@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -271,6 +272,9 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
 					_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(pct))
+				} else if tileID == math.MaxUint32 {
+					// Landmark preprocessing phase — update phase column for UI display
+					_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, step)
 				} else if pct == 100 {
 					// Only count once per tile — sync.Map handles concurrent workers.
 					if _, loaded := countedTiles.LoadOrStore(tileID, true); !loaded {
