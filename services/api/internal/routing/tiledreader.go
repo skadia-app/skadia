@@ -3,10 +3,10 @@ package routing
 
 import (
 	"container/list"
-	"math"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sync/singleflight"
 
@@ -16,8 +16,9 @@ import (
 // TiledGraphReader implements GraphReader with on-demand tile loading,
 // LRU cache, singleflight dedup, and transparent border-node expansion.
 type TiledGraphReader struct {
-	tileDir string
-	cache   *tiledCache
+	tileDir     string
+	cache       *tiledCache
+	cachedLMeta atomic.Pointer[graph.LandmarkMetaData]
 }
 
 // NewTiledGraphReader creates a reader with configurable cache size.
@@ -28,9 +29,19 @@ func NewTiledGraphReader(tileDir string, maxBytes int64) *TiledGraphReader {
 	}
 }
 
+// tile loads (or retrieves from cache) a tile graph and opportunistically
+// populates the reader-level LandmarkMeta atomic on first encounter (W2).
+func (r *TiledGraphReader) tile(tileID uint32) *graph.Graph {
+	g := r.cache.getOrLoad(tileID, r.tileDir)
+	if g != nil && g.LandmarkMeta != nil && r.cachedLMeta.Load() == nil {
+		r.cachedLMeta.CompareAndSwap(nil, g.LandmarkMeta)
+	}
+	return g
+}
+
 func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 	tileID, localID := SplitGlobalNodeID(nodeID)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil {
 		return
 	}
@@ -61,7 +72,7 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 		})
 
 		for _, neighborTileID := range graph.NeighborTileIDs(tileID) {
-			gNeighbor := r.cache.getOrLoad(neighborTileID, r.tileDir)
+			gNeighbor := r.tile(neighborTileID)
 			if gNeighbor == nil || gNeighbor.BorderIndex == nil {
 				continue
 			}
@@ -90,7 +101,7 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 
 func (r *TiledGraphReader) NodeCoord(nodeID uint64) (lat, lon, ele int32) {
 	tileID, localID := SplitGlobalNodeID(nodeID)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil {
 		return 0, 0, 0
 	}
@@ -99,7 +110,7 @@ func (r *TiledGraphReader) NodeCoord(nodeID uint64) (lat, lon, ele int32) {
 
 func (r *TiledGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool) {
 	primaryTileID := graph.TileIDFromCoord(lat, lon)
-	g := r.cache.getOrLoad(primaryTileID, r.tileDir)
+	g := r.tile(primaryTileID)
 	if g == nil {
 		return 0, 0, false
 	}
@@ -120,7 +131,7 @@ func (r *TiledGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool)
 
 	if nearBorder {
 		for _, neighborTileID := range graph.NeighborTileIDs(primaryTileID) {
-			gNeighbor := r.cache.getOrLoad(neighborTileID, r.tileDir)
+			gNeighbor := r.tile(neighborTileID)
 			if gNeighbor == nil {
 				continue
 			}
@@ -142,7 +153,7 @@ func (r *TiledGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool)
 
 func (r *TiledGraphReader) EdgeElevProfile(handle uint64) ([]int32, []uint16) {
 	tileID, edgeIdx := SplitGlobalNodeID(handle)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil {
 		return nil, nil
 	}
@@ -166,7 +177,7 @@ func (r *TiledGraphReader) EdgeElevProfile(handle uint64) ([]int32, []uint16) {
 
 func (r *TiledGraphReader) EdgeGeometry(handle uint64) ([]int32, []int32) {
 	tileID, edgeIdx := SplitGlobalNodeID(handle)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil {
 		return nil, nil
 	}
@@ -184,7 +195,7 @@ func (r *TiledGraphReader) EdgeGeometry(handle uint64) ([]int32, []int32) {
 
 func (r *TiledGraphReader) EdgeOSMID(handle uint64) int64 {
 	tileID, edgeIdx := SplitGlobalNodeID(handle)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil || len(g.EdgeOSMIdx) == 0 || len(g.OSMIDPool) == 0 {
 		return 0
 	}
@@ -195,38 +206,9 @@ func (r *TiledGraphReader) EdgeOSMID(handle uint64) int64 {
 	return g.OSMIDPool[osmIdx]
 }
 
-func (r *TiledGraphReader) LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32 {
-	nodeTileID, nodeLocalID := SplitGlobalNodeID(nodeID)
-	dstTileID, dstLocalID := SplitGlobalNodeID(dstID)
-	nodeGraph := r.cache.getOrLoad(nodeTileID, r.tileDir)
-	dstGraph := r.cache.getOrLoad(dstTileID, r.tileDir)
-	if nodeGraph == nil || dstGraph == nil {
-		return 0
-	}
-	nodeDists := nodeGraph.LandmarkDists(graph.LandmarkSetID(setID), nodeLocalID)
-	dstDists := dstGraph.LandmarkDists(graph.LandmarkSetID(setID), dstLocalID)
-	if nodeDists == nil || dstDists == nil {
-		return 0
-	}
-	var best float32
-	for k := range LandmarksPerSet {
-		if nodeDists[k] >= math.MaxFloat32 || dstDists[k] >= math.MaxFloat32 {
-			continue
-		}
-		diff := nodeDists[k] - dstDists[k]
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > best {
-			best = diff
-		}
-	}
-	return best
-}
-
 func (r *TiledGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {
 	tileID, localID := SplitGlobalNodeID(nodeID)
-	g := r.cache.getOrLoad(tileID, r.tileDir)
+	g := r.tile(tileID)
 	if g == nil {
 		return nil
 	}
@@ -234,11 +216,17 @@ func (r *TiledGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []f
 }
 
 func (r *TiledGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
+	if m := r.cachedLMeta.Load(); m != nil {
+		return m
+	}
+	// Fall through to cache scan — only happens until the first tile with
+	// landmark data is loaded, after which the atomic is populated.
 	r.cache.mu.Lock()
 	defer r.cache.mu.Unlock()
 	for _, elem := range r.cache.items {
 		ce := elem.Value.(*tiledCacheEntry)
 		if ce.g != nil && ce.g.LandmarkMeta != nil {
+			r.cachedLMeta.Store(ce.g.LandmarkMeta)
 			return ce.g.LandmarkMeta
 		}
 	}

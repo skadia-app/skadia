@@ -2,8 +2,6 @@
 package routing
 
 import (
-	"math"
-
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
@@ -58,10 +56,6 @@ type GraphReader interface {
 	EdgeOSMID(handle uint64) int64
 
 	// === ALT Heuristic ===
-
-	// LandmarkLowerBound returns the max(|d(node,lk) - d(dst,lk)|) lower bound
-	// for the given cost-config set. Returns 0 if landmarks not available.
-	LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32
 
 	// LandmarkDists returns precomputed distances from nodeID to all 16 landmarks
 	// for the given set. Returns nil if not available.
@@ -161,30 +155,6 @@ func (r *SingleGraphReader) EdgeOSMID(handle uint64) int64 {
 		return 0
 	}
 	return g.OSMIDPool[osmIdx]
-}
-
-func (r *SingleGraphReader) LandmarkLowerBound(nodeID, dstID uint64, setID LandmarkSetID) float32 {
-	_, nodeLocal := SplitGlobalNodeID(nodeID)
-	_, dstLocal := SplitGlobalNodeID(dstID)
-	nodeDists := r.G.LandmarkDists(graph.LandmarkSetID(setID), nodeLocal)
-	dstDists := r.G.LandmarkDists(graph.LandmarkSetID(setID), dstLocal)
-	if nodeDists == nil || dstDists == nil {
-		return 0
-	}
-	var best float32
-	for k := range LandmarksPerSet {
-		if nodeDists[k] >= math.MaxFloat32 || dstDists[k] >= math.MaxFloat32 {
-			continue
-		}
-		diff := nodeDists[k] - dstDists[k]
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > best {
-			best = diff
-		}
-	}
-	return best
 }
 
 func (r *SingleGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {

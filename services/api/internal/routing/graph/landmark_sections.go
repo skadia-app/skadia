@@ -176,7 +176,11 @@ func (idx *DenseIndex) ToDense(globalNodeID uint64) uint32 {
 	if !ok {
 		return math.MaxUint32
 	}
-	return offset + localID
+	dense := offset + localID
+	if dense >= idx.TotalNodes {
+		return math.MaxUint32
+	}
+	return dense
 }
 
 // LandmarkCandidate is a node selected as a potential ALT landmark.
