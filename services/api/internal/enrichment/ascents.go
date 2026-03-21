@@ -7,24 +7,35 @@ import (
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 const (
-	ascentMinGradientPct  = 3.0   // default minimum average gradient (%)
-	ascentMinElevationM   = 20.0  // default minimum elevation gain (m)
-	ascentMinLengthM      = 100.0 // minimum segment length (m)
-	ascentSmoothingWindow = 21    // Savitzky-Golay window size (reduced for Smart Recording)
-	ascentPolyOrder       = 3     // polynomial order for SG filter
+	ascentMinGradientPct = 3.0   // default minimum average gradient (%)
+	ascentMinElevationM  = 20.0  // default minimum elevation gain (m)
+	ascentMinLengthM     = 100.0 // minimum segment length (m)
 )
+
+// ascent holds the intermediate data for a detected ascending segment.
+type ascent struct {
+	startDistM    float64
+	endDistM      float64
+	lengthM       float64
+	elevationGain float64
+	avgGradient   float64
+	maxGradient   float64
+}
 
 // enrichStreamAscents is the Go port of services/ml/enrichment/ascents.py.
 //
 // Algorithm:
 //  1. Load per-user thresholds from user_enrichment_settings.
-//  2. Filter altitude + distance points from the shared stream (both must be non-nil).
-//  3. Apply Savitzky-Golay (window=21, polyorder=3) to smooth altitude.
-//  4. Detect ascending segments and filter by elevation gain, length, gradient.
-//  5. DELETE existing activity_climbs + INSERT fresh results.
+//  2. Load sport group for sport-adaptive classification.
+//  3. Filter altitude + distance points from the shared stream (both must be non-nil).
+//  4. Apply unified SmoothElevation (resample 5m + SG) to smooth altitude.
+//  5. Detect ascending segments and filter by elevation gain, length, gradient.
+//  6. Merge adjacent ascents separated by shallow dips (<3m, <50m).
+//  7. DELETE existing activity_climbs + INSERT fresh results.
 func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
 	// 1. Load user thresholds.
 	minGradient := ascentMinGradientPct
@@ -46,7 +57,17 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 	}
 	// Ignore "no rows" — defaults remain.
 
-	// 2. Filter to points where altitude_m and distance_m are both non-nil.
+	// 2. Load sport group for sport-adaptive classification.
+	var sportType string
+	_ = db.Pool.QueryRow(ctx,
+		"SELECT sport_type FROM activities WHERE id = $1", activityID,
+	).Scan(&sportType)
+	sportGroup := "generic"
+	if def, ok := sport.GetSportDef(sportType); ok {
+		sportGroup = def.SegmentGroup
+	}
+
+	// 3. Filter to points where altitude_m and distance_m are both non-nil.
 	var altitudes, distances []float64
 	for _, sp := range stream {
 		if sp.AltitudeM == nil || sp.DistanceM == nil {
@@ -56,32 +77,15 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		distances = append(distances, *sp.DistanceM)
 	}
 
-	// 3. Need an absolute minimum of 7 points for poly-3 SG filter.
-	if len(altitudes) < 7 {
+	// 4. Need an absolute minimum of 3 points for SmoothElevation.
+	if len(altitudes) < 3 {
 		return nil
 	}
 
-	// Apply Savitzky-Golay filter (window up to 51, polyorder=3).
-	window := min(ascentSmoothingWindow, len(altitudes))
-	if window%2 == 0 {
-		window--
-	}
-	if window < 5 {
-		return nil
-	}
+	// Apply unified elevation filter (resample 5m + SG window=7 poly=2).
+	smoothed := SmoothElevation(altitudes, distances)
 
-	smoothed := sgFilter(altitudes, window, ascentPolyOrder)
-
-	// 4. Find ascending segments and filter.
-	type ascent struct {
-		startDistM    float64
-		endDistM      float64
-		lengthM       float64
-		elevationGain float64
-		avgGradient   float64
-		maxGradient   float64
-	}
-
+	// 5. Find ascending segments and filter.
 	var ascents []ascent
 	inAscent := false
 	startIdx := 0
@@ -103,8 +107,9 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		maxGrad := 0.0
 		for i := si; i < ei; i++ {
 			segDist := distances[i+1] - distances[i]
-			if segDist > 0 {
+			if segDist >= 5.0 { // min 5m (= resample interval)
 				g := (smoothed[i+1] - smoothed[i]) / segDist * 100
+				g = min(g, 200.0) // sanity cap: alpine Steilstufen bis ~150% real
 				if g > maxGrad {
 					maxGrad = g
 				}
@@ -136,7 +141,10 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 		maybeAdd(startIdx, len(smoothed)-1)
 	}
 
-	// 5. Delete existing climbs + insert fresh results.
+	// 6. Merge adjacent ascents separated by shallow dips (<3m elevation, <50m distance).
+	ascents = mergeShallowDips(ascents, smoothed, distances, 3.0, 50.0)
+
+	// 7. Delete existing climbs + insert fresh results.
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_climbs WHERE activity_id = $1",
 		activityID,
@@ -149,16 +157,23 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 	}
 
 	for idx, a := range ascents {
+		sportClass := classifyClimbSportClass(a.elevationGain, a.avgGradient, sportGroup)
+		var sportClassPtr *string
+		if sportClass != "" {
+			sportClassPtr = &sportClass
+		}
+
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO activity_climbs
 			    (activity_id, climb_number, start_distance_m, end_distance_m,
 			     length_m, elevation_gain_m, avg_gradient_pct, max_gradient_pct,
-			     category)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			     category, sport_class)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		`, activityID, idx+1,
 			a.startDistM, a.endDistM, a.lengthM, a.elevationGain,
 			a.avgGradient, a.maxGradient,
 			classifyClimb(a.elevationGain, a.avgGradient),
+			sportClassPtr,
 		); err != nil {
 			slog.Warn("ascents: insert climb failed",
 				"activity_id", activityID,
@@ -177,6 +192,8 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 
 // classifyClimb returns a standard cycling climb category (HC, 1–4) based on
 // elevation gain (meters) and average gradient (percent).
+// This value is stored in activity_climbs.category for all sports
+// (backward compatible with rules engine and gear.go which cast to int).
 func classifyClimb(elevationGain, avgGradient float64) string {
 	switch {
 	case elevationGain >= 1500 || (elevationGain >= 1000 && avgGradient >= 7):
@@ -192,144 +209,110 @@ func classifyClimb(elevationGain, avgGradient float64) string {
 	}
 }
 
-// sgFilter applies a Savitzky-Golay filter with arbitrary odd window and polynomial order.
-// It computes the center-point coefficient vector once and applies it with edge reflection.
-// This is the general implementation required for window=21, polyorder=3 used in ascents.
-func sgFilter(data []float64, window, polyOrder int) []float64 {
-	n := len(data)
-	coeffs := sgCoefficients(window, polyOrder)
-	half := window / 2
-	result := make([]float64, n)
-
-	for i := range n {
-		val := 0.0
-		for j, c := range coeffs {
-			idx := i - half + j
-			// Reflect at boundaries.
-			if idx < 0 {
-				idx = -idx - 1
-			}
-			if idx >= n {
-				idx = 2*(n-1) - idx
-			}
-			// Clamp as fallback.
-			if idx < 0 {
-				idx = 0
-			}
-			if idx >= n {
-				idx = n - 1
-			}
-			val += c * data[idx]
-		}
-		result[i] = val
+// classifyClimbSportClass returns a sport-specific classification.
+// Stored in activity_climbs.sport_class (new column, does not break existing code).
+// Returns "" for bike (cycling uses category HC/1-4) and unknown sport groups.
+func classifyClimbSportClass(elevationGain, avgGradient float64, sportGroup string) string {
+	switch sportGroup {
+	case "foot":
+		return classifyClimbHiking(avgGradient)
+	case "bike":
+		return "" // cycling uses category (HC/1-4), no separate sport_class
+	default:
+		return classifyClimbGeneric(elevationGain)
 	}
-	return result
 }
 
-// sgCoefficients computes the Savitzky-Golay convolution coefficients for the
-// center point of a window of size `window` and polynomial order `polyOrder`.
-//
-// Method: least-squares polynomial fit via normal equations.
-// The coefficient vector c satisfies: c = (A^T A)^{-1} A^T e_m
-// where A is the Vandermonde matrix of positions [-half..+half] and e_m
-// is the unit vector selecting the center row of the fit (m = 0).
-// Equivalently, c[j] = (A (A^T A)^{-1} A^T)_{center,j} which equals
-// the j-th element of the hat matrix row for the center point.
-//
-// We compute it numerically using Gram-Schmidt orthogonalization
-// (equivalent to the closed-form Gram polynomial approach).
-func sgCoefficients(window, polyOrder int) []float64 {
-	half := window / 2
-	m := polyOrder + 1 // number of basis polynomials
-
-	// Build Vandermonde matrix A (window × m): A[i][k] = (i-half)^k
-	A := make([][]float64, window)
-	for i := range window {
-		x := float64(i - half)
-		A[i] = make([]float64, m)
-		xk := 1.0
-		for k := range m {
-			A[i][k] = xk
-			xk *= x
-		}
+// classifyClimbHiking returns a hiking-specific gradient classification (S1–S5).
+func classifyClimbHiking(avgGradient float64) string {
+	switch {
+	case avgGradient >= 40:
+		return "S5" // extrem steil
+	case avgGradient >= 20:
+		return "S4" // sehr steil
+	case avgGradient >= 10:
+		return "S3" // steil
+	case avgGradient >= 5:
+		return "S2" // moderat
+	default:
+		return "S1" // flach
 	}
-
-	// Compute A^T A (m × m)
-	AtA := make([][]float64, m)
-	for i := range m {
-		AtA[i] = make([]float64, m)
-		for j := range m {
-			for r := range window {
-				AtA[i][j] += A[r][i] * A[r][j]
-			}
-		}
-	}
-
-	// Compute (A^T A)^{-1} via Cholesky or LU — use LU with partial pivoting.
-	inv := matInverse(AtA, m)
-
-	// The filter coefficients for center point (position 0) are:
-	// c[j] = sum_k inv[0][k] * A[j][k]   (k=0..m-1, j=0..window-1)
-	// This is row 0 of (A (A^T A)^{-1} A^T) which gives the hat matrix row.
-	coeffs := make([]float64, window)
-	for j := range window {
-		for k := range m {
-			coeffs[j] += inv[0][k] * A[j][k]
-		}
-	}
-	return coeffs
 }
 
-// matInverse computes the inverse of an m×m matrix using Gaussian elimination
-// with partial pivoting. Returns an m×m inverse matrix.
-func matInverse(a [][]float64, m int) [][]float64 {
-	// Augment with identity.
-	aug := make([][]float64, m)
-	for i := range m {
-		aug[i] = make([]float64, 2*m)
-		copy(aug[i], a[i])
-		aug[i][m+i] = 1.0
+// classifyClimbGeneric returns a generic elevation-based classification.
+func classifyClimbGeneric(elevationGain float64) string {
+	switch {
+	case elevationGain >= 500:
+		return "schwer"
+	case elevationGain >= 200:
+		return "mittel"
+	default:
+		return "leicht"
+	}
+}
+
+// mergeShallowDips merges adjacent ascents separated by dips < maxDipElevM
+// elevation AND < maxDipDistM distance. Requires the smoothed elevation
+// array and corresponding distance array to measure actual dip depth.
+func mergeShallowDips(ascents []ascent, smoothed, distances []float64, maxDipElevM, maxDipDistM float64) []ascent {
+	if len(ascents) < 2 {
+		return ascents
 	}
 
-	// Forward elimination.
-	for col := range m {
-		// Find pivot.
-		pivot := col
-		maxVal := math.Abs(aug[col][col])
-		for row := col + 1; row < m; row++ {
-			if v := math.Abs(aug[row][col]); v > maxVal {
-				maxVal = v
-				pivot = row
+	// Build distance→index lookup for smoothed array (binary search).
+	findIdx := func(distM float64) int {
+		lo, hi := 0, len(distances)-1
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if distances[mid] < distM {
+				lo = mid + 1
+			} else {
+				hi = mid
 			}
 		}
-		aug[col], aug[pivot] = aug[pivot], aug[col]
+		return lo
+	}
 
-		// Scale pivot row.
-		scale := aug[col][col]
-		if math.Abs(scale) < 1e-14 {
+	merged := []ascent{ascents[0]}
+	for i := 1; i < len(ascents); i++ {
+		prev := &merged[len(merged)-1]
+		curr := ascents[i]
+
+		gapDist := curr.startDistM - prev.endDistM
+		if gapDist < 0 || gapDist > maxDipDistM {
+			merged = append(merged, curr)
 			continue
 		}
-		for j := range 2 * m {
-			aug[col][j] /= scale
+
+		// Measure actual dip depth from smoothed elevations.
+		prevEndIdx := findIdx(prev.endDistM)
+		currStartIdx := findIdx(curr.startDistM)
+		if prevEndIdx >= len(smoothed) || currStartIdx >= len(smoothed) {
+			merged = append(merged, curr)
+			continue
 		}
 
-		// Eliminate column.
-		for row := range m {
-			if row == col {
-				continue
-			}
-			factor := aug[row][col]
-			for j := range 2 * m {
-				aug[row][j] -= factor * aug[col][j]
+		endElev := smoothed[prevEndIdx]
+		minElev := endElev
+		for j := prevEndIdx; j <= currStartIdx && j < len(smoothed); j++ {
+			if smoothed[j] < minElev {
+				minElev = smoothed[j]
 			}
 		}
-	}
+		dipElev := endElev - minElev
 
-	// Extract inverse.
-	inv := make([][]float64, m)
-	for i := range m {
-		inv[i] = make([]float64, m)
-		copy(inv[i], aug[i][m:])
+		if dipElev <= maxDipElevM {
+			// Merge: extend prev to include curr.
+			prev.endDistM = curr.endDistM
+			prev.lengthM = prev.endDistM - prev.startDistM
+			prev.elevationGain += curr.elevationGain
+			if prev.lengthM > 0 {
+				prev.avgGradient = math.Round(prev.elevationGain/prev.lengthM*1000) / 10
+			}
+			prev.maxGradient = max(prev.maxGradient, curr.maxGradient)
+		} else {
+			merged = append(merged, curr)
+		}
 	}
-	return inv
+	return merged
 }
