@@ -389,22 +389,9 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 		allStops = detectPOIStops(points, pois)
 	}
 
-	// 4. Speed-based fallback for unnamed stops (not overlapping with POI stops)
-	fallbackStops := detectSpeedFallbackStops(points)
-	for _, fs := range fallbackStops {
-		overlaps := false
-		for _, ps := range allStops {
-			if ps.EndedAt.After(fs.StartedAt) && ps.StartedAt.Before(fs.EndedAt) {
-				overlaps = true
-				break
-			}
-		}
-		if !overlaps {
-			allStops = append(allStops, fs)
-		}
-	}
+	// Speed-fallback stops removed — stops without POI context are not informative.
 
-	// 5. Persist in transaction (DELETE + INSERT atomar — bei Abbruch bleiben alte Daten erhalten)
+	// 4. Persist in transaction (DELETE + INSERT atomar — bei Abbruch bleiben alte Daten erhalten)
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("stops: begin tx: %w", err)
