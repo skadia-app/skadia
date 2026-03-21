@@ -22,7 +22,9 @@ func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uin
 	}
 	costs[src] = 0
 
+	// Pre-allocate frontier to reduce GC pressure during full-graph Dijkstra.
 	frontier := &Frontier{}
+	frontier.entries = make([]FrontierEntry, 0, csr.NodeCount/4)
 	frontier.Push(FrontierEntry{NodeID: uint64(src), Cost: 0})
 
 	expansions := 0
@@ -77,6 +79,12 @@ func BuildLandmarkEdgeCostClosureCSR() graph.EdgeCostFunc {
 // RunUnifiedLandmarkPreprocessing builds a unified CSR from all tiles, selects
 // 16 landmarks, runs Dijkstras, and writes distances back to tile files.
 // This replaces the old per-tile DenseIndex approach with a single flat graph.
+//
+// RunUnifiedLandmarkPreprocessing computes landmarks using Set D only (UphillCost=0,
+// DownhillCost=0). This is admissible for ALL profiles but provides a loose bound
+// for elevation-heavy profiles (Hiking/MTB). Profiles selecting Set A/B/C will
+// degrade to LowerBound()=0 (euclidean-only heuristic) until elevation-aware sets
+// are implemented via unified CSR. Route quality is unaffected — only search speed.
 func RunUnifiedLandmarkPreprocessing(
 	ctx context.Context,
 	tileDir string,
@@ -87,9 +95,11 @@ func RunUnifiedLandmarkPreprocessing(
 	}
 	t0 := time.Now()
 
-	// 1. Build unified CSR from all tiles
+	// 1. Build unified CSR from all tiles.
+	// ScanTilesForLandmarks is called inside BuildUnifiedCSR; the result is returned
+	// directly to avoid a redundant second scan for lat/lon/ele data.
 	progressFn("building unified CSR", 0, 0)
-	csr, nodeMapping, err := graph.BuildUnifiedCSR(ctx, tileDir, BuildLandmarkEdgeCostClosureCSR(), progressFn)
+	csr, nodeMapping, tiles, err := graph.BuildUnifiedCSR(ctx, tileDir, BuildLandmarkEdgeCostClosureCSR(), progressFn)
 	if err != nil {
 		return nil, fmt.Errorf("build unified CSR: %w", err)
 	}
@@ -100,13 +110,6 @@ func RunUnifiedLandmarkPreprocessing(
 		"edges", csr.EdgeCount,
 		"elapsed", time.Since(t0).Round(time.Millisecond),
 	)
-
-	// 2. Scan tiles for lat/lon/ele (needed for SelectLandmarks + write-back)
-	progressFn("scanning tiles", 0, 0)
-	tiles, err := graph.ScanTilesForLandmarks(tileDir)
-	if err != nil {
-		return nil, fmt.Errorf("scan tiles: %w", err)
-	}
 
 	// 3. Select landmarks with farthestDijkstra closure
 	progressFn("selecting landmarks", 0, 16)

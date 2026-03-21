@@ -54,12 +54,14 @@ type EdgeCostFunc func(tags1, tags2 uint64) EdgeCostFactors
 // Border nodes are deduplicated via CoordKeyToInt64. Cross-tile edges arise
 // automatically: the same physical node in 2 tiles gets the same denseID,
 // so local edges from both tiles connect the graph.
+// The returned []TileScanResult is the same slice produced by ScanTilesForLandmarks;
+// callers should reuse it instead of calling ScanTilesForLandmarks again.
 func BuildUnifiedCSR(
 	ctx context.Context,
 	tileDir string,
 	edgeCostFn EdgeCostFunc,
 	progressFn func(step string, current, total int),
-) (*UnifiedCSR, map[uint32][]uint32, error) {
+) (*UnifiedCSR, map[uint32][]uint32, []TileScanResult, error) {
 	if progressFn == nil {
 		progressFn = func(string, int, int) {}
 	}
@@ -69,10 +71,10 @@ func BuildUnifiedCSR(
 	progressFn("scanning tiles", 0, 0)
 	tileFiles, err := ScanTilesForLandmarks(tileDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("scan tiles: %w", err)
+		return nil, nil, nil, fmt.Errorf("scan tiles: %w", err)
 	}
 	if len(tileFiles) == 0 {
-		return nil, nil, fmt.Errorf("no tiles found in %s", tileDir)
+		return nil, nil, nil, fmt.Errorf("no tiles found in %s", tileDir)
 	}
 
 	borderDedup := make(map[int64]uint32, len(tileFiles)*1000) // CoordKey → denseID
@@ -184,7 +186,7 @@ func BuildUnifiedCSR(
 		g, err := DeserializeMmap(tilePath)
 		if err != nil {
 			// MUST match Pass 1 — if this fails but Pass 1 succeeded, abort
-			return nil, nil, fmt.Errorf("tile %d: pass 2 load failed (pass 1 succeeded): %w", tf.TileID, err)
+			return nil, nil, nil, fmt.Errorf("tile %d: pass 2 load failed (pass 1 succeeded): %w", tf.TileID, err)
 		}
 
 		for i := range g.NodeCount {
@@ -230,5 +232,5 @@ func BuildUnifiedCSR(
 
 	_ = ctx // reserved for future cancellation support
 
-	return csr, nodeMapping, nil
+	return csr, nodeMapping, tileFiles, nil
 }
