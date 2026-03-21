@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchActivityClimbs } from '@/api/enrichment'
+import type { Climb } from '@/api/types'
 
 interface Props {
   activityId: string
@@ -14,6 +15,17 @@ const categoryStyles: Record<string, { label: string; bg: string; text: string }
   '4': { label: 'Kat. 4', bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
 }
 
+const sportClassStyles: Record<string, { bg: string; text: string; label: string }> = {
+  S1: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Flach' },
+  S2: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Moderat' },
+  S3: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300', label: 'Steil' },
+  S4: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', label: 'Sehr steil' },
+  S5: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Extrem' },
+  leicht: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Leicht' },
+  mittel: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300', label: 'Mittel' },
+  schwer: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Schwer' },
+}
+
 function gradientColor(pct: number): string {
   if (pct >= 10) return 'bg-red-500'
   if (pct >= 6) return 'bg-yellow-500'
@@ -21,8 +33,9 @@ function gradientColor(pct: number): string {
   return 'bg-neutral-400'
 }
 
-function CategoryBadge({ category }: { category: string }) {
-  const style = categoryStyles[category]
+function CategoryBadge({ climb }: { climb: Climb }) {
+  const displayKey = climb.sport_class ?? climb.category
+  const style = sportClassStyles[displayKey] ?? categoryStyles[climb.category]
   if (!style) {
     return (
       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
@@ -30,9 +43,20 @@ function CategoryBadge({ category }: { category: string }) {
       </span>
     )
   }
+  const isSportClass = climb.sport_class != null && sportClassStyles[climb.sport_class] != null
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${style.bg} ${style.text}`}>
-      {style.label}
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold ${style.bg} ${style.text}`}
+      title={isSportClass ? `${climb.sport_class} — ${style.label}` : style.label}
+    >
+      {isSportClass ? (
+        <>
+          <span>{climb.sport_class}</span>
+          <span className="font-normal opacity-75">{style.label}</span>
+        </>
+      ) : (
+        style.label
+      )}
     </span>
   )
 }
@@ -133,7 +157,7 @@ export default function ClimbsSection({ activityId }: Props) {
                     <GradientBar pct={climb.max_gradient_pct} />
                   </td>
                   <td className="px-3 py-2 text-center">
-                    <CategoryBadge category={climb.category} />
+                    <CategoryBadge climb={climb} />
                   </td>
                 </tr>
               ))}
