@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -264,15 +265,15 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
 		workers := 2
 		var tilesBuilt atomic.Int64
-		var lastReportedTile atomic.Uint32
+		var countedTiles sync.Map // tileID → true, prevents double-counting
 		err := h.GraphManager.RebuildTiles(ctx, h.DB.Pool, tileDir, tileCacheBytes,
 			hgtDirs, workers, filterBBox, req.Force,
 			func(tileID uint32, step string, pct int) {
 				if step == "discovering" {
 					_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(pct))
 				} else if pct == 100 {
-					// Only count once per tile (multiple steps report pct=100).
-					if lastReportedTile.Swap(tileID) != tileID {
+					// Only count once per tile — sync.Map handles concurrent workers.
+					if _, loaded := countedTiles.LoadOrStore(tileID, true); !loaded {
 						n := tilesBuilt.Add(1)
 						_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, n)
 					}
