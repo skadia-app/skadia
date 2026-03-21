@@ -727,7 +727,10 @@ ALL_TOOL_DEFINITIONS = [
                 "Query spatial coverage data at a location. Returns 0–255 values from "
                 "Coverage Grid layers. Use for 'Wie viel Wald?', 'Ist es laut hier?', "
                 "'Wie urbanisiert ist diese Gegend?', 'Gibt es Gewässer in der Nähe?'. "
-                "Values are uint8 (0=none, 255=maximum); -1 means layer unavailable."
+                "Values are uint8 (0=none, 255=maximum); -1 means layer unavailable. "
+                "Use this instead of run_sql on osm_ways coverage columns "
+                "(noise_score, forest_pct, etc.) — those columns may be NULL when "
+                "Phase 1 enrichment is disabled."
             ),
             "parameters": {
                 "type": "object",
