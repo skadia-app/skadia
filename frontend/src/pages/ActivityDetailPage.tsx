@@ -825,13 +825,10 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   })
 
   // Track background recompute jobs — spinner stays active across page reloads
-  const { activeJobs } = useActiveJobs()
+  const { isJobActiveForEntity } = useActiveJobs()
 
   // On mount + whenever activeJobs changes: check if a recompute job exists for THIS activity
-  const hasActiveRecomputeJob = activeJobs.some(
-    j => j.entity_id === activity.id &&
-         (j.job_type === 'activity_recompute_all' || j.job_type === 'recompute_multisport')
-  )
+  const hasActiveRecomputeJob = isJobActiveForEntity(activity.id)
   const prevHadJob = useRef(false)
 
   useEffect(() => {
