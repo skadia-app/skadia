@@ -335,30 +335,45 @@ export default function MultisportEnrichments({ childActivities }: Props) {
     .filter(s => s.duration_s >= 120)
     .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
 
-  // Merge surfaces: aggregate by surface_type
-  const surfaceMap = new Map<string, { length_m: number; path_type: string }>()
-  for (const q of surfaceQueries) {
-    for (const s of (q.data ?? [])) {
-      const existing = surfaceMap.get(s.surface_type)
-      if (existing) {
-        existing.length_m += s.length_m
-      } else {
-        surfaceMap.set(s.surface_type, { length_m: s.length_m, path_type: s.path_type })
-      }
-    }
+  // Merge surfaces: separate by category, then aggregate
+  const allSurfaceData = surfaceQueries.flatMap(q => q.data ?? [])
+
+  // Surface dimension
+  const surfaceMap = new Map<string, number>()
+  for (const s of allSurfaceData.filter(s => s.category === 'surface' || !s.category)) {
+    const key = s.surface_type || s.path_type // legacy fallback
+    surfaceMap.set(key, (surfaceMap.get(key) ?? 0) + s.length_m)
   }
-  const totalSurfaceLength = [...surfaceMap.values()].reduce((sum, s) => sum + s.length_m, 0)
+  const totalSurfaceLength = [...surfaceMap.values()].reduce((sum, l) => sum + l, 0)
   const mergedSurfaces: ActivitySurface[] = [...surfaceMap.entries()]
-    .map(([surface_type, { length_m, path_type }]) => ({
+    .map(([surface_type, length_m]) => ({
       id: surface_type,
+      category: 'surface' as const,
       surface_type,
-      path_type,
+      path_type: '',
       length_m,
       percentage: totalSurfaceLength > 0 ? (length_m / totalSurfaceLength) * 100 : 0,
     }))
     .sort((a, b) => b.length_m - a.length_m)
 
-  if (mergedGeoTags.length === 0 && allStops.length === 0 && mergedSurfaces.length === 0) {
+  // Highway dimension
+  const highwayMap = new Map<string, number>()
+  for (const s of allSurfaceData.filter(s => s.category === 'highway')) {
+    highwayMap.set(s.path_type, (highwayMap.get(s.path_type) ?? 0) + s.length_m)
+  }
+  const totalHighwayLength = [...highwayMap.values()].reduce((sum, l) => sum + l, 0)
+  const mergedHighways: ActivitySurface[] = [...highwayMap.entries()]
+    .map(([path_type, length_m]) => ({
+      id: path_type,
+      category: 'highway' as const,
+      surface_type: '',
+      path_type,
+      length_m,
+      percentage: totalHighwayLength > 0 ? (length_m / totalHighwayLength) * 100 : 0,
+    }))
+    .sort((a, b) => b.length_m - a.length_m)
+
+  if (mergedGeoTags.length === 0 && allStops.length === 0 && mergedSurfaces.length === 0 && mergedHighways.length === 0) {
     return null
   }
 
@@ -378,10 +393,17 @@ export default function MultisportEnrichments({ childActivities }: Props) {
         </CollapsibleSection>
       )}
 
+      {/* Wegearten */}
+      {mergedHighways.length > 0 && (
+        <CollapsibleSection title="Wegearten">
+          <SurfacesDisplay surfaces={mergedHighways} dimension="highway" />
+        </CollapsibleSection>
+      )}
+
       {/* Oberflächen */}
       {mergedSurfaces.length > 0 && (
         <CollapsibleSection title="Oberflächen">
-          <SurfacesDisplay surfaces={mergedSurfaces} />
+          <SurfacesDisplay surfaces={mergedSurfaces} dimension="surface" />
         </CollapsibleSection>
       )}
     </div>
@@ -490,43 +512,56 @@ function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
   )
 }
 
-function SurfacesDisplay({ surfaces }: { surfaces: ActivitySurface[] }) {
-  // Filter to surface category only; fall back to all rows for legacy data without category
-  const surfaceRows = surfaces.filter(s => s.category === 'surface')
-  const displayed = surfaceRows.length > 0 ? surfaceRows : surfaces
+const HIGHWAY_COLORS: Record<string, string> = {
+  primary: '#1e40af', secondary: '#2563eb', tertiary: '#3b82f6',
+  unclassified: '#60a5fa', residential: '#93c5fd', living_street: '#bfdbfe',
+  service: '#6b7280', track: '#a16207', path: '#166534', footway: '#15803d',
+  cycleway: '#0891b2', bridleway: '#854d0e', steps: '#78716c', pedestrian: '#64748b',
+  motorway: '#991b1b', trunk: '#7f1d1d', offroad: '#b91c1c', unknown: '#d1d5db',
+}
+
+const HIGHWAY_LABELS: Record<string, string> = {
+  primary: 'Bundesstraße', secondary: 'Landstraße', tertiary: 'Kreisstraße',
+  unclassified: 'Gemeindestraße', residential: 'Wohnstraße', living_street: 'Spielstraße',
+  service: 'Zufahrtsweg', track: 'Feldweg', path: 'Pfad', footway: 'Fußweg',
+  cycleway: 'Radweg', bridleway: 'Reitweg', steps: 'Treppen', pedestrian: 'Fußgängerzone',
+  motorway: 'Schnellstraße', trunk: 'Schnellstraße', offroad: 'Offroad', unknown: 'Unbekannt',
+}
+
+function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: ActivitySurface[]; dimension?: 'surface' | 'highway' }) {
+  const colorMap = dimension === 'highway' ? HIGHWAY_COLORS : SURFACE_COLORS
+  const labelMap = dimension === 'highway' ? HIGHWAY_LABELS : SURFACE_LABELS
+  const typeKey = dimension === 'highway' ? 'path_type' : 'surface_type'
 
   return (
     <div className="space-y-3">
-      {/* Stacked bar */}
       <div className="flex h-4 rounded-full overflow-hidden gap-0.5">
-        {displayed.map(s => (
-          <div
-            key={s.id}
-            style={{
-              width: `${s.percentage}%`,
-              backgroundColor: SURFACE_COLORS[s.surface_type] ?? '#9ca3af',
-            }}
-            title={`${SURFACE_LABELS[s.surface_type] ?? s.surface_type}: ${s.percentage.toFixed(0)}%`}
-          />
-        ))}
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 text-xs text-neutral-600 dark:text-neutral-400">
-        {displayed.map(s => (
-          <span key={s.id} className="flex items-center gap-1.5">
-            <span
-              className="w-2.5 h-2.5 rounded-full inline-block"
-              style={{ backgroundColor: SURFACE_COLORS[s.surface_type] ?? '#9ca3af' }}
+        {surfaces.map(s => {
+          const key = s[typeKey] || s.surface_type
+          return (
+            <div
+              key={s.id}
+              style={{ width: `${s.percentage}%`, backgroundColor: colorMap[key] ?? '#9ca3af' }}
+              title={`${labelMap[key] ?? key}: ${s.percentage.toFixed(0)}%`}
             />
-            {SURFACE_LABELS[s.surface_type] ?? s.surface_type}
-            <span className="tabular-nums">{s.percentage.toFixed(0)}%</span>
-            {s.length_m >= 1000
-              ? <span className="text-neutral-400">({(s.length_m / 1000).toFixed(1)} km)</span>
-              : <span className="text-neutral-400">({Math.round(s.length_m)} m)</span>
-            }
-          </span>
-        ))}
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs text-neutral-600 dark:text-neutral-400">
+        {surfaces.map(s => {
+          const key = s[typeKey] || s.surface_type
+          return (
+            <span key={s.id} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: colorMap[key] ?? '#9ca3af' }} />
+              {labelMap[key] ?? key}
+              <span className="tabular-nums">{s.percentage.toFixed(0)}%</span>
+              {s.length_m >= 1000
+                ? <span className="text-neutral-400">({(s.length_m / 1000).toFixed(1)} km)</span>
+                : <span className="text-neutral-400">({Math.round(s.length_m)} m)</span>
+              }
+            </span>
+          )
+        })}
       </div>
     </div>
   )
