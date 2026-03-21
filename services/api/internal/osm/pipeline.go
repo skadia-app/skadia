@@ -749,7 +749,8 @@ func buildParallelIndexGroups(categories []string) [][]string {
 
 	allIndexes := []indexDef{
 		{"lifts", "osm_lifts_geog_idx", "osm_lifts", "USING gist ((geom::geography))"},
-		{"ways", "osm_ways_geog_idx", "osm_ways", "USING gist ((geom::geography))"},
+		// osm_ways_geog_idx removed — 6.6 GB unused index (Migration 000194).
+		// No query uses ST_DWithin/ST_Distance on osm_ways with geography cast.
 		{"waterways", "osm_waterways_geog_idx", "osm_waterways", "USING gist ((geom::geography))"},
 		{"waterways", "osm_waters_geog_idx", "osm_waters", "USING gist ((geom::geography))"},
 		{"forests", "osm_forests_geog_idx", "osm_forests", "USING gist (geom)"},
