@@ -37,6 +37,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     komoot_import:           'Komoot-Import',
     activity_recompute_all:  'Alle Aktivitäten neu berechnen',
     activity_recompute:      'Aktivität neu berechnen',
+    activity_re_enrich:      'Enrichment-Update',
     recompute_multisport:    'Multisport neu berechnen',
     photo_preview_recompute: 'Foto-Vorschaubilder neu erstellen',
     photo_thumb_recompute:   'Foto-Thumbnails neu erstellen',

@@ -17,6 +17,7 @@ const jobTypeLabels: Record<string, string> = {
   phash_backfill:          'pHash-Berechnung',
   recompute_multisport:    'Multisport-Neuberechnung',
   tile_build:              'Routing-Tiles erstellen',
+  activity_re_enrich:      'Enrichment-Update',
 }
 
 export type { ActiveJob }
