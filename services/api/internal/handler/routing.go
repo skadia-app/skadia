@@ -299,6 +299,50 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RebuildLandmarks runs ONLY the landmark preprocessing on existing tiles.
+// Does NOT rebuild tiles. Use when tiles exist but landmarks need recomputing.
+// POST /admin/routing/rebuild-landmarks
+func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
+	if h.GraphManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
+		return
+	}
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		return
+	}
+
+	graphPath := h.Config.RoutingGraphPath
+	if graphPath == "" {
+		graphPath = "/data/routing/graph.bin"
+	}
+	tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
+
+	entityName := "Landmarks"
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "tile_build", nil, &entityName, 0)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
+		return
+	}
+
+	shutdown.Go(jobID, func(ctx context.Context) {
+		meta, landmarkErr := routing.RunUnifiedLandmarkPreprocessing(ctx, tileDir,
+			func(step string, current, total int) {
+				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, step)
+			})
+		if landmarkErr != nil {
+			slog.Error("landmark rebuild failed", "error", landmarkErr, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, landmarkErr.Error())
+		} else {
+			slog.Info("landmark rebuild completed", "job_id", jobID, "landmarks", meta.LandmarkCount)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
+		}
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "started", "job_id": jobID})
+}
+
 // BuildBRouterSegments builds BRouter rd5 segment files from local PBF data.
 // This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
 // POST /admin/routing/build-brouter-segments

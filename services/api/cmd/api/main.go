@@ -363,6 +363,7 @@ func main() {
 			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
 			r.Get("/admin/dem-status", h.GetDEMStatus)
 			r.Post("/admin/routing/rebuild-tiles", h.RebuildRoutingTiles)
+			r.Post("/admin/routing/rebuild-landmarks", h.RebuildLandmarks)
 			r.Post("/admin/routing/build-brouter-segments", h.BuildBRouterSegments)
 			r.Post("/admin/routing/download-brouter-segments", h.DownloadBRouterSegments)
 
