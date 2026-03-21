@@ -196,8 +196,7 @@ export default function SegmentEditorModal({
           'symbol-spacing': 100,
           'icon-image': 'arrow',
           'icon-size': 0.7,
-          'icon-rotate': 90,
-          'icon-rotation-alignment': 'map',
+          'icon-rotation-alignment': 'auto',
           'icon-allow-overlap': true,
         },
       })
