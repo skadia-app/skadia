@@ -421,6 +421,10 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_hikeroute BOOLEAN DEFAULT false",
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cycleroute_network TEXT",
 			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS hikeroute_network TEXT",
+			// W6: Dedup + unique osm_id constraint (000195) — lost after --create.
+			// Dedup first: Lua can produce same osm_id with highway+ferry for one way.
+			`DELETE FROM osm_ways a USING osm_ways b WHERE a.osm_id = b.osm_id AND a.way_id < b.way_id`,
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_osm_ways_osm_id ON osm_ways (osm_id)",
 		} {
 			if _, err := p.Pool.Exec(ctx, stmt); err != nil {
 				slog.Warn("osm import: schema restore failed", "error", err)
@@ -1047,9 +1051,11 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 		return cols, rows.Err()
 	}
 
-	// === osm_ways: dynamic columns, NO ON CONFLICT (duplicates allowed) ===
-	// Lua can insert same osm_id multiple times (highway+ferry), so no UNIQUE.
-	// Border duplicates (~0.1%) are acceptable. Graph builder uses DISTINCT ON (osm_id).
+	// === osm_ways: dynamic columns, ON CONFLICT to enforce unique osm_id ===
+	// Migration 000195 added a UNIQUE constraint on osm_id. Border ways from
+	// multi-region imports are resolved by keeping the latest import (DO UPDATE).
+	// Lua-level duplicates (highway+ferry for same osm_id) are also resolved —
+	// the last row wins, which is acceptable for the rare route=ferry overlap.
 	wayCols, err := getStagingColumns("osm_ways", "way_id")
 	if err != nil {
 		return fmt.Errorf("get way columns: %w", err)
@@ -1057,10 +1063,21 @@ func importRegionFromStaging(ctx context.Context, q querier, stagingSchema, regi
 	if len(wayCols) > 0 {
 		colList := strings.Join(wayCols, ", ")
 
+		// Build ON CONFLICT update set: all columns except osm_id (conflict key).
+		var updateParts []string
+		for _, col := range wayCols {
+			if col != "osm_id" {
+				updateParts = append(updateParts, col+" = EXCLUDED."+col)
+			}
+		}
+		updateParts = append(updateParts, "length_m = EXCLUDED.length_m")
+		onConflict := strings.Join(updateParts, ", ")
+
 		_, err = q.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO public.osm_ways (%s, length_m)
 			SELECT %s, ST_Length(geom::geography) FROM %s.osm_ways
-		`, colList, colList, stagingSchema))
+			ON CONFLICT (osm_id) DO UPDATE SET %s
+		`, colList, colList, stagingSchema, onConflict))
 		if err != nil {
 			return fmt.Errorf("import osm_ways: %w", err)
 		}
