@@ -312,6 +312,7 @@ export interface ActivityStop {
 
 export interface ActivitySurface {
   id: string
+  category?: 'surface' | 'highway'
   surface_type: string
   path_type: string
   length_m: number

@@ -234,6 +234,8 @@ const SURFACE_COLORS: Record<string, string> = {
   grass: '#166534',
   cobblestone: '#4b5563',
   sand: '#d97706',
+  unknown: '#d1d5db',
+  offroad: '#b91c1c',
 }
 
 const SURFACE_LABELS: Record<string, string> = {
@@ -245,6 +247,8 @@ const SURFACE_LABELS: Record<string, string> = {
   grass: 'Gras',
   cobblestone: 'Pflaster',
   sand: 'Sand',
+  unknown: 'Unbekannt',
+  offroad: 'Offroad',
 }
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
@@ -374,9 +378,9 @@ export default function MultisportEnrichments({ childActivities }: Props) {
         </CollapsibleSection>
       )}
 
-      {/* Untergrund */}
+      {/* Oberflächen */}
       {mergedSurfaces.length > 0 && (
-        <CollapsibleSection title="Untergrund">
+        <CollapsibleSection title="Oberflächen">
           <SurfacesDisplay surfaces={mergedSurfaces} />
         </CollapsibleSection>
       )}
@@ -487,11 +491,15 @@ function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
 }
 
 function SurfacesDisplay({ surfaces }: { surfaces: ActivitySurface[] }) {
+  // Filter to surface category only; fall back to all rows for legacy data without category
+  const surfaceRows = surfaces.filter(s => s.category === 'surface')
+  const displayed = surfaceRows.length > 0 ? surfaceRows : surfaces
+
   return (
     <div className="space-y-3">
       {/* Stacked bar */}
       <div className="flex h-4 rounded-full overflow-hidden gap-0.5">
-        {surfaces.map(s => (
+        {displayed.map(s => (
           <div
             key={s.id}
             style={{
@@ -505,7 +513,7 @@ function SurfacesDisplay({ surfaces }: { surfaces: ActivitySurface[] }) {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 text-xs text-neutral-600 dark:text-neutral-400">
-        {surfaces.map(s => (
+        {displayed.map(s => (
           <span key={s.id} className="flex items-center gap-1.5">
             <span
               className="w-2.5 h-2.5 rounded-full inline-block"
