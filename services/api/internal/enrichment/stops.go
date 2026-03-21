@@ -32,7 +32,7 @@ type poiStopConfig struct {
 
 // poiThresholds maps OSM POI categories to their stop detection thresholds.
 var poiThresholds = map[string]poiStopConfig{
-	"gastronomy":    {40, 25, 60, 300, 3.0},
+	"gastronomy":    {40, 25, 60, 600, 3.0},
 	"accommodation": {50, 30, 120, 600, 2.0},
 	"summit":        {80, 40, 30, 60, 5.0},
 	"pass":          {80, 40, 30, 60, 5.0},
