@@ -127,6 +127,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"brouter_segment_build":   "BRouter-Segmente erstellen",
 		"brouter_segment_download": "BRouter-Segmente herunterladen",
 		"device_orphan_cleanup":    "Verwaiste Geräte bereinigen",
+		"activity_re_enrich":       "Enrichment-Update",
 	}
 	label := labels[jobType]
 	if label == "" {
@@ -236,6 +237,15 @@ func (db *DB) CancelRunningJobsForEntity(ctx context.Context, userID, entityID s
 		userID, entityID,
 	)
 	return err
+}
+
+// HasRunningJob checks whether a job of the given type is currently running for the user.
+func (db *DB) HasRunningJob(ctx context.Context, userID, jobType string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM background_jobs WHERE user_id = $1 AND job_type = $2 AND status = 'running')",
+		userID, jobType).Scan(&exists)
+	return exists, err
 }
 
 // CountPendingEnrichments zählt Aktivitäten mit enrichment_status='pending' für einen User.
