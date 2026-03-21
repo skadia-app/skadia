@@ -7,7 +7,7 @@ import (
 
 const (
 	resampleIntervalM = 5.0 // uniform resampling distance in meters
-	sgWindowResampled = 7   // SG window size in resampled points = 35m
+	sgWindowResampled = 21  // SG window size in resampled points = 105m
 	sgPolyResampled   = 2   // quadratic polynomial (not cubic — avoids overfitting)
 )
 
