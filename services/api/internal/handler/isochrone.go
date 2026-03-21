@@ -31,7 +31,7 @@ type IsochroneRequest struct {
 	// Profile selects the routing cost function, e.g. "hiking", "mtb", "road".
 	Profile string `json:"profile"`
 	// POITypes is an optional list of OSM categories to discover within the
-	// reachable area, e.g. ["peak", "gastronomy", "accommodation"].
+	// reachable area, e.g. ["summit", "gastronomy", "accommodation"].
 	POITypes []string `json:"poi_types"`
 }
 

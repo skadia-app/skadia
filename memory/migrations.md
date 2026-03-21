@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000194**
+Alle Migrationen im Überblick. Nächste freie: **000204**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -32,3 +32,13 @@ Alle Migrationen im Überblick. Nächste freie: **000194**
 | 000191 | drop_pgrouting                     | Monolithischer Graph + pgRouting Extension entfernt; Isochrone + SuggestRoutes auf TiledGraphReader umgestellt |
 | 000192 | consolidate_enrichment_fields      | Stage-1/Stage-2 eliminiert: 7 Renames zu _detection-Suffix, 4 Duplikat-Drops (peaks/stops/commute/ascents), climb→ascent Rename+Merge |
 | 000193 | fix_geo_tags_map_section_geometry  | map_section LINESTRING → GEOMETRY (akzeptiert Multi/LineString, fix für water enrichment) |
+| 000194 | segment_efforts_pk_fix             | composite PK (id, started_at) für TimescaleDB Hypertable |
+| 000195 | osm_ways_dedup                     | osm_ways UNIQUE-Index-Dedup (~90s Table Lock, Downtime-Risiko) |
+| 000196 | devices_fix                        | devices-Tabelle Index/Constraint-Fix |
+| 000197 | activity_ascents                   | activity_ascents Hypertable (Anstiege/Abstiege per Segment) |
+| 000198 | activity_surface_enrichment        | activity_surfaces Tabelle (Oberflächen-Anteile, surface_type, percentage) |
+| 000199 | climbs_sport_class                 | Climb.SportClass *string in ascents (S1–S5, leicht/mittel/schwer, HC–4) |
+| 000200 | enrichment_quality_intervals       | interval_type + interval_source Spalten in activity_efforts |
+| 000201 | surfaces_category                  | category-Spalte in activity_surfaces (Oberflächen + Wegearten 2 Dimensionen) |
+| 000202 | device_data_repair                 | Device Data Repair: Shadow Devices umgehängt, GarminProductInvalid-Strings bereinigt |
+| 000203 | osm_pois_rename_peak_to_summit     | osm_pois.category 'peak'→'summit'; DROP idx_osm_pois_peak; CREATE idx_osm_pois_summit |

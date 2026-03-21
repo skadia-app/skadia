@@ -5,7 +5,7 @@ import type { POIResult } from '@/api/routes'
 // ── POI type helpers ────────────────────────────────────────────────────────
 
 const POI_TYPE_LABELS: Record<string, string> = {
-  peak: 'Gipfel',
+  summit: 'Gipfel',
   volcano: 'Vulkan',
   saddle: 'Sattel',
   alpine_hut: 'Alpenhütte',
@@ -30,7 +30,7 @@ function poiTypeLabel(type: string): string {
 }
 
 function poiTypeIcon(type: string): string {
-  if (type === 'peak' || type === 'volcano' || type === 'saddle') return '⛰'
+  if (type === 'summit' || type === 'volcano' || type === 'saddle') return '⛰'
   if (type === 'alpine_hut' || type === 'wilderness_hut') return '🏔'
   if (type === 'restaurant' || type === 'cafe' || type === 'bar' || type === 'fast_food') return '🍽'
   if (type === 'hotel' || type === 'hostel') return '🛏'

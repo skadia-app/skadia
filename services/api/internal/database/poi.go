@@ -18,7 +18,7 @@ type POIRow struct {
 	OsmID int64
 }
 
-// SearchPeaks searches osm_pois (category='peak' or 'pass') by name using pg_trgm similarity.
+// SearchPeaks searches osm_pois (category='summit' or 'pass') by name using pg_trgm similarity.
 func (db *DB) SearchPeaks(ctx context.Context, query string, limit int) ([]POIRow, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT name,
@@ -27,7 +27,7 @@ func (db *DB) SearchPeaks(ctx context.Context, query string, limit int) ([]POIRo
 			ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 			osm_id
 		FROM osm_pois
-		WHERE category IN ('peak', 'pass') AND name IS NOT NULL AND name % $1
+		WHERE category IN ('summit', 'pass') AND name IS NOT NULL AND name % $1
 		ORDER BY similarity(name, $1) DESC
 		LIMIT $2
 	`, query, limit)
@@ -65,7 +65,7 @@ func (db *DB) SearchAmenities(ctx context.Context, query, types string, limit in
 				ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 				osm_id
 			FROM osm_pois
-			WHERE category NOT IN ('peak', 'pass', 'settlement')
+			WHERE category NOT IN ('summit', 'pass', 'settlement')
 			  AND name IS NOT NULL AND name % $1 AND type = ANY($3)
 			ORDER BY similarity(name, $1) DESC
 			LIMIT $2
@@ -78,7 +78,7 @@ func (db *DB) SearchAmenities(ctx context.Context, query, types string, limit in
 				ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
 				osm_id
 			FROM osm_pois
-			WHERE category NOT IN ('peak', 'pass', 'settlement')
+			WHERE category NOT IN ('summit', 'pass', 'settlement')
 			  AND name IS NOT NULL AND name % $1
 			ORDER BY similarity(name, $1) DESC
 			LIMIT $2

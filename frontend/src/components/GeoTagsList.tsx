@@ -125,7 +125,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
 }
 
 function getGroupKey(category: string): string {
-  if (category === 'summit' || category === 'peak') return 'summit'
+  if (category === 'summit') return 'summit'
   if (category === 'still_water' || category === 'flowing_water' || category === 'water') return 'water'
   return category
 }

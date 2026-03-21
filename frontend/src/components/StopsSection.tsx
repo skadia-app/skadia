@@ -96,7 +96,7 @@ function PoiIcon({ poiType }: { poiType?: string }) {
       </svg>
     )
   }
-  if (['peak', 'saddle', 'mountain_pass'].includes(poiType)) {
+  if (['summit', 'saddle', 'mountain_pass'].includes(poiType)) {
     // Mountain triangle
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -187,7 +187,7 @@ const POI_TYPE_LABELS: Record<string, string> = {
   kiosk: 'Kiosk',
   bakery: 'Bäckerei',
   butcher: 'Metzgerei',
-  peak: 'Gipfel',
+  summit: 'Gipfel',
   saddle: 'Sattel',
   mountain_pass: 'Bergpass',
   viewpoint: 'Aussichtspunkt',
