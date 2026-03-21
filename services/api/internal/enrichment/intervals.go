@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 const (
@@ -33,19 +34,28 @@ var workoutSplitTypes = map[string]bool{
 	"workout_round":     true,
 }
 
-// neverIntervalSports are sport types where interval detection should never run.
-// Natural effort variation is inherent to these sports.
-var neverIntervalSports = map[string]bool{
-	"hiking":              true,
-	"walking":             true,
-	"trekking":            true,
-	"mountaineering":      true,
-	"ski_touring":         true,
-	"snowshoeing":         true,
-	"whitewater_kayaking": true,
-	"whitewater_rafting":  true,
-	"rock_climbing":       true,
-	"bouldering":          true,
+// intervalEligibleGroups are segment groups where interval detection is allowed
+// by default (whitelist, not blacklist).
+var intervalEligibleGroups = map[string]bool{
+	"bike": true,
+	"swim": true,
+}
+
+// intervalEligibleFoot lists the specific foot-group sports that are eligible.
+// Running yes, hiking no.
+var intervalEligibleFoot = map[string]bool{
+	"running":       true,
+	"trail_running": true,
+}
+
+// intervalEligibleExtra lists sports eligible regardless of their segment group.
+var intervalEligibleExtra = map[string]bool{
+	"cross_country_skiing": true,
+	"inline_skating":       true,
+	"rowing":               true,
+	"fitness_equipment":    true,
+	"hiit":                 true,
+	"training":             true,
 }
 
 // splitTypeToIntensity maps a FIT split_type to an intensity classification.
@@ -132,8 +142,15 @@ func extractIntervalsFromSplits(ctx context.Context, db *database.DB, activityID
 		return 0, nil
 	}
 
-	// Delete existing intervals + insert from splits
-	if _, err := db.Pool.Exec(ctx,
+	// Delete existing intervals + insert from splits — wrapped in a transaction
+	// so a partial failure cannot leave the table in an inconsistent state.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("intervals: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
 		"DELETE FROM activity_intervals WHERE activity_id = $1",
 		activityID); err != nil {
 		return 0, fmt.Errorf("intervals: delete existing: %w", err)
@@ -154,7 +171,7 @@ func extractIntervalsFromSplits(ctx context.Context, db *database.DB, activityID
 			durationS = 1
 		}
 
-		if _, err := db.Pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_intervals
 			    (activity_id, segment_num, start_time, end_time,
 			     duration_s, avg_speed_ms, intensity)
@@ -166,6 +183,10 @@ func extractIntervalsFromSplits(ctx context.Context, db *database.DB, activityID
 			continue
 		}
 		count++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("intervals: commit tx: %w", err)
 	}
 
 	// Auto-tag "Intervalltraining"
@@ -219,11 +240,21 @@ type classifiedSegment struct {
 //     fires when Tier-1 found nothing; gated by sport type, hard-segment count
 //     and confidence score.
 func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
-	// Sport gate: never detect intervals for hiking, mountaineering, etc.
+	// Sport gate: whitelist approach — only eligible sports get interval detection.
 	var sportType string
-	if err := db.Pool.QueryRow(ctx,
-		"SELECT sport_type FROM activities WHERE id = $1", activityID,
-	).Scan(&sportType); err == nil && neverIntervalSports[sportType] {
+	_ = db.Pool.QueryRow(ctx, "SELECT sport_type FROM activities WHERE id = $1", activityID).Scan(&sportType)
+
+	eligible := intervalEligibleExtra[sportType]
+	if !eligible {
+		if def, ok := sport.GetSportDef(sportType); ok {
+			if def.SegmentGroup == "foot" {
+				eligible = intervalEligibleFoot[sportType]
+			} else {
+				eligible = intervalEligibleGroups[def.SegmentGroup]
+			}
+		}
+	}
+	if !eligible {
 		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
@@ -367,11 +398,11 @@ func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID
 //
 // Tag "Intervalltraining" only at confidence >= 0.7.
 func computeIntervalConfidence(classified []classifiedSegment) float64 {
-	// Collect work phase stats.
+	// Collect work phase stats — filter out implausible durations.
 	var workDurations []float64
 	var workIntensities []float64
 	for _, s := range classified {
-		if s.intensity == "hard" {
+		if s.intensity == "hard" && s.durationS >= 20 && s.durationS <= 1800 {
 			workDurations = append(workDurations, float64(s.durationS))
 			// Use mean signal value as intensity proxy.
 			if s.avgPower != nil {
