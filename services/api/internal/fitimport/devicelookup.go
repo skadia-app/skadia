@@ -116,7 +116,7 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 	}
 
 	mfrStr := mfr.String()
-	isUnknownMfr := strings.HasPrefix(mfrStr, "Manufacturer(")
+	isUnknownMfr := strings.HasPrefix(mfrStr, "Manufacturer")
 
 	// 1. Explicit product_name from FIT message
 	if productName != "" {
@@ -141,10 +141,12 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 		gp := typedef.GarminProduct(productID)
 		if gp != typedef.GarminProductInvalid {
 			gpStr := gp.String()
-			if !strings.HasPrefix(gpStr, "GarminProduct(") {
+			if !strings.HasPrefix(gpStr, "GarminProduct") {
 				return formatDeviceNameFromEnum("Garmin", gpStr)
 			}
 		}
+		// Unknown Garmin product — no useful name available
+		return ""
 	}
 
 	// For Favero, use FaveroProduct enum
@@ -175,7 +177,7 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 // Returns "" for empty strings or "ManufacturerInvalid".
 // Examples: "wahoo_fitness" → "Wahoo Fitness", "garmin" → "Garmin", "srm" → "SRM"
 func FormatManufacturer(s string) string {
-	if s == "" || s == "ManufacturerInvalid" || strings.HasPrefix(s, "Manufacturer(") {
+	if s == "" || strings.HasPrefix(s, "Manufacturer") {
 		return ""
 	}
 

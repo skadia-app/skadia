@@ -26,6 +26,8 @@ func TestResolveProductName(t *testing.T) {
 		{"Favero Assioma Duo", 263, 12, "", "Favero Assioma Duo"},
 		{"Sigma ROX 12.0", 70, 44, "", "Sigma ROX 12.0"},
 		{"Lezyne Super GPS", 258, 4, "", "Lezyne Super GPS"},
+		{"Unknown Garmin product returns empty (RC4)", 1, 21, "", ""},
+		{"Unknown Garmin product 20 returns empty (RC4)", 1, 20, "", ""},
 	}
 
 	// Dynamischer Garmin-Test (SDK-versionsabhängig)
@@ -61,6 +63,9 @@ func TestFormatManufacturer(t *testing.T) {
 		{"sigmasport", "Sigmasport"},
 		{"", ""},
 		{"ManufacturerInvalid", ""},
+		{"ManufacturerInvalid(65535)", ""},
+		{"ManufacturerInvalid(123)", ""},
+		{"Manufacturer(999)", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

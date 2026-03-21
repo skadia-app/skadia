@@ -741,7 +741,7 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 				prodID = uint16(gp)
 				if device == "" && gp != typedef.GarminProductInvalid {
 					gpStr := gp.String()
-					if !strings.HasPrefix(gpStr, "GarminProduct(") {
+					if !strings.HasPrefix(gpStr, "GarminProduct") {
 						device = formatDeviceNameFromEnum(source, gpStr)
 					}
 				}
