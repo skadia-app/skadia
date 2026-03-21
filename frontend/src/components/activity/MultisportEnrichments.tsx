@@ -225,87 +225,33 @@ function PoiIcon({ poiType }: { poiType?: string }) {
 
 // ── Surfaces helpers ──────────────────────────────────────────────────────────
 
-const SURFACE_COLORS: Record<string, string> = {
-  // Befestigte Oberflächen
-  asphalt: '#374151',        // dunkelgrau
-  concrete: '#9ca3af',       // hellgrau
-  paved: '#6b7280',          // mittelgrau
-  paving_stones: '#78716c',  // warmgrau/stein
-  sett: '#57534e',           // dunkler stein
-  cobblestone: '#57534e',    // wie sett
-  unhewn_cobblestone: '#57534e',
-  bricks: '#b45309',         // ziegelrot-braun
-  concrete_lanes: '#9ca3af', // wie concrete (concrete:lanes → underscore in DB)
-  concrete_plates: '#9ca3af',
-  // Lose Oberflächen
-  compacted: '#b8976a',      // sandiger ton
-  fine_gravel: '#d4a76a',    // heller sand
-  gravel: '#a8885a',         // schotter-braun
-  pebblestone: '#8d7355',    // kiesel-braun
-  shells: '#f5e6c8',         // muschel-creme
-  // Naturböden
-  ground: '#8b6c42',         // erdig-braun
-  earth: '#7c5e3a',          // dunkle erde
-  dirt: '#7c5e3a',           // wie earth (OSM Wiki: identisch)
-  mud: '#5c4033',            // dunkler schlamm
-  sand: '#dbb778',           // sandgelb
-  clay: '#c97f3a',           // terracotta/lehm
-  // Vegetation
-  grass: '#4d7c0f',          // natürliches grün
-  grass_paver: '#65a30d',    // helleres grün
-  // Sonstiges
-  wood: '#92400e',           // holzbraun
-  woodchips: '#a0522d',      // sienna
-  rock: '#78716c',           // felsgrau
-  metal: '#71717a',          // zinkgrau
-  metal_grid: '#71717a',
-  snow: '#e2e8f0',           // fast weiß
-  ice: '#bae6fd',            // eisblau
-  tartan: '#dc2626',         // laufbahn-rot
-  artificial_turf: '#22c55e', // kunstrasen-grün
-  rubber: '#451a03',         // dunkel gummi
-  // Spezial
-  unknown: '#d1d5db',        // neutralgrau
-  offroad: '#b91c1c',        // rot
-}
-
-const SURFACE_LABELS: Record<string, string> = {
+// Surface grouping: merge similar OSM surface types into display groups
+const SURFACE_GROUPS: Record<string, string> = {
   asphalt: 'Asphalt',
-  concrete: 'Beton',
+  concrete: 'Beton', concrete_lanes: 'Beton', concrete_plates: 'Beton',
   paved: 'Befestigt',
-  paving_stones: 'Pflastersteine',
-  sett: 'Natursteinpflaster',
-  cobblestone: 'Kopfsteinpflaster',
-  unhewn_cobblestone: 'Rohes Kopfsteinpflaster',
-  bricks: 'Klinker',
-  concrete_lanes: 'Betonspurplatten',
-  concrete_plates: 'Betonplatten',
-  compacted: 'Fester Kies',
-  fine_gravel: 'Feinkies',
-  gravel: 'Schotter',
-  pebblestone: 'Kieselsteine',
-  shells: 'Muschelschalen',
-  ground: 'Naturweg',
-  earth: 'Erde',
-  dirt: 'Erde',
-  mud: 'Schlamm',
-  sand: 'Sand',
-  clay: 'Lehm',
-  grass: 'Gras',
-  grass_paver: 'Rasengitter',
-  wood: 'Holz',
-  woodchips: 'Hackschnitzel',
+  paving_stones: 'Pflaster', sett: 'Pflaster', cobblestone: 'Pflaster',
+  unhewn_cobblestone: 'Pflaster', bricks: 'Pflaster',
+  compacted: 'Schotter', fine_gravel: 'Schotter', gravel: 'Schotter', pebblestone: 'Schotter',
+  ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg', mud: 'Naturweg', clay: 'Naturweg',
+  sand: 'Sand', shells: 'Sand',
+  grass: 'Gras', grass_paver: 'Gras',
+  wood: 'Holz', woodchips: 'Holz',
   rock: 'Fels',
-  metal: 'Metall',
-  metal_grid: 'Metallgitter',
-  snow: 'Schnee',
-  ice: 'Eis',
-  tartan: 'Tartanbahn',
-  artificial_turf: 'Kunstrasen',
-  rubber: 'Gummi',
+  metal: 'Metall', metal_grid: 'Metall',
+  snow: 'Schnee', ice: 'Schnee',
+  tartan: 'Sportbelag', artificial_turf: 'Sportbelag', rubber: 'Sportbelag',
   unpaved: 'Unbefestigt',
   unknown: 'Unbekannt',
   offroad: 'Offroad',
+}
+
+const SURFACE_COLORS: Record<string, string> = {
+  'Asphalt': '#374151', 'Beton': '#9ca3af', 'Befestigt': '#6b7280',
+  'Pflaster': '#78716c', 'Schotter': '#94a3b8', 'Naturweg': '#8b6c42',
+  'Sand': '#dbb778', 'Gras': '#4d7c0f', 'Holz': '#92400e', 'Fels': '#6b7280',
+  'Metall': '#71717a', 'Schnee': '#e2e8f0', 'Sportbelag': '#dc2626',
+  'Unbefestigt': '#a8885a', 'Unbekannt': '#d1d5db', 'Offroad': '#b91c1c',
 }
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
@@ -570,11 +516,16 @@ function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
 }
 
 const HIGHWAY_COLORS: Record<string, string> = {
-  primary: '#1e40af', secondary: '#2563eb', tertiary: '#3b82f6',
-  unclassified: '#60a5fa', residential: '#93c5fd', living_street: '#bfdbfe',
-  service: '#6b7280', track: '#c2956a', path: '#166534', footway: '#15803d',
-  cycleway: '#0891b2', bridleway: '#854d0e', steps: '#78716c', pedestrian: '#64748b',
-  motorway: '#991b1b', trunk: '#7f1d1d', offroad: '#b91c1c', unknown: '#d1d5db',
+  motorway: '#1f2937', trunk: '#374151',
+  primary: '#c4a30a', primary_link: '#c4a30a',
+  secondary: '#6b7280', tertiary: '#9ca3af', unclassified: '#9ca3af',
+  residential: '#d1d5db', living_street: '#d1d5db', service: '#9ca3af',
+  motorway_link: '#1f2937', trunk_link: '#374151',
+  secondary_link: '#6b7280', tertiary_link: '#9ca3af',
+  track: '#c2956a', path: '#92400e', bridleway: '#854d0e',
+  footway: '#1d4ed8', cycleway: '#2563eb', pedestrian: '#3b82f6',
+  steps: '#78716c', via_ferrata: '#a21caf',
+  offroad: '#b91c1c', unknown: '#d1d5db',
 }
 
 const HIGHWAY_LABELS: Record<string, string> = {
@@ -582,7 +533,10 @@ const HIGHWAY_LABELS: Record<string, string> = {
   unclassified: 'Gemeindestraße', residential: 'Wohnstraße', living_street: 'Spielstraße',
   service: 'Zufahrtsweg', track: 'Feldweg', path: 'Pfad', footway: 'Fußweg',
   cycleway: 'Radweg', bridleway: 'Reitweg', steps: 'Treppen', pedestrian: 'Fußgängerzone',
-  motorway: 'Schnellstraße', trunk: 'Schnellstraße', offroad: 'Offroad', unknown: 'Unbekannt',
+  motorway: 'Schnellstraße', trunk: 'Schnellstraße', via_ferrata: 'Klettersteig',
+  motorway_link: 'Schnellstraße', trunk_link: 'Schnellstraße',
+  primary_link: 'Bundesstraße', secondary_link: 'Landstraße', tertiary_link: 'Kreisstraße',
+  offroad: 'Offroad', unknown: 'Unbekannt',
 }
 
 function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: ActivitySurface[]; dimension?: 'surface' | 'highway' }) {
