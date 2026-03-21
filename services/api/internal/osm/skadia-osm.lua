@@ -664,7 +664,7 @@ function osm2pgsql.process_way(object)
     -- Wege (Routing-Netzwerk)
     if (import_all or import_ways) then
         local hw = tags.highway
-        if hw and routable_highways[hw] then
+        if hw and routable_highways[hw] and tags.area ~= 'yes' then
             local lanes_val = nil
             if tags.lanes then
                 local n = tonumber(tags.lanes)
