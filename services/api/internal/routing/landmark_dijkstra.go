@@ -82,7 +82,7 @@ func landmarkDijkstra(
 
 	expansions := 0
 	const checkInterval = 8192
-	const logInterval = checkInterval * 128 // ~1M
+	const logInterval = 5_000_000 // log every 5M expansions (~10 logs per 48M-node Dijkstra)
 
 	for frontier.Len() > 0 {
 		entry := frontier.Pop()
@@ -265,6 +265,10 @@ func RunLandmarkPreprocessing(
 				setDists[lk] = costs
 
 				done := dijkstrasDone.Add(1)
+				slog.Info("landmark dijkstra complete",
+					"set", setIdx, "landmark", lk,
+					"run", done, "total", totalDijkstras,
+				)
 				progressFn("dijkstra runs", int(done), totalDijkstras)
 				return nil
 			})
