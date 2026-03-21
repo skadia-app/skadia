@@ -55,14 +55,14 @@ func enrichSurfacesGraph(
 	matched := viterbiMatch(pts, candidates)
 
 	// Classify each matched edge into SurfaceClass / HighwayClass.
+	// Use candidates slice (not matched struct fields) to detect offroad:
+	// zero-value EdgeCandidate is ambiguous (EdgeIdx=0 is a valid edge).
 	points := make([]matchedPoint, len(matched))
 	for i, ec := range matched {
 		p := matchedPoint{Idx: i}
 
-		// Zero-value EdgeCandidate: point fell offroad (no graph tile or no
-		// nearby edge within edgeLookupMaxDistM).
-		isZero := ec.EdgeIdx == 0 && ec.DistM == 0 && ec.Surface == ""
-		if isZero {
+		if len(candidates[i]) == 0 {
+			// No edge candidates within 25m → offroad
 			p.SurfaceClass = "offroad"
 			p.HighwayClass = "offroad"
 		} else if ec.Surface == "" || ec.Surface == "unknown" {
@@ -77,14 +77,14 @@ func enrichSurfacesGraph(
 			if p.HighwayClass == "" {
 				p.HighwayClass = "unknown"
 			}
-			// Populate pointer fields so modeFilter can use OsmID (not
-			// available from graph edges — leave nil; modeFilter handles nil).
 		}
 
 		points[i] = p
 	}
 
-	points = modeFilter(points)
+	// No modeFilter here: Viterbi already provides temporal consistency
+	// via connectivity-aware transitions. Graph edges have no OsmID, so
+	// modeFilter (which keys on OsmID) would be a no-op anyway.
 
 	surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
 	highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass })
