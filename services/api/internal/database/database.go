@@ -3214,7 +3214,8 @@ func (db *DB) GetStreamPointNearTime(ctx context.Context, activityID string, t t
 func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model.Climb, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, climb_number, start_distance_m, end_distance_m, length_m,
-				elevation_gain_m, avg_gradient_pct, max_gradient_pct, COALESCE(category, '')
+				elevation_gain_m, avg_gradient_pct, max_gradient_pct,
+				COALESCE(category, ''), sport_class
 		 FROM activity_climbs
 		 WHERE activity_id = $1
 		 ORDER BY climb_number`,
@@ -3228,7 +3229,8 @@ func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model
 	for rows.Next() {
 		var c model.Climb
 		if err := rows.Scan(&c.ID, &c.ClimbNumber, &c.StartDistanceM, &c.EndDistanceM,
-			&c.LengthM, &c.ElevationGainM, &c.AvgGradientPct, &c.MaxGradientPct, &c.Category); err != nil {
+			&c.LengthM, &c.ElevationGainM, &c.AvgGradientPct, &c.MaxGradientPct,
+			&c.Category, &c.SportClass); err != nil {
 			return nil, fmt.Errorf("scan activity climb: %w", err)
 		}
 		climbs = append(climbs, c)

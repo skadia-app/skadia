@@ -567,6 +567,7 @@ type Climb struct {
 	AvgGradientPct float64 `json:"avg_gradient_pct"`
 	MaxGradientPct float64 `json:"max_gradient_pct"`
 	Category       string  `json:"category"`
+	SportClass     *string `json:"sport_class,omitempty"`
 }
 
 // UploadResponse wraps the activity with optional warnings.
