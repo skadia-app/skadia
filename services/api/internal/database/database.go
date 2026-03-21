@@ -2112,7 +2112,8 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 			map_type, map_point_lat, map_point_lon,
 			map_bbox_west, map_bbox_south, map_bbox_east, map_bbox_north,
 			length_m, ele_m,
-			ST_AsGeoJSON(map_section) AS map_section_geojson
+			ST_AsGeoJSON(map_section) AS map_section_geojson,
+			source, admin_level
 		FROM activity_geo_tags
 		WHERE activity_id = $1
 		ORDER BY COALESCE(dist_m, 0)`,
@@ -2133,6 +2134,7 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 			&t.MapBboxWest, &t.MapBboxSouth, &t.MapBboxEast, &t.MapBboxNorth,
 			&t.LengthM, &t.EleM,
 			&t.MapSection,
+			&t.Source, &t.AdminLevel,
 		); err != nil {
 			return nil, fmt.Errorf("scan geo tag: %w", err)
 		}
@@ -3261,7 +3263,7 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, started_at, ended_at, duration_s,
 		        ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng,
-		        name, poi_type, poi_name, poi_osm_id
+		        name, poi_type, poi_name, poi_osm_id, poi_category, confidence
 		 FROM activity_stops WHERE activity_id = $1 ORDER BY started_at`,
 		activityID)
 	if err != nil {
@@ -3272,7 +3274,7 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 	for rows.Next() {
 		var s model.ActivityStop
 		if err := rows.Scan(&s.ID, &s.StartedAt, &s.EndedAt, &s.DurationS,
-			&s.Lat, &s.Lng, &s.Name, &s.PoiType, &s.PoiName, &s.PoiOsmID); err != nil {
+			&s.Lat, &s.Lng, &s.Name, &s.PoiType, &s.PoiName, &s.PoiOsmID, &s.PoiCategory, &s.Confidence); err != nil {
 			return nil, fmt.Errorf("scan activity stop: %w", err)
 		}
 		stops = append(stops, s)
