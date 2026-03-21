@@ -239,11 +239,18 @@ export default function GeoTagsList({ activityId, hiddenModules }: GeoTagsListPr
                         key={tag.id}
                         className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1"
                       >
-                        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                          {tag.name}
-                          {(tag.ele_m ?? tag.ele) != null && (groupKey === 'summit' || groupKey === 'pass') && (
-                            <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
-                              ({Math.round(tag.ele_m ?? tag.ele!)} m)
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                            {tag.name}
+                            {(tag.ele_m ?? tag.ele) != null && (groupKey === 'summit' || groupKey === 'pass') && (
+                              <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
+                                ({Math.round(tag.ele_m ?? tag.ele!)} m)
+                              </span>
+                            )}
+                          </span>
+                          {groupKey === 'settlement' && tag.source === 'boundary' && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                              Gemeinde
                             </span>
                           )}
                         </div>
