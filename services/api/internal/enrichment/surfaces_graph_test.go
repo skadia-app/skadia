@@ -109,6 +109,59 @@ func TestViterbiMatch_OffroadGapReinit(t *testing.T) {
 	}
 }
 
+// TestViterbiMatch_MultiSegmentBacktrack verifies that the backtrack correctly
+// traces through multiple re-init boundaries. Three on-road segments separated
+// by two offroad gaps (each >5 points) must all be matched correctly, and the
+// gap points must remain offroad.
+func TestViterbiMatch_MultiSegmentBacktrack(t *testing.T) {
+	// 3 on-road segments separated by 2 offroad gaps (each >5 points)
+	// Segment A: 0-4 (edge1), Gap: 5-11, Segment B: 12-16 (edge2), Gap: 17-23, Segment C: 24-28 (edge3)
+	n := 29
+	pts := make([]struct{ lat, lng float64 }, n)
+	for i := range n {
+		pts[i] = struct{ lat, lng float64 }{47.0, 11.0 + float64(i)*0.0001}
+	}
+
+	edge1 := graph.EdgeCandidate{EdgeIdx: 1, NodeFrom: 10, NodeTo: 11, DistM: 3.0, Surface: "asphalt", Highway: "residential"}
+	edge2 := graph.EdgeCandidate{EdgeIdx: 2, NodeFrom: 20, NodeTo: 21, DistM: 4.0, Surface: "gravel", Highway: "track"}
+	edge3 := graph.EdgeCandidate{EdgeIdx: 3, NodeFrom: 30, NodeTo: 31, DistM: 2.0, Surface: "ground", Highway: "path"}
+
+	candidates := make([][]graph.EdgeCandidate, n)
+	// Segment A
+	for i := 0; i < 5; i++ {
+		candidates[i] = []graph.EdgeCandidate{edge1}
+	}
+	// Gap 5-11: nil (offroad)
+	// Segment B
+	for i := 12; i < 17; i++ {
+		candidates[i] = []graph.EdgeCandidate{edge2}
+	}
+	// Gap 17-23: nil (offroad)
+	// Segment C
+	for i := 24; i < 29; i++ {
+		candidates[i] = []graph.EdgeCandidate{edge3}
+	}
+
+	result := viterbiMatch(pts, candidates)
+
+	// Segment A (0-4) must be matched to edge1 (asphalt), NOT offroad
+	if result[2].Surface != "asphalt" {
+		t.Errorf("segment A point 2: got surface=%q, want asphalt", result[2].Surface)
+	}
+	// Segment B (12-16) must be matched to edge2 (gravel)
+	if result[14].Surface != "gravel" {
+		t.Errorf("segment B point 14: got surface=%q, want gravel", result[14].Surface)
+	}
+	// Segment C (24-28) must be matched to edge3 (ground)
+	if result[26].Surface != "ground" {
+		t.Errorf("segment C point 26: got surface=%q, want ground", result[26].Surface)
+	}
+	// Offroad gaps must remain unmatched
+	if result[8].Surface != "" {
+		t.Errorf("offroad gap point 8: got surface=%q, want empty", result[8].Surface)
+	}
+}
+
 // --- resampleStreamPoints tests ---
 
 // TestResampleStreamPoints_Basic verifies that a stream of 10 GPS points with
