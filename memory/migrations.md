@@ -32,13 +32,13 @@ Alle Migrationen im Überblick. Nächste freie: **000204**
 | 000191 | drop_pgrouting                     | Monolithischer Graph + pgRouting Extension entfernt; Isochrone + SuggestRoutes auf TiledGraphReader umgestellt |
 | 000192 | consolidate_enrichment_fields      | Stage-1/Stage-2 eliminiert: 7 Renames zu _detection-Suffix, 4 Duplikat-Drops (peaks/stops/commute/ascents), climb→ascent Rename+Merge |
 | 000193 | fix_geo_tags_map_section_geometry  | map_section LINESTRING → GEOMETRY (akzeptiert Multi/LineString, fix für water enrichment) |
-| 000194 | segment_efforts_pk_fix             | composite PK (id, started_at) für TimescaleDB Hypertable |
-| 000195 | osm_ways_dedup                     | osm_ways UNIQUE-Index-Dedup (~90s Table Lock, Downtime-Risiko) |
-| 000196 | devices_fix                        | devices-Tabelle Index/Constraint-Fix |
-| 000197 | activity_ascents                   | activity_ascents Hypertable (Anstiege/Abstiege per Segment) |
-| 000198 | activity_surface_enrichment        | activity_surfaces Tabelle (Oberflächen-Anteile, surface_type, percentage) |
-| 000199 | climbs_sport_class                 | Climb.SportClass *string in ascents (S1–S5, leicht/mittel/schwer, HC–4) |
-| 000200 | enrichment_quality_intervals       | interval_type + interval_source Spalten in activity_efforts |
-| 000201 | surfaces_category                  | category-Spalte in activity_surfaces (Oberflächen + Wegearten 2 Dimensionen) |
-| 000202 | device_data_repair                 | Device Data Repair: Shadow Devices umgehängt, GarminProductInvalid-Strings bereinigt |
+| 000194 | drop_osm_ways_geog_idx             | DROP INDEX osm_ways_geog_idx (6.6 GB Geography-Index entfernt; geometry GiST reicht) |
+| 000195 | osm_ways_dedup_osm_id              | UNIQUE INDEX idx_osm_ways_osm_id + Dedup ~224k Border-Duplikate; ON CONFLICT merge (~91s Table Lock) |
+| 000196 | osm_landuse_coverage_geom_idx      | Partial GiST-Index osm_landuse(geom) WHERE landuse IN ('farmland',...) — Coverage-Performance |
+| 000197 | geo_tags_source                    | activity_geo_tags +source TEXT +admin_level SMALLINT |
+| 000198 | stops_poi_category                 | activity_stops +poi_category TEXT +confidence TEXT DEFAULT 'poi_matched' |
+| 000199 | climbs_sport_class                 | activity_climbs +sport_class TEXT (S1–S5, leicht/mittel/schwer, HC–4) |
+| 000200 | boundary_admin8_index              | Partieller GIST-Index osm_boundaries WHERE admin_level=8 AND boundary_type='administrative' |
+| 000201 | surfaces_category                  | activity_surfaces +category TEXT NOT NULL DEFAULT 'surface' ('surface' oder 'highway') |
+| 000202 | device_data_repair                 | Shadow Devices eliminieren + GarminProductInvalid-Strings bereinigen |
 | 000203 | osm_pois_rename_peak_to_summit     | osm_pois.category 'peak'→'summit'; DROP idx_osm_pois_peak; CREATE idx_osm_pois_summit |
