@@ -77,6 +77,10 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			if existing.BatteryStatus == "" && di.BatteryStatus != typedef.BatteryStatusInvalid {
 				existing.BatteryStatus = strings.ToLower(di.BatteryStatus.String())
 			}
+			// RC9: DeviceUpsert.DeviceTypes must reflect merged AllDeviceTypes
+			if existing.DeviceUpsert != nil {
+				existing.DeviceUpsert.DeviceTypes = existing.AllDeviceTypes
+			}
 			continue
 		}
 
@@ -101,7 +105,7 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 		}
 
 		mfr := di.Manufacturer.String()
-		if mfr != "" && !strings.HasPrefix(mfr, "Manufacturer(") {
+		if mfr != "" && !strings.HasPrefix(mfr, "Manufacturer") {
 			rec.Manufacturer = mfr
 		}
 
