@@ -724,7 +724,7 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		case mfr == typedef.ManufacturerZwift:
 			source = "Zwift"
 		default:
-			if !strings.HasPrefix(mfrStr, "Manufacturer(") && mfrStr != "" {
+			if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
 				source = mfrStr
 			}
 		}
@@ -767,7 +767,7 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		}
 		if source == "" {
 			mfrStr := di.Manufacturer.String()
-			if !strings.HasPrefix(mfrStr, "Manufacturer(") && mfrStr != "" {
+			if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
 				source = mfrStr
 			}
 		}
