@@ -108,6 +108,7 @@ func fetchPOICandidates(ctx context.Context, db *database.DB, activityID string)
 		      'viewpoint', 'transport', 'water_supply', 'camping',
 		      'landmark', 'shop'
 		  )
+		  AND p.name IS NOT NULL
 		ORDER BY p.category, p.name
 	`, activityID, stopPOISearchRadiusM)
 	if err != nil {
