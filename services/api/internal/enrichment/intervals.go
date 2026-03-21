@@ -11,22 +11,183 @@ import (
 )
 
 const (
-	intervalMinActivityS   = 600  // minimum activity duration in seconds (10 min)
-	intervalMinSegmentS    = 30   // minimum segment duration in seconds
-	intervalMaxDepth       = 10   // maximum recursion depth for binary split
-	intervalHardRatio       = 1.10
+	intervalMinActivityS    = 600  // minimum activity duration in seconds (10 min)
+	intervalMinSegmentS     = 30   // minimum segment duration in seconds
+	intervalMaxDepth        = 10   // maximum recursion depth for binary split
+	intervalHardRatio       = 1.20 // was 1.10 — raised to reduce false positives
 	intervalModerateRatio   = 0.90
 	intervalEasyRatio       = 0.70
-	intervalSmoothWindow    = 10 // rolling-mean window size (samples, not seconds)
+	intervalSmoothWindow    = 30 // was 10 — HR needs 30s smoothing (HR-lag)
+	intervalMinHardSegments = 3  // was 2 (implicit) — 2 hills != interval training
 )
+
+// workoutSplitTypes are FIT split types that indicate structured interval training.
+// See: vendor/github.com/muktihari/fit/profile/typedef/split_type_gen.go
+var workoutSplitTypes = map[string]bool{
+	"interval_active":   true,
+	"interval_rest":     true,
+	"interval_warmup":   true,
+	"interval_cooldown": true,
+	"interval_recovery": true,
+	"interval_other":    true,
+	"workout_round":     true,
+}
+
+// neverIntervalSports are sport types where interval detection should never run.
+// Natural effort variation is inherent to these sports.
+var neverIntervalSports = map[string]bool{
+	"hiking":              true,
+	"walking":             true,
+	"trekking":            true,
+	"mountaineering":      true,
+	"ski_touring":         true,
+	"snowshoeing":         true,
+	"whitewater_kayaking": true,
+	"whitewater_rafting":  true,
+	"rock_climbing":       true,
+	"bouldering":          true,
+}
+
+// splitTypeToIntensity maps a FIT split_type to an intensity classification.
+// Returns "" for non-workout split types.
+func splitTypeToIntensity(splitType string) string {
+	switch splitType {
+	case "interval_active":
+		return "hard"
+	case "interval_rest", "interval_recovery":
+		return "recovery"
+	case "interval_warmup", "interval_cooldown":
+		return "easy"
+	case "interval_other", "workout_round":
+		return "moderate"
+	default:
+		return ""
+	}
+}
+
+// splitTypeKeys returns the workout split types as a string slice for SQL ANY().
+func splitTypeKeys() []string {
+	keys := make([]string, 0, len(workoutSplitTypes))
+	for k := range workoutSplitTypes {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// extractIntervalsFromSplits reads activity_splits for structured workout data.
+// Returns the number of intervals inserted, or 0 if no workout splits found.
+// This is Tier-1 detection: zero false positives, only works for FIT files
+// with explicit structured workout data from the device.
+func extractIntervalsFromSplits(ctx context.Context, db *database.DB, activityID, userID string) (int, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT split_type, start_time, end_time, total_elapsed_time_s,
+		       total_distance_m, avg_speed_ms, total_ascent_m, total_descent_m
+		FROM activity_splits
+		WHERE activity_id = $1
+		  AND split_type = ANY($2)
+		ORDER BY message_index
+	`, activityID, splitTypeKeys())
+	if err != nil {
+		return 0, fmt.Errorf("intervals: query splits: %w", err)
+	}
+	defer rows.Close()
+
+	type splitRow struct {
+		SplitType    string
+		StartTime    time.Time
+		EndTime      time.Time
+		ElapsedTimeS *float64
+		DistanceM    *float64
+		AvgSpeedMS   *float64
+		AscentM      *int
+		DescentM     *int
+	}
+
+	var splits []splitRow
+	for rows.Next() {
+		var s splitRow
+		if err := rows.Scan(&s.SplitType, &s.StartTime, &s.EndTime,
+			&s.ElapsedTimeS, &s.DistanceM, &s.AvgSpeedMS,
+			&s.AscentM, &s.DescentM); err != nil {
+			return 0, fmt.Errorf("intervals: scan split: %w", err)
+		}
+		splits = append(splits, s)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("intervals: rows: %w", err)
+	}
+
+	// Need at least 2 splits with at least 1 interval_active
+	if len(splits) < 2 {
+		return 0, nil
+	}
+	hasActive := false
+	for _, s := range splits {
+		if s.SplitType == "interval_active" {
+			hasActive = true
+			break
+		}
+	}
+	if !hasActive {
+		return 0, nil
+	}
+
+	// Delete existing intervals + insert from splits
+	if _, err := db.Pool.Exec(ctx,
+		"DELETE FROM activity_intervals WHERE activity_id = $1",
+		activityID); err != nil {
+		return 0, fmt.Errorf("intervals: delete existing: %w", err)
+	}
+
+	count := 0
+	for i, s := range splits {
+		intensity := splitTypeToIntensity(s.SplitType)
+		if intensity == "" {
+			continue
+		}
+
+		durationS := int(s.EndTime.Sub(s.StartTime).Seconds())
+		if s.ElapsedTimeS != nil && *s.ElapsedTimeS > 0 {
+			durationS = int(*s.ElapsedTimeS)
+		}
+		if durationS < 1 {
+			durationS = 1
+		}
+
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO activity_intervals
+			    (activity_id, segment_num, start_time, end_time,
+			     duration_s, avg_speed_ms, intensity)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, activityID, i+1, s.StartTime, s.EndTime,
+			durationS, s.AvgSpeedMS, intensity); err != nil {
+			slog.Warn("intervals: insert split-interval failed",
+				"activity_id", activityID, "segment", i+1, "error", err)
+			continue
+		}
+		count++
+	}
+
+	// Auto-tag "Intervalltraining"
+	if count > 0 {
+		if err := upsertIntervalTag(ctx, db, activityID, userID); err != nil {
+			slog.Warn("intervals: auto-tag from splits failed",
+				"activity_id", activityID, "error", err)
+		}
+	}
+
+	slog.Info("intervals: extracted from FIT splits",
+		"activity_id", activityID, "intervals", count)
+	return count, nil
+}
 
 // intervalStream holds a single row from activity_streams.
 type intervalStream struct {
-	T        time.Time
-	PowerW   *float64
+	T         time.Time
+	PowerW    *float64
 	HeartRate *int
-	SpeedMS  *float64
-	Cadence  *float64
+	SpeedMS   *float64
+	Cadence   *float64
 }
 
 // intervalSegment is a contiguous slice of the stream.
@@ -49,18 +210,44 @@ type classifiedSegment struct {
 	intensity string
 }
 
-// enrichStreamIntervals is the Go port of services/ml/enrichment/intervals.py.
+// enrichStreamIntervals is the entry point for interval detection.
+// It runs a two-tier strategy:
 //
-// Algorithm (binary segmentation, mirrors the Python implementation):
-//  1. Map the shared stream to intervalStream (all points, no NULL filter).
-//  2. Select primary signal channel: power_w > heart_rate > speed_ms.
-//  3. Apply rolling-mean smoothing.
-//  4. Recursively split the signal at the point of maximum variance reduction.
-//  5. Classify each resulting segment as hard/moderate/easy/recovery relative to
-//     the global mean.
-//  6. If ≥ 2 hard segments are found, write results to activity_intervals and
-//     apply the auto-tag "Intervalltraining".
+//  1. Tier-1 (FIT Splits): structured workout data from the device — zero false
+//     positives; only available for FIT files with explicit workout records.
+//  2. Tier-2 (Heuristic): binary segmentation on power/HR/speed signal — only
+//     fires when Tier-1 found nothing; gated by sport type, hard-segment count
+//     and confidence score.
 func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
+	// Sport gate: never detect intervals for hiking, mountaineering, etc.
+	var sportType string
+	if err := db.Pool.QueryRow(ctx,
+		"SELECT sport_type FROM activities WHERE id = $1", activityID,
+	).Scan(&sportType); err == nil && neverIntervalSports[sportType] {
+		retractIntervalTag(ctx, db, activityID, userID)
+		return nil
+	}
+
+	// Tier 1: FIT Splits (zero false positives).
+	inserted, err := extractIntervalsFromSplits(ctx, db, activityID, userID)
+	if err != nil {
+		slog.Warn("intervals: splits extraction failed, falling through to heuristic",
+			"activity_id", activityID, "error", err)
+	}
+	if inserted > 0 {
+		return nil // Tier-1 found intervals, done
+	}
+
+	// Tier 2: Heuristic (only for GPX/TCX or FIT without structured workouts).
+	return enrichStreamIntervalsHeuristic(ctx, db, userID, activityID, stream)
+}
+
+// enrichStreamIntervalsHeuristic is the Tier-2 binary-segmentation detector.
+// It mirrors services/ml/enrichment/intervals.py but with additional gates:
+//   - minimum intervalMinHardSegments (3) hard phases required
+//   - confidence score >= 0.7 required before tagging
+//   - retraction: removes auto-tag + intervals when evidence is insufficient
+func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
 	// 1. Map shared stream — all points included, nulls handled per-field in extractSignal.
 	pts := make([]intervalStream, len(stream))
 	for i, sp := range stream {
@@ -109,11 +296,21 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activit
 			hardCount++
 		}
 	}
-	if hardCount < 2 {
+	if hardCount < intervalMinHardSegments {
+		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
 
-	// 5. Persist results.
+	// 5. Confidence check — only tag at confidence >= 0.7.
+	confidence := computeIntervalConfidence(classified)
+	if confidence < 0.7 {
+		slog.Debug("intervals: rejected — confidence too low",
+			"activity_id", activityID, "confidence", confidence, "hard_segments", hardCount)
+		retractIntervalTag(ctx, db, activityID, userID)
+		return nil
+	}
+
+	// 6. Persist results.
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_intervals WHERE activity_id = $1",
 		activityID,
@@ -142,22 +339,146 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activit
 		}
 	}
 
-	// 6. Auto-tag "Intervalltraining".
+	// 7. Auto-tag "Intervalltraining".
 	if err := upsertIntervalTag(ctx, db, activityID, userID); err != nil {
 		slog.Warn("intervals: auto-tag failed",
 			"activity_id", activityID, "error", err)
 	}
 
-	slog.Info("intervals: enrichment complete",
+	slog.Info("intervals: heuristic enrichment complete",
 		"activity_id", activityID,
 		"segments", len(classified),
 		"hard", hardCount,
+		"confidence", confidence,
 	)
 	return nil
 }
 
+// computeIntervalConfidence returns a confidence score for detected intervals.
+// Based on: number of work phases, duration regularity (CV), intensity
+// regularity, and work/rest alternation pattern.
+//
+// Score thresholds (from spec):
+//
+//	3 work phases, CV < 0.40              → 0.5
+//	4+ work phases, CV < 0.30            → 0.7
+//	5+ work phases, CV < 0.25, strict alt → 0.9
+//	FIT Splits (Tier-1)                   → 1.0
+//
+// Tag "Intervalltraining" only at confidence >= 0.7.
+func computeIntervalConfidence(classified []classifiedSegment) float64 {
+	// Collect work phase stats.
+	var workDurations []float64
+	var workIntensities []float64
+	for _, s := range classified {
+		if s.intensity == "hard" {
+			workDurations = append(workDurations, float64(s.durationS))
+			// Use mean signal value as intensity proxy.
+			if s.avgPower != nil {
+				workIntensities = append(workIntensities, *s.avgPower)
+			} else if s.avgHR != nil {
+				workIntensities = append(workIntensities, float64(*s.avgHR))
+			} else if s.avgSpeed != nil {
+				workIntensities = append(workIntensities, *s.avgSpeed)
+			}
+		}
+	}
+
+	workCount := len(workDurations)
+	if workCount < 3 {
+		return 0.0 // not enough work phases
+	}
+
+	// Duration CV (Coefficient of Variation = stddev / mean).
+	durationMean := meanSlice(workDurations)
+	durationCV := 1.0
+	if durationMean > 0 {
+		durationCV = stddev(workDurations) / durationMean
+	}
+	if durationCV >= 0.40 {
+		return 0.0 // too irregular
+	}
+
+	// Intensity CV (optional — only if we have intensity data).
+	// Default 1.0 (= "irregular") when no data → prevents false 0.9 score.
+	intensityCV := 1.0
+	if len(workIntensities) >= 3 {
+		intMean := meanSlice(workIntensities)
+		if intMean > 0 {
+			intensityCV = stddev(workIntensities) / intMean
+		}
+	}
+
+	// Work/rest alternation check.
+	alternationCount := 0
+	for i := 1; i < len(classified); i++ {
+		prevHard := classified[i-1].intensity == "hard"
+		currHard := classified[i].intensity == "hard"
+		if prevHard != currHard {
+			alternationCount++
+		}
+	}
+	alternationRatio := 0.0
+	if len(classified) > 1 {
+		alternationRatio = float64(alternationCount) / float64(len(classified)-1)
+	}
+
+	// Score calculation.
+	switch {
+	case workCount >= 5 && durationCV < 0.25 && alternationRatio >= 0.60 && intensityCV < 0.25:
+		return 0.9
+	case workCount >= 4 && durationCV < 0.30:
+		return 0.7
+	default:
+		return 0.5
+	}
+}
+
+// retractIntervalTag removes the auto-assigned "Intervalltraining" tag and
+// deletes any existing activity_intervals rows. Called when the algorithm
+// determines an activity does NOT have structured intervals.
+// Manual tags assigned by the user are protected and never removed.
+func retractIntervalTag(ctx context.Context, db *database.DB, activityID, userID string) {
+	// Delete interval rows.
+	db.Pool.Exec(ctx, "DELETE FROM activity_intervals WHERE activity_id = $1", activityID) //nolint:errcheck
+
+	// Find the auto-assigned tag entry.
+	var tagID string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT t.id FROM tags t
+		JOIN activity_tags at ON at.tag_id = t.id
+		WHERE at.activity_id = $1 AND t.user_id = $2
+		  AND t.name = 'Intervalltraining' AND at.assigned_by = 'auto'
+	`, activityID, userID).Scan(&tagID)
+	if err != nil {
+		return // no auto-tag exists — nothing to retract
+	}
+
+	db.Pool.Exec(ctx, //nolint:errcheck
+		"DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2",
+		activityID, tagID)
+
+	// Only update the denormalised tags array when no manual tag remains.
+	// array_remove removes ALL occurrences, which would also wipe a manually
+	// assigned "Intervalltraining" tag → check first.
+	var hasManualTag bool
+	_ = db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM activity_tags at
+			JOIN tags t ON at.tag_id = t.id
+			WHERE at.activity_id = $1 AND t.name = 'Intervalltraining'
+			  AND at.assigned_by != 'auto'
+		)`, activityID).Scan(&hasManualTag)
+
+	if !hasManualTag {
+		db.Pool.Exec(ctx, //nolint:errcheck
+			`UPDATE activities SET tags = array_remove(tags, 'Intervalltraining'), updated_at = NOW()
+			 WHERE id = $1`, activityID)
+	}
+}
+
 // upsertIntervalTag inserts (or ignores) the "Intervalltraining" auto-tag and
-// assigns it to the activity, mirroring the Python behaviour exactly.
+// assigns it to the activity.
 func upsertIntervalTag(ctx context.Context, db *database.DB, activityID, userID string) error {
 	var tagID string
 	if err := db.Pool.QueryRow(ctx, `
@@ -190,9 +511,8 @@ func upsertIntervalTag(ctx context.Context, db *database.DB, activityID, userID 
 	return nil
 }
 
-// forwardBackfill fills null gaps in raw using forward-fill then backfill,
-// analogous to pandas ffill/bfill. isValid[i] indicates whether raw[i] was
-// a real measurement; false entries are overwritten with the nearest valid value.
+// forwardBackfill fills null gaps in raw using forward-fill then backfill.
+// isValid[i] indicates whether raw[i] was a real measurement.
 func forwardBackfill(raw []float64, isValid []bool) {
 	// forward fill
 	last := -1
@@ -212,7 +532,7 @@ func forwardBackfill(raw []float64, isValid []bool) {
 		}
 	}
 	if first > 0 {
-		for i := 0; i < first; i++ {
+		for i := range first {
 			raw[i] = raw[first]
 		}
 	}
