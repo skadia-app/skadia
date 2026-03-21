@@ -399,18 +399,41 @@ func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID
 // Tag "Intervalltraining" only at confidence >= 0.7.
 func computeIntervalConfidence(classified []classifiedSegment) float64 {
 	// Collect work phase stats — filter out implausible durations.
+	// Determine primary intensity metric from the first hard segment that has data,
+	// then collect only that metric so all values are on the same scale.
+	var primaryMetric string
+	for _, s := range classified {
+		if s.intensity == "hard" {
+			if s.avgPower != nil {
+				primaryMetric = "power"
+			} else if s.avgHR != nil {
+				primaryMetric = "hr"
+			} else if s.avgSpeed != nil {
+				primaryMetric = "speed"
+			}
+			break
+		}
+	}
+
 	var workDurations []float64
 	var workIntensities []float64
 	for _, s := range classified {
 		if s.intensity == "hard" && s.durationS >= 20 && s.durationS <= 1800 {
 			workDurations = append(workDurations, float64(s.durationS))
-			// Use mean signal value as intensity proxy.
-			if s.avgPower != nil {
-				workIntensities = append(workIntensities, *s.avgPower)
-			} else if s.avgHR != nil {
-				workIntensities = append(workIntensities, float64(*s.avgHR))
-			} else if s.avgSpeed != nil {
-				workIntensities = append(workIntensities, *s.avgSpeed)
+			// Use the primary metric consistently to avoid mixing scales.
+			switch primaryMetric {
+			case "power":
+				if s.avgPower != nil {
+					workIntensities = append(workIntensities, *s.avgPower)
+				}
+			case "hr":
+				if s.avgHR != nil {
+					workIntensities = append(workIntensities, float64(*s.avgHR))
+				}
+			case "speed":
+				if s.avgSpeed != nil {
+					workIntensities = append(workIntensities, *s.avgSpeed)
+				}
 			}
 		}
 	}
