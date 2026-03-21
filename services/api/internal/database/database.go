@@ -3379,7 +3379,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 	var hasCommuteClusters, hasGastronomy bool
 	err = db.Pool.QueryRow(ctx, `
 		SELECT
-			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'peak'),
+			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('summit', 'pass')),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('still_water', 'flowing_water')),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'forest'),

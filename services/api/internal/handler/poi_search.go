@@ -43,7 +43,7 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	var results []POIResult
 	var peakErr, amenityErr error
 
-	if typesStr == "" || strings.Contains(typesStr, "peak") || strings.Contains(typesStr, "volcano") || strings.Contains(typesStr, "saddle") {
+	if typesStr == "" || strings.Contains(typesStr, "summit") || strings.Contains(typesStr, "volcano") || strings.Contains(typesStr, "saddle") {
 		peaks, err := h.DB.SearchPeaks(r.Context(), q, limit)
 		if err != nil {
 			slog.Error("SearchPOIs: SearchPeaks failed", "error", err, "query", q)

@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 
 export interface OSMStatus {
-  categories: Record<string, number>  // e.g. { peak: 79076, settlement: 124881, gastronomy: 45000, ... }
+  categories: Record<string, number>  // e.g. { summit: 79076, settlement: 124881, gastronomy: 45000, ... }
   ways: number
   lifts: number
   pistes: number
@@ -15,6 +15,7 @@ export interface OSMStatus {
   railways: number
   has_data: boolean
   // Legacy fields for backwards-compat (may come from older API versions)
+  // peaks corresponded to the old osm_pois.category='peak', now renamed to 'summit'
   peaks?: number
   passes?: number
   settlements?: number

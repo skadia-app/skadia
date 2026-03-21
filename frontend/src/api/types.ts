@@ -306,7 +306,7 @@ export interface ActivityStop {
   poi_type?: string
   poi_name?: string
   poi_osm_id?: number
-  poi_category?: string | null  // gastronomy, peak, viewpoint, landmark, etc.
+  poi_category?: string | null  // gastronomy, summit, viewpoint, landmark, etc.
   confidence?: string | null    // poi_matched, speed_fallback
 }
 

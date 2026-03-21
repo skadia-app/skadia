@@ -117,7 +117,7 @@ const POI_TYPE_LABELS: Record<string, string> = {
 }
 
 function getGroupKey(category: string): string {
-  if (category === 'summit' || category === 'peak') return 'summit'
+  if (category === 'summit') return 'summit'
   if (category === 'still_water' || category === 'flowing_water' || category === 'water') return 'water'
   return category
 }

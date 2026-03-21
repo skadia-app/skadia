@@ -127,7 +127,7 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 }
 
 // enrichGeoTagsPeaks finds peaks and passes within 100 m of the track.
-// Categories: 'summit' or 'pass' (based on osm_pois.type within category 'peak'/'pass').
+// Categories: 'summit' or 'pass' (based on osm_pois.type within category 'summit'/'pass').
 // Mirrors peaks.py.
 func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string) error {
 	// Delete existing summit/pass tags to allow re-enrichment.
@@ -148,7 +148,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		       ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
 		FROM osm_pois p, route
 		WHERE ST_DWithin(route.geom::geography, p.geom::geography, 100)
-		  AND p.category IN ('peak', 'pass')
+		  AND p.category IN ('summit', 'pass')
 		  AND p.name IS NOT NULL
 		ORDER BY dist_m
 	`, activityID)

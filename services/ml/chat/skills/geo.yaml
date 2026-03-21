@@ -1,14 +1,15 @@
 name: geo
 description: "Gipfel, Pässe, Gewässer, Stops, Einkehr, Routen, Höhenmeter"
 schema_excerpt: |
-  activity_geo_tags: activity_id, category TEXT (peak/pass/lake/river/forest/settlement/border),
+  activity_geo_tags: activity_id, category TEXT (summit/pass/lake/river/forest/settlement/border),
     name TEXT, elevation REAL, osm_id BIGINT, lat REAL, lng REAL
   activity_stops: activity_id, lat, lng, duration_s INT, poi_type TEXT,
     poi_name TEXT, category TEXT, poi_osm_id BIGINT
-  osm_peaks: name TEXT, elevation REAL, geom GEOMETRY(POINT)
-  osm_passes: name TEXT, elevation REAL, geom GEOMETRY(POINT)
+  # Gipfel & Pässe sind in osm_pois (category='summit' bzw. category='pass')
+  # osm_peaks/osm_passes existieren nicht mehr (seit Migration 000151 in osm_pois konsolidiert)
+  osm_pois: name TEXT, category TEXT, elevation REAL, geom GEOMETRY(POINT)
 domain_knowledge: |
-  - "Gipfel bestiegen" = activity_geo_tags WHERE category='peak'
+  - "Gipfel bestiegen" = activity_geo_tags WHERE category='summit'
     Relevante Sportarten: hiking, trail_running, mountaineering, walking
   - "Pass überquert" = category='pass'
     Relevante Sportarten: cycling, hiking, motorcycle, driving
@@ -25,7 +26,7 @@ tools:
 few_shot_examples:
   - q: "Wie viele Gipfel über 2000m habe ich bestiegen?"
     tool: query_geo_features
-    args: '{"feature_type": "peak", "min_elevation": 2000}'
+    args: '{"feature_type": "summit", "min_elevation": 2000}'
     answer: "12 verschiedene Gipfel über 2000m. Höchster: Zugspitze (2962m) am 14.08."
   - q: "Auf welchen Hütten war ich dieses Jahr?"
     tool: query_geo_features

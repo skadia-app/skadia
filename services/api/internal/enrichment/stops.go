@@ -34,7 +34,7 @@ type poiStopConfig struct {
 var poiThresholds = map[string]poiStopConfig{
 	"gastronomy":    {40, 25, 60, 300, 3.0},
 	"accommodation": {50, 30, 120, 600, 2.0},
-	"peak":          {80, 40, 30, 60, 5.0},
+	"summit":        {80, 40, 30, 60, 5.0},
 	"pass":          {80, 40, 30, 60, 5.0},
 	"viewpoint":     {50, 30, 30, 30, 4.0},
 	"shelter":       {30, 20, 60, 120, 2.0},
@@ -103,7 +103,7 @@ func fetchPOICandidates(ctx context.Context, db *database.DB, activityID string)
 		FROM osm_pois p, route
 		WHERE ST_DWithin(route.geom::geography, p.geom::geography, $2)
 		  AND p.category IN (
-		      'gastronomy', 'accommodation', 'shelter', 'peak', 'pass',
+		      'gastronomy', 'accommodation', 'shelter', 'summit', 'pass',
 		      'viewpoint', 'transport', 'water_supply', 'camping',
 		      'landmark', 'shop'
 		  )

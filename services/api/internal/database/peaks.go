@@ -66,7 +66,7 @@ func (db *DB) GetPeakCollection(ctx context.Context, userID string, f PeakCollec
 		SELECT
 			g.osm_id,
 			COALESCE(g.name, 'Unbekannter Gipfel') AS name,
-			g.elevation_m,
+			g.ele_m,
 			COUNT(DISTINCT g.activity_id) AS visit_count,
 			MIN(a.started_at) AS first_visit,
 			MAX(a.started_at) AS last_visit,
@@ -75,10 +75,10 @@ func (db *DB) GetPeakCollection(ctx context.Context, userID string, f PeakCollec
 			array_agg(DISTINCT a.start_country_code) FILTER (WHERE a.start_country_code IS NOT NULL AND a.start_country_code <> '') AS country_codes
 		FROM activity_geo_tags g
 		JOIN activities a ON g.activity_id = a.id
-		LEFT JOIN osm_pois p ON g.osm_id = p.osm_id AND p.category IN ('peak', 'pass')
-		WHERE g.user_id = $1 AND g.category = 'peak'%s
-		GROUP BY g.osm_id, g.name, g.elevation_m, p.geom
-		ORDER BY g.elevation_m DESC NULLS LAST
+		LEFT JOIN osm_pois p ON g.osm_id = p.osm_id AND p.category IN ('summit', 'pass')
+		WHERE g.user_id = $1 AND g.category IN ('summit', 'pass')%s
+		GROUP BY g.osm_id, g.name, g.ele_m, p.geom
+		ORDER BY g.ele_m DESC NULLS LAST
 	`, filterSQL)
 
 	rows, err := db.Pool.Query(ctx, query, args...)

@@ -187,7 +187,7 @@ export default function PeakCollectionPage() {
           value={peaks.reduce((s, p) => s + p.visit_count, 0).toString()}
         />
         <StatCard
-          label="Ueber 3000 m"
+          label="Über 3000 m"
           value={peaks.filter(p => (p.elevation_m ?? 0) >= 3000).length.toString()}
         />
       </div>

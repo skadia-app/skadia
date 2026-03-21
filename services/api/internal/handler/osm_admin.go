@@ -73,7 +73,7 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 		"railways":   railways,
 		"has_data":   hasData,
 		// Legacy fields
-		"peaks":       categories["peak"],
+		"peaks":       categories["summit"],
 		"passes":      categories["pass"],
 		"settlements": categories["settlement"],
 		"amenities":   categories["gastronomy"] + categories["accommodation"] + categories["shelter"] + categories["transport"],
@@ -298,7 +298,7 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 			       similarity(name, $1) AS sim
 			FROM osm_pois
 			WHERE name % $1 AND name IS NOT NULL
-			  AND category IN ('settlement', 'peak', 'pass')
+			  AND category IN ('settlement', 'summit', 'pass')
 			ORDER BY similarity(name, $1) DESC
 			LIMIT $2`
 		placeRows, err := h.DB.Pool.Query(ctx, placeQuery, q, limit)
@@ -308,7 +308,7 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 				sr.Type = "place"
 				var category string
 				if err := placeRows.Scan(&sr.Name, &category, &sr.Subtype, &sr.Lat, &sr.Lng, &sr.Similarity); err == nil {
-					sr.Type = category // peak, pass, settlement
+					sr.Type = category // summit, pass, settlement
 					results = append(results, sr)
 				}
 			}

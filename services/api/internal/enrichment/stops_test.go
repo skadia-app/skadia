@@ -18,8 +18,8 @@ func TestDetectPOIStops_BasicStop(t *testing.T) {
 		}
 	}
 	pois := []poiCandidate{{
-		OsmID: 1, Name: "Gipfel", Category: "peak", Subtype: "peak",
-		Lat: 47.5, Lng: 11.5, Config: poiThresholds["peak"],
+		OsmID: 1, Name: "Gipfel", Category: "summit", Subtype: "peak",
+		Lat: 47.5, Lng: 11.5, Config: poiThresholds["summit"],
 	}}
 
 	stops := detectPOIStops(points, pois)
