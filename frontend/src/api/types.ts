@@ -227,6 +227,8 @@ export interface GeoTag {
   length_m?: number
   ele_m?: number
   created_at: string
+  source?: string | null      // poi, boundary
+  admin_level?: number | null // 8 for municipalities
 }
 
 export interface EnrichmentSettings {
@@ -276,6 +278,7 @@ export interface Climb {
   avg_gradient_pct: number
   max_gradient_pct: number
   category: string
+  sport_class?: string | null  // S1-S5 (hiking), leicht/mittel/schwer (generic), null (cycling)
 }
 
 export interface ActivityInterval {
@@ -303,6 +306,8 @@ export interface ActivityStop {
   poi_type?: string
   poi_name?: string
   poi_osm_id?: number
+  poi_category?: string | null  // gastronomy, peak, viewpoint, landmark, etc.
+  confidence?: string | null    // poi_matched, speed_fallback
 }
 
 export interface ActivitySurface {
