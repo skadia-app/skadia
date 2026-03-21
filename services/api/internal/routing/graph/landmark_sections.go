@@ -338,8 +338,8 @@ func SelectLandmarks(
 	}
 
 	meta := &LandmarkMetaData{
-		UphillThreshold:   7.0,
-		DownhillThreshold: 7.0,
+		UphillThreshold:   0, // Set D only — all profiles use Set D
+		DownhillThreshold: 0, // When 4 Sets are computed, set to 7.0
 		LandmarkCount:     pickIdx,
 		PreprocessingTime: time.Now(),
 	}
