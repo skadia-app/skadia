@@ -94,14 +94,15 @@ func equirectDist(lat1, lng1, lat2, lng2 float64) float64 {
 func fetchPOICandidates(ctx context.Context, db *database.DB, activityID string) ([]poiCandidate, error) {
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.0001) AS geom
+			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
 		SELECT p.osm_id, p.name, p.category, p.subtype, p.ele,
 		       ST_Y(ST_Centroid(p.geom)) AS lat,
 		       ST_X(ST_Centroid(p.geom)) AS lng
 		FROM osm_pois p, route
-		WHERE ST_DWithin(route.geom::geography, p.geom::geography, $2)
+		WHERE p.geom && ST_Expand(route.geom, 0.002)
+		  AND ST_DWithin(route.geom::geography, p.geom::geography, $2)
 		  AND p.category IN (
 		      'gastronomy', 'accommodation', 'shelter', 'summit', 'pass',
 		      'viewpoint', 'transport', 'water_supply', 'camping',
