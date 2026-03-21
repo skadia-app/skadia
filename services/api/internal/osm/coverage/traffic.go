@@ -169,18 +169,12 @@ func buildTrafficInputs(ctx context.Context, pool *pgxpool.Pool, tg *TileGrids, 
 		return nil, fmt.Errorf("industrial rows: %w", err)
 	}
 
-	// --- 3. Motorway density (10km, float64) ---
+	// --- 3+4. Motorway + Highway density (10km, float64) — combined query (C4) ---
+	// One SELECT returns highway + geom for all relevant types; client dispatches to mwGrid/hwGrid.
 	mwGrid := newFloatGrid(bound, 10000)
-	if err := buildDensityGridFloat(ctx, pool, mwGrid, env,
-		"('motorway','motorway_link','trunk','trunk_link')"); err != nil {
-		return nil, fmt.Errorf("motorway density: %w", err)
-	}
-
-	// --- 4. Highway density (10km, float64) ---
 	hwGrid := newFloatGrid(bound, 10000)
-	if err := buildDensityGridFloat(ctx, pool, hwGrid, env,
-		"('primary','primary_link','secondary','secondary_link','tertiary','tertiary_link')"); err != nil {
-		return nil, fmt.Errorf("highway density: %w", err)
+	if err := buildDensityGridsFloat(ctx, pool, mwGrid, hwGrid, env); err != nil {
+		return nil, fmt.Errorf("density grids: %w", err)
 	}
 
 	// Aerodromes (large airports generate significant road traffic — BRouter RE-05)
@@ -292,19 +286,25 @@ func applyIndustrialDecayFloat(g *floatGrid, center orb.Point, areaM2 float64) {
 	}
 }
 
-// buildDensityGridFloat accumulates road lengths per 10km cell, normalized by /6430.
-func buildDensityGridFloat(ctx context.Context, pool *pgxpool.Pool, g *floatGrid, env, highwayTypes string) error {
+// buildDensityGridsFloat fetches motorway and highway types in a single query and
+// accumulates segment lengths into mwGrid and hwGrid respectively (C4 optimisation).
+// cosLat is computed once from mwGrid's bound (both grids share the same bound).
+func buildDensityGridsFloat(ctx context.Context, pool *pgxpool.Pool, mwGrid, hwGrid *floatGrid, env string) error {
 	rows, err := pool.Query(ctx, fmt.Sprintf(
-		"SELECT ST_AsBinary(geom) FROM osm_ways WHERE highway IN %s AND geom && %s",
-		highwayTypes, env))
+		`SELECT highway, ST_AsBinary(geom) FROM osm_ways
+		WHERE highway IN ('motorway','motorway_link','trunk','trunk_link',
+		                  'primary','primary_link','secondary','secondary_link',
+		                  'tertiary','tertiary_link')
+		AND geom && %s`, env))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	cosLat := math.Cos(((g.Bound.Min[1] + g.Bound.Max[1]) / 2) * math.Pi / 180.0)
+	cosLat := math.Cos(((mwGrid.Bound.Min[1] + mwGrid.Bound.Max[1]) / 2) * math.Pi / 180.0)
 	for rows.Next() {
+		var highway string
 		var wkbBytes []byte
-		if err := rows.Scan(&wkbBytes); err != nil {
+		if err := rows.Scan(&highway, &wkbBytes); err != nil {
 			continue
 		}
 		geom, err := wkb.Unmarshal(wkbBytes)
@@ -315,7 +315,15 @@ func buildDensityGridFloat(ctx context.Context, pool *pgxpool.Pool, g *floatGrid
 		if !ok {
 			continue
 		}
-		for si := 0; si < len(ls)-1; si++ {
+		// Dispatch: motorway types → mwGrid, highway types → hwGrid.
+		var g *floatGrid
+		switch highway {
+		case "motorway", "motorway_link", "trunk", "trunk_link":
+			g = mwGrid
+		default: // primary*, secondary*, tertiary*
+			g = hwGrid
+		}
+		for si := range len(ls) - 1 {
 			p0, p1 := ls[si], ls[si+1]
 			segLen := equirectDist(p0, p1, cosLat)
 			mid := orb.Point{(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2}
