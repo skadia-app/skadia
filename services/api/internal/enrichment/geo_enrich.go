@@ -215,13 +215,11 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 	return nil
 }
 
-// enrichGeoTagsSettlements finds settlements within 500 m of the track.
-// The radius is 500 m (not 200 m) because settlement POI points are placed at
-// the geographic centre of the settlement, which can be hundreds of metres
-// away from the road the cyclist actually rides through (e.g. Beispielstadt town
-// centre is ~244 m from the track even though the route passes through the
-// town). 200 m was too tight and silently dropped large towns.
-// Category: 'settlement'. Mirrors settlements.py.
+// enrichGeoTagsSettlements finds settlements using a hybrid approach:
+// 1. Boundaries (admin_level=8, ST_Intersects with >=200m track) for cities/municipalities
+// 2. POI fallback (500m ST_DWithin) for hamlets/isolated dwellings not covered by boundaries
+// Deduplication is geometry-based: a POI is excluded if its centroid falls inside
+// any admin_level=8 boundary (handles same-named cities in different regions correctly).
 func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID string) error {
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'",
@@ -234,14 +232,37 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 		WITH route AS (
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
+		),
+		from_boundaries AS (
+			SELECT b.osm_id, b.name, 'boundary'::text AS source, 8::smallint AS admin_level,
+			       ST_Y(ST_Centroid(b.geom)) AS center_lat,
+			       ST_X(ST_Centroid(b.geom)) AS center_lon
+			FROM osm_boundaries b, route
+			WHERE ST_Intersects(route.geom, b.geom)
+			  AND b.boundary_type = 'administrative'
+			  AND b.admin_level = 8
+			  AND ST_Length(ST_Intersection(route.geom, b.geom)::geography) >= 200
+		),
+		from_poi AS (
+			SELECT p.osm_id, p.name, 'poi'::text AS source, NULL::smallint AS admin_level,
+			       ST_Y(ST_Centroid(p.geom)) AS center_lat,
+			       ST_X(ST_Centroid(p.geom)) AS center_lon
+			FROM osm_pois p, route
+			WHERE ST_DWithin(route.geom::geography, p.geom::geography, 500)
+			  AND p.category = 'settlement'
+			  AND NOT EXISTS (
+			      SELECT 1 FROM osm_boundaries b
+			      WHERE b.admin_level = 8
+			        AND b.boundary_type = 'administrative'
+			        AND ST_Contains(b.geom, ST_Centroid(p.geom))
+			  )
 		)
-		SELECT s.osm_id, s.name, s.type,
-		       ST_Y(ST_Centroid(s.geom)) AS center_lat,
-		       ST_X(ST_Centroid(s.geom)) AS center_lon
-		FROM osm_pois s, route
-		WHERE ST_DWithin(route.geom::geography, s.geom::geography, 500)
-		  AND s.category = 'settlement'
-		ORDER BY s.type, s.name
+		SELECT osm_id, name, source, admin_level, center_lat, center_lon
+		FROM from_boundaries
+		UNION ALL
+		SELECT osm_id, name, source, admin_level, center_lat, center_lon
+		FROM from_poi
+		ORDER BY name
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("settlements: query: %w", err)
@@ -251,20 +272,20 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 	batch := &pgx.Batch{}
 	for rows.Next() {
 		var osmID int64
-		var name string
-		var place *string
+		var name, source string
+		var adminLevel *int16
 		var centerLat, centerLon float64
 
-		if err := rows.Scan(&osmID, &name, &place, &centerLat, &centerLon); err != nil {
+		if err := rows.Scan(&osmID, &name, &source, &adminLevel, &centerLat, &centerLon); err != nil {
 			return fmt.Errorf("settlements: scan: %w", err)
 		}
 
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
-			     map_point_lat, map_point_lon)
-			VALUES ($1, 'settlement', $2, $3, 'point', $4, $5)
-		`, activityID, name, osmID, centerLat, centerLon)
+			     map_point_lat, map_point_lon, source, admin_level)
+			VALUES ($1, 'settlement', $2, $3, 'point', $4, $5, $6, $7)
+		`, activityID, name, osmID, centerLat, centerLon, source, adminLevel)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("settlements: rows iteration: %w", err)
