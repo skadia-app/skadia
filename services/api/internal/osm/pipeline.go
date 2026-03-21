@@ -56,7 +56,7 @@ const maxParallelDBOps = 4
 
 // categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
 var categoryToPOI = map[string][]string{
-	"peaks":          {"peak"},
+	"peaks":          {"summit"},
 	"passes":         {"pass"},
 	"settlements":    {"settlement"},
 	"gastronomy":     {"gastronomy"},
@@ -784,7 +784,7 @@ func buildParallelIndexGroups(categories []string) [][]string {
 			// osm_pois: Partial GIST indexes + category B-Tree + trigram (lost in --create mode)
 			poisIndexes := []string{
 				"CREATE INDEX IF NOT EXISTS idx_osm_pois_geom ON osm_pois USING GIST(geom)",
-				"CREATE INDEX IF NOT EXISTS idx_osm_pois_peak ON osm_pois USING GIST(geom) WHERE category = 'peak'",
+				"CREATE INDEX IF NOT EXISTS idx_osm_pois_summit ON osm_pois USING GIST(geom) WHERE category = 'summit'",
 				"CREATE INDEX IF NOT EXISTS idx_osm_pois_pass ON osm_pois USING GIST(geom) WHERE category = 'pass'",
 				"CREATE INDEX IF NOT EXISTS idx_osm_pois_settlement ON osm_pois USING GIST(geom) WHERE category = 'settlement'",
 				"CREATE INDEX IF NOT EXISTS idx_osm_pois_gastronomy ON osm_pois USING GIST(geom) WHERE category = 'gastronomy'",

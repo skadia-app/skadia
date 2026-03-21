@@ -277,7 +277,7 @@ ALL_TOOL_DEFINITIONS = [
                     "feature_type": {
                         "type": "string",
                         "enum": [
-                            "peak", "pass", "lake", "river", "forest",
+                            "summit", "pass", "lake", "river", "forest",
                             "settlement", "border", "gastronomy",
                         ],
                         "description": "Type of geo feature to query",
@@ -603,7 +603,7 @@ ALL_TOOL_DEFINITIONS = [
                     "category": {
                         "type": "string",
                         "description": "POI category filter",
-                        "enum": ["peak", "pass", "settlement", "gastronomy", "accommodation",
+                        "enum": ["summit", "pass", "settlement", "gastronomy", "accommodation",
                                  "shelter", "viewpoint", "camping", "transport", "shop",
                                  "sport", "information", "landmark", "religious"],
                     },
@@ -1128,10 +1128,10 @@ async def _query_geo_features(
 
     # Map user-facing feature_type to DB category names
     _FEATURE_TO_CATEGORY = {
-        "peak": "summit",
         "lake": "still_water",
         "river": "flowing_water",
         # These map 1:1
+        "summit": "summit",
         "pass": "pass",
         "forest": "forest",
         "settlement": "settlement",
