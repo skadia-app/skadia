@@ -25,7 +25,7 @@ func TestLandmarkDijkstraUnified_SmallGraph(t *testing.T) {
 		NodeLocalID: []uint32{0, 1, 2},
 	}
 
-	costs := landmarkDijkstraUnified(context.Background(), csr, 0)
+	costs := landmarkDijkstraUnified(context.Background(), csr, 0, &CostConfig{})
 
 	if costs[0] != 0 {
 		t.Errorf("node 0: got %f, want 0", costs[0])
@@ -51,7 +51,7 @@ func TestLandmarkDijkstraUnified_BlockedEdge(t *testing.T) {
 		NodeLocalID: []uint32{0, 1},
 	}
 
-	costs := landmarkDijkstraUnified(context.Background(), csr, 0)
+	costs := landmarkDijkstraUnified(context.Background(), csr, 0, &CostConfig{})
 
 	if costs[0] != 0 {
 		t.Errorf("node 0: got %f, want 0", costs[0])
@@ -76,7 +76,7 @@ func TestLandmarkDijkstraUnified_ShortestPath(t *testing.T) {
 		NodeLocalID: []uint32{0, 1, 2},
 	}
 
-	costs := landmarkDijkstraUnified(context.Background(), csr, 0)
+	costs := landmarkDijkstraUnified(context.Background(), csr, 0, &CostConfig{})
 
 	if costs[0] != 0 {
 		t.Errorf("node 0: got %f, want 0", costs[0])
@@ -106,7 +106,7 @@ func TestLandmarkDijkstraUnified_ContextCancellation(t *testing.T) {
 	}
 
 	// Should still complete for small graphs (context check is every 5M expansions)
-	costs := landmarkDijkstraUnified(ctx, csr, 0)
+	costs := landmarkDijkstraUnified(ctx, csr, 0, &CostConfig{})
 	if costs[0] != 0 {
 		t.Errorf("node 0: got %f, want 0", costs[0])
 	}
