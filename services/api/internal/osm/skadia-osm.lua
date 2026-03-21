@@ -279,7 +279,7 @@ function classify_poi(tags)
        (tags.natural == 'peak' or tags.natural == 'volcano' or
         tags.natural == 'saddle') then
         table.insert(results, {
-            category   = 'peak',
+            category   = 'summit',
             poi_type   = 'natural',
             subtype    = tags.natural,
             ele_val    = parse_ele(tags.ele),
