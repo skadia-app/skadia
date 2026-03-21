@@ -58,10 +58,18 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 	// Ignore "no rows" — defaults remain.
 
 	// 2. Load sport group for sport-adaptive classification.
-	var sportType string
+	// Also load elevation_source: when 'dem', the device track was replaced with
+	// DEM-derived elevation (3m hysteresis via FilterElevationGainLoss). Ascent
+	// detection here uses SmoothElevation rather than HysteresisGainLoss, so
+	// elevation_source does not change the algorithm directly — but it is loaded
+	// here so future callers (e.g. a hysteresis-aware pass) can branch on it
+	// without an additional DB round-trip.
+	var sportType, elevationSource string
 	_ = db.Pool.QueryRow(ctx,
-		"SELECT sport_type FROM activities WHERE id = $1", activityID,
-	).Scan(&sportType)
+		"SELECT sport_type, COALESCE(elevation_source, 'device') FROM activities WHERE id = $1",
+		activityID,
+	).Scan(&sportType, &elevationSource)
+	_ = elevationSource // reserved for future hysteresis-aware path
 	sportGroup := "generic"
 	if def, ok := sport.GetSportDef(sportType); ok {
 		sportGroup = def.SegmentGroup
@@ -305,7 +313,12 @@ func mergeShallowDips(ascents []ascent, smoothed, distances []float64, maxDipEle
 			// Merge: extend prev to include curr.
 			prev.endDistM = curr.endDistM
 			prev.lengthM = prev.endDistM - prev.startDistM
-			prev.elevationGain += curr.elevationGain
+			// Recalculate gain from smoothed data for the merged segment so that
+			// additive accumulation errors (e.g. dip elevation counted twice) do
+			// not inflate the result.
+			startElev := smoothed[findIdx(prev.startDistM)]
+			endElev := smoothed[findIdx(prev.endDistM)]
+			prev.elevationGain = max(0, endElev-startElev)
 			if prev.lengthM > 0 {
 				prev.avgGradient = math.Round(prev.elevationGain/prev.lengthM*1000) / 10
 			}
