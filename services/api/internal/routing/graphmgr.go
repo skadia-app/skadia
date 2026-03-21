@@ -107,6 +107,15 @@ func (m *GraphManager) TileManager() *TileManager {
 	return m.tileMgr
 }
 
+// Reader returns the GraphReader for surface enrichment (and other non-routing
+// consumers that need tile-level graph access). Returns nil if no tiles loaded.
+func (m *GraphManager) Reader() GraphReader {
+	if m.tiledReader == nil {
+		return nil
+	}
+	return m.tiledReader
+}
+
 // RebuildTiles builds all tiles from PostGIS data and (re-)initializes
 // tile mode. Returns an error if a rebuild is already in progress.
 func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,

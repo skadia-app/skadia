@@ -27,6 +27,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -639,7 +640,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
 	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false)
+		var gr routing.GraphReader
+		if h.GraphManager != nil {
+			gr = h.GraphManager.Reader()
+		}
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr)
 	}
 
 	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).

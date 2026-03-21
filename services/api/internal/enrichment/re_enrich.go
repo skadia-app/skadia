@@ -10,6 +10,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 const reEnrichWorkers = 3
@@ -22,7 +23,7 @@ const reEnrichWorkers = 3
 // geoEnrichSem (capacity=1) ensures only one activity runs heavy PostGIS
 // operations at a time — other workers load streams in the meantime.
 func ReEnrichBatch(ctx context.Context, db *database.DB, events *event.Publisher,
-	userID string, modules, activityIDs []string, jobID string) {
+	userID string, modules, activityIDs []string, jobID string, graphReader routing.GraphReader) {
 
 	total := len(activityIDs)
 	var processed, errors atomic.Int64
@@ -48,7 +49,7 @@ func ReEnrichBatch(ctx context.Context, db *database.DB, events *event.Publisher
 		wg.Go(func() {
 			defer func() { <-sem }()
 
-			if err := reEnrichActivity(ctx, db, userID, actID, modules, enrichSettings); err != nil {
+			if err := reEnrichActivity(ctx, db, userID, actID, modules, enrichSettings, graphReader); err != nil {
 				slog.Error("re-enrich: activity failed",
 					"activity_id", actID, "error", err)
 				errors.Add(1)
@@ -92,7 +93,7 @@ func ReEnrichBatch(ctx context.Context, db *database.DB, events *event.Publisher
 // Each module is self-contained — it deletes its own old data before inserting
 // new data. No pre-delete step is needed here.
 func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID string,
-	modules []string, settings *model.EnrichmentSettings) error {
+	modules []string, settings *model.EnrichmentSettings, graphReader routing.GraphReader) error {
 
 	// Determine which module types are requested
 	hasStream := containsAny(modules, "ascents", "stops", "intervals")
@@ -159,7 +160,14 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	// Surfaces — separated from RunGeoEnrichment, has its own orchestration.
 	if containsAny(modules, "surfaces") {
 		enabled := settings == nil || settings.EnableSurfaceDetection
-		if err := EnrichSurfaces(ctx, db, activityID, enabled, nil, nil); err != nil {
+		var surfStream []EnrichmentStreamPoint
+		if graphReader != nil {
+			if stream == nil {
+				stream, _ = getEnrichmentStream(ctx, db, activityID)
+			}
+			surfStream = stream
+		}
+		if err := EnrichSurfaces(ctx, db, activityID, enabled, graphReader, surfStream); err != nil {
 			slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
 		}
 	}

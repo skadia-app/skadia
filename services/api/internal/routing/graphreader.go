@@ -70,6 +70,17 @@ type GraphReader interface {
 	// LandmarkMeta returns the landmark metadata (positions, thresholds).
 	// Returns nil if no landmarks are loaded.
 	LandmarkMeta() *graph.LandmarkMetaData
+
+	// === Surface Enrichment ===
+
+	// GraphAt returns the graph tile containing the given coordinates,
+	// or nil if no tile covers that area. Used by surface enrichment
+	// to run FindNearEdges on the underlying graph data.
+	GraphAt(lat, lon float64) *graph.Graph
+
+	// HasTilesFor checks whether tiles exist that cover the entire
+	// bounding box. Returns false if any part is uncovered.
+	HasTilesFor(minLat, minLon, maxLat, maxLon float64) bool
 }
 
 // --- Global Node ID helpers are in cross.go ---
@@ -175,4 +186,12 @@ func (r *SingleGraphReader) LandmarkDistsInto(setID LandmarkSetID, nodeID uint64
 
 func (r *SingleGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
 	return r.G.LandmarkMeta
+}
+
+func (r *SingleGraphReader) GraphAt(lat, lon float64) *graph.Graph {
+	return r.G
+}
+
+func (r *SingleGraphReader) HasTilesFor(minLat, minLon, maxLat, maxLon float64) bool {
+	return r.G != nil
 }
