@@ -61,7 +61,7 @@ func TestBuildUnifiedCSR_BasicMerge(t *testing.T) {
 	edgeCostFn := func(tags1, tags2 uint64) EdgeCostFactors {
 		return EdgeCostFactors{Flat: 1.0}
 	}
-	csr, nodeMapping, err := BuildUnifiedCSR(context.Background(), dir, edgeCostFn, nil)
+	csr, nodeMapping, _, err := BuildUnifiedCSR(context.Background(), dir, edgeCostFn, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestBuildUnifiedCSR_EdgeCountConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	csr, _, err := BuildUnifiedCSR(context.Background(), dir,
+	csr, _, _, err := BuildUnifiedCSR(context.Background(), dir,
 		func(t1, t2 uint64) EdgeCostFactors { return EdgeCostFactors{Flat: 1.0} }, nil)
 	if err != nil {
 		t.Fatal(err)
