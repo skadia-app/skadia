@@ -23,7 +23,7 @@ WHERE d.product_name LIKE 'GarminProduct%'
 UPDATE activity_sensors s
 SET device_id = match.canonical_id
 FROM (
-    SELECT shadow.id AS shadow_id, MIN(canonical.id) AS canonical_id
+    SELECT shadow.id AS shadow_id, MIN(canonical.id::text)::uuid AS canonical_id
     FROM devices shadow
     JOIN devices canonical
       ON canonical.user_id = shadow.user_id
