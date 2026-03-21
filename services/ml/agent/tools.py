@@ -1602,7 +1602,7 @@ async def _query_coverage(
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{api_url}/api/v1/coverage/query",
+                f"{api_url}/internal/coverage/query",
                 params={"lat": lat, "lon": lon, "layers": layers},
                 timeout=30.0,
             )
