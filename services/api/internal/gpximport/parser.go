@@ -109,6 +109,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	var prevLat, prevLon float64
 	var prevTime time.Time
 	var allElevations []float64 // Collect elevations for filtering
+	var allDistances []float64  // Collect cumulative distances for elevation filtering
 	minEle = math.MaxFloat64
 	maxEle = -math.MaxFloat64
 
@@ -133,7 +134,12 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		if pt.Elevation != nil {
 			alt := *pt.Elevation
 			sp.AltitudeM = &alt
-			allElevations = append(allElevations, alt)
+			// Only collect elevation+distance for filter when GPS is present
+			if sp.Lat != nil {
+				allElevations = append(allElevations, alt)
+				allDistances = append(allDistances, totalDistance)
+			}
+			// min/max independent of GPS
 			if alt < minEle {
 				minEle = alt
 			}
@@ -218,7 +224,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		avgSpeed = totalDistance / float64(elapsed)
 	}
 	if len(allElevations) > 0 {
-		elevGain, elevLoss = enrichment.FilterElevationGainLoss(allElevations, avgSpeed)
+		elevGain, elevLoss = enrichment.FilterElevationGainLoss(allElevations, allDistances, avgSpeed)
 	}
 
 	data.ElevationGainM = elevGain

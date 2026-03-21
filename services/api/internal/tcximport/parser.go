@@ -125,6 +125,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	var maxEle, minEle float64
 	var maxSpeed float64
 	var allElevations []float64 // Collect elevations for filtering
+	var allDistances []float64  // Collect cumulative distances for elevation filtering
 	minEle = math.MaxFloat64
 	maxEle = -math.MaxFloat64
 
@@ -160,7 +161,12 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 				if pt.Altitude != nil {
 					alt := *pt.Altitude
 					sp.AltitudeM = &alt
-					allElevations = append(allElevations, alt)
+					// Only collect elevation+distance for filter when distance is present
+					if pt.Distance != nil {
+						allElevations = append(allElevations, alt)
+						allDistances = append(allDistances, *pt.Distance)
+					}
+					// min/max independent of distance availability
 					if alt < minEle {
 						minEle = alt
 					}
@@ -243,7 +249,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		avgSpeed = totalDistance / totalTime
 	}
 	if len(allElevations) > 0 {
-		elevGain, elevLoss = enrichment.FilterElevationGainLoss(allElevations, avgSpeed)
+		elevGain, elevLoss = enrichment.FilterElevationGainLoss(allElevations, allDistances, avgSpeed)
 	}
 
 	data.ElevationGainM = elevGain
