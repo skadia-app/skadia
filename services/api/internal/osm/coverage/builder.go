@@ -224,68 +224,84 @@ func buildGridsForTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32, n
 	tg.Set(LayerUrbanization, NewGrid(bound, 100))
 	tg.Set(LayerNoise, NewGrid(bound, 100))
 
-	// --- Forest ---
-	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerForest),
-		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_forests WHERE geom && %s`, env),
-		1, false); err != nil {
-		return nil, nil, fmt.Errorf("forest: %w", err)
-	}
+	// Phase 1: independent grids run concurrently — each goroutine writes to its
+	// own CoverageGrid instance, so there are no data races.
+	eg, egCtx := errgroup.WithContext(ctx)
 
-	// --- Water ---
-	if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerWater),
-		fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_waters WHERE geom && %s`, env),
-		1, false); err != nil {
-		return nil, nil, fmt.Errorf("water: %w", err)
-	}
-
-	// --- Landuse (multiple passes) ---
-	landuseTypes := []struct {
-		filter string
-		val    uint8
-	}{
-		{"farmland", 2}, {"residential", 3}, {"industrial", 4},
-		{"commercial", 5}, {"quarry", 6}, {"military", 7}, {"landfill", 8},
-	}
-	for _, lt := range landuseTypes {
-		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerLanduse),
-			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_landuse WHERE landuse = '%s' AND geom && %s`, lt.filter, env),
-			lt.val, false); err != nil {
-			return nil, nil, fmt.Errorf("landuse %s: %w", lt.filter, err)
+	// Forest
+	eg.Go(func() error {
+		if err := rasterizePolygonsFromDB(egCtx, pool, tg.MustGet(LayerForest),
+			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_forests WHERE geom && %s`, env),
+			1, false); err != nil {
+			return fmt.Errorf("forest: %w", err)
 		}
-	}
+		return nil
+	})
 
-	// --- Protected areas ---
-	for _, pc := range []struct {
-		clause string
-		val    uint8
-	}{
-		{"protect_class IN ('1','1a','1b')", 3},
-		{"protect_class IN ('2','3','4')", 2},
-		{"protect_class IS NOT NULL AND protect_class NOT IN ('1','1a','1b','2','3','4')", 1},
-	} {
-		if err := rasterizePolygonsFromDB(ctx, pool, tg.MustGet(LayerProtected),
-			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_boundaries WHERE %s AND geom && %s`, pc.clause, env),
-			pc.val, true); err != nil {
-			return nil, nil, fmt.Errorf("protected: %w", err)
+	// Water
+	eg.Go(func() error {
+		if err := rasterizePolygonsFromDB(egCtx, pool, tg.MustGet(LayerWater),
+			fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_waters WHERE geom && %s`, env),
+			1, false); err != nil {
+			return fmt.Errorf("water: %w", err)
 		}
+		return nil
+	})
+
+	// Landuse — 7 types combined into 1 query (C2)
+	eg.Go(func() error {
+		if err := rasterizeLanduseCombined(egCtx, pool, tg.MustGet(LayerLanduse), env); err != nil {
+			return fmt.Errorf("landuse: %w", err)
+		}
+		return nil
+	})
+
+	// Protected areas — 3 sequential queries within one goroutine (same grid)
+	eg.Go(func() error {
+		for _, pc := range []struct {
+			clause string
+			val    uint8
+		}{
+			{"protect_class IN ('1','1a','1b')", 3},
+			{"protect_class IN ('2','3','4')", 2},
+			{"protect_class IS NOT NULL AND protect_class NOT IN ('1','1a','1b','2','3','4')", 1},
+		} {
+			if err := rasterizePolygonsFromDB(egCtx, pool, tg.MustGet(LayerProtected),
+				fmt.Sprintf(`SELECT ST_AsBinary((ST_Dump(geom)).geom) FROM osm_boundaries WHERE %s AND geom && %s`, pc.clause, env),
+				pc.val, true); err != nil {
+				return fmt.Errorf("protected: %w", err)
+			}
+		}
+		return nil
+	})
+
+	// River proximity
+	eg.Go(func() error {
+		if err := buildRiverProximityGrid(egCtx, pool, tg.MustGet(LayerRiverProximity), env); err != nil {
+			return fmt.Errorf("river proximity: %w", err)
+		}
+		return nil
+	})
+
+	// Noise
+	eg.Go(func() error {
+		if err := buildNoiseGrid(egCtx, pool, tg.MustGet(LayerNoise), env, ns); err != nil {
+			return fmt.Errorf("noise: %w", err)
+		}
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 
-	// --- Urbanization ---
+	// Phase 2: Urbanization must run after Forest + Water (ApplyForestWaterOverride dependency).
 	if err := buildUrbanizationGrid(ctx, pool, tg, env); err != nil {
 		return nil, nil, fmt.Errorf("urbanization: %w", err)
 	}
 
-	// --- River proximity ---
-	if err := buildRiverProximityGrid(ctx, pool, tg.MustGet(LayerRiverProximity), env); err != nil {
-		return nil, nil, fmt.Errorf("river proximity: %w", err)
-	}
-
-	// --- Noise ---
-	if err := buildNoiseGrid(ctx, pool, tg.MustGet(LayerNoise), env, ns); err != nil {
-		return nil, nil, fmt.Errorf("noise: %w", err)
-	}
-
-	// --- Traffic ---
+	// Phase 3: Traffic — reads LayerUrbanization.Bound (grid metadata only, not values)
+	// and writes to LayerTraffic. Independent of urbanization cell values.
 	tg.Set(LayerTraffic, NewGrid(bound, 100))
 	trafficIn, err := buildTrafficInputs(ctx, pool, tg, env)
 	if err != nil {
@@ -374,33 +390,32 @@ func buildNoiseGrid(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, en
 		}
 	}
 
-	// Air noise (point sources — aerodromes, excluding gliding)
-	if ns.Air.Enabled {
-		q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_pois
-			WHERE category = 'aerodrome' AND COALESCE(subtype, '') != 'gliding'
-			AND geom && %s`, env)
-		if err := queryPointNoiseSources(ctx, pool, g, q, ns.Air.BufferM, noiseOffsets["air"]); err != nil {
-			return fmt.Errorf("noise air: %w", err)
+	// Air, Wind, Shooting noise (point sources from osm_pois) — 3 queries → 1 (C3).
+	// Only include enabled categories; if none are enabled skip the query entirely.
+	{
+		type poiCat struct {
+			name    string
+			bufferM float64
+			offsetM float64
 		}
-	}
-
-	// Wind noise (point sources — wind turbines)
-	if ns.Wind.Enabled {
-		q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_pois
-			WHERE category = 'wind_turbine'
-			AND geom && %s`, env)
-		if err := queryPointNoiseSources(ctx, pool, g, q, ns.Wind.BufferM, noiseOffsets["wind"]); err != nil {
-			return fmt.Errorf("noise wind: %w", err)
+		var poisCats []struct {
+			name    string
+			bufferM float64
+			offsetM float64
 		}
-	}
-
-	// Shooting noise (point sources)
-	if ns.Shooting.Enabled {
-		q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_pois
-			WHERE category = 'shooting_range'
-			AND geom && %s`, env)
-		if err := queryPointNoiseSources(ctx, pool, g, q, ns.Shooting.BufferM, noiseOffsets["shooting"]); err != nil {
-			return fmt.Errorf("noise shooting: %w", err)
+		if ns.Air.Enabled {
+			poisCats = append(poisCats, poiCat{"aerodrome", ns.Air.BufferM, noiseOffsets["air"]})
+		}
+		if ns.Wind.Enabled {
+			poisCats = append(poisCats, poiCat{"wind_turbine", ns.Wind.BufferM, noiseOffsets["wind"]})
+		}
+		if ns.Shooting.Enabled {
+			poisCats = append(poisCats, poiCat{"shooting_range", ns.Shooting.BufferM, noiseOffsets["shooting"]})
+		}
+		if len(poisCats) > 0 {
+			if err := queryPointNoiseSourcesCombined(ctx, pool, g, env, poisCats); err != nil {
+				return fmt.Errorf("noise pois: %w", err)
+			}
 		}
 	}
 
@@ -678,6 +693,100 @@ func tileBBoxToEnvelope(bbox [4]float64) string {
 // ---------------------------------------------------------------------------
 // Helper: rasterize polygons from DB
 // ---------------------------------------------------------------------------
+
+// rasterizeLanduseCombined fetches all 7 landuse types in one query and
+// dispatches to RasterizePolygon per type (C2 optimisation: 7 queries → 1).
+// ST_Dump decomposes MultiPolygon → simple Polygon before returning WKB.
+func rasterizeLanduseCombined(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, env string) error {
+	landuseMap := map[string]uint8{
+		"farmland": 2, "residential": 3, "industrial": 4,
+		"commercial": 5, "quarry": 6, "military": 7, "landfill": 8,
+	}
+	q := fmt.Sprintf(`SELECT landuse, ST_AsBinary((ST_Dump(geom)).geom) FROM osm_landuse
+		WHERE landuse IN ('farmland','residential','industrial','commercial','quarry','military','landfill')
+		AND geom && %s`, env)
+	rows, err := pool.Query(ctx, q)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var landuse string
+		var wkbBytes []byte
+		if err := rows.Scan(&landuse, &wkbBytes); err != nil {
+			return err
+		}
+		val, ok := landuseMap[landuse]
+		if !ok {
+			continue
+		}
+		geom, err := wkb.Unmarshal(wkbBytes)
+		if err != nil {
+			continue
+		}
+		poly, ok := geom.(orb.Polygon)
+		if !ok {
+			continue
+		}
+		RasterizePolygon(g, poly, val)
+	}
+	return rows.Err()
+}
+
+// queryPointNoiseSourcesCombined fetches multiple osm_pois categories in one
+// query and dispatches ApplyNoiseDecay with per-category buffer/offset (C3).
+func queryPointNoiseSourcesCombined(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, env string,
+	categories []struct {
+		name    string
+		bufferM float64
+		offsetM float64
+	},
+) error {
+	// Build IN clause and per-category lookup maps.
+	inNames := make([]string, len(categories))
+	bufferByName := make(map[string]float64, len(categories))
+	offsetByName := make(map[string]float64, len(categories))
+	for i, c := range categories {
+		inNames[i] = "'" + c.name + "'"
+		bufferByName[c.name] = c.bufferM
+		offsetByName[c.name] = c.offsetM
+	}
+	inClause := strings.Join(inNames, ",")
+
+	q := fmt.Sprintf(`SELECT category, COALESCE(subtype, ''), ST_AsBinary(geom) FROM osm_pois
+		WHERE category IN (%s) AND geom && %s`, inClause, env)
+	rows, err := pool.Query(ctx, q)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var category, subtype string
+		var wkbBytes []byte
+		if err := rows.Scan(&category, &subtype, &wkbBytes); err != nil {
+			return err
+		}
+		// Aerodrome: skip gliding fields (matches original per-category WHERE clause).
+		if category == "aerodrome" && subtype == "gliding" {
+			continue
+		}
+		bufferM, ok := bufferByName[category]
+		if !ok {
+			continue
+		}
+		offsetM := offsetByName[category]
+		geom, err := wkb.Unmarshal(wkbBytes)
+		if err != nil {
+			continue
+		}
+		pt, ok := geom.(orb.Point)
+		if !ok {
+			continue
+		}
+		ApplyNoiseDecay(g, pt, bufferM, offsetM)
+	}
+	return rows.Err()
+}
 
 // rasterizePolygonsFromDB streams WKB polygons from a query and rasterizes each one.
 // If useMax is true, uses RasterizePolygonMax (max-write semantics).
