@@ -259,7 +259,7 @@ func persistSurfaceResults(
 		}
 	}
 
-	slog.Info("surfaces_sql: enrichment complete",
+	slog.Info("surfaces: persist complete",
 		"activity_id", activityID,
 		"surface_types", len(surfaces),
 		"highway_types", len(highways),
