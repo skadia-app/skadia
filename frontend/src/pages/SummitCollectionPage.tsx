@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import maplibregl from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchSummitCollection, type SummitVisit, type SummitCollectionFilter } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
+import SummitMap from '@/components/summit/SummitMap'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
@@ -23,27 +22,9 @@ const ELEV_CLASSES: ElevClass[] = [
   { label: '4000er+', min: 4000, max: null },
 ]
 
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
-
 function formatDate(iso: string): string {
   if (!iso) return '-'
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 export default function SummitCollectionPage({ defaultView = 'list' }: { defaultView?: 'list' | 'map' }) {
@@ -325,7 +306,12 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
           </table>
         </div>
       ) : (
-        <SummitMap summits={sortedSummits} />
+        <SummitMap
+          summits={sortedSummits}
+          selectedSummit={selectedSummit}
+          onSelectSummit={(s) => { setSelectedSummit(s); setIsFullscreen(true) }}
+          onMaximize={() => setIsFullscreen(true)}
+        />
       )}
     </div>
   )
@@ -361,109 +347,6 @@ function SortableHeader({
       {label}{indicator(field)}
     </th>
   )
-}
-
-function SummitMap({ summits }: { summits: SummitVisit[] }) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<maplibregl.Map | null>(null)
-  const markersRef = useRef<maplibregl.Marker[]>([])
-
-  useEffect(() => {
-    if (!mapContainer.current) return
-
-    const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
-
-    if (mapRef.current) {
-      // Update markers on existing map
-      markersRef.current.forEach(m => m.remove())
-      markersRef.current = addMarkers(mapRef.current, summitsWithCoords)
-      return
-    }
-
-    // Initial center: center of all summits, or Europe
-    let center: [number, number] = [11.4, 47.3]
-    let zoom = 7
-    if (summitsWithCoords.length > 0) {
-      const lats = summitsWithCoords.map(s => s.lat!)
-      const lngs = summitsWithCoords.map(s => s.lng!)
-      center = [
-        (Math.min(...lngs) + Math.max(...lngs)) / 2,
-        (Math.min(...lats) + Math.max(...lats)) / 2,
-      ]
-    }
-
-    const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style: MAP_STYLE,
-      center,
-      zoom,
-    })
-
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
-
-    map.on('load', () => {
-      markersRef.current = addMarkers(map, summitsWithCoords)
-
-      // Fit bounds if we have summits
-      if (summitsWithCoords.length > 1) {
-        const bounds = new maplibregl.LngLatBounds()
-        summitsWithCoords.forEach(s => bounds.extend([s.lng!, s.lat!]))
-        map.fitBounds(bounds, { padding: 60, maxZoom: 13 })
-      } else if (summitsWithCoords.length === 1) {
-        map.setCenter([summitsWithCoords[0].lng!, summitsWithCoords[0].lat!])
-        map.setZoom(12)
-      }
-    })
-
-    mapRef.current = map
-
-    return () => {
-      map.remove()
-      mapRef.current = null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Update markers when summits change (filters)
-  useEffect(() => {
-    if (!mapRef.current) return
-    const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
-    markersRef.current.forEach(m => m.remove())
-    markersRef.current = addMarkers(mapRef.current, summitsWithCoords)
-  }, [summits])
-
-  return (
-    <div
-      ref={mapContainer}
-      className="w-full h-[500px] rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden"
-    />
-  )
-}
-
-function addMarkers(map: maplibregl.Map, summits: SummitVisit[]): maplibregl.Marker[] {
-  return summits.map(summit => {
-    const el = document.createElement('div')
-    el.className = 'summit-marker'
-    el.style.cssText = `
-      width: 28px; height: 28px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-    `
-    el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
-
-    const popup = new maplibregl.Popup({ offset: 16, closeButton: false })
-      .setHTML(`
-        <div style="font-family: system-ui; font-size: 13px;">
-          <strong>${escapeHtml(summit.name)}</strong><br/>
-          ${summit.elevation_m != null ? `${escapeHtml(String(Math.round(summit.elevation_m)))} m` : ''}
-          ${summit.visit_count > 1 ? ` &middot; ${escapeHtml(String(summit.visit_count))}x besucht` : ''}
-        </div>
-      `)
-
-    return new maplibregl.Marker({ element: el })
-      .setLngLat([summit.lng!, summit.lat!])
-      .setPopup(popup)
-      .addTo(map)
-  })
 }
 
 // --------------- Icons ---------------
