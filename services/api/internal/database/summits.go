@@ -7,6 +7,21 @@ import (
 	"time"
 )
 
+// regionToISO maps osm_pois.source_region values to ISO 3166-1 alpha-2 codes.
+var regionToISO = map[string]string{
+	"germany": "DE", "austria": "AT", "switzerland": "CH",
+	"italy": "IT", "france": "FR", "liechtenstein": "LI",
+	"slovenia": "SI", "czech-republic": "CZ", "slovakia": "SK",
+	"poland": "PL", "hungary": "HU", "croatia": "HR",
+	"belgium": "BE", "netherlands": "NL", "luxembourg": "LU",
+	"spain": "ES", "portugal": "PT", "united-kingdom": "GB",
+	"ireland": "IE", "denmark": "DK", "sweden": "SE",
+	"norway": "NO", "finland": "FI", "romania": "RO",
+	"bulgaria": "BG", "greece": "GR", "albania": "AL",
+	"montenegro": "ME", "serbia": "RS", "bosnia-herzegovina": "BA",
+	"north-macedonia": "MK", "kosovo": "XK",
+}
+
 // SummitVisit represents a single visited summit with aggregated visit data.
 type SummitVisit struct {
 	OsmID        *int64
@@ -37,8 +52,24 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 	var filters []string
 
 	if len(f.Countries) > 0 {
-		filters = append(filters, fmt.Sprintf("a.start_country_code = ANY($%d)", idx))
-		args = append(args, f.Countries)
+		// Map ISO codes to source_region values for filtering by summit location
+		var regions []string
+		for region, iso := range regionToISO {
+			for _, c := range f.Countries {
+				if strings.EqualFold(iso, c) {
+					regions = append(regions, region)
+				}
+			}
+		}
+		if len(regions) > 0 {
+			filters = append(filters, fmt.Sprintf(
+				"EXISTS (SELECT 1 FROM osm_pois p_f WHERE p_f.osm_id = g.osm_id AND p_f.category IN ('summit','pass') AND p_f.source_region = ANY($%d))", idx))
+			args = append(args, regions)
+		} else {
+			// Unknown country codes — fall back to activity start_country_code
+			filters = append(filters, fmt.Sprintf("a.start_country_code = ANY($%d)", idx))
+			args = append(args, f.Countries)
+		}
 		idx++
 	}
 	if f.MinElevM != nil {
@@ -72,7 +103,7 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 			MAX(a.started_at) AS last_visit,
 			(SELECT ST_Y(p2.geom) FROM osm_pois p2 WHERE p2.osm_id = g.osm_id AND p2.category IN ('summit','pass') LIMIT 1) AS lat,
 			(SELECT ST_X(p2.geom) FROM osm_pois p2 WHERE p2.osm_id = g.osm_id AND p2.category IN ('summit','pass') LIMIT 1) AS lng,
-			array_agg(DISTINCT a.start_country_code) FILTER (WHERE a.start_country_code IS NOT NULL AND a.start_country_code <> '') AS country_codes
+			(SELECT source_region FROM osm_pois p3 WHERE p3.osm_id = g.osm_id AND p3.category IN ('summit','pass') LIMIT 1) AS summit_region
 		FROM activity_geo_tags g
 		JOIN activities a ON g.activity_id = a.id
 		WHERE a.user_id = $1 AND g.category IN ('summit', 'pass') AND g.osm_id IS NOT NULL%s
@@ -89,12 +120,20 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 	var summits []SummitVisit
 	for rows.Next() {
 		var sv SummitVisit
+		var summitRegion *string
 		if err := rows.Scan(
 			&sv.OsmID, &sv.Name, &sv.ElevationM, &sv.VisitCount,
 			&sv.FirstVisit, &sv.LastVisit, &sv.Lat, &sv.Lng,
-			&sv.CountryCodes,
+			&summitRegion,
 		); err != nil {
 			return nil, fmt.Errorf("summit collection scan: %w", err)
+		}
+		if summitRegion != nil {
+			if iso, ok := regionToISO[*summitRegion]; ok {
+				sv.CountryCodes = []string{iso}
+			} else {
+				sv.CountryCodes = []string{*summitRegion}
+			}
 		}
 		summits = append(summits, sv)
 	}
