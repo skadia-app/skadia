@@ -13,9 +13,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
-// borderCacheEntry records the result of a BorderIndex.Lookup for a given
-// (coordKey, neighborTileID) pair so that repeated negative lookups skip
-// the tile-load entirely on subsequent border-node expansions.
+// borderCacheKey uniquely identifies a (coordKey, neighborTileID) pair.
+type borderCacheKey struct {
+	coordKey       int64
+	neighborTileID uint32
+}
+
+// borderCacheEntry records the result of a BorderIndex.Lookup.
 type borderCacheEntry struct {
 	localID uint32
 	found   bool
@@ -27,7 +31,7 @@ type TiledGraphReader struct {
 	tileDir     string
 	cache       *tiledCache
 	cachedLMeta atomic.Pointer[graph.LandmarkMetaData]
-	borderCache sync.Map // uint64(coordKey ^ neighborTileID<<32) → borderCacheEntry
+	borderCache sync.Map // borderCacheKey → borderCacheEntry
 }
 
 // NewTiledGraphReader creates a reader with configurable cache size.
@@ -102,7 +106,7 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 		nids, ncount := graph.NeighborTileIDs(tileID)
 		for i := range ncount {
 			neighborTileID := nids[i]
-			cacheKey := uint64(coordKey) ^ (uint64(neighborTileID) << 32)
+			cacheKey := borderCacheKey{coordKey: coordKey, neighborTileID: neighborTileID}
 
 			if cached, ok := r.borderCache.Load(cacheKey); ok {
 				entry := cached.(borderCacheEntry)
