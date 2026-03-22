@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
@@ -45,6 +46,7 @@ interface Props {
 }
 
 export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange }: Props) {
+  const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
@@ -583,14 +585,20 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
             {overlayState && onOverlayChange && (
               <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3 space-y-2">
                 <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Kartenebenen</span>
+                <button
+                  onClick={() => navigate('/map/summits')}
+                  className="w-full text-left text-xs text-accent-DEFAULT hover:underline mb-2"
+                >
+                  Gipfelsammlung öffnen →
+                </button>
                 <div className="space-y-1">
                   <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showPeaks} onChange={e => onOverlayChange('showPeaks', e.target.checked)} className="rounded" />
+                    <input type="checkbox" checked={overlayState.showSummits} onChange={e => onOverlayChange('showSummits', e.target.checked)} className="rounded" />
                     <span>Gipfel</span>
                   </label>
-                  {overlayState.showPeaks && (
+                  {overlayState.showSummits && (
                     <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
-                      <input type="checkbox" checked={overlayState.peaksOnlyVisited} onChange={e => onOverlayChange('peaksOnlyVisited', e.target.checked)} className="rounded" />
+                      <input type="checkbox" checked={overlayState.summitsOnlyVisited} onChange={e => onOverlayChange('summitsOnlyVisited', e.target.checked)} className="rounded" />
                       <span>Nur besuchte</span>
                     </label>
                   )}
