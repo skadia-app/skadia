@@ -467,8 +467,9 @@ func main() {
 			// Entdeckungskarte
 			r.Get("/terra-incognita/coverage", h.GetTerraIncognitaCoverage)
 
-			// Peaks Collection
-			r.Get("/peaks/collection", h.GetPeakCollection)
+			// Summits Collection
+			r.Get("/summits/collection", h.GetSummitCollection)
+			r.Get("/summits/{osm_id}/activities", h.GetSummitActivities)
 
 			// Trails: build-topology removed (pgRouting 4.0+ removed pgr_createTopology)
 
