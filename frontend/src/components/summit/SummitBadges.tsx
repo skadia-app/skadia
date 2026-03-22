@@ -1,11 +1,11 @@
-interface Peak {
+interface Summit {
   elevation_m: number | null
   name: string
   osm_id: number | null
 }
 
 interface SummitBadgesProps {
-  peaks: Peak[]
+  summits: Summit[]
 }
 
 const HEIGHT_CLASSES = [
@@ -31,8 +31,8 @@ function MountainIcon({ color }: { color: string }) {
   )
 }
 
-export default function SummitBadges({ peaks }: SummitBadgesProps) {
-  const total = peaks.length
+export default function SummitBadges({ summits }: SummitBadgesProps) {
+  const total = summits.length
 
   if (total === 0) return null
 
@@ -45,8 +45,8 @@ export default function SummitBadges({ peaks }: SummitBadgesProps) {
         </p>
         <div className="flex flex-wrap gap-3">
           {HEIGHT_CLASSES.map(cls => {
-            const count = peaks.filter(
-              p => p.elevation_m != null && p.elevation_m >= cls.min && p.elevation_m <= cls.max
+            const count = summits.filter(
+              s => s.elevation_m != null && s.elevation_m >= cls.min && s.elevation_m <= cls.max
             ).length
             const achieved = count > 0
             return (

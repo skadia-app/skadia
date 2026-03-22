@@ -31,7 +31,7 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const PrivacySettingsPage = lazy(() => import('@/pages/PrivacySettingsPage'))
 const AutomationRulesPage = lazy(() => import('@/pages/AutomationRulesPage'))
 const DocumentReviewPage = lazy(() => import('@/pages/DocumentReviewPage'))
-const PeakCollectionPage = lazy(() => import('@/pages/PeakCollectionPage'))
+const SummitCollectionPage = lazy(() => import('@/pages/SummitCollectionPage'))
 const ActivityEditorPage = lazy(() => import('@/pages/ActivityEditorPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const TrainingTab = lazy(() => import('@/pages/analytics/TrainingTab'))
@@ -145,7 +145,8 @@ export default function App() {
                         <Route path="settings/enrichment" element={<Navigate to="/settings?tab=analysen" replace />} />
                         <Route path="workshop/rules" element={<AutomationRulesPage />} />
                         <Route path="workshop/document-review" element={<DocumentReviewPage />} />
-                        <Route path="workshop/peaks" element={<PeakCollectionPage />} />
+                        <Route path="workshop/summits" element={<SummitCollectionPage />} />
+                        <Route path="map/summits" element={<SummitCollectionPage defaultView="map" />} />
                         <Route path="workshop/fusion" element={<FusionQueuePage />} />
                         <Route path="workshop/import-queue" element={<ImportQueuePage />} />
                         <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
