@@ -5,7 +5,7 @@ import { type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
 import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
-import { createSummitMarker } from './markerUtils'
+import { createSummitMarker, type SummitMarker } from './markerUtils'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
 
 function getSavedMapStyle(): BaseStyle {
@@ -36,7 +36,7 @@ export default function SummitMapFullscreen({
 }: SummitMapFullscreenProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const markersRef = useRef<maplibregl.Marker[]>([])
+  const markersRef = useRef<SummitMarker[]>([])
 
   const [elevClass, setElevClass] = useState<ElevClass>(initialElevClass ?? ELEV_CLASSES[0])
   const [countryFilter, setCountryFilter] = useState(initialCountry ?? '')
@@ -76,14 +76,14 @@ export default function SummitMapFullscreen({
     const map = mapRef.current
     if (!map) return
     const update = () => {
-      markersRef.current.forEach(m => m.remove())
+      markersRef.current.forEach(m => { m.abort(); m.marker.remove() })
       markersRef.current = displaySummits
         .filter(s => s.lat != null && s.lng != null)
         .map(s => {
           const isSelected = selectedSummit?.name === s.name
-          const marker = createSummitMarker(s, isSelected)
-          marker.getElement().addEventListener('click', () => setSelectedSummit(s))
-          return marker.setLngLat([s.lng!, s.lat!]).addTo(map)
+          const { marker, abort } = createSummitMarker(isSelected, () => setSelectedSummit(s))
+          marker.setLngLat([s.lng!, s.lat!]).addTo(map)
+          return { marker, abort }
         })
     }
     if (map.loaded()) {

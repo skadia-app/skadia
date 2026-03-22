@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
 import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
-import { createSummitMarker } from './markerUtils'
+import { createSummitMarker, type SummitMarker } from './markerUtils'
 
 function getSavedMapStyle(): BaseStyle {
   try {
@@ -21,12 +21,12 @@ function addMarkers(
   summits: SummitVisit[],
   selectedSummit: SummitVisit | null | undefined,
   onSelect: (summit: SummitVisit) => void,
-): maplibregl.Marker[] {
+): SummitMarker[] {
   return summits.map(s => {
     const isSelected = selectedSummit?.name === s.name
-    const marker = createSummitMarker(s, isSelected)
-    marker.getElement().addEventListener('click', () => onSelect(s))
-    return marker.setLngLat([s.lng!, s.lat!]).addTo(map)
+    const { marker, abort } = createSummitMarker(isSelected, () => onSelect(s))
+    marker.setLngLat([s.lng!, s.lat!]).addTo(map)
+    return { marker, abort }
   })
 }
 
@@ -40,7 +40,7 @@ interface SummitMapProps {
 export default function SummitMap({ summits, selectedSummit, onSelectSummit, onMaximize }: SummitMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const markersRef = useRef<maplibregl.Marker[]>([])
+  const markersRef = useRef<SummitMarker[]>([])
 
   // Initialize map once
   useEffect(() => {
@@ -96,7 +96,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
   useEffect(() => {
     if (!mapRef.current) return
     const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
-    markersRef.current.forEach(m => m.remove())
+    markersRef.current.forEach(m => { m.abort(); m.marker.remove() })
     markersRef.current = addMarkers(mapRef.current, summitsWithCoords, selectedSummit, onSelectSummit)
   }, [summits, selectedSummit, onSelectSummit])
 
