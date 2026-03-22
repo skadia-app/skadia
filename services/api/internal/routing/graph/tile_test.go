@@ -42,18 +42,18 @@ func TestTileBBoxExpanded(t *testing.T) {
 
 func TestNeighborTileIDs(t *testing.T) {
 	id := TileIDFromCoord(47.37, 8.54)
-	neighbors := NeighborTileIDs(id)
-	if len(neighbors) != 8 {
-		t.Fatalf("NeighborTileIDs: got %d, want 8", len(neighbors))
+	neighbors, count := NeighborTileIDs(id)
+	if count != 8 {
+		t.Fatalf("NeighborTileIDs: got %d, want 8", count)
 	}
 	north := TileIDFromCoord(48.5, 8.5)
 	found := false
-	for _, n := range neighbors {
-		if n == north {
+	for i := range count {
+		if neighbors[i] == north {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("north neighbor %d not in %v", north, neighbors)
+		t.Errorf("north neighbor %d not in %v", north, neighbors[:count])
 	}
 }
