@@ -71,7 +71,7 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 				COUNT(DISTINCT g.activity_id) AS visit_count,
 				MIN(a.started_at) AS first_visit,
 				MAX(a.started_at) AS last_visit,
-				MIN(p.geom) AS summit_geom
+				(array_agg(p.geom ORDER BY p.osm_id) FILTER (WHERE p.geom IS NOT NULL))[1] AS summit_geom
 			FROM activity_geo_tags g
 			JOIN activities a ON g.activity_id = a.id
 			LEFT JOIN osm_pois p ON g.osm_id = p.osm_id AND p.category IN ('summit', 'pass')
