@@ -39,6 +39,17 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		resp["tile_cached"] = tm.CachedCount()
 	}
 
+	if reader := h.GraphManager.Reader(); reader != nil {
+		if tr, ok := reader.(*routing.TiledGraphReader); ok {
+			hits, misses, evictions, usedBytes, budgetBytes := tr.CacheStats()
+			resp["tile_cache_hits"] = hits
+			resp["tile_cache_misses"] = misses
+			resp["tile_cache_evictions"] = evictions
+			resp["tile_cache_used_bytes"] = usedBytes
+			resp["tile_cache_budget_bytes"] = budgetBytes
+		}
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 
