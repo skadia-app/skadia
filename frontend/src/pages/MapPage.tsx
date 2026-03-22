@@ -66,8 +66,8 @@ export interface MapFilterState {
 }
 
 export interface MapOverlayState {
-  showPeaks: boolean
-  peaksOnlyVisited: boolean
+  showSummits: boolean
+  summitsOnlyVisited: boolean
   showWaters: boolean
   showForests: boolean
   showVisitedPois: boolean
@@ -76,8 +76,8 @@ export interface MapOverlayState {
 }
 
 const defaultOverlayState: MapOverlayState = {
-  showPeaks: false,
-  peaksOnlyVisited: false,
+  showSummits: false,
+  summitsOnlyVisited: false,
   showWaters: false,
   showForests: false,
   showVisitedPois: false,
@@ -85,12 +85,12 @@ const defaultOverlayState: MapOverlayState = {
   showSegmentsOverlay: false,
 }
 
-const PEAK_ICON_VISITED = `data:image/svg+xml,${encodeURIComponent(
+const SUMMIT_ICON_VISITED = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
   '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
   '</svg>'
 )}`
-const PEAK_ICON_UNVISITED = `data:image/svg+xml,${encodeURIComponent(
+const SUMMIT_ICON_UNVISITED = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
   '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#9ca3af" stroke="white" stroke-width="1.5"/>' +
   '</svg>'
@@ -476,7 +476,7 @@ export default function MapPage() {
 
   // Track welche user_id zuletzt für den jeweiligen Source verwendet wurde,
   // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
-  const lastPeaksUserId = useRef<string>('')
+  const lastSummitsUserId = useRef<string>('')
   const lastForestsUserId = useRef<string>('')
   const lastPoisUserId = useRef<string>('')
 
@@ -1772,34 +1772,34 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
     const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
-    const peakTileUrl = currentUserId
-      ? `${martinBase}/peaks/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
-      : `${martinBase}/peaks/{z}/{x}/{y}`
+    const summitTileUrl = currentUserId
+      ? `${martinBase}/summits/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
+      : `${martinBase}/summits/{z}/{x}/{y}`
 
-    const addPeaksLayer = () => {
+    const addSummitsLayer = () => {
       // Source neu laden wenn sich user_id geändert hat (visited-Flag korrekt rendern)
-      if (map.getSource('peaks-source') && lastPeaksUserId.current !== currentUserId) {
-        if (map.getLayer('peaks-layer')) map.removeLayer('peaks-layer')
-        map.removeSource('peaks-source')
+      if (map.getSource('summits-source') && lastSummitsUserId.current !== currentUserId) {
+        if (map.getLayer('summits-layer')) map.removeLayer('summits-layer')
+        map.removeSource('summits-source')
       }
-      if (!map.getSource('peaks-source')) {
-        map.addSource('peaks-source', {
+      if (!map.getSource('summits-source')) {
+        map.addSource('summits-source', {
           type: 'vector',
-          tiles: [peakTileUrl],
+          tiles: [summitTileUrl],
           minzoom: 0,
           maxzoom: 14,
         })
-        lastPeaksUserId.current = currentUserId
+        lastSummitsUserId.current = currentUserId
       }
-      if (!map.getLayer('peaks-layer')) {
+      if (!map.getLayer('summits-layer')) {
         map.addLayer({
-          id: 'peaks-layer',
+          id: 'summits-layer',
           type: 'symbol',
-          source: 'peaks-source',
-          'source-layer': 'peaks',
+          source: 'summits-source',
+          'source-layer': 'summits',
           minzoom: 10,
           layout: {
-            'icon-image': ['case', ['get', 'visited'], 'peak-visited', 'peak-unvisited'] as maplibregl.ExpressionSpecification,
+            'icon-image': ['case', ['get', 'visited'], 'summit-visited', 'summit-unvisited'] as maplibregl.ExpressionSpecification,
             'icon-size': 0.8,
             'icon-allow-overlap': false,
             'text-field': ['get', 'name'] as maplibregl.ExpressionSpecification,
@@ -1814,37 +1814,37 @@ export default function MapPage() {
             'text-halo-color': 'white',
             'text-halo-width': 1,
           },
-          filter: overlayState.peaksOnlyVisited
+          filter: overlayState.summitsOnlyVisited
             ? ['==', ['get', 'visited'], true]
             : ['literal', true],
         })
       } else {
-        map.setFilter('peaks-layer', overlayState.peaksOnlyVisited
+        map.setFilter('summits-layer', overlayState.summitsOnlyVisited
           ? ['==', ['get', 'visited'], true]
           : ['literal', true])
       }
     }
 
-    if (overlayState.showPeaks) {
-      if (!map.hasImage('peak-visited')) {
+    if (overlayState.showSummits) {
+      if (!map.hasImage('summit-visited')) {
         let loaded = 0
-        const onLoad = () => { if (++loaded === 2) addPeaksLayer() }
+        const onLoad = () => { if (++loaded === 2) addSummitsLayer() }
         const img1 = new Image(24, 24)
         const img2 = new Image(24, 24)
-        img1.onload = () => { if (!map.hasImage('peak-visited')) map.addImage('peak-visited', img1); onLoad() }
-        img2.onload = () => { if (!map.hasImage('peak-unvisited')) map.addImage('peak-unvisited', img2); onLoad() }
+        img1.onload = () => { if (!map.hasImage('summit-visited')) map.addImage('summit-visited', img1); onLoad() }
+        img2.onload = () => { if (!map.hasImage('summit-unvisited')) map.addImage('summit-unvisited', img2); onLoad() }
         img1.onerror = onLoad
         img2.onerror = onLoad
-        img1.src = PEAK_ICON_VISITED
-        img2.src = PEAK_ICON_UNVISITED
+        img1.src = SUMMIT_ICON_VISITED
+        img2.src = SUMMIT_ICON_UNVISITED
       } else {
-        addPeaksLayer()
+        addSummitsLayer()
       }
     } else {
-      if (map.getLayer('peaks-layer')) map.removeLayer('peaks-layer')
-      if (map.getSource('peaks-source')) map.removeSource('peaks-source')
+      if (map.getLayer('summits-layer')) map.removeLayer('summits-layer')
+      if (map.getSource('summits-source')) map.removeSource('summits-source')
     }
-  }, [overlayState.showPeaks, overlayState.peaksOnlyVisited, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [overlayState.showSummits, overlayState.summitsOnlyVisited, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Gewässer-Layer ────────────────────────────────────────────────────────
   useEffect(() => {
