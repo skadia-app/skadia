@@ -297,13 +297,10 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
       {/* Content */}
       {isFullscreen && (
         <SummitMapFullscreen
-          summits={allSummits ?? []}
           initialSelected={selectedSummit}
           initialElevClass={elevClass}
           initialCountry={countryFilter}
           initialYear={yearFilter}
-          availableCountries={availableCountries}
-          availableYears={availableYears}
           onClose={() => { setIsFullscreen(false); setSelectedSummit(null) }}
         />
       )}

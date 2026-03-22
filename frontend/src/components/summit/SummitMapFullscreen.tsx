@@ -1,30 +1,25 @@
 import { useRef, useEffect, useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import type { SummitVisit } from '@/api/summits'
+import { fetchSummitCollection, type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
 import { SUMMIT_MAP_STYLE } from './summitMapStyle'
 
 interface SummitMapFullscreenProps {
-  summits: SummitVisit[]
   initialSelected?: SummitVisit | null
   initialElevClass?: ElevClass
   initialCountry?: string
   initialYear?: string
-  availableCountries: string[]
-  availableYears: string[]
   onClose: () => void
 }
 
 export default function SummitMapFullscreen({
-  summits,
   initialSelected,
   initialElevClass,
   initialCountry,
   initialYear,
-  availableCountries,
-  availableYears,
   onClose,
 }: SummitMapFullscreenProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -36,20 +31,51 @@ export default function SummitMapFullscreen({
   const [yearFilter, setYearFilter] = useState(initialYear ?? '')
   const [selectedSummit, setSelectedSummit] = useState<SummitVisit | null>(initialSelected ?? null)
 
-  const filteredSummits = useMemo(() => {
-    return summits.filter(s => {
-      if (elevClass.min != null && (s.elevation_m ?? 0) < elevClass.min) return false
-      if (elevClass.max != null && (s.elevation_m ?? 0) > elevClass.max) return false
-      if (countryFilter && !(s.country_codes ?? []).includes(countryFilter)) return false
-      if (yearFilter) {
-        const y = yearFilter
-        const firstYear = s.first_visit ? new Date(s.first_visit).getFullYear().toString() : ''
-        const lastYear = s.last_visit ? new Date(s.last_visit).getFullYear().toString() : ''
-        if (firstYear !== y && lastYear !== y) return false
-      }
-      return true
-    })
-  }, [summits, elevClass, countryFilter, yearFilter])
+  // Escape key closes fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  // Ungefilterte Query (für Country/Year-Selects)
+  const { data: allSummits } = useQuery({
+    queryKey: ['summit-collection-all'],
+    queryFn: () => fetchSummitCollection(),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Gefilterte Query
+  const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
+  const { data: filteredData } = useQuery({
+    queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
+    queryFn: () => fetchSummitCollection({
+      country: countryFilter || undefined,
+      min_elevation: elevClass.min ?? undefined,
+      max_elevation: elevClass.max ?? undefined,
+      year: yearFilter ? Number(yearFilter) : undefined,
+    }),
+    enabled: isFiltered,
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const displaySummits = (isFiltered ? filteredData : allSummits) ?? []
+
+  const availableCountries = useMemo(() =>
+    [...new Set((allSummits ?? []).flatMap(s => s.country_codes ?? []))].sort(),
+    [allSummits]
+  )
+
+  const availableYears = useMemo(() => {
+    const years = new Set<string>()
+    for (const s of (allSummits ?? [])) {
+      if (s.first_visit) years.add(new Date(s.first_visit).getFullYear().toString())
+      if (s.last_visit) years.add(new Date(s.last_visit).getFullYear().toString())
+    }
+    return [...years].sort().reverse()
+  }, [allSummits])
 
   // MapLibre initialisieren
   useEffect(() => {
@@ -74,7 +100,7 @@ export default function SummitMapFullscreen({
     if (!map) return
     const update = () => {
       markersRef.current.forEach(m => m.remove())
-      markersRef.current = filteredSummits
+      markersRef.current = displaySummits
         .filter(s => s.lat != null && s.lng != null)
         .map(s => {
           const el = document.createElement('div')
@@ -95,7 +121,7 @@ export default function SummitMapFullscreen({
       map.on('load', update)
       return () => { map.off('load', update) }
     }
-  }, [filteredSummits, selectedSummit])
+  }, [displaySummits, selectedSummit])
 
   // Karte auf selektierten Gipfel zentrieren
   useEffect(() => {
@@ -105,12 +131,13 @@ export default function SummitMapFullscreen({
   }, [selectedSummit])
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-black overflow-hidden">
-      {/* Karte (links, flex-1) */}
-      <div ref={mapContainer} className="flex-1 h-full" />
+    <div className="fixed inset-0 z-50 flex flex-col md:flex-row bg-black overflow-hidden">
+      {/* Karte */}
+      <div ref={mapContainer} className="flex-1 h-[60vh] md:h-full" />
 
-      {/* Rechtes Panel (w-80) */}
-      <div className="w-80 flex-none bg-white dark:bg-neutral-900 border-l border-neutral-200 dark:border-neutral-800
+      {/* Panel: auf Mobile als horizontaler Streifen unten, auf Desktop rechts */}
+      <div className="w-full md:w-80 md:flex-none h-[40vh] md:h-full bg-white dark:bg-neutral-900
+                      border-t md:border-t-0 md:border-l border-neutral-200 dark:border-neutral-800
                       flex flex-col overflow-hidden">
         {/* Panel-Header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
@@ -176,7 +203,7 @@ export default function SummitMapFullscreen({
           )}
 
           <div className="text-xs text-neutral-400">
-            {filteredSummits.length} Gipfel
+            {displaySummits.length} Gipfel
           </div>
         </div>
 
