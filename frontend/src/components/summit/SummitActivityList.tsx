@@ -11,7 +11,7 @@ interface SummitActivityListProps {
 export default function SummitActivityList({ summit }: SummitActivityListProps) {
   const navigate = useNavigate()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['summit-activities', summit.osm_id, summit.name],
     queryFn: () => fetchSummitActivities(summit.osm_id, summit.name),
     staleTime: 5 * 60 * 1000,
@@ -24,7 +24,12 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
       {isLoading && (
         <div className="text-sm text-neutral-500 dark:text-neutral-400">Lädt...</div>
       )}
-      {!isLoading && activities.length === 0 && (
+      {!isLoading && error && (
+        <div className="text-sm text-red-500 dark:text-red-400">
+          Aktivitäten konnten nicht geladen werden.
+        </div>
+      )}
+      {!isLoading && !error && activities.length === 0 && (
         <div className="text-sm text-neutral-500 dark:text-neutral-400">Keine Aktivitäten gefunden.</div>
       )}
       <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
