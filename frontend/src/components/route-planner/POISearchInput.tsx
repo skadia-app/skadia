@@ -45,18 +45,18 @@ function poiTypeIcon(type: string): string {
 
 // ── Filter tabs ─────────────────────────────────────────────────────────────
 
-type TypeFilter = 'all' | 'peaks' | 'amenities'
+type TypeFilter = 'all' | 'summits' | 'amenities'
 
 const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   all: 'Alle',
-  peaks: 'Gipfel',
+  summits: 'Gipfel',
   amenities: 'Orte',
 }
 
 // Maps frontend filter tabs to API `types` param values
 const TYPE_FILTER_API: Record<TypeFilter, string | undefined> = {
   all: undefined,
-  peaks: 'peaks',
+  summits: 'summits',
   amenities: 'amenities',
 }
 

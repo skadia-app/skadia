@@ -1,7 +1,7 @@
 import React from 'react'
 
 export const ENRICHMENT_MODULES = [
-  'peaks', 'lifts', 'settlements', 'commute', 'borders',
+  'summits', 'lifts', 'settlements', 'commute', 'borders',
   'water', 'forests', 'surfaces', 'stops', 'intervals',
   'ascents', 'embeddings',
 ] as const

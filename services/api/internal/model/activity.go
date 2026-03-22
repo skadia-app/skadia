@@ -725,7 +725,7 @@ type EnrichmentSettings struct {
 	// Detection module flags (Migration 000192).
 	// Each flag controls whether the corresponding enrichment module runs.
 	// Default: true (all modules enabled for new and existing users).
-	// Note: module string literals ("peaks", "lifts" etc.) in Go/NATS are NOT renamed.
+	// Note: module string literals ("summits", "lifts" etc.) in Go/NATS are stable identifiers.
 	EnableForestDetection     bool `json:"enable_forest_detection"`
 	EnableWaterDetection      bool `json:"enable_water_detection"`
 	EnableSettlementDetection bool `json:"enable_settlement_detection"`
@@ -756,7 +756,7 @@ type EnrichmentSettings struct {
 // enabled. An empty slice means every module is enabled (backwards-compat
 // default). This list is embedded directly in the NATS Stage2ReadyEvent so
 // that the ML service can skip disabled modules without a DB round-trip.
-// Note: module string literals ("peaks", "lifts" etc.) are stable identifiers
+// Note: module string literals ("summits", "lifts" etc.) are stable identifiers
 // and do NOT change when DB column names change.
 func (s *EnrichmentSettings) EnabledModules() []string {
 	type flag struct {
@@ -764,7 +764,7 @@ func (s *EnrichmentSettings) EnabledModules() []string {
 		enabled bool
 	}
 	flags := []flag{
-		{"peaks", s.EnableSummitDetection},
+		{"summits", s.EnableSummitDetection},
 		{"lifts", s.EnableLiftDetection},
 		{"settlements", s.EnableSettlementDetection},
 		{"commute", s.EnableCommuteDetection},

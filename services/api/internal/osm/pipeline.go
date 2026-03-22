@@ -56,7 +56,7 @@ const maxParallelDBOps = 4
 
 // categoryToPOI mappt Import-Kategorie → osm_pois.category Werte
 var categoryToPOI = map[string][]string{
-	"peaks":          {"summit"},
+	"summits":        {"summit"},
 	"passes":         {"pass"},
 	"settlements":    {"settlement"},
 	"gastronomy":     {"gastronomy"},
@@ -90,7 +90,7 @@ var categoryToTable = map[string][]string{
 
 // Env-Vars für Lua-Script (eine Kategorie kann mehrere Lua-Flags setzen)
 var categoryEnvVars = map[string][]string{
-	"peaks":          {"SKADIA_IMPORT_PEAKS"},
+	"summits":        {"SKADIA_IMPORT_PEAKS"},
 	"passes":         {"SKADIA_IMPORT_PASSES"},
 	"lifts":          {"SKADIA_IMPORT_LIFTS"},
 	"settlements":    {"SKADIA_IMPORT_SETTLEMENTS"},
@@ -509,7 +509,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		query string
 	}
 	allOpts := []optQuery{
-		{[]string{"peaks", "passes", "settlements", "gastronomy", "accommodation",
+		{[]string{"summits", "passes", "settlements", "gastronomy", "accommodation",
 			"infrastructure", "transport", "viewpoints", "shops", "sport",
 			"camping", "information", "landmarks", "religion"},
 			"UPDATE osm_pois SET geom = ST_MakeValid(ST_QuantizeCoordinates(ST_MakeValid(geom), 6))"},
@@ -774,7 +774,7 @@ func buildParallelIndexGroups(categories []string) [][]string {
 
 	// osm_pois: ANALYZE wenn mindestens eine POI-Kategorie importiert wurde
 	poiCats := []string{
-		"peaks", "passes", "settlements", "gastronomy", "accommodation",
+		"summits", "passes", "settlements", "gastronomy", "accommodation",
 		"infrastructure", "transport", "viewpoints", "shops", "sport",
 		"camping", "information", "landmarks", "religion",
 	}
@@ -839,7 +839,7 @@ func buildVacuumTables(categories []string) []string {
 
 	// Kategorie → betroffene Tabelle(n)
 	catToTables := map[string][]string{
-		"peaks": {"osm_pois"}, "passes": {"osm_pois"}, "settlements": {"osm_pois"},
+		"summits": {"osm_pois"}, "passes": {"osm_pois"}, "settlements": {"osm_pois"},
 		"gastronomy": {"osm_pois"}, "accommodation": {"osm_pois"}, "infrastructure": {"osm_pois"},
 		"transport": {"osm_pois"}, "viewpoints": {"osm_pois"}, "shops": {"osm_pois"},
 		"sport": {"osm_pois"}, "camping": {"osm_pois"}, "information": {"osm_pois"},

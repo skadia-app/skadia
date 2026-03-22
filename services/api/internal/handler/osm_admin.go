@@ -73,7 +73,7 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 		"railways":   railways,
 		"has_data":   hasData,
 		// Legacy fields
-		"peaks":       categories["summit"],
+		"summits":     categories["summit"],
 		"passes":      categories["pass"],
 		"settlements": categories["settlement"],
 		"amenities":   categories["gastronomy"] + categories["accommodation"] + categories["shelter"] + categories["transport"],

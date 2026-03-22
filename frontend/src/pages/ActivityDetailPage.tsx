@@ -1876,7 +1876,7 @@ function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?
 // ── Map ───────────────────────────────────────────────────────────────────────
 
 /** Haversine-Distanz in Metern zwischen zwei [lng, lat]-Koordinaten */
-const PEAK_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
+const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
   '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
   '</svg>'
@@ -2027,26 +2027,26 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
       })
 
       // Gipfel-Pins aus GeoTags (category: summit/pass)
-      const peakTags = (geoTags ?? []).filter(
+      const summitTags = (geoTags ?? []).filter(
         (t) => (t.category === 'summit' || t.category === 'pass') && t.lat != null
       )
-      if (peakTags.length > 0) {
-        const peakGeoJSON = {
+      if (summitTags.length > 0) {
+        const summitGeoJSON = {
           type: 'FeatureCollection' as const,
-          features: peakTags.map((t) => ({
+          features: summitTags.map((t) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
             properties: { name: t.name ?? '', ele: t.ele_m ?? t.ele ?? 0 },
           })),
         }
-        map.addSource('activity-peaks', { type: 'geojson', data: peakGeoJSON })
-        const addPeakLayers = () => {
+        map.addSource('activity-summits', { type: 'geojson', data: summitGeoJSON })
+        const addSummitLayers = () => {
           map.addLayer({
-            id: 'activity-peaks-layer',
+            id: 'activity-summits-layer',
             type: 'symbol',
-            source: 'activity-peaks',
+            source: 'activity-summits',
             layout: {
-              'icon-image': 'peak-icon',
+              'icon-image': 'summit-icon',
               'icon-size': 0.9,
               'icon-allow-overlap': true,
               'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
@@ -2059,21 +2059,21 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
             paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
           })
         }
-        if (map.hasImage('peak-icon')) {
-          addPeakLayers()
+        if (map.hasImage('summit-icon')) {
+          addSummitLayers()
         } else {
           const img = new Image(24, 24)
-          img.onload = () => { map.addImage('peak-icon', img); addPeakLayers() }
+          img.onload = () => { map.addImage('summit-icon', img); addSummitLayers() }
           img.onerror = () => {
             // Fallback auf circle wenn Icon nicht ladbar
             map.addLayer({
-              id: 'activity-peaks-layer',
+              id: 'activity-summits-layer',
               type: 'circle',
-              source: 'activity-peaks',
+              source: 'activity-summits',
               paint: { 'circle-radius': 6, 'circle-color': '#f97316', 'circle-stroke-color': 'white', 'circle-stroke-width': 2 },
             })
           }
-          img.src = PEAK_ICON_SVG
+          img.src = SUMMIT_ICON_SVG
         }
       }
 

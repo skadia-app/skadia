@@ -1,87 +1,82 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import maplibregl from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchPeakCollection, type PeakVisit } from '@/api/peaks'
+import { useSearchParams } from 'react-router-dom'
+import { fetchSummitCollection, type SummitVisit, type SummitCollectionFilter } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
+import SummitMap from '@/components/summit/SummitMap'
+import SummitMapFullscreen from '@/components/summit/SummitMapFullscreen'
+import { ELEV_CLASSES, type ElevClass } from '@/components/summit/summitConstants'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
 type ViewMode = 'list' | 'map'
-
-interface ElevClass {
-  label: string
-  min: number | null
-  max: number | null
-}
-
-const ELEV_CLASSES: ElevClass[] = [
-  { label: 'Alle', min: null, max: null },
-  { label: '1000er', min: 1000, max: 1999 },
-  { label: '2000er', min: 2000, max: 2999 },
-  { label: '3000er', min: 3000, max: 3999 },
-  { label: '4000er+', min: 4000, max: null },
-]
-
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
 
 function formatDate(iso: string): string {
   if (!iso) return '-'
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-export default function PeakCollectionPage() {
+export default function SummitCollectionPage({ defaultView = 'list' }: { defaultView?: 'list' | 'map' }) {
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [elevClass, setElevClass] = useState<ElevClass>(ELEV_CLASSES[0])
-  const [countryFilter, setCountryFilter] = useState('')
-  const [yearFilter, setYearFilter] = useState<string>('')
+  const [viewMode, setViewMode] = useState<ViewMode>(defaultView)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [selectedSummit, setSelectedSummit] = useState<SummitVisit | null>(null)
+  const [nameFilter, setNameFilter] = useState('')
 
-  // All peaks (unfiltered) — for badges and for deriving available filter options
-  const { data: allPeaks } = useQuery({
-    queryKey: ['peak-collection-all'],
-    queryFn: () => fetchPeakCollection(),
+  // Fix 1: URL-State für Filter
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const countryFilter = searchParams.get('country') ?? ''
+  const yearFilter = searchParams.get('year') ?? ''
+  const elevClassLabel = searchParams.get('elev') ?? 'Alle'
+  const elevClass = ELEV_CLASSES.find(c => c.label === elevClassLabel) ?? ELEV_CLASSES[0]
+
+  const setCountryFilter = (v: string) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    v ? next.set('country', v) : next.delete('country')
+    return next
+  }, { replace: true })
+
+  const setYearFilter = (v: string) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    v ? next.set('year', v) : next.delete('year')
+    return next
+  }, { replace: true })
+
+  const setElevClass = (cls: ElevClass) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    cls.label !== 'Alle' ? next.set('elev', cls.label) : next.delete('elev')
+    return next
+  }, { replace: true })
+
+  // All summits (unfiltered) — for badges and for deriving available filter options
+  const { data: allSummits } = useQuery({
+    queryKey: ['summit-collection-all'],
+    queryFn: () => fetchSummitCollection(),
     staleTime: 5 * 60 * 1000,
   })
 
-  // Filtered peaks via server-side query
-  const filterParams = {
-    country: countryFilter || undefined,
-    min_elevation: elevClass.min ?? undefined,
-    max_elevation: elevClass.max ?? undefined,
-    year: yearFilter ? Number(yearFilter) : undefined,
-  }
-  const isFiltered = !!(countryFilter || elevClass.min != null || yearFilter)
+  // Fix: also check elevClass.max (isFiltered-Logik korrigieren)
+  const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
 
-  const { data: filteredPeaks, isLoading, error } = useQuery({
-    queryKey: ['peak-collection', countryFilter, elevClass.label, yearFilter],
-    queryFn: () => fetchPeakCollection(filterParams),
+  const { data: filteredSummits, isLoading, error } = useQuery({
+    queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
+    queryFn: () => fetchSummitCollection({
+      country: countryFilter || undefined,
+      min_elevation: elevClass.min ?? undefined,
+      max_elevation: elevClass.max ?? undefined,
+      year: yearFilter ? Number(yearFilter) : undefined,
+    }),
     enabled: isFiltered,
     staleTime: 2 * 60 * 1000,
   })
 
-  // If no filters active, use allPeaks to avoid a duplicate request
-  const peaks = isFiltered ? (filteredPeaks ?? []) : (allPeaks ?? [])
+  // If no filters active, use allSummits to avoid a duplicate request
+  const summits = isFiltered ? (filteredSummits ?? []) : (allSummits ?? [])
 
-  const sortedPeaks = useMemo(() => {
-    const sorted = [...peaks]
+  const sortedSummits = useMemo(() => {
+    const sorted = [...summits]
     sorted.sort((a, b) => {
       let cmp = 0
       switch (sortField) {
@@ -104,35 +99,49 @@ export default function PeakCollectionPage() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [peaks, sortField, sortDir])
+  }, [summits, sortField, sortDir])
 
-  // Derive available years and countries from all peaks
+  // Fix 2: client-side name filter on top of sorted results
+  const displaySummits = useMemo(() =>
+    sortedSummits.filter(s =>
+      !nameFilter || s.name.toLowerCase().includes(nameFilter.toLowerCase())
+    )
+  , [sortedSummits, nameFilter])
+
+  // Derive available years and countries from all summits
+  // Fix 4: collect years from both first_visit AND last_visit
   const availableYears = useMemo(() => {
-    if (!allPeaks) return []
     const years = new Set<string>()
-    for (const p of allPeaks) {
-      if (p.first_visit) years.add(new Date(p.first_visit).getFullYear().toString())
+    for (const s of (allSummits ?? [])) {
+      if (s.first_visit) years.add(new Date(s.first_visit).getFullYear().toString())
+      if (s.last_visit) years.add(new Date(s.last_visit).getFullYear().toString())
     }
     return [...years].sort().reverse()
-  }, [allPeaks])
+  }, [allSummits])
 
   const availableCountries = useMemo(() => {
-    if (!allPeaks) return []
+    if (!allSummits) return []
     const codes = new Set<string>()
-    for (const p of allPeaks) {
-      for (const c of (p.country_codes ?? [])) {
+    for (const s of allSummits) {
+      for (const c of (s.country_codes ?? [])) {
         if (c) codes.add(c)
       }
     }
     return [...codes].sort()
-  }, [allPeaks])
+  }, [allSummits])
 
-  const highestPeak = useMemo(() => {
-    if (!peaks.length) return null
-    return peaks.reduce((best, p) =>
-      (p.elevation_m ?? 0) > (best.elevation_m ?? 0) ? p : best
+  const highestSummit = useMemo(() => {
+    if (!summits.length) return null
+    return summits.reduce((best, s) =>
+      (s.elevation_m ?? 0) > (best.elevation_m ?? 0) ? s : best
     )
-  }, [peaks])
+  }, [summits])
+
+  // Fix 3: stable reference — prevents SummitMap from recreating markers on every render
+  const handleSelectSummit = useCallback((s: SummitVisit) => {
+    setSelectedSummit(s)
+    setIsFullscreen(true)
+  }, [])
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -148,7 +157,7 @@ export default function PeakCollectionPage() {
     return <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
   }
 
-  if (isLoading && isFiltered && !peaks.length) {
+  if (isLoading && isFiltered && !summits.length) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-accent-DEFAULT" />
@@ -176,27 +185,27 @@ export default function PeakCollectionPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Besuchte Gipfel" value={peaks.length.toString()} />
+        <StatCard label="Besuchte Gipfel" value={summits.length.toString()} />
         <StatCard
           label="Höchster Gipfel"
-          value={highestPeak ? `${Math.round(highestPeak.elevation_m ?? 0)} m` : '-'}
-          sub={highestPeak?.name}
+          value={highestSummit ? `${Math.round(highestSummit.elevation_m ?? 0)} m` : '-'}
+          sub={highestSummit?.name}
         />
         <StatCard
           label="Gesamte Besteigungen"
-          value={peaks.reduce((s, p) => s + p.visit_count, 0).toString()}
+          value={summits.reduce((s, p) => s + p.visit_count, 0).toString()}
         />
         <StatCard
           label="Über 3000 m"
-          value={peaks.filter(p => (p.elevation_m ?? 0) >= 3000).length.toString()}
+          value={summits.filter(s => (s.elevation_m ?? 0) >= 3000).length.toString()}
         />
       </div>
 
-      {/* Badges — always based on all peaks (unfiltered) */}
-      {allPeaks && allPeaks.length > 0 && (
+      {/* Badges — always based on all summits (unfiltered) */}
+      {allSummits && allSummits.length > 0 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Errungenschaften</h2>
-          <SummitBadges peaks={allPeaks} />
+          <SummitBadges summits={allSummits} />
         </div>
       )}
 
@@ -249,6 +258,17 @@ export default function PeakCollectionPage() {
           </select>
         )}
 
+        {/* Fix 2: Textsuche nach Gipfelname */}
+        <input
+          type="text"
+          value={nameFilter}
+          onChange={e => setNameFilter(e.target.value)}
+          placeholder="Gipfel suchen…"
+          className="rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800
+                     px-2 py-1.5 text-sm text-neutral-700 dark:text-neutral-300
+                     focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+        />
+
         {/* View toggle */}
         <div className="ml-auto flex rounded-lg border border-neutral-300 dark:border-neutral-700 overflow-hidden">
           <button
@@ -275,6 +295,16 @@ export default function PeakCollectionPage() {
       </div>
 
       {/* Content */}
+      {isFullscreen && (
+        <SummitMapFullscreen
+          initialSelected={selectedSummit}
+          initialElevClass={elevClass}
+          initialCountry={countryFilter}
+          initialYear={yearFilter}
+          onClose={() => { setIsFullscreen(false); setSelectedSummit(null) }}
+        />
+      )}
+
       {viewMode === 'list' ? (
         <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
           <table className="w-full text-sm">
@@ -288,32 +318,33 @@ export default function PeakCollectionPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedPeaks.map((peak, i) => (
+              {displaySummits.map((summit, i) => (
                 <tr
-                  key={`${peak.osm_id ?? peak.name}-${i}`}
-                  className="border-b border-neutral-100 dark:border-neutral-800/50 hover:bg-neutral-50 dark:hover:bg-neutral-900/30 transition-colors"
+                  key={`${summit.osm_id ?? summit.name}-${i}`}
+                  onClick={() => { setSelectedSummit(summit); setIsFullscreen(true) }}
+                  className="border-b border-neutral-100 dark:border-neutral-800/50 hover:bg-neutral-50 dark:hover:bg-neutral-900/30 transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3 font-medium text-neutral-900 dark:text-neutral-100">
                     <div className="flex items-center gap-2">
                       <MountainIconSmall />
-                      {peak.name}
+                      {summit.name}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {peak.elevation_m != null ? `${Math.round(peak.elevation_m)} m` : '-'}
+                    {summit.elevation_m != null ? `${Math.round(summit.elevation_m)} m` : '-'}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {formatDate(peak.first_visit)}
+                    {formatDate(summit.first_visit)}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {formatDate(peak.last_visit)}
+                    {formatDate(summit.last_visit)}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {peak.visit_count}
+                    {summit.visit_count}
                   </td>
                 </tr>
               ))}
-              {sortedPeaks.length === 0 && (
+              {displaySummits.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
                     Keine Gipfel gefunden.
@@ -324,7 +355,12 @@ export default function PeakCollectionPage() {
           </table>
         </div>
       ) : (
-        <PeakMap peaks={sortedPeaks} />
+        <SummitMap
+          summits={displaySummits}
+          selectedSummit={selectedSummit}
+          onSelectSummit={handleSelectSummit}
+          onMaximize={() => setIsFullscreen(true)}
+        />
       )}
     </div>
   )
@@ -360,109 +396,6 @@ function SortableHeader({
       {label}{indicator(field)}
     </th>
   )
-}
-
-function PeakMap({ peaks }: { peaks: PeakVisit[] }) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<maplibregl.Map | null>(null)
-  const markersRef = useRef<maplibregl.Marker[]>([])
-
-  useEffect(() => {
-    if (!mapContainer.current) return
-
-    const peaksWithCoords = peaks.filter(p => p.lat != null && p.lng != null)
-
-    if (mapRef.current) {
-      // Update markers on existing map
-      markersRef.current.forEach(m => m.remove())
-      markersRef.current = addMarkers(mapRef.current, peaksWithCoords)
-      return
-    }
-
-    // Initial center: center of all peaks, or Europe
-    let center: [number, number] = [11.4, 47.3]
-    let zoom = 7
-    if (peaksWithCoords.length > 0) {
-      const lats = peaksWithCoords.map(p => p.lat!)
-      const lngs = peaksWithCoords.map(p => p.lng!)
-      center = [
-        (Math.min(...lngs) + Math.max(...lngs)) / 2,
-        (Math.min(...lats) + Math.max(...lats)) / 2,
-      ]
-    }
-
-    const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style: MAP_STYLE,
-      center,
-      zoom,
-    })
-
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
-
-    map.on('load', () => {
-      markersRef.current = addMarkers(map, peaksWithCoords)
-
-      // Fit bounds if we have peaks
-      if (peaksWithCoords.length > 1) {
-        const bounds = new maplibregl.LngLatBounds()
-        peaksWithCoords.forEach(p => bounds.extend([p.lng!, p.lat!]))
-        map.fitBounds(bounds, { padding: 60, maxZoom: 13 })
-      } else if (peaksWithCoords.length === 1) {
-        map.setCenter([peaksWithCoords[0].lng!, peaksWithCoords[0].lat!])
-        map.setZoom(12)
-      }
-    })
-
-    mapRef.current = map
-
-    return () => {
-      map.remove()
-      mapRef.current = null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Update markers when peaks change (filters)
-  useEffect(() => {
-    if (!mapRef.current) return
-    const peaksWithCoords = peaks.filter(p => p.lat != null && p.lng != null)
-    markersRef.current.forEach(m => m.remove())
-    markersRef.current = addMarkers(mapRef.current, peaksWithCoords)
-  }, [peaks])
-
-  return (
-    <div
-      ref={mapContainer}
-      className="w-full h-[500px] rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden"
-    />
-  )
-}
-
-function addMarkers(map: maplibregl.Map, peaks: PeakVisit[]): maplibregl.Marker[] {
-  return peaks.map(peak => {
-    const el = document.createElement('div')
-    el.className = 'peak-marker'
-    el.style.cssText = `
-      width: 28px; height: 28px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-    `
-    el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
-
-    const popup = new maplibregl.Popup({ offset: 16, closeButton: false })
-      .setHTML(`
-        <div style="font-family: system-ui; font-size: 13px;">
-          <strong>${escapeHtml(peak.name)}</strong><br/>
-          ${peak.elevation_m != null ? `${escapeHtml(String(Math.round(peak.elevation_m)))} m` : ''}
-          ${peak.visit_count > 1 ? ` &middot; ${escapeHtml(String(peak.visit_count))}x besucht` : ''}
-        </div>
-      `)
-
-    return new maplibregl.Marker({ element: el })
-      .setLngLat([peak.lng!, peak.lat!])
-      .setPopup(popup)
-      .addTo(map)
-  })
 }
 
 // --------------- Icons ---------------

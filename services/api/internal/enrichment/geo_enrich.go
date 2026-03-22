@@ -91,7 +91,7 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		fn      func(context.Context, *database.DB, string) error
 	}
 	modules := []module{
-		{"peaks", settings.EnableSummitDetection, enrichGeoTagsPeaks},
+		{"summits", settings.EnableSummitDetection, enrichGeoTagsSummits},
 		{"settlements", settings.EnableSettlementDetection, enrichGeoTagsSettlements},
 		{"forests", settings.EnableForestDetection, enrichGeoTagsForests},
 		{"water", settings.EnableWaterDetection, enrichGeoTagsWater},
@@ -126,16 +126,16 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 	return g.Wait()
 }
 
-// enrichGeoTagsPeaks finds peaks and passes within 100 m of the track.
+// enrichGeoTagsSummits finds summits and passes within 100 m of the track.
 // Categories: 'summit' or 'pass' (based on osm_pois.type within category 'summit'/'pass').
 // Mirrors peaks.py.
-func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string) error {
+func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID string) error {
 	// Delete existing summit/pass tags to allow re-enrichment.
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('summit', 'pass')",
 		activityID,
 	); err != nil {
-		return fmt.Errorf("peaks: delete existing tags: %w", err)
+		return fmt.Errorf("summits: delete existing tags: %w", err)
 	}
 
 	rows, err := db.Pool.Query(ctx, `
@@ -154,7 +154,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		ORDER BY dist_m
 	`, activityID)
 	if err != nil {
-		return fmt.Errorf("peaks: query: %w", err)
+		return fmt.Errorf("summits: query: %w", err)
 	}
 	defer rows.Close()
 
@@ -167,7 +167,7 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		var lat, lon float64
 
 		if err := rows.Scan(&osmID, &name, &ele, &poiCategory, &distM, &lat, &lon); err != nil {
-			return fmt.Errorf("peaks: scan: %w", err)
+			return fmt.Errorf("summits: scan: %w", err)
 		}
 
 		category := "summit"
@@ -183,12 +183,12 @@ func enrichGeoTagsPeaks(ctx context.Context, db *database.DB, activityID string)
 		`, activityID, category, name, osmID, lat, lon, ele, distM)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("peaks: rows iteration: %w", err)
+		return fmt.Errorf("summits: rows iteration: %w", err)
 	}
 
 	if batch.Len() > 0 {
 		if err := db.Pool.SendBatch(ctx, batch).Close(); err != nil {
-			slog.Warn("peaks: batch insert failed", "activity_id", activityID, "error", err)
+			slog.Warn("summits: batch insert failed", "activity_id", activityID, "error", err)
 		}
 	}
 	return nil
