@@ -283,6 +283,9 @@ type tiledCache struct {
 	items     map[uint32]*list.Element
 	order     *list.List
 	inflight  singleflight.Group
+	hits      atomic.Int64
+	misses    atomic.Int64
+	evictions atomic.Int64
 }
 
 func newTiledCache(maxBytes int64) *tiledCache {
@@ -308,12 +311,20 @@ func (r *TiledGraphReader) Flush() {
 	r.cache.flush()
 }
 
+// CacheStats returns cache hit/miss/eviction counters and byte usage.
+// usedBytes is an approximate snapshot (not mutex-protected).
+func (r *TiledGraphReader) CacheStats() (hits, misses, evictions, usedBytes, budgetBytes int64) {
+	return r.cache.hits.Load(), r.cache.misses.Load(), r.cache.evictions.Load(),
+		r.cache.usedBytes, r.cache.maxBytes
+}
+
 func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 	tc.mu.Lock()
 	if elem, ok := tc.items[tileID]; ok {
 		tc.order.MoveToFront(elem)
 		g := elem.Value.(*tiledCacheEntry).g
 		tc.mu.Unlock()
+		tc.hits.Add(1)
 		return g
 	}
 	tc.mu.Unlock()
@@ -343,6 +354,8 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 		return elem.Value.(*tiledCacheEntry).g
 	}
 
+	tc.misses.Add(1)
+
 	size := estimateTileBytes(g)
 	entry := &tiledCacheEntry{tileID: tileID, g: g, sizeBytes: size}
 	elem := tc.order.PushFront(entry)
@@ -359,6 +372,7 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 		tc.order.Remove(back)
 		delete(tc.items, evicted.tileID)
 		tc.usedBytes -= evicted.sizeBytes
+		tc.evictions.Add(1)
 	}
 
 	return g
