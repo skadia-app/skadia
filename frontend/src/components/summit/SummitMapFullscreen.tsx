@@ -1,12 +1,12 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchSummitCollection, type SummitVisit } from '@/api/summits'
+import { type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
 import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { createSummitMarker } from './markerUtils'
+import { useSummitCollection } from '@/hooks/useSummitCollection'
 
 function getSavedMapStyle(): BaseStyle {
   try {
@@ -52,42 +52,7 @@ export default function SummitMapFullscreen({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  // Ungefilterte Query (für Country/Year-Selects)
-  const { data: allSummits } = useQuery({
-    queryKey: ['summit-collection-all'],
-    queryFn: () => fetchSummitCollection(),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  // Gefilterte Query
-  const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
-  const { data: filteredData } = useQuery({
-    queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
-    queryFn: () => fetchSummitCollection({
-      country: countryFilter || undefined,
-      min_elevation: elevClass.min ?? undefined,
-      max_elevation: elevClass.max ?? undefined,
-      year: yearFilter ? Number(yearFilter) : undefined,
-    }),
-    enabled: isFiltered,
-    staleTime: 2 * 60 * 1000,
-  })
-
-  const displaySummits = (isFiltered ? filteredData : allSummits) ?? []
-
-  const availableCountries = useMemo(() =>
-    [...new Set((allSummits ?? []).flatMap(s => s.country_codes ?? []))].sort(),
-    [allSummits]
-  )
-
-  const availableYears = useMemo(() => {
-    const years = new Set<string>()
-    for (const s of (allSummits ?? [])) {
-      if (s.first_visit) years.add(new Date(s.first_visit).getFullYear().toString())
-      if (s.last_visit) years.add(new Date(s.last_visit).getFullYear().toString())
-    }
-    return [...years].sort().reverse()
-  }, [allSummits])
+  const { displaySummits, availableCountries, availableYears } = useSummitCollection({ countryFilter, elevClass, yearFilter })
 
   // MapLibre initialisieren
   useEffect(() => {
