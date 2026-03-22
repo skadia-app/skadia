@@ -5,8 +5,19 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchSummitCollection, type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
-import { SUMMIT_MAP_STYLE } from './summitMapStyle'
+import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { createSummitMarker } from './markerUtils'
+
+function getSavedMapStyle(): BaseStyle {
+  try {
+    const raw = localStorage.getItem('skadia-map-viewport')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.baseStyle) return parsed.baseStyle
+    }
+  } catch { /* ignore */ }
+  return 'osm'
+}
 
 interface SummitMapFullscreenProps {
   initialSelected?: SummitVisit | null
@@ -83,7 +94,7 @@ export default function SummitMapFullscreen({
     if (!mapContainer.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: SUMMIT_MAP_STYLE,
+      style: buildRasterStyle(getSavedMapStyle()),
       center: [11.4, 47.3],
       zoom: 7,
     })

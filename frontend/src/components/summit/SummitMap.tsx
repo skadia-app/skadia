@@ -2,8 +2,19 @@ import { useRef, useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
-import { SUMMIT_MAP_STYLE } from './summitMapStyle'
+import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { createSummitMarker } from './markerUtils'
+
+function getSavedMapStyle(): BaseStyle {
+  try {
+    const raw = localStorage.getItem('skadia-map-viewport')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.baseStyle) return parsed.baseStyle
+    }
+  } catch { /* ignore */ }
+  return 'osm'
+}
 
 function addMarkers(
   map: maplibregl.Map,
@@ -49,10 +60,13 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: SUMMIT_MAP_STYLE,
+      style: buildRasterStyle(getSavedMapStyle()),
       center,
       zoom: 7,
     })
+
+    // Ensure map canvas gets correct dimensions after layout
+    requestAnimationFrame(() => map.resize())
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
