@@ -139,3 +139,36 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// GetSummitActivitiesByName returns all activities linked to a summit by name.
+// Query param: name (required)
+func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		return
+	}
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request", "name query param required", r.URL.Path)
+		return
+	}
+	acts, err := h.DB.GetSummitActivities(r.Context(), userID, nil, name)
+	if err != nil {
+		slog.Error("summit activities by name query failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit activities", r.URL.Path)
+		return
+	}
+	resp := make([]summitActivityResponse, 0, len(acts))
+	for _, a := range acts {
+		resp = append(resp, summitActivityResponse{
+			ActivityID:     a.ActivityID,
+			Title:          a.Title,
+			StartedAt:      a.StartedAt.Format("2006-01-02T15:04:05Z"),
+			SportType:      a.SportType,
+			DistanceM:      a.DistanceM,
+			ElevationGainM: a.ElevationGainM,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

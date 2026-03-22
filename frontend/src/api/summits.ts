@@ -43,5 +43,5 @@ export async function fetchSummitActivities(osmId: number | null, name: string):
     return apiClient<SummitActivity[]>(`/summits/${osmId}/activities`)
   }
   const qs = new URLSearchParams({ name }).toString()
-  return apiClient<SummitActivity[]>(`/summits/0/activities?${qs}`)
+  return apiClient<SummitActivity[]>(`/summits/by-name/activities?${qs}`)
 }
