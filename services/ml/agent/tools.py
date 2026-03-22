@@ -264,7 +264,7 @@ ALL_TOOL_DEFINITIONS = [
         "function": {
             "name": "query_geo_features",
             "description": (
-                "Query geographic features tagged in activities: peaks (Gipfel), passes (Pässe), "
+                "Query geographic features tagged in activities: summits (Gipfel), passes (Pässe), "
                 "lakes, rivers, forests, settlements, borders, and gastronomy stops (Hütten, Restaurants). "
                 "Use for 'Wie viele Gipfel?', 'Welche Pässe?', 'Wo war ich essen?', "
                 "'Auf welchen Hütten?' questions. "
@@ -284,7 +284,7 @@ ALL_TOOL_DEFINITIONS = [
                     },
                     "min_elevation": {
                         "type": "number",
-                        "description": "Minimum elevation in meters (for peaks/passes)",
+                        "description": "Minimum elevation in meters (for summits/passes)",
                     },
                     "days": {
                         "type": "integer",
@@ -328,7 +328,7 @@ ALL_TOOL_DEFINITIONS = [
                 "Search segments and their effort history: personal records (PR), "
                 "recent attempts, segment distance and elevation. "
                 "Use for 'Bestzeit auf X', 'PR auf Hausberg', 'Wie oft habe ich Segment Y gefahren?' questions. "
-                "Do NOT use for geo features like peaks — use query_geo_features. "
+                "Do NOT use for geo features like summits — use query_geo_features. "
                 "Do NOT use for activity lists — use query_activities."
             ),
             "parameters": {
@@ -399,7 +399,7 @@ ALL_TOOL_DEFINITIONS = [
                 "Use for 'Welche Aktivitäten in der Nähe von X?', "
                 "'Ähnliche Routen wie heute?', 'War ich schon mal in Y?' questions. "
                 "Do NOT use for segment queries — use query_segments. "
-                "Do NOT use for geo feature counts (peaks/huts) — use query_geo_features."
+                "Do NOT use for geo feature counts (summits/huts) — use query_geo_features."
             ),
             "parameters": {
                 "type": "object",
@@ -591,7 +591,7 @@ ALL_TOOL_DEFINITIONS = [
         "function": {
             "name": "search_pois_nearby",
             "description": (
-                "Search POIs (huts, gastronomy, peaks, shelters, etc.) near a coordinate. "
+                "Search POIs (huts, gastronomy, summits, shelters, etc.) near a coordinate. "
                 "Use for 'Hütten in der Nähe', 'nächster Gipfel', 'Gasthäuser um Innsbruck'."
             ),
             "parameters": {
@@ -680,7 +680,7 @@ ALL_TOOL_DEFINITIONS = [
         "function": {
             "name": "search_pois_on_route",
             "description": (
-                "Find POIs along a planned route (huts, peaks, gastronomy on the way). "
+                "Find POIs along a planned route (huts, summits, gastronomy on the way). "
                 "Requires a route geometry (GeoJSON LineString). "
                 "Use AFTER plan_route to find interesting stops."
             ),

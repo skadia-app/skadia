@@ -63,7 +63,7 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
     },
     "geo": {
         "gipfel", "berg", "berge", "summit",
-        "peak", "peaks",
+        "summit", "summits",
         "pass", "pässe", "passüberquerung",
         "bestiegen", "besteigung", "besteigungen",
         "see", "seen", "fluss", "bach", "gewässer",
