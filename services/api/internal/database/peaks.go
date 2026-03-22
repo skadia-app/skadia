@@ -42,12 +42,12 @@ func (db *DB) GetPeakCollection(ctx context.Context, userID string, f PeakCollec
 		idx++
 	}
 	if f.MinElevM != nil {
-		filters = append(filters, fmt.Sprintf("g.elevation_m >= $%d", idx))
+		filters = append(filters, fmt.Sprintf("g.ele_m >= $%d", idx))
 		args = append(args, *f.MinElevM)
 		idx++
 	}
 	if f.MaxElevM != nil {
-		filters = append(filters, fmt.Sprintf("g.elevation_m <= $%d", idx))
+		filters = append(filters, fmt.Sprintf("g.ele_m <= $%d", idx))
 		args = append(args, *f.MaxElevM)
 		idx++
 	}
@@ -76,7 +76,7 @@ func (db *DB) GetPeakCollection(ctx context.Context, userID string, f PeakCollec
 		FROM activity_geo_tags g
 		JOIN activities a ON g.activity_id = a.id
 		LEFT JOIN osm_pois p ON g.osm_id = p.osm_id AND p.category IN ('summit', 'pass')
-		WHERE g.user_id = $1 AND g.category IN ('summit', 'pass')%s
+		WHERE a.user_id = $1 AND g.category IN ('summit', 'pass')%s
 		GROUP BY g.osm_id, g.name, g.ele_m, p.geom
 		ORDER BY g.ele_m DESC NULLS LAST
 	`, filterSQL)
