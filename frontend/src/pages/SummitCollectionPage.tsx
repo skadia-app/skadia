@@ -3,24 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchSummitCollection, type SummitVisit, type SummitCollectionFilter } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
 import SummitMap from '@/components/summit/SummitMap'
+import SummitMapFullscreen from '@/components/summit/SummitMapFullscreen'
+import { ELEV_CLASSES, type ElevClass } from '@/components/summit/summitConstants'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
 type ViewMode = 'list' | 'map'
-
-interface ElevClass {
-  label: string
-  min: number | null
-  max: number | null
-}
-
-const ELEV_CLASSES: ElevClass[] = [
-  { label: 'Alle', min: null, max: null },
-  { label: '1000er', min: 1000, max: 1999 },
-  { label: '2000er', min: 2000, max: 2999 },
-  { label: '3000er', min: 3000, max: 3999 },
-  { label: '4000er+', min: 4000, max: null },
-]
 
 function formatDate(iso: string): string {
   if (!iso) return '-'
@@ -256,6 +244,19 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
       </div>
 
       {/* Content */}
+      {isFullscreen && (
+        <SummitMapFullscreen
+          summits={allSummits ?? []}
+          initialSelected={selectedSummit}
+          initialElevClass={elevClass}
+          initialCountry={countryFilter}
+          initialYear={yearFilter}
+          availableCountries={availableCountries}
+          availableYears={availableYears}
+          onClose={() => { setIsFullscreen(false); setSelectedSummit(null) }}
+        />
+      )}
+
       {viewMode === 'list' ? (
         <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
           <table className="w-full text-sm">
