@@ -383,7 +383,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// These modules have been migrated to Go SQL (geo_enrich.go / surfaces.go) and no
 		// longer need to run in the Python ML service.
 		migratedToGo := map[string]bool{
-			"peaks": true, "settlements": true, "forests": true,
+			"summits": true, "settlements": true, "forests": true,
 			"water": true, "borders": true, "surfaces": true,
 			"stops": true, "ascents": true, "intervals": true,
 		}

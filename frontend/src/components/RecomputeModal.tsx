@@ -3,11 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reprocessAllActivities } from '@/api/activities'
 
 // GEO_SCOPE_KEYS: alle Geo-Features triggern dasselbe "geo" Backend-Scope (Stage 2 läuft zusammen).
-export const GEO_SCOPE_KEYS = ['peaks', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
+export const GEO_SCOPE_KEYS = ['summits', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
 type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
 
 export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = {
-  peaks:    'Gipfel & Pässe',
+  summits:  'Gipfel & Pässe',
   forests:  'Wälder',
   water:    'Gewässer',
   stops:    'Gastronomie / Einkehr',

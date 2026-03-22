@@ -5,7 +5,7 @@ import type { GeoTag } from '@/api/types'
 
 // Maps enrichment module name → GeoTag group keys it produces
 const MODULE_TO_GEO_GROUPS: Record<string, string[]> = {
-  peaks:       ['summit', 'pass'],
+  summits:     ['summit', 'pass'],
   lifts:       ['lift'],
   settlements: ['settlement'],
   borders:     ['border'],

@@ -22,7 +22,7 @@ import (
 // Kategorie-Definitionen: ID → betroffene Tabellen.
 // Kategorien die in osm_pois landen, werden mit einem DELETE-Filter gelöscht (kein TRUNCATE).
 var osmCategories = map[string][]string{
-	"peaks":          {"osm_pois"},
+	"summits":        {"osm_pois"},
 	"passes":         {"osm_pois"},
 	"settlements":    {"osm_pois"},
 	"gastronomy":     {"osm_pois"},

@@ -443,7 +443,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "sport_type": sport_type + sub_type (only if not manually set)
 //   - "tags": re-evaluate autotag rules and update tags
 //   - "segments": segment efforts + lap detection
-//   - "geo": Stage 2 geo enrichment (peaks, forests, water, stops, lifts, surfaces, borders)
+//   - "geo": Stage 2 geo enrichment (summits, forests, water, stops, lifts, surfaces, borders)
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -620,7 +620,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 7d. Geo Stage-2 data cleanup (peaks, forests, water, stops, lifts, surfaces, borders).
+	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, surfaces, borders).
 	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
 	// slate when "geo" scope is selected without a full recompute.
 	if doGeo {

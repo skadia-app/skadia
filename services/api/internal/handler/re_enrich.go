@@ -17,7 +17,7 @@ import (
 
 var validReEnrichModules = []string{
 	"ascents", "stops", "intervals",
-	"peaks", "settlements", "forests", "water", "borders", "surfaces",
+	"summits", "settlements", "forests", "water", "borders", "surfaces",
 }
 
 // ReEnrichActivities re-runs selected enrichment modules for the user's activities
