@@ -102,8 +102,12 @@ export default function SummitMapFullscreen({
             .addTo(map)
         })
     }
-    if (map.loaded()) update()
-    else map.on('load', update)
+    if (map.loaded()) {
+      update()
+    } else {
+      map.on('load', update)
+      return () => { map.off('load', update) }
+    }
   }, [filteredSummits, selectedSummit])
 
   // Karte auf selektierten Gipfel zentrieren
