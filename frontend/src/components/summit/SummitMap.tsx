@@ -17,10 +17,6 @@ const MAP_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
 function addMarkers(
   map: maplibregl.Map,
   summits: SummitVisit[],
