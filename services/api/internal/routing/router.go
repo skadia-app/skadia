@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
 // altDisabled disables the ALT heuristic when SKADIA_ALT_DISABLED=true.
@@ -168,45 +170,46 @@ type ReachableNode struct {
 func (r *UnifiedRouter) Reader() GraphReader { return r.reader }
 
 // snapWithFallback snaps (lat, lon) to the nearest graph node that has at
-// least one non-blocked outgoing edge for cfg. If the closest node lies on a
-// highway that cfg blocks (e.g. motorway with hiking profile), it tries 8
-// offsets of ~50 m in cardinal and diagonal directions before giving up.
+// least one non-blocked outgoing edge for cfg. Uses NearestNodeFiltered on the
+// underlying graph tile to skip motorway/trunk nodes that the profile blocks.
 //
-// This prevents coordinates placed 3–4 m beside a motorway from being snapped
-// onto a blocked node, which would cause Pass0 to expand millions of nodes
-// without ever reaching the destination (30 s timeout).
+// This prevents coordinates near motorways from snapping onto blocked nodes,
+// which would cause Pass0 to expand millions of nodes without ever reaching
+// the destination (30s timeout).
 func (r *UnifiedRouter) snapWithFallback(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
-	if id, dist, ok := r.trySnap(lat, lon, cfg); ok {
-		return id, dist, true
-	}
-
-	// Try 8 offsets of ~50 m (0.0005° ≈ 55 m) in cardinal + diagonal directions.
-	const d = 0.0005
-	offsets := [8][2]float64{
-		{d, 0}, {-d, 0}, {0, d}, {0, -d},
-		{d, d}, {d, -d}, {-d, d}, {-d, -d},
-	}
-	for _, off := range offsets {
-		if id, dist, ok := r.trySnap(lat+off[0], lon+off[1], cfg); ok {
-			slog.Info("routing: snap fallback used",
-				"orig_lat", lat, "orig_lon", lon,
-				"offset_lat", off[0], "offset_lon", off[1],
-				"node_id", id, "dist_m", dist)
-			return id, dist, true
-		}
-	}
-
-	return 0, 0, false
-}
-
-// trySnap returns the nearest node to (lat, lon) only when it has at least one
-// outgoing edge whose cost is below costBlocked for cfg.
-func (r *UnifiedRouter) trySnap(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
+	// First try unfiltered NearestNode (fast path — works when nearest node is usable).
 	nodeID, dist, ok := r.reader.NearestNode(lat, lon)
-	if !ok {
+	if ok && r.nodeHasUsableEdge(nodeID, cfg) {
+		return nodeID, dist, true
+	}
+
+	// Nearest node is blocked (e.g. motorway). Use filtered spatial search
+	// that skips nodes whose edges are all blocked by this profile.
+	g := r.reader.GraphAt(lat, lon)
+	if g == nil {
 		return 0, 0, false
 	}
 
+	tileID := graph.TileIDFromCoord(lat, lon)
+	localID, filteredDist := graph.NearestNodeFiltered(g, lat, lon, func(nid uint32) bool {
+		globalID := MakeGlobalNodeID(tileID, nid)
+		return r.nodeHasUsableEdge(globalID, cfg)
+	})
+	if filteredDist >= 65535 {
+		return 0, 0, false
+	}
+
+	globalID := MakeGlobalNodeID(tileID, localID)
+	distM := float64(filteredDist) / 10.0
+	slog.Info("routing: profile-aware snap used",
+		"lat", lat, "lon", lon,
+		"node_id", globalID, "dist_m", distM)
+	return globalID, distM, true
+}
+
+// nodeHasUsableEdge checks whether at least one outgoing edge from nodeID
+// has a cost below costBlocked for the given profile.
+func (r *UnifiedRouter) nodeHasUsableEdge(nodeID uint64, cfg *CostConfig) bool {
 	usable := false
 	r.reader.ForEachEdge(nodeID, func(ev EdgeView) {
 		if usable {
@@ -216,10 +219,7 @@ func (r *UnifiedRouter) trySnap(lat, lon float64, cfg *CostConfig) (uint64, floa
 			usable = true
 		}
 	})
-	if usable {
-		return nodeID, dist, true
-	}
-	return 0, 0, false
+	return usable
 }
 
 // FindReachableWithCoords returns reachable nodes with coordinates and
