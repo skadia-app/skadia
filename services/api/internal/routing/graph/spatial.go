@@ -123,6 +123,51 @@ func NearestNode(g *Graph, lat, lon float64) (uint32, uint16) {
 	return bestNode, bestDist
 }
 
+// NearestNodeFiltered finds the closest node that passes the filter function.
+// Scans the 3×3 cell neighbourhood like NearestNode but skips nodes where
+// filter returns false. Used to avoid snapping to motorway nodes when the
+// profile blocks them.
+func NearestNodeFiltered(g *Graph, lat, lon float64, filter func(nodeID uint32) bool) (uint32, uint16) {
+	grid := g.Grid
+	if grid == nil || g.NodeCount == 0 {
+		return 0, 65535
+	}
+
+	centerRow := int((lat - grid.MinLat) / grid.CellSize)
+	centerCol := int((lon - grid.MinLon) / grid.CellSize)
+
+	bestNode := uint32(0)
+	var bestDist uint16 = 65535
+
+	for dr := -1; dr <= 1; dr++ {
+		for dc := -1; dc <= 1; dc++ {
+			r := centerRow + dr
+			c := centerCol + dc
+			if r < 0 || r >= grid.Rows || c < 0 || c >= grid.Cols {
+				continue
+			}
+			ci := r*grid.Cols + c
+			start := grid.CellStart[ci]
+			end := grid.CellStart[ci+1]
+			for idx := start; idx < end; idx++ {
+				nodeI := grid.NodeOrder[idx]
+				if !filter(nodeI) {
+					continue
+				}
+				nodeLat := float64(g.NodeLat[nodeI]) / 1e7
+				nodeLon := float64(g.NodeLon[nodeI]) / 1e7
+				d := equirectangularDistDm(lat, lon, nodeLat, nodeLon)
+				if d < bestDist {
+					bestDist = d
+					bestNode = nodeI
+				}
+			}
+		}
+	}
+
+	return bestNode, bestDist
+}
+
 func mortonCode(row, col uint32) uint64 {
 	return interleave(uint64(row)) | (interleave(uint64(col)) << 1)
 }
