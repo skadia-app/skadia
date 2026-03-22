@@ -4,20 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
-
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
+import { SUMMIT_MAP_STYLE } from './summitMapStyle'
 
 interface SummitMapFullscreenProps {
   summits: SummitVisit[]
@@ -69,7 +56,7 @@ export default function SummitMapFullscreen({
     if (!mapContainer.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE,
+      style: SUMMIT_MAP_STYLE,
       center: [11.4, 47.3],
       zoom: 7,
     })
