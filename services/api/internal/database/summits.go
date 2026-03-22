@@ -52,9 +52,9 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 		idx++
 	}
 	if f.Year != nil {
-		filters = append(filters, fmt.Sprintf("EXTRACT(YEAR FROM a.started_at) = $%d", idx))
-		args = append(args, *f.Year)
-		idx++
+		filters = append(filters, fmt.Sprintf("a.started_at >= $%d AND a.started_at < $%d", idx, idx+1))
+		args = append(args, time.Date(*f.Year, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(*f.Year+1, 1, 1, 0, 0, 0, 0, time.UTC))
+		idx += 2
 	}
 
 	filterSQL := ""
@@ -66,19 +66,18 @@ func (db *DB) GetSummitCollection(ctx context.Context, userID string, f SummitCo
 		SELECT
 			g.osm_id,
 			COALESCE(g.name, 'Unbekannter Gipfel') AS name,
-			g.ele_m,
+			MAX(g.ele_m) AS ele_m,
 			COUNT(DISTINCT g.activity_id) AS visit_count,
 			MIN(a.started_at) AS first_visit,
 			MAX(a.started_at) AS last_visit,
-			ST_Y(ST_Centroid((array_agg(p.geom ORDER BY p.osm_id) FILTER (WHERE p.geom IS NOT NULL))[1])) AS lat,
-			ST_X(ST_Centroid((array_agg(p.geom ORDER BY p.osm_id) FILTER (WHERE p.geom IS NOT NULL))[1])) AS lng,
+			(SELECT ST_Y(p2.geom) FROM osm_pois p2 WHERE p2.osm_id = g.osm_id AND p2.category IN ('summit','pass') LIMIT 1) AS lat,
+			(SELECT ST_X(p2.geom) FROM osm_pois p2 WHERE p2.osm_id = g.osm_id AND p2.category IN ('summit','pass') LIMIT 1) AS lng,
 			array_agg(DISTINCT a.start_country_code) FILTER (WHERE a.start_country_code IS NOT NULL AND a.start_country_code <> '') AS country_codes
 		FROM activity_geo_tags g
 		JOIN activities a ON g.activity_id = a.id
-		LEFT JOIN osm_pois p ON g.osm_id = p.osm_id AND p.category IN ('summit', 'pass')
-		WHERE a.user_id = $1 AND g.category IN ('summit', 'pass')%s
-		GROUP BY g.osm_id, g.name, g.ele_m
-		ORDER BY g.ele_m DESC NULLS LAST
+		WHERE a.user_id = $1 AND g.category IN ('summit', 'pass') AND g.osm_id IS NOT NULL%s
+		GROUP BY g.osm_id, g.name
+		ORDER BY ele_m DESC NULLS LAST
 	`, filterSQL)
 
 	rows, err := db.Pool.Query(ctx, query, args...)
