@@ -260,7 +260,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const tileCacheBytes = 1_000_000_000 // 1 GB — keeps ~3-4 tiles hot, avoids OOM on 32 GB systems
+	const tileCacheBytes = 4_000_000_000 // 4 GB — consistent with startup default
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}

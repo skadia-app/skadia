@@ -4,9 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +38,14 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// pprof server on :6060 (default http mux)
+	go func() {
+		slog.Info("pprof server listening", "addr", ":6060")
+		if err := http.ListenAndServe(":6060", nil); err != nil {
+			slog.Error("pprof server failed", "error", err)
+		}
+	}()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -194,7 +204,13 @@ func main() {
 	graphMgr := &routing.GraphManager{}
 	h.GraphManager = graphMgr
 	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
-	if unified, err := graphMgr.InitTiledReader(tileDir, 1_000_000_000); err != nil {
+	tileCacheBytes := int64(4_000_000_000) // 4 GB default
+	if v := os.Getenv("TILE_CACHE_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			tileCacheBytes = n
+		}
+	}
+	if unified, err := graphMgr.InitTiledReader(tileDir, tileCacheBytes); err != nil {
 		slog.Warn("unified tiled reader init failed", "error", err)
 	} else if unified {
 		slog.Info("routing: unified router active")
