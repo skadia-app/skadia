@@ -2,39 +2,30 @@ import { useRef, useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
-
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
+import { SUMMIT_MAP_STYLE } from './summitMapStyle'
 
 function addMarkers(
   map: maplibregl.Map,
   summits: SummitVisit[],
+  selectedSummit: SummitVisit | null | undefined,
   onSelect: (summit: SummitVisit) => void,
 ): maplibregl.Marker[] {
-  return summits.map(summit => {
+  return summits.map(s => {
     const el = document.createElement('div')
     el.className = 'summit-marker'
     el.style.cssText = `
       width: 28px; height: 28px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
     `
-    el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
+    const isSelected = selectedSummit?.name === s.name
+    el.innerHTML = isSelected
+      ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="#f97316" stroke="white" stroke-width="2"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
+      : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2.5"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
 
-    el.addEventListener('click', () => onSelect(summit))
+    el.addEventListener('click', () => onSelect(s))
 
     return new maplibregl.Marker({ element: el })
-      .setLngLat([summit.lng!, summit.lat!])
+      .setLngLat([s.lng!, s.lat!])
       .addTo(map)
   })
 }
@@ -69,7 +60,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE,
+      style: SUMMIT_MAP_STYLE,
       center,
       zoom: 7,
     })
@@ -77,7 +68,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      markersRef.current = addMarkers(map, summitsWithCoords, onSelectSummit)
+      markersRef.current = addMarkers(map, summitsWithCoords, selectedSummit, onSelectSummit)
 
       if (summitsWithCoords.length > 1) {
         const bounds = new maplibregl.LngLatBounds()
@@ -103,8 +94,8 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
     if (!mapRef.current) return
     const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
     markersRef.current.forEach(m => m.remove())
-    markersRef.current = addMarkers(mapRef.current, summitsWithCoords, onSelectSummit)
-  }, [summits, onSelectSummit])
+    markersRef.current = addMarkers(mapRef.current, summitsWithCoords, selectedSummit, onSelectSummit)
+  }, [summits, selectedSummit, onSelectSummit])
 
   // Fly to selected summit
   useEffect(() => {
