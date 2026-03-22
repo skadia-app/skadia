@@ -50,7 +50,7 @@ type routeResult struct {
 }
 
 const (
-	unifiedMaxExpansions = 2_000_000
+	unifiedMaxExpansions = 10_000_000
 	unifiedCheckCancel   = 4096
 )
 
