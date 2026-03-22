@@ -67,6 +67,13 @@ type GraphReader interface {
 	// Returns the filled slice or nil if no data is available.
 	LandmarkDistsInto(setID LandmarkSetID, nodeID uint64, dst []float32, byteBuf []byte) []float32
 
+	// LandmarkDistsPageInto reads landmark distances for a page of nodes in one I/O call.
+	// tileID identifies the tile; startLocalNode is the first local node in the page;
+	// nodeCount is the number of nodes to read (will be clamped to tile bounds).
+	// dst must have capacity >= nodeCount * LandmarksPerSet; byteBuf >= nodeCount * LandmarksPerSet * 4.
+	// Returns the filled slice (len = actualCount * LandmarksPerSet) or nil if unavailable.
+	LandmarkDistsPageInto(setID LandmarkSetID, tileID uint32, startLocalNode, nodeCount uint32, dst []float32, byteBuf []byte) []float32
+
 	// LandmarkMeta returns the landmark metadata (positions, thresholds).
 	// Returns nil if no landmarks are loaded.
 	LandmarkMeta() *graph.LandmarkMetaData
@@ -182,6 +189,14 @@ func (r *SingleGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []
 func (r *SingleGraphReader) LandmarkDistsInto(setID LandmarkSetID, nodeID uint64, dst []float32, byteBuf []byte) []float32 {
 	_, localID := SplitGlobalNodeID(nodeID)
 	return r.G.LandmarkDistsInto(graph.LandmarkSetID(setID), localID, dst, byteBuf)
+}
+
+func (r *SingleGraphReader) LandmarkDistsPageInto(setID LandmarkSetID, tileID uint32, startLocalNode, nodeCount uint32, dst []float32, byteBuf []byte) []float32 {
+	// tileID must match the single graph's tile; silently return nil if not.
+	if tileID != r.TileID {
+		return nil
+	}
+	return r.G.LandmarkDistsPageInto(graph.LandmarkSetID(setID), startLocalNode, nodeCount, dst, byteBuf)
 }
 
 func (r *SingleGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
