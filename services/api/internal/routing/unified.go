@@ -85,7 +85,8 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		// Periodic context cancellation check
 		if expansions&(unifiedCheckCancel-1) == 0 {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%w (after %d expansions, %dms)",
+					err, expansions, time.Since(start).Milliseconds())
 			}
 		}
 		expansions++
