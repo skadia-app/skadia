@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { fetchSummitCollection, type SummitVisit, type SummitCollectionFilter } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
 import SummitMap from '@/components/summit/SummitMap'
@@ -19,11 +20,35 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [viewMode, setViewMode] = useState<ViewMode>(defaultView)
-  const [elevClass, setElevClass] = useState<ElevClass>(ELEV_CLASSES[0])
-  const [countryFilter, setCountryFilter] = useState('')
-  const [yearFilter, setYearFilter] = useState<string>('')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [selectedSummit, setSelectedSummit] = useState<SummitVisit | null>(null)
+  const [nameFilter, setNameFilter] = useState('')
+
+  // Fix 1: URL-State für Filter
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const countryFilter = searchParams.get('country') ?? ''
+  const yearFilter = searchParams.get('year') ?? ''
+  const elevClassLabel = searchParams.get('elev') ?? 'Alle'
+  const elevClass = ELEV_CLASSES.find(c => c.label === elevClassLabel) ?? ELEV_CLASSES[0]
+
+  const setCountryFilter = (v: string) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    v ? next.set('country', v) : next.delete('country')
+    return next
+  }, { replace: true })
+
+  const setYearFilter = (v: string) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    v ? next.set('year', v) : next.delete('year')
+    return next
+  }, { replace: true })
+
+  const setElevClass = (cls: ElevClass) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev)
+    cls.label !== 'Alle' ? next.set('elev', cls.label) : next.delete('elev')
+    return next
+  }, { replace: true })
 
   // All summits (unfiltered) — for badges and for deriving available filter options
   const { data: allSummits } = useQuery({
@@ -32,7 +57,8 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     staleTime: 5 * 60 * 1000,
   })
 
-  const isFiltered = !!(countryFilter || elevClass.min != null || yearFilter)
+  // Fix: also check elevClass.max (isFiltered-Logik korrigieren)
+  const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
 
   const { data: filteredSummits, isLoading, error } = useQuery({
     queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
@@ -75,12 +101,20 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     return sorted
   }, [summits, sortField, sortDir])
 
+  // Fix 2: client-side name filter on top of sorted results
+  const displaySummits = useMemo(() =>
+    sortedSummits.filter(s =>
+      !nameFilter || s.name.toLowerCase().includes(nameFilter.toLowerCase())
+    )
+  , [sortedSummits, nameFilter])
+
   // Derive available years and countries from all summits
+  // Fix 4: collect years from both first_visit AND last_visit
   const availableYears = useMemo(() => {
-    if (!allSummits) return []
     const years = new Set<string>()
-    for (const s of allSummits) {
+    for (const s of (allSummits ?? [])) {
       if (s.first_visit) years.add(new Date(s.first_visit).getFullYear().toString())
+      if (s.last_visit) years.add(new Date(s.last_visit).getFullYear().toString())
     }
     return [...years].sort().reverse()
   }, [allSummits])
@@ -102,6 +136,12 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
       (s.elevation_m ?? 0) > (best.elevation_m ?? 0) ? s : best
     )
   }, [summits])
+
+  // Fix 3: stable reference — prevents SummitMap from recreating markers on every render
+  const handleSelectSummit = useCallback((s: SummitVisit) => {
+    setSelectedSummit(s)
+    setIsFullscreen(true)
+  }, [])
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -218,6 +258,17 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
           </select>
         )}
 
+        {/* Fix 2: Textsuche nach Gipfelname */}
+        <input
+          type="text"
+          value={nameFilter}
+          onChange={e => setNameFilter(e.target.value)}
+          placeholder="Gipfel suchen…"
+          className="rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800
+                     px-2 py-1.5 text-sm text-neutral-700 dark:text-neutral-300
+                     focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
+        />
+
         {/* View toggle */}
         <div className="ml-auto flex rounded-lg border border-neutral-300 dark:border-neutral-700 overflow-hidden">
           <button
@@ -270,7 +321,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
               </tr>
             </thead>
             <tbody>
-              {sortedSummits.map((summit, i) => (
+              {displaySummits.map((summit, i) => (
                 <tr
                   key={`${summit.osm_id ?? summit.name}-${i}`}
                   onClick={() => { setSelectedSummit(summit); setIsFullscreen(true) }}
@@ -296,7 +347,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
                   </td>
                 </tr>
               ))}
-              {sortedSummits.length === 0 && (
+              {displaySummits.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
                     Keine Gipfel gefunden.
@@ -308,9 +359,9 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
         </div>
       ) : (
         <SummitMap
-          summits={sortedSummits}
+          summits={displaySummits}
           selectedSummit={selectedSummit}
-          onSelectSummit={(s) => { setSelectedSummit(s); setIsFullscreen(true) }}
+          onSelectSummit={handleSelectSummit}
           onMaximize={() => setIsFullscreen(true)}
         />
       )}
