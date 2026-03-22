@@ -4,6 +4,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -44,11 +45,11 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 
 	totalStart := time.Now()
 
-	src, _, ok := r.reader.NearestNode(req.FromLat, req.FromLon)
+	src, _, ok := r.snapWithFallback(req.FromLat, req.FromLon, cfg)
 	if !ok {
 		return nil, fmt.Errorf("no graph node within 5km of start coordinate")
 	}
-	dst, _, ok := r.reader.NearestNode(req.ToLat, req.ToLon)
+	dst, _, ok := r.snapWithFallback(req.ToLat, req.ToLon, cfg)
 	if !ok {
 		return nil, fmt.Errorf("no graph node within 5km of destination coordinate")
 	}
@@ -145,7 +146,7 @@ func (r *UnifiedRouter) FindReachable(ctx context.Context,
 		return nil, false, ctx.Err()
 	}
 
-	src, _, ok := r.reader.NearestNode(lat, lon)
+	src, _, ok := r.snapWithFallback(lat, lon, cfg)
 	if !ok {
 		return nil, false, fmt.Errorf("no graph node within 5km of coordinate")
 	}
@@ -165,6 +166,61 @@ type ReachableNode struct {
 
 // Reader returns the underlying GraphReader.
 func (r *UnifiedRouter) Reader() GraphReader { return r.reader }
+
+// snapWithFallback snaps (lat, lon) to the nearest graph node that has at
+// least one non-blocked outgoing edge for cfg. If the closest node lies on a
+// highway that cfg blocks (e.g. motorway with hiking profile), it tries 8
+// offsets of ~50 m in cardinal and diagonal directions before giving up.
+//
+// This prevents coordinates placed 3–4 m beside a motorway from being snapped
+// onto a blocked node, which would cause Pass0 to expand millions of nodes
+// without ever reaching the destination (30 s timeout).
+func (r *UnifiedRouter) snapWithFallback(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
+	if id, dist, ok := r.trySnap(lat, lon, cfg); ok {
+		return id, dist, true
+	}
+
+	// Try 8 offsets of ~50 m (0.0005° ≈ 55 m) in cardinal + diagonal directions.
+	const d = 0.0005
+	offsets := [8][2]float64{
+		{d, 0}, {-d, 0}, {0, d}, {0, -d},
+		{d, d}, {d, -d}, {-d, d}, {-d, -d},
+	}
+	for _, off := range offsets {
+		if id, dist, ok := r.trySnap(lat+off[0], lon+off[1], cfg); ok {
+			slog.Info("routing: snap fallback used",
+				"orig_lat", lat, "orig_lon", lon,
+				"offset_lat", off[0], "offset_lon", off[1],
+				"node_id", id, "dist_m", dist)
+			return id, dist, true
+		}
+	}
+
+	return 0, 0, false
+}
+
+// trySnap returns the nearest node to (lat, lon) only when it has at least one
+// outgoing edge whose cost is below costBlocked for cfg.
+func (r *UnifiedRouter) trySnap(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
+	nodeID, dist, ok := r.reader.NearestNode(lat, lon)
+	if !ok {
+		return 0, 0, false
+	}
+
+	usable := false
+	r.reader.ForEachEdge(nodeID, func(ev EdgeView) {
+		if usable {
+			return
+		}
+		if cfg.EdgeCost(ev.Tags1, ev.Tags2).Flat < costBlocked {
+			usable = true
+		}
+	})
+	if usable {
+		return nodeID, dist, true
+	}
+	return 0, 0, false
+}
 
 // FindReachableWithCoords returns reachable nodes with coordinates and
 // Terra Incognita flags. Used by SuggestRoutes and Isochrone.
