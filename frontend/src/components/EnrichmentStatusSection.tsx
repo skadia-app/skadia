@@ -9,7 +9,7 @@ import type { EnrichmentSettings } from '@/api/types'
 // Maps module names (Go backend) to the corresponding API field in EnrichmentSettings.
 // A module is globally disabled when the field is explicitly false (default: true/absent = enabled).
 const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> = {
-  peaks:       'enable_summit_detection',
+  summits:     'enable_summit_detection',
   forests:     'enable_forest_detection',
   water:       'enable_water_detection',
   settlements: 'enable_settlement_detection',
@@ -42,7 +42,7 @@ interface Props {
 }
 
 const MODULE_META: Record<string, { label: string; icon: string }> = {
-  peaks:       { label: 'Gipfel & Pässe', icon: 'M3 17l4-8 4 4 4-4 4 8H3z' },
+  summits:     { label: 'Gipfel & Pässe', icon: 'M3 17l4-8 4 4 4-4 4 8H3z' },
   lifts:       { label: 'Lifte',          icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12' },
   settlements: { label: 'Siedlungen',     icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' },
   commute:     { label: 'Pendeln',        icon: 'M8 6v6l4-3-4-3zM16 6v6l-4-3 4-3zM3 18h18' },

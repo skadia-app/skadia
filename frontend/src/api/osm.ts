@@ -15,8 +15,7 @@ export interface OSMStatus {
   railways: number
   has_data: boolean
   // Legacy fields for backwards-compat (may come from older API versions)
-  // peaks corresponded to the old osm_pois.category='peak', now renamed to 'summit'
-  peaks?: number
+  summits?: number
   passes?: number
   settlements?: number
   amenities?: number

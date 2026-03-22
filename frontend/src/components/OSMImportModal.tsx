@@ -6,7 +6,7 @@ import { useToast } from '@/lib/toast'
 
 const ALL_CATEGORIES = [
   // POI-Kategorien
-  { id: 'peaks',          label: 'Gipfel & Sättel',          group: 'POIs' },
+  { id: 'summits',        label: 'Gipfel & Sättel',          group: 'POIs' },
   { id: 'passes',         label: 'Passstraßen',              group: 'POIs' },
   { id: 'settlements',    label: 'Ortschaften',              group: 'POIs' },
   { id: 'gastronomy',     label: 'Gastronomie',              group: 'POIs' },

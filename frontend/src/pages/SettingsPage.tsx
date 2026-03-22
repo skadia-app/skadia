@@ -1390,7 +1390,7 @@ function LocalMapAndGeoSection() {
                     {/* Legacy fallback when categories is empty */}
                     {Object.keys(osmStatus.categories).length === 0 && (
                       <>
-                        {osmStatus.peaks !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.peaks.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Gipfel</div></div>}
+                        {osmStatus.summits !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.summits.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Gipfel</div></div>}
                         {osmStatus.passes !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.passes.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Pässe</div></div>}
                         {osmStatus.settlements !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.settlements.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Ortschaften</div></div>}
                         {osmStatus.amenities !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.amenities.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Einkehr</div></div>}

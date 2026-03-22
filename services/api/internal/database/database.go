@@ -3374,7 +3374,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 	}
 
 	// 2) Check data presence in one query
-	var peakCount, settlementCount, waterCount, forestCount, borderCount int
+	var summitCount, settlementCount, waterCount, forestCount, borderCount int
 	var stopCount, surfaceCount, climbCount, liftCount, intervalCount int
 	var hasCommuteClusters, hasGastronomy bool
 	err = db.Pool.QueryRow(ctx, `
@@ -3392,7 +3392,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 			EXISTS(SELECT 1 FROM commute_clusters WHERE user_id = (SELECT user_id FROM activities WHERE id = $1)),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy') > 0
 	`, activityID).Scan(
-		&peakCount, &settlementCount, &waterCount, &forestCount, &borderCount,
+		&summitCount, &settlementCount, &waterCount, &forestCount, &borderCount,
 		&stopCount, &surfaceCount, &climbCount, &liftCount, &intervalCount,
 		&hasCommuteClusters, &hasGastronomy,
 	)
@@ -3405,7 +3405,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 		hasData bool
 		count   int
 	}{
-		{"peaks", peakCount > 0, peakCount},
+		{"summits", summitCount > 0, summitCount},
 		{"lifts", liftCount > 0, liftCount},
 		{"settlements", settlementCount > 0, settlementCount},
 		{"commute", hasCommuteClusters, 0},
