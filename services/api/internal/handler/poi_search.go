@@ -41,15 +41,15 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var results []POIResult
-	var peakErr, amenityErr error
+	var summitErr, amenityErr error
 
 	if typesStr == "" || strings.Contains(typesStr, "summit") || strings.Contains(typesStr, "volcano") || strings.Contains(typesStr, "saddle") {
-		peaks, err := h.DB.SearchPeaks(r.Context(), q, limit)
+		summits, err := h.DB.SearchSummits(r.Context(), q, limit)
 		if err != nil {
-			slog.Error("SearchPOIs: SearchPeaks failed", "error", err, "query", q)
-			peakErr = err
+			slog.Error("SearchPOIs: SearchSummits failed", "error", err, "query", q)
+			summitErr = err
 		} else {
-			results = append(results, poiRowsToResults(peaks)...)
+			results = append(results, poiRowsToResults(summits)...)
 		}
 	}
 
@@ -63,7 +63,7 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if peakErr != nil && amenityErr != nil {
+	if summitErr != nil && amenityErr != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Error", "POI search failed", r.URL.Path)
 		return
 	}
