@@ -13,12 +13,21 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
+// borderCacheEntry records the result of a BorderIndex.Lookup for a given
+// (coordKey, neighborTileID) pair so that repeated negative lookups skip
+// the tile-load entirely on subsequent border-node expansions.
+type borderCacheEntry struct {
+	localID uint32
+	found   bool
+}
+
 // TiledGraphReader implements GraphReader with on-demand tile loading,
 // LRU cache, singleflight dedup, and transparent border-node expansion.
 type TiledGraphReader struct {
 	tileDir     string
 	cache       *tiledCache
 	cachedLMeta atomic.Pointer[graph.LandmarkMetaData]
+	borderCache sync.Map // uint64(coordKey ^ neighborTileID<<32) → borderCacheEntry
 }
 
 // NewTiledGraphReader creates a reader with configurable cache size.
@@ -71,17 +80,10 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 			Lon: g.NodeLon[localID],
 		})
 
-		for _, neighborTileID := range graph.NeighborTileIDs(tileID) {
-			gNeighbor := r.tile(neighborTileID)
-			if gNeighbor == nil || gNeighbor.BorderIndex == nil {
-				continue
-			}
-
-			neighborLocalID, ok := gNeighbor.BorderIndex.Lookup(coordKey)
-			if !ok {
-				continue
-			}
-
+		// expandNeighborEdges emits all edges from neighborLocalID in gNeighbor.
+		// Extracted as a closure to avoid duplicating the edge-iteration loop
+		// across the cache-hit and cache-miss paths below.
+		expandNeighborEdges := func(gNeighbor *graph.Graph, neighborTileID, neighborLocalID uint32) {
 			for ei := gNeighbor.Offsets[neighborLocalID]; ei < gNeighbor.Offsets[neighborLocalID+1]; ei++ {
 				target := gNeighbor.Targets[ei]
 				fn(EdgeView{
@@ -94,6 +96,38 @@ func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 					ElevHandle: uint64(neighborTileID)<<32 | uint64(ei),
 					DeltaEle:   gNeighbor.NodeEle[target] - gNeighbor.NodeEle[neighborLocalID],
 				})
+			}
+		}
+
+		nids, ncount := graph.NeighborTileIDs(tileID)
+		for i := range ncount {
+			neighborTileID := nids[i]
+			cacheKey := uint64(coordKey) ^ (uint64(neighborTileID) << 32)
+
+			if cached, ok := r.borderCache.Load(cacheKey); ok {
+				entry := cached.(borderCacheEntry)
+				if !entry.found {
+					continue // Known negative — skip tile load entirely
+				}
+				// Positive hit: tile still needed for edge data, but skip binary search
+				gNeighbor := r.tile(neighborTileID)
+				if gNeighbor == nil {
+					continue
+				}
+				expandNeighborEdges(gNeighbor, neighborTileID, entry.localID)
+			} else {
+				// Cache miss: load tile and perform lookup
+				gNeighbor := r.tile(neighborTileID)
+				if gNeighbor == nil || gNeighbor.BorderIndex == nil {
+					r.borderCache.Store(cacheKey, borderCacheEntry{found: false})
+					continue
+				}
+				neighborLocalID, ok := gNeighbor.BorderIndex.Lookup(coordKey)
+				r.borderCache.Store(cacheKey, borderCacheEntry{localID: neighborLocalID, found: ok})
+				if !ok {
+					continue
+				}
+				expandNeighborEdges(gNeighbor, neighborTileID, neighborLocalID)
 			}
 		}
 	}
@@ -130,7 +164,9 @@ func (r *TiledGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool)
 		lon-bbox[1] < borderCheckDist || bbox[3]-lon < borderCheckDist)
 
 	if nearBorder {
-		for _, neighborTileID := range graph.NeighborTileIDs(primaryTileID) {
+		nnids, nncount := graph.NeighborTileIDs(primaryTileID)
+		for i := range nncount {
+			neighborTileID := nnids[i]
 			gNeighbor := r.tile(neighborTileID)
 			if gNeighbor == nil {
 				continue
@@ -309,6 +345,10 @@ func (tc *tiledCache) flush() {
 func (r *TiledGraphReader) Flush() {
 	r.cachedLMeta.Store(nil)
 	r.cache.flush()
+	r.borderCache.Range(func(key, _ any) bool {
+		r.borderCache.Delete(key)
+		return true
+	})
 }
 
 // CacheStats returns cache hit/miss/eviction counters and byte usage.

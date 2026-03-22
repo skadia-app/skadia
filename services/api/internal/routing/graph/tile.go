@@ -51,11 +51,12 @@ func TileLatLon(tileID uint32) (latFloor, lonFloor int) {
 	return
 }
 
-func NeighborTileIDs(tileID uint32) []uint32 {
+// NeighborTileIDs returns up to 8 neighbor tile IDs for the given tile.
+// Returns a fixed-size array and the actual count (no heap allocation).
+func NeighborTileIDs(tileID uint32) (ids [8]uint32, count int) {
 	latFloor, lonFloor := TileLatLon(tileID)
-	var out []uint32
-	for _, dlat := range []int{-1, 0, 1} {
-		for _, dlon := range []int{-1, 0, 1} {
+	for _, dlat := range [...]int{-1, 0, 1} {
+		for _, dlon := range [...]int{-1, 0, 1} {
 			if dlat == 0 && dlon == 0 {
 				continue
 			}
@@ -69,10 +70,11 @@ func NeighborTileIDs(tileID uint32) []uint32 {
 			} else if nlon < -180 {
 				nlon = 179
 			}
-			out = append(out, uint32((nlat+90)*360+(nlon+180)))
+			ids[count] = uint32((nlat+90)*360 + (nlon + 180))
+			count++
 		}
 	}
-	return out
+	return
 }
 
 func IsBorderCoord(tileID uint32, lat, lon float64, borderDist float64) bool {
