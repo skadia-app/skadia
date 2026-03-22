@@ -403,6 +403,67 @@ func TestSerializeDeserializeV4ElevSegDist(t *testing.T) {
 	}
 }
 
+func TestSerialize_SectionAlignment(t *testing.T) {
+	// Graph with odd NodeCount so NodeTags has an odd byte length.
+	g := &Graph{
+		NodeCount: 3, EdgeCount: 2,
+		Offsets:   []uint32{0, 1, 2, 2},
+		Targets:   []uint32{1, 2},
+		EdgeDist:  []uint32{100, 200},
+		EdgeTags1: []uint64{0, 0},
+		EdgeTags2: []uint64{0, 0},
+		NodeLat:   []int32{470000000, 470010000, 470020000},
+		NodeLon:   []int32{80000000, 80000000, 80000000},
+		NodeEle:   []int32{5000, 5100, 5200},
+		NodeTags:  []uint8{0, 1, 0}, // 3 bytes — odd length
+		EdgeGeomOff:     []uint32{0, 0, 0},
+		EdgeGeomLat:     []int32{},
+		EdgeGeomLon:     []int32{},
+		EdgeElevOff:     []uint32{0, 0, 0},
+		EdgeElevProf:    []int32{},
+		EdgeElevSegDist: []uint16{},
+		IsBorder:        []bool{false, true, false},
+	}
+	g.Grid = BuildSpatialIndex(g, 0.01)
+
+	f, err := os.CreateTemp("", "align_test_*.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.Close()
+
+	if err := Serialize(g, f.Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sectionCnt := le.Uint16(data[60:62])
+	dirStart := HeaderSize
+	for i := range int(sectionCnt) {
+		off := dirStart + i*12
+		typ := le.Uint16(data[off : off+2])
+		offset := uint64(data[off+2]) | uint64(data[off+3])<<8 |
+			uint64(data[off+4])<<16 | uint64(data[off+5])<<24 |
+			uint64(data[off+6])<<32 | uint64(data[off+7])<<40
+
+		// NodeTags and IsBorder are uint8 sections — alignment not required.
+		if typ == SectionNodeTags || typ == SectionIsBorder {
+			continue
+		}
+		// All other data sections must be 4-byte aligned.
+		if typ >= SectionOffsets && typ <= SectionEdgeElevSegDist {
+			if offset%4 != 0 {
+				t.Errorf("section type %d has misaligned offset %d (%%4 = %d)", typ, offset, offset%4)
+			}
+		}
+	}
+}
+
 func TestDeserializeV3Rejected(t *testing.T) {
 	// Create a minimal v3 header with valid CRC so the CRC check passes and
 	// the version check fires with "unsupported version: 3".

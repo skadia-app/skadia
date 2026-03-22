@@ -51,7 +51,6 @@ func Serialize(g *Graph, path string) error {
 	sections = append(sections, sectionData{SectionOSMIDPool, encodeOSMIDPool(g.OSMIDPool)})
 	sections = append(sections, sectionData{SectionNodeLat, int32SliceToBytes(g.NodeLat)})
 	sections = append(sections, sectionData{SectionNodeLon, int32SliceToBytes(g.NodeLon)})
-	sections = append(sections, sectionData{SectionNodeTags, g.NodeTags})
 	sections = append(sections, sectionData{SectionNodeEle, deltaEncodeElevation(g.NodeEle)})
 	sections = append(sections, sectionData{SectionSpatialGrid, encodeSpatialGrid(g.Grid)})
 
@@ -71,7 +70,7 @@ func Serialize(g *Graph, path string) error {
 		sections = append(sections, sectionData{SectionEdgeElevProf, int32SliceToBytes(g.EdgeElevProf)})
 	}
 
-	// v3 tile sections
+	// v3 tile sections — keep all multi-byte sections before uint8 sections
 	if g.TileID > 0 {
 		tileMetaBuf := make([]byte, 4)
 		le.PutUint32(tileMetaBuf, g.TileID)
@@ -80,6 +79,14 @@ func Serialize(g *Graph, path string) error {
 	if g.BorderIndex != nil && len(g.BorderIndex.Entries) > 0 {
 		sections = append(sections, sectionData{SectionBorderNodeIndex, g.BorderIndex.Serialize()})
 	}
+	if len(g.EdgeElevSegDist) > 0 {
+		sections = append(sections, sectionData{SectionEdgeElevSegDist, uint16SliceToBytes(g.EdgeElevSegDist)})
+	}
+
+	// uint8 sections last: their potentially-odd byte lengths must not misalign
+	// the preceding int32/uint32/uint64 sections. The deserializer uses
+	// type-based directory lookup, so section order in the file is transparent.
+	sections = append(sections, sectionData{SectionNodeTags, g.NodeTags})
 	if len(g.IsBorder) > 0 {
 		packed := make([]byte, len(g.IsBorder))
 		for i, b := range g.IsBorder {
@@ -88,9 +95,6 @@ func Serialize(g *Graph, path string) error {
 			}
 		}
 		sections = append(sections, sectionData{SectionIsBorder, packed})
-	}
-	if len(g.EdgeElevSegDist) > 0 {
-		sections = append(sections, sectionData{SectionEdgeElevSegDist, uint16SliceToBytes(g.EdgeElevSegDist)})
 	}
 
 	// Landmark ALT sections (optional, cold)
