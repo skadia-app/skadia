@@ -6,6 +6,7 @@ import { fetchSummitCollection, type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
 import { SUMMIT_MAP_STYLE } from './summitMapStyle'
+import { createSummitMarker } from './markerUtils'
 
 interface SummitMapFullscreenProps {
   initialSelected?: SummitVisit | null
@@ -103,16 +104,10 @@ export default function SummitMapFullscreen({
       markersRef.current = displaySummits
         .filter(s => s.lat != null && s.lng != null)
         .map(s => {
-          const el = document.createElement('div')
-          el.style.cssText = 'width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;'
           const isSelected = selectedSummit?.name === s.name
-          el.innerHTML = isSelected
-            ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="#f97316" stroke="white" stroke-width="2"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
-            : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2.5"><path d="M3 20l6.5-11L13 15l4-6 4 11H3z"/></svg>`
-          el.addEventListener('click', () => setSelectedSummit(s))
-          return new maplibregl.Marker({ element: el })
-            .setLngLat([s.lng!, s.lat!])
-            .addTo(map)
+          const marker = createSummitMarker(s, isSelected)
+          marker.getElement().addEventListener('click', () => setSelectedSummit(s))
+          return marker.setLngLat([s.lng!, s.lat!]).addTo(map)
         })
     }
     if (map.loaded()) {
