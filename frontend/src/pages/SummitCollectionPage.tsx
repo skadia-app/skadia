@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { fetchSummitCollection, type SummitVisit, type SummitCollectionFilter } from '@/api/summits'
+import { type SummitVisit } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
 import SummitMap from '@/components/summit/SummitMap'
 import SummitMapFullscreen from '@/components/summit/SummitMapFullscreen'
 import { ELEV_CLASSES, type ElevClass } from '@/components/summit/summitConstants'
+import { useSummitCollection } from '@/hooks/useSummitCollection'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
@@ -50,30 +50,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     return next
   }, { replace: true })
 
-  // All summits (unfiltered) — for badges and for deriving available filter options
-  const { data: allSummits } = useQuery({
-    queryKey: ['summit-collection-all'],
-    queryFn: () => fetchSummitCollection(),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  // Fix: also check elevClass.max (isFiltered-Logik korrigieren)
-  const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
-
-  const { data: filteredSummits, isLoading, error } = useQuery({
-    queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
-    queryFn: () => fetchSummitCollection({
-      country: countryFilter || undefined,
-      min_elevation: elevClass.min ?? undefined,
-      max_elevation: elevClass.max ?? undefined,
-      year: yearFilter ? Number(yearFilter) : undefined,
-    }),
-    enabled: isFiltered,
-    staleTime: 2 * 60 * 1000,
-  })
-
-  // If no filters active, use allSummits to avoid a duplicate request
-  const summits = isFiltered ? (filteredSummits ?? []) : (allSummits ?? [])
+  const { allSummits, displaySummits: summits, isLoading, isFiltered, availableCountries, availableYears } = useSummitCollection({ countryFilter, elevClass, yearFilter })
 
   const sortedSummits = useMemo(() => {
     const sorted = [...summits]
@@ -108,28 +85,6 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     )
   , [sortedSummits, nameFilter])
 
-  // Derive available years and countries from all summits
-  // Fix 4: collect years from both first_visit AND last_visit
-  const availableYears = useMemo(() => {
-    const years = new Set<string>()
-    for (const s of (allSummits ?? [])) {
-      if (s.first_visit) years.add(new Date(s.first_visit).getFullYear().toString())
-      if (s.last_visit) years.add(new Date(s.last_visit).getFullYear().toString())
-    }
-    return [...years].sort().reverse()
-  }, [allSummits])
-
-  const availableCountries = useMemo(() => {
-    if (!allSummits) return []
-    const codes = new Set<string>()
-    for (const s of allSummits) {
-      for (const c of (s.country_codes ?? [])) {
-        if (c) codes.add(c)
-      }
-    }
-    return [...codes].sort()
-  }, [allSummits])
-
   const highestSummit = useMemo(() => {
     if (!summits.length) return null
     return summits.reduce((best, s) =>
@@ -157,18 +112,10 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     return <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
   }
 
-  if (isLoading && isFiltered && !summits.length) {
+  if (isLoading && !summits.length) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-accent-DEFAULT" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="p-6 text-red-600 dark:text-red-400">
-        Fehler beim Laden der Gipfelsammlung.
       </div>
     )
   }
