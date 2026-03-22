@@ -85,3 +85,35 @@ func (g *Graph) LandmarkDistsInto(setID LandmarkSetID, localNodeID uint32, dst [
 	}
 	return dists
 }
+
+// LandmarkDistsPageInto reads landmark distances for a contiguous run of nodes in one ReadAt,
+// amortising syscall overhead across up to nodeCount nodes.
+// startLocalNode is the first local node ID to read; nodeCount is the number of nodes.
+// If startLocalNode + nodeCount exceeds g.NodeCount the read is clamped automatically.
+// dst must have length >= nodeCount * LandmarksPerSet (caller is responsible).
+// byteBuf must have length >= nodeCount * LandmarksPerSet * 4.
+// Returns the filled slice (length = actualCount * LandmarksPerSet) or nil on error / unavailable.
+func (g *Graph) LandmarkDistsPageInto(setID LandmarkSetID, startLocalNode, nodeCount uint32, dst []float32, byteBuf []byte) []float32 {
+	sectionID := SectionLandmarkDistA + uint16(setID)
+	entry, ok := g.coldSections[sectionID]
+	if !ok || g.backingFile == nil {
+		return nil
+	}
+	// Clamp to available node count.
+	if startLocalNode >= g.NodeCount {
+		return nil
+	}
+	if startLocalNode+nodeCount > g.NodeCount {
+		nodeCount = g.NodeCount - startLocalNode
+	}
+	if nodeCount == 0 {
+		return nil
+	}
+	floatOffset := startLocalNode * LandmarksPerSet
+	floatCount := nodeCount * LandmarksPerSet
+	result, err := ReadColdFloat32SectionInto(g.backingFile, entry, floatOffset, floatCount, dst, byteBuf)
+	if err != nil {
+		return nil
+	}
+	return result
+}

@@ -264,6 +264,14 @@ func (r *TiledGraphReader) LandmarkDistsInto(setID LandmarkSetID, nodeID uint64,
 	return g.LandmarkDistsInto(graph.LandmarkSetID(setID), localID, dst, byteBuf)
 }
 
+func (r *TiledGraphReader) LandmarkDistsPageInto(setID LandmarkSetID, tileID uint32, startLocalNode, nodeCount uint32, dst []float32, byteBuf []byte) []float32 {
+	g := r.tile(tileID)
+	if g == nil {
+		return nil
+	}
+	return g.LandmarkDistsPageInto(graph.LandmarkSetID(setID), startLocalNode, nodeCount, dst, byteBuf)
+}
+
 func (r *TiledGraphReader) LandmarkMeta() *graph.LandmarkMetaData {
 	if m := r.cachedLMeta.Load(); m != nil {
 		return m
