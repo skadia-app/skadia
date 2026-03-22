@@ -97,7 +97,7 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 
 	// Determine which module types are requested
 	hasStream := containsAny(modules, "ascents", "stops", "intervals")
-	hasGeo := containsAny(modules, "peaks", "settlements", "forests", "water", "borders")
+	hasGeo := containsAny(modules, "summits", "settlements", "forests", "water", "borders")
 
 	// Load stream once if needed
 	var stream []EnrichmentStreamPoint
