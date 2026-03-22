@@ -469,6 +469,7 @@ func main() {
 
 			// Summits Collection
 			r.Get("/summits/collection", h.GetSummitCollection)
+			r.Get("/summits/by-name/activities", h.GetSummitActivitiesByName)
 			r.Get("/summits/{osm_id}/activities", h.GetSummitActivities)
 
 			// Trails: build-topology removed (pgRouting 4.0+ removed pgr_createTopology)
