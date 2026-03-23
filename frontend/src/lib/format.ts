@@ -1,4 +1,4 @@
-export type DurationStyle = 'clock' | 'human' | 'compact' | 'lifetime'
+export type DurationStyle = 'clock' | 'human' | 'compact' | 'short' | 'lifetime'
 
 /** Format seconds in various styles. Default 'clock' = h:mm:ss / m:ss */
 export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
@@ -16,6 +16,10 @@ export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
     case 'compact':
       if (h > 0) return `${h}h ${m}m`
       return `${m} min`
+    case 'short':
+      if (h > 0) return `${h}h ${m}m ${sec}s`
+      if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m} min`
+      return `${sec}s`
     case 'lifetime':
       if (h >= 240) return `${(h / 24).toFixed(1)} Tage`
       return `${h} h`
