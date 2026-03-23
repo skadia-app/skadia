@@ -30,6 +30,7 @@ type MetaFile struct {
 	WorkoutFeel   *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe    *int     `json:"workout_rpe,omitempty"`
 	IsEbike       bool     `json:"is_ebike,omitempty"`
+	IsVirtual     bool     `json:"is_virtual,omitempty"`
 	IsManualEntry bool     `json:"is_manual_entry,omitempty"`
 	Source        string   `json:"source,omitempty"`
 }
@@ -85,6 +86,7 @@ func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model
 		m.WorkoutFeel = activity.WorkoutFeel
 		m.WorkoutRpe = activity.WorkoutRpe
 		m.IsEbike = activity.IsEbike
+		m.IsVirtual = activity.IsVirtual
 		m.Source = derefStr(activity.Source)
 	}
 

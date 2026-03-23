@@ -29,6 +29,7 @@ type CreateManualActivityRequest struct {
 	Tags           []string `json:"tags,omitempty"`
 	GearID         string   `json:"gear_id,omitempty"`
 	IsEbike        bool     `json:"is_ebike,omitempty"`
+	IsVirtual      bool     `json:"is_virtual,omitempty"`
 	WorkoutFeel    *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe     *int     `json:"workout_rpe,omitempty"`
 }
@@ -88,6 +89,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		Tags:           req.Tags,
 		GearID:         req.GearID,
 		IsEbike:        req.IsEbike,
+		IsVirtual:      req.IsVirtual,
 		IsManualEntry:  true,
 		Source:         "manual",
 		WorkoutFeel:    req.WorkoutFeel,
@@ -126,6 +128,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		ElevationGainM: req.ElevationGainM,
 		ElevationLossM: req.ElevationLossM,
 		IsEbike:        req.IsEbike,
+		IsVirtual:      req.IsVirtual,
 		IsManualEntry:  true,
 		FileHash:       hashStr,
 		FileFormat:     "manual",

@@ -36,6 +36,7 @@ type AnalyticsFilter struct {
 	PowerMin         *int
 	PowerMax         *int
 	IsEbike          *bool // nil=neutral, true=only ebike, false=exclude ebike
+	IsVirtual        *bool // nil=neutral, true=only virtual, false=exclude virtual
 	// Tri-state tag filters
 	IncludeTags []uuid.UUID // activity must have ALL of these tags
 	ExcludeTags []uuid.UUID // activity must have NONE of these tags
@@ -86,6 +87,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	f.IsCommute = parseOptBool(q.Get("is_commute"))
 	f.IsRace = parseOptBool(q.Get("is_race"))
 	f.IsEbike = parseOptBool(q.Get("is_ebike"))
+	f.IsVirtual = parseOptBool(q.Get("is_virtual"))
 	f.PaceMinSecKm = parseOptFloat(q.Get("pace_min")) // sec/km
 	f.PaceMaxSecKm = parseOptFloat(q.Get("pace_max")) // sec/km
 	if v := q.Get("country"); v != "" {
@@ -332,6 +334,13 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		args = append(args, *f.IsEbike)
 		idx++
 	}
+	if f.IsVirtual != nil {
+		conditions = append(conditions, "a.is_virtual = $"+strconv.Itoa(idx))
+		args = append(args, *f.IsVirtual)
+		idx++
+	}
+	// Always exclude activities marked as excluded from stats in analytics aggregations.
+	conditions = append(conditions, "NOT a.exclude_from_stats")
 
 	if len(conditions) == 0 {
 		return "", nil
