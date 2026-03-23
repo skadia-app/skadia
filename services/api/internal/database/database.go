@@ -3607,29 +3607,29 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftC
 	return result, rows.Err()
 }
 
-func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID string) error {
-	var activityID string
+func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID, activityID string) error {
+	var returnedActivityID string
 	err := db.Pool.QueryRow(ctx,
-		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1 RETURNING activity_id`,
-		candidateID,
-	).Scan(&activityID)
+		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
+		candidateID, activityID,
+	).Scan(&returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, activityID)
+	return db.recomputeLiftStats(ctx, returnedActivityID)
 }
 
 // RejectLiftCandidate deletes a lift candidate and recomputes activity lift stats.
-func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID string) error {
-	var activityID string
+func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID string) error {
+	var returnedActivityID string
 	err := db.Pool.QueryRow(ctx,
-		`DELETE FROM activity_lift_candidates WHERE id = $1 RETURNING activity_id`,
-		candidateID,
-	).Scan(&activityID)
+		`DELETE FROM activity_lift_candidates WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
+		candidateID, activityID,
+	).Scan(&returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, activityID)
+	return db.recomputeLiftStats(ctx, returnedActivityID)
 }
 
 // recomputeLiftStats recomputes activities.lift_* columns from both sources:

@@ -56,7 +56,7 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	candID := chi.URLParam(r, "cid")
-	if err := h.DB.ConfirmLiftCandidate(r.Context(), candID); err != nil {
+	if err := h.DB.ConfirmLiftCandidate(r.Context(), candID, activityID); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
@@ -83,7 +83,7 @@ func (h *Handler) RejectLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	candID := chi.URLParam(r, "cid")
-	if err := h.DB.RejectLiftCandidate(r.Context(), candID); err != nil {
+	if err := h.DB.RejectLiftCandidate(r.Context(), candID, activityID); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
