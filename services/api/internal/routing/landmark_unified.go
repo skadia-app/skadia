@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // landmarkDijkstraUnified runs a single-source Dijkstra on the unified flat CSR.
@@ -87,6 +88,53 @@ func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uin
 	return costs
 }
 
+// landmarkBudgetDijkstraUnified runs a budget-limited Dijkstra on the unified CSR.
+// Stops when all remaining frontier entries exceed maxCost.
+// Used for crossing-flank detection (50km budget).
+func landmarkBudgetDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uint32, cfg *CostConfig, maxCost float32) []float32 {
+	costs := make([]float32, csr.NodeCount)
+	for i := range costs {
+		costs[i] = math.MaxFloat32
+	}
+	costs[src] = 0
+
+	frontier := &Frontier{}
+	frontier.Push(FrontierEntry{NodeID: uint64(src), Cost: 0})
+
+	expansions := 0
+	for frontier.Len() > 0 {
+		entry := frontier.Pop()
+		if entry.Cost > maxCost {
+			break // min-heap: all remaining entries exceed budget
+		}
+		nd := uint32(entry.NodeID)
+		if entry.Cost > costs[nd]+0.001 {
+			continue
+		}
+
+		expansions++
+		if expansions%1_000_000 == 0 && ctx.Err() != nil {
+			break
+		}
+
+		for ei := csr.Offsets[nd]; ei < csr.Offsets[nd+1]; ei++ {
+			edge := csr.Edges[ei]
+			if edge.CostFactor >= costBlocked {
+				continue
+			}
+			distCost := float32(edge.Dist) / 100.0 * edge.CostFactor
+			newCost := costs[nd] + distCost
+			if newCost < costs[edge.Target] && newCost <= maxCost {
+				costs[edge.Target] = newCost
+				frontier.Push(FrontierEntry{NodeID: uint64(edge.Target), Cost: newCost})
+			}
+		}
+	}
+
+	slog.Info("budget dijkstra complete", "expansions", expansions, "budget", maxCost)
+	return costs
+}
+
 // BuildLandmarkEdgeCostClosureCSR adapts the routing package's EdgeCost closure
 // to the graph package's EdgeCostFunc type.
 func BuildLandmarkEdgeCostClosureCSR() graph.EdgeCostFunc {
@@ -153,11 +201,15 @@ func cleanupCheckpoints(tileDir string) {
 // Sets are processed SEQUENTIALLY to limit memory. Within each set, 2 Dijkstras
 // run in parallel. Each result is checkpointed to disk for crash-recovery.
 // CSR is freed BEFORE write-back to reduce peak memory.
+//
+// With crossing-flanks strategy (default): queries OSM crossings via pool,
+// runs budget Dijkstras, places flank landmarks.
+// pool is required for OSM crossing queries. Pass nil to skip crossing detection
+// (falls back to legacy BBox+Farthest strategy).
 func RunUnifiedLandmarkPreprocessing(
 	ctx context.Context,
 	tileDir string,
-	osmPassCandidates []graph.LandmarkCandidate,
-	osmPeakCandidates []graph.LandmarkCandidate,
+	pool *pgxpool.Pool, // for OSM crossing queries (nil = legacy mode)
 	progressFn func(step string, current, total int),
 ) (*graph.LandmarkMetaData, error) {
 	if progressFn == nil {
@@ -179,13 +231,61 @@ func RunUnifiedLandmarkPreprocessing(
 
 	// 2. Select landmarks
 	progressFn("selecting landmarks", 0, 16)
+
+	// 2a. Detect crossing flanks (if DB pool available and not legacy mode)
+	var flankLandmarks []graph.LandmarkCandidate
+
+	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
+		south, west, north, east := BBoxFromTiles(tiles)
+
+		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
+		if seedErr != nil {
+			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
+		} else if len(seeds) > 0 {
+			slog.Info("crossing seeds selected", "count", len(seeds))
+			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tiles)
+
+			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+			for si, seed := range snappedSeeds {
+				seedTileID, seedLocalID := graph.SplitGlobalNodeID(seed.GlobalNodeID)
+				mapping := nodeMapping[seedTileID]
+				if mapping == nil || uint32(len(mapping)) <= seedLocalID {
+					slog.Warn("seed not in CSR mapping", "seed", si)
+					continue
+				}
+				denseID := mapping[seedLocalID]
+
+				progressFn(fmt.Sprintf("flank dijkstra %d/%d", si+1, len(snappedSeeds)), si, len(snappedSeeds))
+				costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
+
+				flankA, flankB := FindFlankLandmarks(seed, costs, tiles, nodeMapping)
+				if flankA.GlobalNodeID != 0 {
+					flankLandmarks = append(flankLandmarks, flankA)
+					slog.Info("flank landmark found",
+						"seed", si, "side", "A",
+						"lat", float64(flankA.Lat)/1e7,
+						"lon", float64(flankA.Lon)/1e7,
+						"ele_m", float64(flankA.Ele)/10.0)
+				}
+				if flankB.GlobalNodeID != 0 {
+					flankLandmarks = append(flankLandmarks, flankB)
+					slog.Info("flank landmark found",
+						"seed", si, "side", "B",
+						"lat", float64(flankB.Lat)/1e7,
+						"lon", float64(flankB.Lon)/1e7,
+						"ele_m", float64(flankB.Ele)/10.0)
+				}
+			}
+		}
+	}
+
+	// 2b. Farthest Dijkstra callback (uses Set D flat distance)
 	farthestDijkstra := func(src uint64) (graph.LandmarkCandidate, error) {
 		srcTileID, srcLocalID := graph.SplitGlobalNodeID(src)
 		mapping := nodeMapping[srcTileID]
 		if mapping == nil || uint32(len(mapping)) <= srcLocalID {
 			return graph.LandmarkCandidate{}, fmt.Errorf("node %d not in mapping", src)
 		}
-		// Use Set D (flat) for farthest selection
 		setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
 		costs := landmarkDijkstraUnified(ctx, csr, mapping[srcLocalID], setCfg)
 		var best graph.LandmarkCandidate
@@ -212,7 +312,19 @@ func RunUnifiedLandmarkPreprocessing(
 		return best, nil
 	}
 
-	meta, err := graph.SelectLandmarksLegacy(tiles, farthestDijkstra, osmPassCandidates, osmPeakCandidates)
+	// 2c. Select landmarks with new or legacy strategy
+	var meta *graph.LandmarkMetaData
+	if os.Getenv("LANDMARK_STRATEGY") == "legacy" || pool == nil {
+		var osmPassC []graph.LandmarkCandidate
+		if pool != nil {
+			south, west, north, east := BBoxFromTiles(tiles)
+			osmPass, _ := QueryOSMPassLandmarks(ctx, pool, west, south, east, north, 4)
+			osmPassC = SnapOSMLandmarksToGraph(osmPass, tiles)
+		}
+		meta, err = graph.SelectLandmarksLegacy(tiles, farthestDijkstra, osmPassC, nil)
+	} else {
+		meta, err = graph.SelectLandmarks(tiles, flankLandmarks, farthestDijkstra)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("select landmarks: %w", err)
 	}
