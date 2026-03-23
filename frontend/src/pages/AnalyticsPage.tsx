@@ -562,7 +562,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             onClick={() => onFilterChange({ isCommute: filters.isCommute === 'true' ? '' : 'true' })}
             className={`text-xs px-3 py-1 rounded-md border transition-colors ${
               filters.isCommute === 'true'
-                ? 'bg-blue-500 text-white border-transparent font-medium'
+                ? 'bg-orange-500 text-white border-transparent font-medium'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
           >

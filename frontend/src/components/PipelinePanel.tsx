@@ -6,7 +6,7 @@ interface PipelinePanelProps {
   description: string
   icon: LucideIcon
   buttonLabel: string
-  buttonVariant?: 'accent' | 'blue'
+  buttonVariant?: 'accent'
   status?: ReactNode
   onStart: () => void
   isPending: boolean
@@ -19,9 +19,7 @@ export default function PipelinePanel({
   title, description, icon: Icon, buttonLabel, buttonVariant = 'accent',
   status, onStart, isPending, disabled, disabledHint, children,
 }: PipelinePanelProps) {
-  const btnClass = buttonVariant === 'blue'
-    ? 'bg-blue-500 hover:bg-blue-600'
-    : 'bg-accent-DEFAULT hover:bg-accent-DEFAULT/90'
+  const btnClass = 'bg-accent-DEFAULT hover:bg-accent-DEFAULT/90'
 
   return (
     <div className={`rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 ${disabled ? 'opacity-50' : ''}`}>

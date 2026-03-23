@@ -148,6 +148,7 @@ function SliderRow({ label, value, min, max, step = 1, format, onChange, disable
         onChange={e => onChange(Number(e.target.value))}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
         style={{
+          accentColor: 'var(--color-accent-DEFAULT, #f97316)',
           background: disabled
             ? '#d4d4d4'
             : `linear-gradient(to right, var(--color-accent-DEFAULT, #f97316) 0%, var(--color-accent-DEFAULT, #f97316) ${((value - min) / (max - min)) * 100}%, #d4d4d4 ${((value - min) / (max - min)) * 100}%, #d4d4d4 100%)`,

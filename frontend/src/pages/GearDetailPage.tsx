@@ -514,7 +514,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
         <button
           onClick={() => mutation.mutate()}
           disabled={!targetId || mutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-400 disabled:opacity-50 transition-colors cursor-pointer"
         >
           {mutation.isPending ? '...' : 'Transfer'}
         </button>
