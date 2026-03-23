@@ -93,7 +93,7 @@ func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, en
 func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.ActivityData) (*model.Activity, error) {
 	var id string
 	var createdAt, updatedAt time.Time
-	var isEbike bool
+	var isEbike, isVirtual bool
 
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO activities (
@@ -108,6 +108,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			avg_power_w, max_power_w, normalized_power_w,
 			avg_cadence, avg_temperature_c,
 			tss, trimp, is_indoor, is_ebike, has_gps,
+			is_virtual, exclude_from_heatmap, exclude_from_stats,
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device,
@@ -172,78 +173,80 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			$23, $24,
 			-- TSS / TRIMP / Flags ($25-$29)
 			$25, $26, $27, $28, $29,
-			-- Start/End Location ($30-$33)
-			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
-			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
-			-- File / Source ($34-$37)
-			$34, $35,
-			$36, $37,
-			-- Visibility / Conflict ($38-$39)
-			$38,
-			$39,
-			-- FIT SDK: Workout ($40)
-			$40,
-			-- FIT SDK: Cycles/Work/Calories ($41-$45)
-			$41, $42, $43, $44, $45,
-			-- FIT SDK: Swimming ($46-$54)
-			$46, $47, $48,
-			$49, $50, $51, $52,
-			$53, $54,
-			-- FIT SDK: Fractional Cadence ($55-$57)
-			$55, $56, $57,
-			-- FIT SDK: Running Dynamics ($58-$63)
+			-- Virtual / Exclude ($30-$32)
+			$30, $31, $32,
+			-- Start/End Location ($33-$36)
+			CASE WHEN $33::float8 != 0 THEN ST_SetSRID(ST_MakePoint($34::float8, $33::float8), 4326) ELSE NULL END,
+			CASE WHEN $35::float8 != 0 THEN ST_SetSRID(ST_MakePoint($36::float8, $35::float8), 4326) ELSE NULL END,
+			-- File / Source ($37-$40)
+			$37, $38,
+			$39, $40,
+			-- Visibility / Conflict ($41-$42)
+			$41,
+			$42,
+			-- FIT SDK: Workout ($43)
+			$43,
+			-- FIT SDK: Cycles/Work/Calories ($44-$48)
+			$44, $45, $46, $47, $48,
+			-- FIT SDK: Swimming ($49-$57)
+			$49, $50, $51,
+			$52, $53, $54, $55,
+			$56, $57,
+			-- FIT SDK: Fractional Cadence ($58-$60)
 			$58, $59, $60,
+			-- FIT SDK: Running Dynamics ($61-$66)
 			$61, $62, $63,
-			-- FIT SDK: Grade ($64-$68)
-			$64, $65, $66, $67, $68,
-			-- FIT SDK: Vertical Speed ($69-$73)
-			$69, $70,
-			$71, $72, $73,
-			-- FIT SDK: Altitude / Fractional ($74-$76)
+			$64, $65, $66,
+			-- FIT SDK: Grade ($67-$71)
+			$67, $68, $69, $70, $71,
+			-- FIT SDK: Vertical Speed ($72-$76)
+			$72, $73,
 			$74, $75, $76,
-			-- FIT SDK: Pedal Torque/Smoothness ($77-$81)
-			$77, $78,
-			$79, $80,
-			$81,
-			-- FIT SDK: PCO ($82-$83)
+			-- FIT SDK: Altitude / Fractional ($77-$79)
+			$77, $78, $79,
+			-- FIT SDK: Pedal Torque/Smoothness ($80-$84)
+			$80, $81,
 			$82, $83,
-			-- FIT SDK: Power Phase Left ($84-$87)
-			$84, $85,
-			$86, $87,
-			-- FIT SDK: Power Phase Right ($88-$91)
-			$88, $89,
-			$90, $91,
-			-- FIT SDK: Power/Cadence Position ($92-$95)
-			$92, $93,
-			$94, $95,
-			-- FIT SDK: Standing ($96-$97)
-			$96, $97,
-			-- FIT SDK: LEV/E-Bike ($98-$100)
-			$98, $99, $100,
-			-- FIT SDK: Grit/Flow ($101-$105)
-			$101, $102, $103, $104,
-			$105,
-			-- FIT SDK: Ball Sports ($106-$110)
-			$106, $107, $108, $109, $110,
-			-- FIT SDK: Hemoglobin ($111-$116)
-			$111, $112, $113,
+			$84,
+			-- FIT SDK: PCO ($85-$86)
+			$85, $86,
+			-- FIT SDK: Power Phase Left ($87-$90)
+			$87, $88,
+			$89, $90,
+			-- FIT SDK: Power Phase Right ($91-$94)
+			$91, $92,
+			$93, $94,
+			-- FIT SDK: Power/Cadence Position ($95-$98)
+			$95, $96,
+			$97, $98,
+			-- FIT SDK: Standing ($99-$100)
+			$99, $100,
+			-- FIT SDK: LEV/E-Bike ($101-$103)
+			$101, $102, $103,
+			-- FIT SDK: Grit/Flow ($104-$108)
+			$104, $105, $106, $107,
+			$108,
+			-- FIT SDK: Ball Sports ($109-$113)
+			$109, $110, $111, $112, $113,
+			-- FIT SDK: Hemoglobin ($114-$119)
 			$114, $115, $116,
-			-- FIT SDK: Diving ($117-$125)
-			$117, $118, $119, $120,
-			$121, $122, $123, $124, $125,
-			-- FIT SDK: Respiration/HRV/Core ($126-$130)
-			$126, $127, $128,
-			$129, $130,
-			-- FIT SDK: Lap Stats ($131-$134)
-			$131, $132, $133, $134,
-			-- FIT SDK: Intensity/Balance/Profile ($135-$138)
-			$135, $136, $137, $138,
-			-- Bounding Box ($139-$142)
-			$139, $140, $141, $142,
-			-- Manual / Workout ($143-$145)
-			$143, $144, $145
+			$117, $118, $119,
+			-- FIT SDK: Diving ($120-$128)
+			$120, $121, $122, $123,
+			$124, $125, $126, $127, $128,
+			-- FIT SDK: Respiration/HRV/Core ($129-$133)
+			$129, $130, $131,
+			$132, $133,
+			-- FIT SDK: Lap Stats ($134-$137)
+			$134, $135, $136, $137,
+			-- FIT SDK: Intensity/Balance/Profile ($138-$141)
+			$138, $139, $140, $141,
+			-- Bounding Box ($142-$145)
+			$142, $143, $144, $145,
+			-- Manual / Workout ($146-$148)
+			$146, $147, $148
 		)
-		RETURNING id, is_ebike, created_at, updated_at`,
+		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
 		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID), // $5-$6
 		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS), // $7-$10
@@ -254,51 +257,52 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
 		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
 		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS, // $25-$29
-		data.StartLat, data.StartLng, // $30-$31
-		data.EndLat, data.EndLng, // $32-$33
-		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
-		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $36-$37
-		visibilityOrDefault(data.Visibility), // $38
-		data.SportConflictPending, // $39
+		data.IsVirtual, data.IsVirtual, false, // $30-$32 (is_virtual, exclude_from_heatmap=is_virtual, exclude_from_stats=false)
+		data.StartLat, data.StartLng, // $33-$34
+		data.EndLat, data.EndLng, // $35-$36
+		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $37-$38
+		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $39-$40
+		visibilityOrDefault(data.Visibility), // $41
+		data.SportConflictPending, // $42
 		// FIT SDK new fields
-		data.WorkoutID,                                                                                          // $40
-		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $41-$45
-		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $46-$48
-		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $49-$52
-		data.StrokeCount, data.ZoneCount,                                                                        // $53-$54
-		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $55-$57
-		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $58-$60
-		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $61-$63
-		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $64-$68
-		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $69-$70
-		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $71-$73
-		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $74-$76
-		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $77-$78
-		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $79-$80
-		data.AvgCombinedPedalSmoothnessPct,                                                                      // $81
-		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $82-$83
-		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $84-$85
-		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $86-$87
-		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $88-$89
-		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $90-$91
-		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $92-$93
-		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $94-$95
-		data.TimeStandingS, data.StandCount,                                                                     // $96-$97
-		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $98-$100
-		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $101-$104
-		data.JumpCount,                                                                                          // $105
-		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $106-$110
-		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $111-$113
-		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $114-$116
-		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $117-$120
-		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $121-$125
-		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $126-$128
-		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $129-$130
-		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $131-$134
-		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $135-$138
-		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $139-$142
-		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe),                       // $143-$145
-	).Scan(&id, &isEbike, &createdAt, &updatedAt)
+		data.WorkoutID,                                                                                          // $43
+		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $44-$48
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $49-$51
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $52-$55
+		data.StrokeCount, data.ZoneCount,                                                                        // $56-$57
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $58-$60
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $61-$63
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $64-$66
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $67-$71
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $72-$73
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $74-$76
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $77-$79
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $80-$81
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $82-$83
+		data.AvgCombinedPedalSmoothnessPct,                                                                      // $84
+		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $85-$86
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $87-$88
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $89-$90
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $91-$92
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $93-$94
+		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $95-$96
+		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $97-$98
+		data.TimeStandingS, data.StandCount,                                                                     // $99-$100
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $101-$103
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $104-$107
+		data.JumpCount,                                                                                          // $108
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $109-$113
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $114-$116
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $117-$119
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $120-$123
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $124-$128
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $129-$131
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $132-$133
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $134-$137
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $138-$141
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $142-$145
+		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe),                       // $146-$148
+	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
@@ -312,6 +316,9 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
 		IsEbike:              isEbike,
+		IsVirtual:            isVirtual,
+		ExcludeFromHeatmap:   isVirtual,
+		ExcludeFromStats:     false,
 		IsIndoor:             data.IsIndoor,
 		IsManualEntry:        data.IsManualEntry,
 		HasGPS:               data.HasGPS,
@@ -548,6 +555,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		SELECT
 			a.id, a.user_id, a.file_hash, a.title, a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_ebike,
+			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
 			a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
 			a.max_elevation_m, a.min_elevation_m,
@@ -629,6 +637,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.Title, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsEbike,
+		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
 		&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM,
 		&a.MaxElevationM, &a.MinElevationM,
@@ -776,6 +785,11 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("is_ebike = $%d", idx))
 		args = append(args, *filters.IsEbike)
 	}
+	if filters.IsVirtual != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("is_virtual = $%d", idx))
+		args = append(args, *filters.IsVirtual)
+	}
 	if filters.HasGPS != nil {
 		idx++
 		conds = append(conds, fmt.Sprintf("has_gps = $%d", idx))
@@ -890,7 +904,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	}
 
 	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
-		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, visibility,
+		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
 		created_at, updated_at, sport_conflict_pending`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
@@ -1006,7 +1020,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		var a model.Activity
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
-			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.Visibility,
+			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
 			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
@@ -1162,6 +1176,23 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.WorkoutRpe != nil {
 		sets = append(sets, fmt.Sprintf("workout_rpe = $%d", argIdx))
 		args = append(args, *update.WorkoutRpe)
+		argIdx++
+	}
+	if update.ExcludeFromHeatmap != nil {
+		if !*update.ExcludeFromHeatmap {
+			var isVirtual bool
+			_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&isVirtual)
+			if isVirtual {
+				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+			}
+		}
+		sets = append(sets, fmt.Sprintf("exclude_from_heatmap = $%d", argIdx))
+		args = append(args, *update.ExcludeFromHeatmap)
+		argIdx++
+	}
+	if update.ExcludeFromStats != nil {
+		sets = append(sets, fmt.Sprintf("exclude_from_stats = $%d", argIdx))
+		args = append(args, *update.ExcludeFromStats)
 		argIdx++
 	}
 
@@ -1716,6 +1747,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.IsIndoor)
 	sets = append(sets, fmt.Sprintf("is_ebike = %s", idx()))
 	args = append(args, data.IsEbike)
+	sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
+	args = append(args, data.IsVirtual)
 	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))
 	args = append(args, data.HasGPS)
 
@@ -3357,6 +3390,23 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		VALUES ($1, 'E-Bike', true, 'ebike_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
+
+	// Virtual activity rule (no conditions/actions — synced via is_virtual column)
+	_, _ = db.Pool.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
+		VALUES ($1, 'virtuell', true, 'virtual_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
+		userID)
+
+	// Virtual system tag
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+		VALUES ($1, 'virtuell', '#8B5CF6', '#FFFFFF', true, false, 'Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)')
+		ON CONFLICT (user_id, name) DO NOTHING`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("seed virtuell tag: %w", err)
+	}
 
 	return nil
 }
