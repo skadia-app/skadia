@@ -293,7 +293,7 @@ func (s *Service) PostProcess(
 		if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
 			slog.Error("update file info failed", "error", err)
 		}
-		meta := sidecar.GenerateMeta(activityID, data)
+		meta := sidecar.GenerateMetaV3(activityID, data, activity)
 		metaBytes, marshalErr := meta.Marshal()
 		if marshalErr == nil {
 			if err := s.Storage.Upload(gCtx, metaKey, metaBytes, "application/json"); err != nil {
