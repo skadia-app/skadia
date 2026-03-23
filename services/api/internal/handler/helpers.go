@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // requireActivity loads an activity by URL param "id" and checks ownership.
@@ -45,13 +47,8 @@ func (h *Handler) startResetJob(
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
 		return
 	}
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("background job panicked", "type", jobType, "job_id", jobID, "panic", r)
-			}
-		}()
+	shutdown.Go(jobID, func(_ context.Context) {
 		runFn(jobID, activityID, userID)
-	}()
+	})
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
 }
