@@ -691,7 +691,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
 		}
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr)
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr, !doGeo)
 	}
 
 	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).
@@ -702,8 +702,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 8c. Segment-Efforts + Detected Laps recompute (when streams changed or full recompute).
-	if data.HasGPS && (doStreams || doSegments || allScope) {
+	// 8c. Segment-Efforts + Detected Laps recompute (only when segments scope is selected).
+	if data.HasGPS && doSegments {
 		// Collect affected segment IDs before deletion (for rank updates).
 		affectedSegIDs, _ := h.DB.GetAffectedSegmentIDs(ctx, activityID)
 

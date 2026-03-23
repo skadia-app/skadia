@@ -247,7 +247,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 			if h.GraphManager != nil {
 				gr = h.GraphManager.Reader()
 			}
-			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events, false, false, gr)
+			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Events, false, false, gr, false)
 		}
 
 		// Apply automation rules for all activities — Frost/Nacht don't need GPS
