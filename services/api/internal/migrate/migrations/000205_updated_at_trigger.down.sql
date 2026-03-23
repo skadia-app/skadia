@@ -2,7 +2,7 @@ DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
 DROP TRIGGER IF EXISTS trg_activities_updated_at ON activities;
 DROP TRIGGER IF EXISTS trg_custom_maps_updated_at ON custom_maps;
 DROP TRIGGER IF EXISTS trg_custom_map_markers_updated_at ON custom_map_markers;
-DROP TRIGGER IF EXISTS trg_llm_settings_updated_at ON llm_settings;
+DROP TRIGGER IF EXISTS trg_llm_system_config_updated_at ON llm_system_config;
 DROP TRIGGER IF EXISTS trg_tag_zones_updated_at ON tag_zones;
 DROP TRIGGER IF EXISTS trg_chat_sessions_updated_at ON chat_sessions;
 DROP TRIGGER IF EXISTS trg_ml_system_settings_updated_at ON ml_system_settings;

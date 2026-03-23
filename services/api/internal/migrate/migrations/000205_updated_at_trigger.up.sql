@@ -22,8 +22,10 @@ CREATE TRIGGER trg_custom_maps_updated_at BEFORE UPDATE ON custom_maps
 CREATE TRIGGER trg_custom_map_markers_updated_at BEFORE UPDATE ON custom_map_markers
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TRIGGER trg_llm_settings_updated_at BEFORE UPDATE ON llm_settings
+CREATE TRIGGER trg_llm_system_config_updated_at BEFORE UPDATE ON llm_system_config
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- llm_user_config: hat kein updated_at
 
 CREATE TRIGGER trg_tag_zones_updated_at BEFORE UPDATE ON tag_zones
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
