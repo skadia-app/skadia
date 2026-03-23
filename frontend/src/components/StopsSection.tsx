@@ -3,20 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchStops } from '@/api/enrichment'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { fmtDuration } from '@/lib/format'
 import type { ActivityStop } from '@/api/types'
 
 interface Props {
   activityId: string
-}
-
-function formatDurationShort(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const min = Math.floor(seconds / 60)
-  const sec = seconds % 60
-  if (min < 60) return sec > 0 ? `${min}m ${sec}s` : `${min} min`
-  const h = Math.floor(min / 60)
-  const rm = min % 60
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
 function PoiIcon({ poiType }: { poiType?: string }) {
@@ -268,7 +259,7 @@ export default function StopsSection({ activityId }: Props) {
                   )}
                 </div>
                 <span className="tabular-nums text-neutral-600 dark:text-neutral-400">
-                  {formatDurationShort(stop.duration_s)}
+                  {fmtDuration(stop.duration_s, 'short')}
                 </span>
               </div>
             )

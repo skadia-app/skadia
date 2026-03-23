@@ -3,6 +3,7 @@ import { useQueries } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchGeoTags, fetchStops, fetchSurfaces } from '@/api/enrichment'
+import { fmtDuration } from '@/lib/format'
 import type { Activity, GeoTag, ActivityStop, ActivitySurface } from '@/api/types'
 
 interface Props {
@@ -136,15 +137,6 @@ function getConfig(groupKey: string): CategoryConfig {
 
 // ── Stops rendering helpers ───────────────────────────────────────────────────
 
-function formatDurationShort(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const min = Math.floor(seconds / 60)
-  const sec = seconds % 60
-  if (min < 60) return sec > 0 ? `${min}m ${sec}s` : `${min} min`
-  const h = Math.floor(min / 60)
-  const rm = min % 60
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
-}
 
 function PoiIcon({ poiType }: { poiType?: string }) {
   const cls = 'w-4 h-4 shrink-0 text-neutral-500 dark:text-neutral-400'
@@ -506,7 +498,7 @@ function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
               </span>
             </div>
             <span className="tabular-nums text-neutral-600 dark:text-neutral-400">
-              {formatDurationShort(stop.duration_s)}
+              {fmtDuration(stop.duration_s, 'short')}
             </span>
           </div>
         )
