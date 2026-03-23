@@ -290,6 +290,7 @@ func main() {
 
 		r.Route("/api/v1", func(r chi.Router) {
 			r.Post("/activities/upload", h.Upload)
+			r.Post("/activities/manual", h.CreateManualActivity)
 			r.Post("/activities/group", h.GroupActivities)
 			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 			r.Get("/activities/recompute-status", h.RecomputeStatus)
