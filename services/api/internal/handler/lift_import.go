@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ImportLiftsFromOSM creates lift segments from osm_lifts.
@@ -14,8 +15,8 @@ func (h *Handler) ImportLiftsFromOSM(w http.ResponseWriter, r *http.Request) {
 	count, err := h.DB.ImportLiftSegments(r.Context(), userID)
 	if err != nil {
 		slog.Error("import lifts failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Import Failed", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Import Failed", err.Error(), r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"imported": count})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"imported": count})
 }

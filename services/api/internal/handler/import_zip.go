@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // maxZIPUploadBytes is the maximum allowed size for an uploaded export ZIP (2 GB).
@@ -83,20 +85,20 @@ func extractZipEntry(f *zip.File, destDir string) error {
 func parseUploadedZIP(w http.ResponseWriter, r *http.Request, path string) (string, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxZIPUploadBytes+1<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "cannot parse form (file too large?)", path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "cannot parse form (file too large?)", path)
 		return "", false
 	}
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing file field", path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing file field", path)
 		return "", false
 	}
 	defer file.Close()
 
 	tmpDir, err := extractZipToTempDir(file)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid ZIP: "+err.Error(), path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid ZIP: "+err.Error(), path)
 		return "", false
 	}
 	return tmpDir, true

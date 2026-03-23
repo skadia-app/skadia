@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // MobileTokenRequest represents a PKCE token exchange request from mobile.
@@ -29,17 +31,17 @@ type MobileRefreshRequest struct {
 // POST /api/v1/auth/token
 func (h *Handler) ExchangeToken(w http.ResponseWriter, r *http.Request) {
 	if h.Auth == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
 		return
 	}
 
 	var req MobileTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 	if req.Code == "" || req.CodeVerifier == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "code and code_verifier required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "code and code_verifier required", r.URL.Path)
 		return
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) ExchangeToken(w http.ResponseWriter, r *http.Request) {
 	tokenResp, status, err := h.postTokenRaw(r.Context(), data)
 	if err != nil {
 		slog.Error("PKCE token exchange failed", "error", err)
-		writeError(w, http.StatusBadGateway, "Bad Gateway", "token exchange failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", "token exchange failed", r.URL.Path)
 		return
 	}
 
@@ -74,17 +76,17 @@ func (h *Handler) ExchangeToken(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/auth/mobile-refresh
 func (h *Handler) MobileRefreshToken(w http.ResponseWriter, r *http.Request) {
 	if h.Auth == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
 		return
 	}
 
 	var req MobileRefreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 	if req.RefreshToken == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "refresh_token required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "refresh_token required", r.URL.Path)
 		return
 	}
 
@@ -100,7 +102,7 @@ func (h *Handler) MobileRefreshToken(w http.ResponseWriter, r *http.Request) {
 	tokenResp, status, err := h.postTokenRaw(r.Context(), data)
 	if err != nil {
 		slog.Error("mobile token refresh failed", "error", err)
-		writeError(w, http.StatusBadGateway, "Bad Gateway", "token refresh failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", "token refresh failed", r.URL.Path)
 		return
 	}
 

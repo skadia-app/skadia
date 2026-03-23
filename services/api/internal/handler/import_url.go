@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // importBytesResult holds the outcome of importFileBytes.
@@ -44,7 +45,7 @@ type importBytesResult struct {
 func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -52,26 +53,26 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
 	if req.URL == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "url is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "url is required", r.URL.Path)
 		return
 	}
 
 	// URL validieren
 	parsedURL, err := url.Parse(req.URL)
 	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid URL scheme (only http/https allowed)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid URL scheme (only http/https allowed)", r.URL.Path)
 		return
 	}
 
 	// SSRF-Schutz: Interne Netzwerke blocken
 	host := parsedURL.Hostname()
 	if isInternalHost(host) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "internal URLs not allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "internal URLs not allowed", r.URL.Path)
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	dlResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		slog.Error("import-url: download failed", "url", req.URL, "error", err)
-		writeError(w, http.StatusBadGateway, "Download Failed", "failed to download file from URL", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Download Failed", "failed to download file from URL", r.URL.Path)
 		return
 	}
 	defer dlResp.Body.Close()
@@ -92,7 +93,7 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	limitedReader := io.LimitReader(dlResp.Body, 100*1024*1024)
 	fileBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Download Failed", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Download Failed", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -113,19 +114,19 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	if importErr != nil {
 		switch importErr.kind {
 		case importErrBadFormat:
-			writeError(w, http.StatusBadRequest, "Bad Request", importErr.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", importErr.Error(), r.URL.Path)
 		case importErrParse:
-			writeError(w, http.StatusUnprocessableEntity, "Parse Error", importErr.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Parse Error", importErr.Error(), r.URL.Path)
 		case importErrStorage:
-			writeError(w, http.StatusInternalServerError, "Storage Error", importErr.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", importErr.Error(), r.URL.Path)
 		default:
-			writeError(w, http.StatusInternalServerError, "Internal Error", importErr.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", importErr.Error(), r.URL.Path)
 		}
 		return
 	}
 
 	if result.Duplicate {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": "duplicate_handled",
 		})
 		return
@@ -133,14 +134,14 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 
 	if result.Multisport {
 		if result.Activity != nil {
-			writeJSON(w, http.StatusCreated, result.Activity)
+			httputil.WriteJSON(w, http.StatusCreated, result.Activity)
 		} else {
-			writeJSON(w, http.StatusCreated, map[string]string{"status": "multisport_imported"})
+			httputil.WriteJSON(w, http.StatusCreated, map[string]string{"status": "multisport_imported"})
 		}
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, model.UploadResponse{
+	httputil.WriteJSON(w, http.StatusCreated, model.UploadResponse{
 		Activity: result.Activity,
 		Warnings: result.Warnings,
 	})

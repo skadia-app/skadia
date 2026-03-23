@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // profileMap maps incoming profile names to BadRouter profile names.
@@ -86,24 +87,24 @@ type RouteSuggestionResponse struct {
 func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	var req RouteSuggestionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
 	// --- Input validation ---
 	if req.Start[0] < -180 || req.Start[0] > 180 || req.Start[1] < -90 || req.Start[1] > 90 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
 		return
 	}
 	if req.End != nil {
 		if req.End[0] < -180 || req.End[0] > 180 || req.End[1] < -90 || req.End[1] > 90 {
-			writeError(w, http.StatusBadRequest, "Bad Request", "end coordinates out of range", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "end coordinates out of range", r.URL.Path)
 			return
 		}
 	}
@@ -113,7 +114,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// --- Get UnifiedRouter ---
 	if h.GraphManager == nil {
-		writeError(w, http.StatusServiceUnavailable,
+		httputil.WriteError(w, http.StatusServiceUnavailable,
 			"Routing Unavailable",
 			"Routing graph not configured. Import OSM data and build tiles first.",
 			r.URL.Path)
@@ -121,7 +122,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	router := h.GraphManager.UnifiedRouter()
 	if router == nil {
-		writeError(w, http.StatusServiceUnavailable,
+		httputil.WriteError(w, http.StatusServiceUnavailable,
 			"Routing Unavailable",
 			"Tiled graph not loaded. Build routing tiles first via Settings → OSM.",
 			r.URL.Path)
@@ -137,7 +138,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	cfg, err := routing.BuildCostConfig(routing.ProfileConfig{Profile: mappedProfile})
 	if err != nil {
 		slog.Error("suggest routes: BuildCostConfig failed", "error", err, "profile", mappedProfile)
-		writeError(w, http.StatusInternalServerError, "Routing Error", "failed to build cost config", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "failed to build cost config", r.URL.Path)
 		return
 	}
 
@@ -191,12 +192,12 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	reachable, _, err := router.FindReachableWithCoords(r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
 	if err != nil {
 		slog.Error("suggest routes: FindReachableWithCoords failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Routing Error", "reachability query failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "reachability query failed", r.URL.Path)
 		return
 	}
 
 	if len(reachable) == 0 {
-		writeJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
+		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
 		return
 	}
 
@@ -204,7 +205,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	viaPoints := selectDiverseViaPoints(req, reachable, halfBudgetCost)
 
 	if len(viaPoints) == 0 {
-		writeJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
+		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
 		return
 	}
 
@@ -261,7 +262,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		suggestions = []RouteSuggestion{}
 	}
 
-	writeJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: suggestions})
+	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: suggestions})
 }
 
 // selectDiverseViaPoints selects up to 3 candidate via-points from the

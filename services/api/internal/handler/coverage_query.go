@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // QueryCoverage samples coverage grid values at a geographic point for one or
@@ -11,7 +13,7 @@ import (
 // Example: GET /api/v1/coverage/query?lat=47.5&lon=11.2&layers=forest,noise,traffic
 func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 	if h.CoverageCache == nil {
-		writeError(w, http.StatusServiceUnavailable,
+		httputil.WriteError(w, http.StatusServiceUnavailable,
 			"Coverage cache not initialized",
 			"coverage cache is not available on this server",
 			r.URL.Path)
@@ -23,7 +25,7 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 	layersStr := r.URL.Query().Get("layers")
 
 	if latStr == "" || lonStr == "" || layersStr == "" {
-		writeError(w, http.StatusBadRequest,
+		httputil.WriteError(w, http.StatusBadRequest,
 			"Missing parameters",
 			"lat, lon, and layers are required",
 			r.URL.Path)
@@ -32,12 +34,12 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 
 	lat, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid lat", "lat must be a valid float", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid lat", "lat must be a valid float", r.URL.Path)
 		return
 	}
 	lon, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid lon", "lon must be a valid float", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid lon", "lon must be a valid float", r.URL.Path)
 		return
 	}
 
@@ -56,5 +58,5 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 		result[layer] = int(val)
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }

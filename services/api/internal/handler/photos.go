@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 const photoFeedPageSize = 20
@@ -22,7 +23,7 @@ const photoFeedPageSize = 20
 func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -39,7 +40,7 @@ func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 	rows, total, err := h.DB.ListPhotoFeed(r.Context(), userID, sort, photoFeedPageSize+1, offset)
 	if err != nil {
 		slog.Error("list photo feed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "db error", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "db error", r.URL.Path)
 		return
 	}
 
@@ -60,7 +61,7 @@ func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 		nextPage = &np
 	}
 
-	writeJSON(w, http.StatusOK, model.PhotoFeedPage{
+	httputil.WriteJSON(w, http.StatusOK, model.PhotoFeedPage{
 		Groups:   groups,
 		NextPage: nextPage,
 		Total:    total,
@@ -71,13 +72,13 @@ func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SearchPhotos(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeJSON(w, http.StatusOK, []model.PhotoSearchResult{})
+		httputil.WriteJSON(w, http.StatusOK, []model.PhotoSearchResult{})
 		return
 	}
 	limit := 20
@@ -98,7 +99,7 @@ func (h *Handler) SearchPhotos(w http.ResponseWriter, r *http.Request) {
 	results, err := h.DB.SearchPhotos(r.Context(), userID, clipVecLiteral, q, limit)
 	if err != nil {
 		slog.Error("search photos", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "db error", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "db error", r.URL.Path)
 		return
 	}
 
@@ -106,7 +107,7 @@ func (h *Handler) SearchPhotos(w http.ResponseWriter, r *http.Request) {
 		fillFeedPhotoURLs(&results[i].Photo)
 	}
 
-	writeJSON(w, http.StatusOK, results)
+	httputil.WriteJSON(w, http.StatusOK, results)
 }
 
 // fetchPhotoTextEmbedding ruft POST /embed/text beim ML-Service auf.

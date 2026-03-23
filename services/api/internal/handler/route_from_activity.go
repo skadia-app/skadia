@@ -12,6 +12,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // RouteFromActivityWaypoints returns waypoints derived from an activity's GPS track
@@ -20,7 +21,7 @@ import (
 func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "activityId")
@@ -28,26 +29,26 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("route waypoints from activity: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if !activity.HasGPS {
-		writeError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
 		return
 	}
 
 	gpsPoints, err := h.DB.GetActivityGPSStream(r.Context(), activityID)
 	if err != nil {
 		slog.Error("route waypoints from activity: load GPS stream failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
 		return
 	}
 	if len(gpsPoints) < 2 {
-		writeError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
 		return
 	}
 
@@ -67,7 +68,7 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"waypoints": waypoints})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"waypoints": waypoints})
 }
 
 // RouteFromActivity creates a new planned route from an existing activity's GPS track.
@@ -75,7 +76,7 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "activityId")
@@ -84,15 +85,15 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("route from activity: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if !activity.HasGPS {
-		writeError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
 		return
 	}
 
@@ -100,11 +101,11 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	gpsPoints, err := h.DB.GetActivityGPSStream(r.Context(), activityID)
 	if err != nil {
 		slog.Error("route from activity: load GPS stream failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
 		return
 	}
 	if len(gpsPoints) < 2 {
-		writeError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
 		return
 	}
 
@@ -113,7 +114,7 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	gjBytes, err := geo.MarshalGeoJSON(ls)
 	if err != nil {
 		slog.Error("route from activity: marshal GeoJSON failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to build geometry", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build geometry", r.URL.Path)
 		return
 	}
 	geojsonStr := string(gjBytes)
@@ -169,12 +170,12 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 	id, err := h.DB.CreateRoute(r.Context(), &route)
 	if err != nil {
 		slog.Error("route from activity: create route failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create route", r.URL.Path)
 		return
 	}
 
 	route.ID = id
-	writeJSON(w, http.StatusCreated, route)
+	httputil.WriteJSON(w, http.StatusCreated, route)
 }
 
 // gpsStreamToLineString converts GPS stream points to an orb.LineString.

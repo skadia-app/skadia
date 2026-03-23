@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // UploadRoutePhoto handles POST /api/v1/routes/{id}/photos
@@ -23,7 +24,7 @@ import (
 func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -32,23 +33,23 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("upload route photo: get route failed", "id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
 	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 20 MB)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 20 MB)", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("photo")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no photo in request", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no photo in request", r.URL.Path)
 		return
 	}
 	defer file.Close()
@@ -56,14 +57,14 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	// Quick pre-check on client-supplied Content-Type.
 	ctFromHeader := header.Header.Get("Content-Type")
 	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
 		return
 	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read route photo data failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
 
@@ -74,7 +75,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	ct := http.DetectContentType(sniff)
 	if !strings.HasPrefix(ct, "image/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
 		return
 	}
 
@@ -119,7 +120,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	// Upload original.
 	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
 		slog.Error("s3 upload route photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
 		return
 	}
 	uploadedKeys = append(uploadedKeys, s3Key)
@@ -162,18 +163,18 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("insert route photo failed", "error", err)
 		cleanupS3()
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, saved)
+	httputil.WriteJSON(w, http.StatusCreated, saved)
 }
 
 // DeleteRoutePhoto handles DELETE /api/v1/routes/{id}/photos/{photoId}
 func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -183,11 +184,11 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete route photo: get route failed", "id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
@@ -195,7 +196,7 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	s3Key, s3KeyThumb, s3KeyPreview, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
 	if err != nil {
 		slog.Error("delete route photo failed", "error", err)
-		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 
@@ -219,7 +220,7 @@ type reorderRoutePhotosRequest struct {
 func (h *Handler) ReorderRoutePhotos(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -228,29 +229,29 @@ func (h *Handler) ReorderRoutePhotos(w http.ResponseWriter, r *http.Request) {
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("reorder route photos: get route failed", "id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
 	var req reorderRoutePhotosRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if len(req.PhotoIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "photo_ids required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "photo_ids required", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.ReorderRoutePhotos(r.Context(), routeID, req.PhotoIDs); err != nil {
 		slog.Error("reorder route photos failed", "error", err, "route_id", routeID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reorder photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to reorder photos", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

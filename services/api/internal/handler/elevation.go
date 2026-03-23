@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ResetActivityElevation restores the GPS-recorded altitude values for an activity
@@ -24,7 +25,7 @@ import (
 func (h *Handler) ResetActivityElevation(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -32,7 +33,7 @@ func (h *Handler) ResetActivityElevation(w http.ResponseWriter, r *http.Request)
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -40,7 +41,7 @@ func (h *Handler) ResetActivityElevation(w http.ResponseWriter, r *http.Request)
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_reset", &activityID, activityName, 2)
 	if err != nil {
 		slog.Error("reset-elevation: failed to insert background job", "activity_id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 
@@ -104,7 +105,7 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -112,22 +113,22 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 		Points [][2]float64 `json:"points"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if len(req.Points) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "points must not be empty", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "points must not be empty", r.URL.Path)
 		return
 	}
 	if len(req.Points) > 10000 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "too many points (max 10000)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "too many points (max 10000)", r.URL.Path)
 		return
 	}
 
 	elevations, source, err := h.DB.GetElevation(r.Context(), req.Points)
 	if err != nil {
 		slog.Error("elevation query failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "elevation query failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "elevation query failed", r.URL.Path)
 		return
 	}
 
@@ -160,7 +161,7 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -169,18 +170,18 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 		NumPoints int             `json:"num_points"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if len(req.Geometry) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "geometry is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "geometry is required", r.URL.Path)
 		return
 	}
 
 	profile, err := h.DB.GetElevationProfile(r.Context(), string(req.Geometry), req.NumPoints)
 	if err != nil {
 		slog.Error("elevation profile failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "elevation profile failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "elevation profile failed", r.URL.Path)
 		return
 	}
 
@@ -212,7 +213,7 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -232,7 +233,7 @@ func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "dem_import", nil, &jobName, 3)
 	if err != nil {
 		slog.Error("dem import: failed to insert background job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 
@@ -309,7 +310,7 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -318,7 +319,7 @@ func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Reques
 	// Ownership check.
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -326,7 +327,7 @@ func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Reques
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "elevation_correction", &activityID, activityName, 1)
 	if err != nil {
 		slog.Error("correct-elevation: failed to insert background job", "activity_id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 

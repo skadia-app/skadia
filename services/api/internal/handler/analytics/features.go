@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetChangepoints reads changepoint data from analytics_cache.
@@ -18,7 +19,7 @@ import (
 func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -28,7 +29,7 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 		metric = "hrv_rmssd"
 	}
 	if !validMetrics[metric] {
-		writeError(w, http.StatusBadRequest, "Bad Request", "metric must be one of: hrv_rmssd, resting_hr, ctl", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "metric must be one of: hrv_rmssd, resting_hr, ctl", r.URL.Path)
 		return
 	}
 
@@ -36,14 +37,14 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 	data, err := h.DB.GetAnalyticsCache(r.Context(), userID, cacheKey)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"metric":      metric,
 				"changepoints": []any{},
 				"computed":    false,
 			})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
 		return
 	}
 
@@ -55,7 +56,7 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 		changepoints = []json.RawMessage{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"metric":       metric,
 		"changepoints": changepoints,
 		"computed":     true,
@@ -67,13 +68,13 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	activityID := r.URL.Query().Get("activity_id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Missing Parameter",
+		httputil.WriteError(w, http.StatusBadRequest, "Missing Parameter",
 			"activity_id query parameter is required", r.URL.Path)
 		return
 	}
@@ -81,11 +82,11 @@ func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 	// Verify ownership
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -98,7 +99,7 @@ func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 		userID, activityID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -121,11 +122,11 @@ func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"activity_id": activityID,
 		"features":    features,
 		"full_blob":   fullBlob,
@@ -137,13 +138,13 @@ func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetActivityFeatures(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	activityID := r.URL.Query().Get("activity_id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Missing Parameter",
+		httputil.WriteError(w, http.StatusBadRequest, "Missing Parameter",
 			"activity_id query parameter is required", r.URL.Path)
 		return
 	}
@@ -151,11 +152,11 @@ func (h *Handler) GetActivityFeatures(w http.ResponseWriter, r *http.Request) {
 	// Verify ownership
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -169,18 +170,18 @@ func (h *Handler) GetActivityFeatures(w http.ResponseWriter, r *http.Request) {
 	var blob []byte
 	if err := row.Scan(&blob); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"activity_id": activityID,
 				"features":    map[string]any{},
 				"computed":    false,
 			})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Query Failed", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"activity_id": activityID,
 		"features":    json.RawMessage(blob),
 		"computed":    true,
@@ -215,7 +216,7 @@ func (h *Handler) GetMLStatus(w http.ResponseWriter, r *http.Request) {
 
 	if h.ML == nil {
 		msg := "ML client not configured"
-		writeJSON(w, http.StatusOK, response{Available: false, LatencyMs: 0, Error: &msg})
+		httputil.WriteJSON(w, http.StatusOK, response{Available: false, LatencyMs: 0, Error: &msg})
 		return
 	}
 
@@ -228,9 +229,9 @@ func (h *Handler) GetMLStatus(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		msg := err.Error()
-		writeJSON(w, http.StatusOK, response{Available: false, LatencyMs: latency, Error: &msg})
+		httputil.WriteJSON(w, http.StatusOK, response{Available: false, LatencyMs: latency, Error: &msg})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response{Available: ok, LatencyMs: latency})
+	httputil.WriteJSON(w, http.StatusOK, response{Available: ok, LatencyMs: latency})
 }

@@ -15,57 +15,58 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetGeoTags returns geo tags for an activity.
 func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
 		return
 	}
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get geo tags: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	tags, err := h.DB.GetGeoTags(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get geo tags failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get geo tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get geo tags", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tags)
 }
 
 // BackfillWeather fetches weather data for all activities missing it (background job).
 func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "weather_backfill", nil, nil, 0)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -230,14 +231,14 @@ func (h *Handler) buildWeatherRequestsForCandidate(
 func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	activities, err := h.DB.ListActivitiesForBackfill(r.Context(), userID)
 	if err != nil {
 		slog.Error("list activities for backfill failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
@@ -272,7 +273,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		processed++
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"processed": processed,
 		"errors":    0,
 	})
@@ -284,14 +285,14 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	activities, err := h.DB.ListActivitiesForBackfill(r.Context(), userID)
 	if err != nil {
 		slog.Error("list activities for backfill failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
@@ -351,7 +352,7 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 		updated++
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"total":   len(activities),
 		"updated": updated,
 	})
@@ -361,41 +362,41 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
 		return
 	}
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get activity climbs: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	climbs, err := h.DB.GetActivityClimbs(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get activity climbs failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity climbs", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity climbs", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, climbs)
+	httputil.WriteJSON(w, http.StatusOK, climbs)
 }
 
 // GetActivityStops returns detected stops for an activity.
 func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -403,30 +404,30 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get activity stops: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	stops, err := h.DB.GetActivityStops(r.Context(), activityID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get stops", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get stops", r.URL.Path)
 		return
 	}
 	if stops == nil {
 		stops = []model.ActivityStop{}
 	}
-	writeJSON(w, http.StatusOK, stops)
+	httputil.WriteJSON(w, http.StatusOK, stops)
 }
 
 // GetActivitySurfaces returns detected surfaces for an activity.
 func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -434,53 +435,53 @@ func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get activity surfaces: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	surfaces, err := h.DB.GetActivitySurfaces(r.Context(), activityID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get surfaces", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get surfaces", r.URL.Path)
 		return
 	}
 	if surfaces == nil {
 		surfaces = []model.ActivitySurface{}
 	}
-	writeJSON(w, http.StatusOK, surfaces)
+	httputil.WriteJSON(w, http.StatusOK, surfaces)
 }
 
 // GetEnrichmentStatus returns per-module enrichment status for an activity.
 func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
 		return
 	}
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get enrichment status: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	modules, err := h.DB.GetEnrichmentModuleStatus(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get enrichment status failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get enrichment status", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get enrichment status", r.URL.Path)
 		return
 	}
 
@@ -493,7 +494,7 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"enrichment_status": activity.EnrichmentStatus,
 		"modules":           modules,
 	})
@@ -503,25 +504,25 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
 	if err != nil {
 		slog.Error("get enrichment settings failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get settings", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, settings)
+	httputil.WriteJSON(w, http.StatusOK, settings)
 }
 
 // UpdateEnrichmentSettings updates the user's enrichment settings.
 func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -529,7 +530,7 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	// explicit false from a missing field (Go bool zero-value problem).
 	var rawPatch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&rawPatch); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
@@ -537,7 +538,7 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	existing, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
 	if err != nil {
 		slog.Error("update enrichment settings: load existing failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
 		return
 	}
 
@@ -546,12 +547,12 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	// This prevents a partial send from zeroing out unmentioned bool fields.
 	existingJSON, err := json.Marshal(existing)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "marshal failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "marshal failed", r.URL.Path)
 		return
 	}
 	var merged map[string]json.RawMessage
 	if err := json.Unmarshal(existingJSON, &merged); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "unmarshal failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "unmarshal failed", r.URL.Path)
 		return
 	}
 	for k, v := range rawPatch {
@@ -559,13 +560,13 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	}
 	mergedJSON, err := json.Marshal(merged)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "merge failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "merge failed", r.URL.Path)
 		return
 	}
 
 	var settings model.EnrichmentSettings
 	if err := json.Unmarshal(mergedJSON, &settings); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid merged JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid merged JSON", r.URL.Path)
 		return
 	}
 	settings.UserID = userID
@@ -583,9 +584,9 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 
 	if err := h.DB.UpdateEnrichmentSettings(r.Context(), userID, &settings); err != nil {
 		slog.Error("update enrichment settings failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, settings)
+	httputil.WriteJSON(w, http.StatusOK, settings)
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -18,11 +19,11 @@ func (h *Handler) ListHardware(w http.ResponseWriter, r *http.Request) {
 	devices, err := h.DB.ListHWDevices(r.Context(), userID, deviceType)
 	if err != nil {
 		slog.Error("list hardware devices failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list hardware devices", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list hardware devices", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, devices)
+	httputil.WriteJSON(w, http.StatusOK, devices)
 }
 
 // GetHardware handles GET /api/v1/hardware/{id}
@@ -33,15 +34,15 @@ func (h *Handler) GetHardware(w http.ResponseWriter, r *http.Request) {
 	device, err := h.DB.GetHWDevice(r.Context(), id)
 	if err != nil {
 		slog.Error("get hardware device failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
 		return
 	}
 	if device == nil || device.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, device)
+	httputil.WriteJSON(w, http.StatusOK, device)
 }
 
 // PatchHardware handles PATCH /api/v1/hardware/{id}
@@ -53,17 +54,17 @@ func (h *Handler) PatchHardware(w http.ResponseWriter, r *http.Request) {
 	device, err := h.DB.GetHWDevice(r.Context(), id)
 	if err != nil {
 		slog.Error("get hardware device failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
 		return
 	}
 	if device == nil || device.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
 		return
 	}
 
 	var req model.DeviceUpdate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
@@ -75,15 +76,15 @@ func (h *Handler) PatchHardware(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.DB.UpdateHWDeviceCustomName(r.Context(), id, customName)
 	if err != nil {
 		slog.Error("update hardware device custom name failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update hardware device", r.URL.Path)
 		return
 	}
 	if updated == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // DeleteHardware handles DELETE /api/v1/hardware/{id}
@@ -95,11 +96,11 @@ func (h *Handler) DeleteHardware(w http.ResponseWriter, r *http.Request) {
 	device, err := h.DB.GetHWDevice(r.Context(), id)
 	if err != nil {
 		slog.Error("get hardware device failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
 		return
 	}
 	if device == nil || device.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
 		return
 	}
 
@@ -107,7 +108,7 @@ func (h *Handler) DeleteHardware(w http.ResponseWriter, r *http.Request) {
 	_, err = h.DB.Pool.Exec(r.Context(), `DELETE FROM devices WHERE id = $1`, id)
 	if err != nil {
 		slog.Error("delete hardware device failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete hardware device", r.URL.Path)
 		return
 	}
 
@@ -120,21 +121,21 @@ func (h *Handler) MergeHardware(w http.ResponseWriter, r *http.Request) {
 
 	var req model.DeviceMerge
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 	if req.SourceID == "" || req.TargetID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_id and target_id are required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_id and target_id are required", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.MergeHWDevices(r.Context(), userID, req.SourceID, req.TargetID); err != nil {
 		slog.Error("merge hardware devices failed", "error", err, "source", req.SourceID, "target", req.TargetID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge hardware devices", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to merge hardware devices", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "merged"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "merged"})
 }
 
 // ListHardwareActivities handles GET /api/v1/hardware/{id}/activities?after=cursor
@@ -147,20 +148,20 @@ func (h *Handler) ListHardwareActivities(w http.ResponseWriter, r *http.Request)
 	device, err := h.DB.GetHWDevice(r.Context(), id)
 	if err != nil {
 		slog.Error("get hardware device failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get hardware device", r.URL.Path)
 		return
 	}
 	if device == nil || device.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "hardware device not found", r.URL.Path)
 		return
 	}
 
 	activities, err := h.DB.ListDeviceActivities(r.Context(), id, 50, after)
 	if err != nil {
 		slog.Error("list device activities failed", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list device activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list device activities", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, activities)
+	httputil.WriteJSON(w, http.StatusOK, activities)
 }

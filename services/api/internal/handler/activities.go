@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
@@ -31,19 +32,19 @@ import (
 func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 	stats, err := h.DB.GetSportTypeStats(r.Context(), userID)
 	if err != nil {
 		slog.Error("get sport type stats failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get sport type stats", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get sport type stats", r.URL.Path)
 		return
 	}
 	if stats == nil {
 		stats = []database.SportTypeStatRow{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sport_types": stats})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"sport_types": stats})
 }
 
 func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
@@ -112,17 +113,17 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir, filters)
 	if err != nil {
 		slog.Error("list activities failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, list)
+	httputil.WriteJSON(w, http.StatusOK, list)
 }
 
 func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -130,15 +131,15 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivityWithWeather(r.Context(), id)
 	if err != nil {
 		slog.Error("get activity failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, activity)
+	httputil.WriteJSON(w, http.StatusOK, activity)
 }
 
 // GetChildActivities returns all child activities for a multisport parent.
@@ -146,7 +147,7 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -155,30 +156,30 @@ func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
 	parent, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("get child activities: get parent failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load parent activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load parent activity", r.URL.Path)
 		return
 	}
 	if parent == nil || parent.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	children, err := h.DB.GetChildActivities(r.Context(), id)
 	if err != nil {
 		slog.Error("get child activities failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
 		return
 	}
 	if children == nil {
 		children = []model.Activity{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"children": children})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"children": children})
 }
 
 func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -187,38 +188,38 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("update activity: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if existing == nil || existing.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	var update model.ActivityUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	activity, err := h.DB.UpdateActivity(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update activity failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
 		return
 	}
 	if activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, activity)
+	httputil.WriteJSON(w, http.StatusOK, activity)
 }
 
 func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -227,11 +228,11 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("delete activity: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -256,7 +257,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 				if err := rows.Scan(&cid); err != nil {
 					slog.Error("delete activity: scan child id failed", "error", err)
 					rows.Close()
-					writeError(w, http.StatusInternalServerError, "Internal Error", "failed to scan child activity", r.URL.Path)
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to scan child activity", r.URL.Path)
 					return
 				}
 				childIDs = append(childIDs, cid)
@@ -264,7 +265,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 			if err := rows.Err(); err != nil {
 				slog.Error("delete activity: rows iteration error", "error", err)
 				rows.Close()
-				writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list child activities", r.URL.Path)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list child activities", r.URL.Path)
 				return
 			}
 			rows.Close()
@@ -278,11 +279,11 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
 		if err.Error() == "activity not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete activity failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activity", r.URL.Path)
 		return
 	}
 
@@ -296,7 +297,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -304,29 +305,29 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 		IDs []string `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.IDs) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "ids array required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "ids array required", r.URL.Path)
 		return
 	}
 	if len(body.IDs) > 500 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "max 500 ids per request", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 500 ids per request", r.URL.Path)
 		return
 	}
 
 	deleted, err := h.DB.DeleteActivities(r.Context(), userID, body.IDs)
 	if err != nil {
 		slog.Error("bulk delete activities failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activities", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
 // ExportActivity exports an activity in the requested format.
 func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -338,18 +339,18 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("export activity: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	switch format {
 	case "zip":
 		if activity.SportType != "multisport" {
-			writeError(w, http.StatusBadRequest, "Bad Request", "zip export only available for multisport activities", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "zip export only available for multisport activities", r.URL.Path)
 			return
 		}
 		exportMultisportZip(h, w, r, activity)
@@ -359,14 +360,14 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 	case "gpx":
 		streams, err := h.DB.GetActivityStreams(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 			return
 		}
 		exportGPX(w, activity, streams)
 	case "tcx":
 		streams, err := h.DB.GetActivityStreams(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 			return
 		}
 		exportTCX(w, activity, streams)
@@ -380,12 +381,12 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 		}
 		streams, err := h.DB.GetActivityStreams(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 			return
 		}
 		exportFIT(w, activity, streams)
 	default:
-		writeError(w, http.StatusBadRequest, "Bad Request", "unsupported format: "+format, r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported format: "+format, r.URL.Path)
 	}
 }
 
@@ -404,13 +405,13 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 	filename := fmt.Sprintf("activity-%s.%s", activity.StartedAt.Format("2006-01-02"), ext)
 
 	if activity.FileHash == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "original file not available", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original file not available", r.URL.Path)
 		return
 	}
 
 	// Check if this is a fallback hash (file reading failed during import)
 	if strings.HasSuffix(*activity.FileHash, "-missing") {
-		writeError(w, http.StatusNotFound, "Not Found", "original file could not be read during import", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original file could not be read during import", r.URL.Path)
 		return
 	}
 
@@ -420,7 +421,7 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 	data, _, err := h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
 	if err != nil {
 		slog.Warn("export original download failed", "activity_id", activity.ID, "key", s3Key, "error", err)
-		writeError(w, http.StatusNotFound, "Not Found", "original file not available", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original file not available", r.URL.Path)
 		return
 	}
 
@@ -801,7 +802,7 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, parent *model.Activity) {
 	children, err := h.DB.GetChildActivities(r.Context(), parent.ID)
 	if err != nil || len(children) == 0 {
-		writeError(w, http.StatusNotFound, "Not Found", "no child activities found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no child activities found", r.URL.Path)
 		return
 	}
 
@@ -831,18 +832,18 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 		fw, err := zw.Create(entryName)
 		if err != nil {
 			slog.Error("multisport zip: create entry failed", "name", entryName, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create zip entry", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create zip entry", r.URL.Path)
 			return
 		}
 		if _, err := fw.Write(data); err != nil {
 			slog.Error("multisport zip: write entry failed", "name", entryName, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to write zip entry", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to write zip entry", r.URL.Path)
 			return
 		}
 	}
 
 	if err := zw.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to finalize zip", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to finalize zip", r.URL.Path)
 		return
 	}
 
@@ -906,7 +907,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -914,11 +915,11 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("get zone distribution: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -961,7 +962,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	if resp.PowerZones == nil {
 		resp.PowerZones = []model.TimeInZone{}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // computeHRZones calculates 5-zone HR distribution from stream data.
@@ -1007,13 +1008,13 @@ func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := h.DB.GetActivity(ctx, activityID)
 	if err != nil || activity == nil || activity.UserID != userID || activity.SportType != "multisport" {
-		writeError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
 		return
 	}
 
 	children, err := h.DB.GetChildActivities(ctx, activityID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -1051,7 +1052,7 @@ func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
 	if features == nil {
 		features = []Feature{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"type":     "FeatureCollection",
 		"features": features,
 	})
@@ -1069,22 +1070,22 @@ func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
 		Title       string   `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 	if len(req.ActivityIDs) < 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 activities required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least 2 activities required", r.URL.Path)
 		return
 	}
 	if len(req.ActivityIDs) > 20 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "max 20 activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 20 activities", r.URL.Path)
 		return
 	}
 
 	// Load all activities and verify ownership.
 	activities, err := h.DB.GetActivitiesByIDs(ctx, userID, req.ActivityIDs)
 	if err != nil || len(activities) != len(req.ActivityIDs) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "one or more activities not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "one or more activities not found", r.URL.Path)
 		return
 	}
 
@@ -1109,12 +1110,12 @@ func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
 		StartedAt: earliest,
 	}
 	if err := h.DB.InsertMultisportParent(ctx, parent); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
 		return
 	}
 
 	if err := h.DB.SetActivitiesParent(ctx, userID, req.ActivityIDs, parent.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -1122,7 +1123,7 @@ func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("GroupActivities: aggregate metrics failed", "parent_id", parent.ID, "error", err)
 	}
 
-	writeJSON(w, http.StatusCreated, parent)
+	httputil.WriteJSON(w, http.StatusCreated, parent)
 }
 
 // UngroupActivities dissolves a multisport group: clears parent_id on all children, then deletes the parent.
@@ -1134,7 +1135,7 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 
 	parent, err := h.DB.GetActivity(ctx, parentID)
 	if err != nil || parent == nil || parent.UserID != userID || parent.SportType != "multisport" {
-		writeError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "multisport activity not found", r.URL.Path)
 		return
 	}
 
@@ -1142,7 +1143,7 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
 		parentID, userID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -1150,7 +1151,7 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.DB.Pool.Exec(ctx,
 		`DELETE FROM activities WHERE id = $1 AND user_id = $2 AND sport_type = 'multisport'`,
 		parentID, userID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
 		return
 	}
 

@@ -22,16 +22,17 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetLLMConfig returns the full LLM system configuration.
 func (h *Handler) GetLLMConfig(w http.ResponseWriter, r *http.Request) {
 	configs, err := h.DB.GetLLMSystemConfig(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get LLM config", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get LLM config", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, configs)
+	httputil.WriteJSON(w, http.StatusOK, configs)
 }
 
 // PutLLMConfigRole saves the configuration for a model role.
@@ -39,13 +40,13 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 	role := chi.URLParam(r, "role")
 	validRoles := map[string]bool{"default": true}
 	if !validRoles[role] {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
 		return
 	}
 
 	var update model.LLMSystemConfigUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
@@ -54,14 +55,14 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 		enc, err := encryptAPIKey(*update.APIKey, h.Config.LLMEncryptionKey)
 		if err != nil {
 			slog.Error("failed to encrypt API key", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt API key", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt API key", r.URL.Path)
 			return
 		}
 		encKey = &enc
 	}
 
 	if err := h.DB.UpsertLLMSystemConfig(r.Context(), role, update, encKey); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save LLM config", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save LLM config", r.URL.Path)
 		return
 	}
 
@@ -71,7 +72,7 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 		// Don't return error - config was saved to DB
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 // GetLLMModels returns available models for a backend (only Ollama supports auto-discovery).
@@ -83,13 +84,13 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if backend != "ollama" {
-		writeJSON(w, http.StatusOK, []model.OllamaModel{})
+		httputil.WriteJSON(w, http.StatusOK, []model.OllamaModel{})
 		return
 	}
 
 	// SSRF protection: validate api_base host before making outbound requests.
 	if parsed, err := url.Parse(apiBase); err != nil || isInternalHost(parsed.Hostname()) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid or internal api_base URL", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid or internal api_base URL", r.URL.Path)
 		return
 	}
 
@@ -97,7 +98,7 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(apiBase + "/api/tags")
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Bad Gateway", "failed to reach Ollama: "+err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", "failed to reach Ollama: "+err.Error(), r.URL.Path)
 		return
 	}
 	defer resp.Body.Close()
@@ -110,7 +111,7 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
-		writeError(w, http.StatusBadGateway, "Bad Gateway", "failed to parse Ollama response", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", "failed to parse Ollama response", r.URL.Path)
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 			Size:       m.Size,
 		})
 	}
-	writeJSON(w, http.StatusOK, models)
+	httputil.WriteJSON(w, http.StatusOK, models)
 }
 
 // TestLLMConnection tests connectivity to an LLM backend.
@@ -134,7 +135,7 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 		APIKey      *string `json:"api_key,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
@@ -156,13 +157,13 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	// host.containers.internal is explicitly allowed as it is the canonical way
 	// to reach llama-server running on the host from inside a container.
 	if parsed, err := url.Parse(testAPIBase); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid api_base URL", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid api_base URL", r.URL.Path)
 		return
 	} else if h := parsed.Hostname(); h != "host.containers.internal" && isInternalHost(h) {
 		result.Success = false
 		result.Message = "api_base verweist auf eine interne Adresse (SSRF-Schutz)"
 		result.LatencyMs = time.Since(start).Milliseconds()
-		writeJSON(w, http.StatusOK, result)
+		httputil.WriteJSON(w, http.StatusOK, result)
 		return
 	}
 
@@ -201,7 +202,7 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.LatencyMs = time.Since(start).Milliseconds()
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // PatchLLMUserConfig saves the model override for a user.
@@ -212,14 +213,14 @@ func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 		ModelName *string `json:"model_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 	if err := h.DB.UpsertLLMUserConfig(r.Context(), userID, req.Role, req.ModelName); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save user LLM config", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save user LLM config", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 // GetLLMUserConfig returns user overrides.
@@ -227,10 +228,10 @@ func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	configs, err := h.DB.GetLLMUserConfig(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get user LLM config", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get user LLM config", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, configs)
+	httputil.WriteJSON(w, http.StatusOK, configs)
 }
 
 // --- Helper functions ---

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // SetRouteTags replaces all tags on a route with the provided set (PUT semantics).
@@ -17,7 +18,7 @@ import (
 func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -25,11 +26,11 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 	// Ownership check — GetRoute enforces WHERE user_id = $2.
 	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("set route tags: get route failed", "route_id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
@@ -37,7 +38,7 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 		TagIDs []string `json:"tag_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.TagIDs == nil {
@@ -46,18 +47,18 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.SetRouteTags(r.Context(), routeID, userID, req.TagIDs); err != nil {
 		slog.Error("set route tags failed", "route_id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to set route tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to set route tags", r.URL.Path)
 		return
 	}
 
 	tags, err := h.DB.GetRouteTags(r.Context(), routeID)
 	if err != nil {
 		slog.Error("set route tags: get tags failed", "route_id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read updated tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read updated tags", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tags)
 }
 
 // AddRouteTag adds a single tag to a route.
@@ -65,7 +66,7 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -74,17 +75,17 @@ func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
 	// Ownership check on the route.
 	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("add route tag: get route failed", "route_id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.AssignRouteTag(r.Context(), routeID, tagID, userID); err != nil {
 		slog.Error("add route tag failed", "route_id", routeID, "tag_id", tagID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to add tag to route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add tag to route", r.URL.Path)
 		return
 	}
 
@@ -96,7 +97,7 @@ func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RemoveRouteTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -105,17 +106,17 @@ func (h *Handler) RemoveRouteTag(w http.ResponseWriter, r *http.Request) {
 	// Ownership check on the route.
 	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("remove route tag: get route failed", "route_id", routeID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.RemoveRouteTag(r.Context(), routeID, tagID); err != nil {
 		slog.Error("remove route tag failed", "route_id", routeID, "tag_id", tagID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to remove tag from route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to remove tag from route", r.URL.Path)
 		return
 	}
 

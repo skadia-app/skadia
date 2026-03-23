@@ -15,6 +15,8 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 const (
@@ -41,13 +43,13 @@ type AuthConfig struct {
 // GET /api/v1/auth/login
 func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 	if h.Auth == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
 		return
 	}
 
 	state, err := generateState()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to generate state", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to generate state", r.URL.Path)
 		return
 	}
 
@@ -81,18 +83,18 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/auth/callback?code=...&state=...
 func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	if h.Auth == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
 		return
 	}
 
 	// Validate state
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil || stateCookie.Value == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing state cookie", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing state cookie", r.URL.Path)
 		return
 	}
 	if r.URL.Query().Get("state") != stateCookie.Value {
-		writeError(w, http.StatusBadRequest, "Bad Request", "state mismatch", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "state mismatch", r.URL.Path)
 		return
 	}
 
@@ -111,7 +113,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 		if errMsg == "" {
 			errMsg = r.URL.Query().Get("error")
 		}
-		writeError(w, http.StatusBadRequest, "Bad Request", "no authorization code: "+errMsg, r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no authorization code: "+errMsg, r.URL.Path)
 		return
 	}
 
@@ -119,7 +121,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	tokens, err := h.exchangeCode(r.Context(), code)
 	if err != nil {
 		slog.Error("OIDC code exchange failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "code exchange failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "code exchange failed", r.URL.Path)
 		return
 	}
 
@@ -127,7 +129,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	userInfo, err := h.fetchUserInfo(r.Context(), tokens.AccessToken)
 	if err != nil {
 		slog.Error("userinfo fetch failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "userinfo unavailable", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "userinfo unavailable", r.URL.Path)
 		return
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.GetOrCreateUserByOIDCSubject(r.Context(), userInfo.Sub, userInfo.PreferredUsername, userInfo.Email)
 	if err != nil {
 		slog.Error("user lookup/create failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "user setup failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "user setup failed", r.URL.Path)
 		return
 	}
 
@@ -143,7 +145,7 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 	ourToken, err := h.issueJWT(user.ID)
 	if err != nil {
 		slog.Error("JWT issue failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "token generation failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "token generation failed", r.URL.Path)
 		return
 	}
 
@@ -171,13 +173,13 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/auth/refresh
 func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 	if h.Auth == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "auth not configured", r.URL.Path)
 		return
 	}
 
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || cookie.Value == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no refresh token", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no refresh token", r.URL.Path)
 		return
 	}
 
@@ -188,25 +190,25 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name: refreshCookieName, Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true,
 		})
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "refresh failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "refresh failed", r.URL.Path)
 		return
 	}
 
 	userInfo, err := h.fetchUserInfo(r.Context(), tokens.AccessToken)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "userinfo unavailable", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "userinfo unavailable", r.URL.Path)
 		return
 	}
 
 	user, err := h.DB.GetOrCreateUserByOIDCSubject(r.Context(), userInfo.Sub, userInfo.PreferredUsername, userInfo.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "user lookup failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "user lookup failed", r.URL.Path)
 		return
 	}
 
 	ourToken, err := h.issueJWT(user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "token generation failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "token generation failed", r.URL.Path)
 		return
 	}
 
@@ -224,7 +226,7 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"token": ourToken})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"token": ourToken})
 }
 
 // AuthLogout clears the refresh cookie and optionally revokes the token at OIDC.
@@ -248,7 +250,7 @@ func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

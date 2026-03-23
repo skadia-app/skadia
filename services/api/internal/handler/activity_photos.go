@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 const maxPhotoSize = 200 << 20 // 200 MB (Videos können größer sein)
@@ -26,7 +27,7 @@ const maxPhotoSize = 200 << 20 // 200 MB (Videos können größer sein)
 func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -35,23 +36,23 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("upload photo: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
 	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 200 MB)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 200 MB)", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("photo")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no photo in request", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no photo in request", r.URL.Path)
 		return
 	}
 	defer file.Close()
@@ -59,7 +60,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	// Quick pre-check on client-supplied Content-Type (before reading body).
 	ctFromHeader := header.Header.Get("Content-Type")
 	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") && !strings.HasPrefix(ctFromHeader, "video/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
 		return
 	}
 
@@ -67,7 +68,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read photo data failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
 
@@ -86,7 +87,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !strings.HasPrefix(ct, "image/") && !strings.HasPrefix(ct, "video/") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
 		return
 	}
 
@@ -100,33 +101,33 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, activityID, data, photoMeta)
 	if err != nil {
 		slog.Error("upload photo: ProcessPhoto failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process photo", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to process photo", r.URL.Path)
 		return
 	}
 
 	switch result.Status {
 	case "duplicate_exact", "duplicate_phash":
-		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 	case "replaced":
 		// Higher-resolution variant replaced an existing photo.
-		writeJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
 	default:
 		// "created" — return the full photo record.
 		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
 		if err != nil {
 			slog.Error("upload photo: fetch saved photo failed", "photo_id", result.PhotoID, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load saved photo", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load saved photo", r.URL.Path)
 			return
 		}
 		setPhotoURLs(&saved)
-		writeJSON(w, http.StatusCreated, saved)
+		httputil.WriteJSON(w, http.StatusCreated, saved)
 	}
 }
 
 func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -135,24 +136,24 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("list activity photos: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	photos, err := h.DB.ListActivityPhotos(r.Context(), activityID, userID)
 	if err != nil {
 		slog.Error("list activity photos failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
 	for i := range photos {
 		setPhotoURLs(&photos[i])
 	}
-	writeJSON(w, http.StatusOK, photos)
+	httputil.WriteJSON(w, http.StatusOK, photos)
 }
 
 func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +162,7 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	bucket, key, keyThumb, keyPreview, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
 		slog.Error("delete activity photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete photo", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete photo", r.URL.Path)
 		return
 	}
 	_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
@@ -179,13 +180,13 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 	data, _, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
 	if err != nil {
 		slog.Error("s3 download thumb failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load thumbnail", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load thumbnail", r.URL.Path)
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
@@ -198,13 +199,13 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
 	if err != nil {
 		slog.Error("s3 download photo failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load photo", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load photo", r.URL.Path)
 		return
 	}
 	w.Header().Set("Content-Type", ct)
@@ -226,14 +227,14 @@ type patchPhotoLocationRequest struct {
 func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	photoID := chi.URLParam(r, "photoID")
 
 	var req patchPhotoLocationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
@@ -248,7 +249,7 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 	)
 	if err != nil {
 		slog.Error("patch photo location: update failed", "photo_id", photoID, "error", err)
-		writeError(w, http.StatusNotFound, "Not Found", "photo not found or not owned by user", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found or not owned by user", r.URL.Path)
 		return
 	}
 
@@ -258,7 +259,7 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 	}
 
 	setPhotoURLs(&photo)
-	writeJSON(w, http.StatusOK, photo)
+	httputil.WriteJSON(w, http.StatusOK, photo)
 }
 
 // writePhotoMetaSidecar writes a .meta.json sidecar to S3 (skadia-media bucket).
@@ -303,7 +304,7 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 	// Use preview key if available, otherwise fall back to original.
@@ -318,7 +319,7 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 	}
 	if err != nil {
 		slog.Error("s3 download preview failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load preview", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load preview", r.URL.Path)
 		return
 	}
 	w.Header().Set("Content-Type", ct)
@@ -331,27 +332,27 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
 		return
 	}
 	maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize)
 
 	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
 	if err != nil {
 		slog.Error("recompute previews: failed to create background job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
 		return
 	}
 
@@ -452,7 +453,7 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // RecomputePhotoThumbnails regenerates s3_key_thumb for photos where the thumb path
@@ -462,13 +463,13 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
 
@@ -494,14 +495,14 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 	}
 
 	if len(badPhotos) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
 		return
 	}
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_thumb_recompute", nil, nil, int64(len(badPhotos)))
 	if err != nil {
 		slog.Error("recompute thumbnails: failed to create background job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
 		return
 	}
 
@@ -603,7 +604,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
 }
 
 // videoContentTypeFromExt returns the MIME type for common video extensions.
@@ -630,21 +631,21 @@ func videoContentTypeFromExt(ext string) string {
 func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	photos, err := h.DB.GetPhotosWithoutEmbedding(r.Context(), userID)
 	if err != nil {
 		slog.Error("recompute embeddings: failed to query photos without embedding", "err", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_embed_backfill", nil, nil, int64(len(photos)))
 	if err != nil {
 		slog.Error("recompute embeddings: failed to create background job", "err", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
 		return
 	}
 
@@ -680,7 +681,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_id": jobID,
 		"queued": len(photos),
 	})
@@ -691,13 +692,13 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.DB.ListMapPhotos(r.Context(), userID)
 	if err != nil {
 		slog.Error("list map photos failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list map photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list map photos", r.URL.Path)
 		return
 	}
 	for i := range entries {
 		entries[i].ThumbURL = "/photos/" + entries[i].ID + "/thumb"
 	}
-	writeJSON(w, http.StatusOK, entries)
+	httputil.WriteJSON(w, http.StatusOK, entries)
 }
 
 // setPhotoURLs sets the computed URL fields on an ActivityPhoto.

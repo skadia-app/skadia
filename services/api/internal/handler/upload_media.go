@@ -15,6 +15,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 const maxMediaUploadSize = 50 << 20 // 50 MB total
@@ -37,19 +38,19 @@ type mediaUploadResult struct {
 func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadSize)
 	if err := r.ParseMultipartForm(maxMediaUploadSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "request too large or invalid multipart form", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "request too large or invalid multipart form", r.URL.Path)
 		return
 	}
 
 	files := r.MultipartForm.File["files"]
 	if len(files) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no files in request (field name: files)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no files in request (field name: files)", r.URL.Path)
 		return
 	}
 
@@ -102,7 +103,7 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 		results = append(results, res)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
 // processMediaImage handles a single image file in the media upload flow.

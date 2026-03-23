@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func derefStr(s *string) string {
@@ -59,7 +60,7 @@ func activityTitle(a *model.Activity) string {
 func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -85,7 +86,7 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 	activityIDs, err := h.DB.GetFusionQueueActivities(r.Context(), userID, 50)
 	if err != nil {
 		slog.Error("fusion queue: load activities failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -148,5 +149,5 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []FusionQueueEntry{}
 	}
-	writeJSON(w, http.StatusOK, entries)
+	httputil.WriteJSON(w, http.StatusOK, entries)
 }

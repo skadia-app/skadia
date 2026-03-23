@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // validBRouterProfiles is the allowlist of BRouter routing profiles.
@@ -49,18 +50,18 @@ type RouteRequest struct {
 func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	var req RouteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
 	if len(req.Waypoints) < 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 waypoints required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least 2 waypoints required", r.URL.Path)
 		return
 	}
 	if !validBRouterProfiles[req.Profile] {

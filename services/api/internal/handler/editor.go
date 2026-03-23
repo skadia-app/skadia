@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/editor"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // editorBucket returns the S3 bucket used for edit sidecars.
@@ -35,7 +36,7 @@ func editorKey(userID, activityID string) string {
 func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -44,11 +45,11 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -63,18 +64,18 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt:  time.Now(),
 			Edits:      []editor.Edit{},
 		}
-		writeJSON(w, http.StatusOK, empty)
+		httputil.WriteJSON(w, http.StatusOK, empty)
 		return
 	}
 
 	var sidecar editor.EditSidecar
 	if err := json.Unmarshal(data, &sidecar); err != nil {
 		slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, &sidecar)
+	httputil.WriteJSON(w, http.StatusOK, &sidecar)
 }
 
 // PutActivityEdits saves the edit sidecar for an activity to S3.
@@ -83,7 +84,7 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -92,17 +93,17 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	var sidecar editor.EditSidecar
 	if err := json.NewDecoder(r.Body).Decode(&sidecar); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
@@ -119,14 +120,14 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 	raw, err := json.Marshal(&sidecar)
 	if err != nil {
 		slog.Error("editor: marshal sidecar failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to encode sidecar", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to encode sidecar", r.URL.Path)
 		return
 	}
 
 	key := editorKey(userID, activityID)
 	if err := h.Storage.UploadToBucket(r.Context(), editorBucket(), key, raw, "application/json"); err != nil {
 		slog.Error("editor: upload sidecar failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
 		return
 	}
 
@@ -139,7 +140,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("editor: failed to set has_edits flag", "id", activityID, "error", err)
 	}
 
-	writeJSON(w, http.StatusOK, &sidecar)
+	httputil.WriteJSON(w, http.StatusOK, &sidecar)
 }
 
 // DeleteActivityEdits removes the edit sidecar and clears the has_edits flag.
@@ -148,7 +149,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -157,11 +158,11 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -189,7 +190,7 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -198,11 +199,11 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -222,7 +223,7 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 	streams, err := h.DB.GetStreams(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get streams failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 		return
 	}
 
@@ -246,7 +247,7 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 		timestamps = append(timestamps, t.Format(time.RFC3339))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"count":      len(timestamps),
 		"timestamps": timestamps,
 		"threshold":  req.Threshold,
@@ -259,7 +260,7 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -268,11 +269,11 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -280,7 +281,7 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 	streams, err := h.DB.GetStreams(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get streams failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 		return
 	}
 
@@ -305,7 +306,7 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 		timestamps = append(timestamps, t.Format(time.RFC3339))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"count":          len(timestamps),
 		"timestamps":     timestamps,
 		"max_speed_ms":   maxSpeed,
@@ -320,7 +321,7 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -329,11 +330,11 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("editor: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -345,7 +346,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	if sidecarErr == nil {
 		if err := json.Unmarshal(data, &sidecar); err != nil {
 			slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
 			return
 		}
 		hasSidecar = len(sidecar.Edits) > 0
@@ -354,7 +355,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	// 2. Trigger a full recompute from original file (re-parse, re-insert streams)
 	if err := h.reprocessActivity(r.Context(), activityID, userID, nil, 0, false, nil); err != nil {
 		slog.Error("editor: apply recompute failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Recompute Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Recompute Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -362,7 +363,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	if hasSidecar {
 		if err := h.applySidecarEdits(r.Context(), activityID, userID, &sidecar); err != nil {
 			slog.Error("editor: apply sidecar edits failed", "id", activityID, "error", err)
-			writeError(w, http.StatusInternalServerError, "Apply Error", err.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Apply Error", err.Error(), r.URL.Path)
 			return
 		}
 	}
@@ -379,11 +380,11 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || updated == nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // applySidecarEdits reads the activity streams, applies edits from the sidecar,

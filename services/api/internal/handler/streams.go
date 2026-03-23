@@ -10,6 +10,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -19,18 +20,18 @@ func (h *Handler) GetStreams(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	streams, err := h.DB.GetStreams(r.Context(), activityID)
 	if err != nil {
 		slog.Error("get streams failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get streams", r.URL.Path)
 		return
 	}
 
@@ -40,7 +41,7 @@ func (h *Handler) GetStreams(w http.ResponseWriter, r *http.Request) {
 		streams = applyFusionSources(r.Context(), h.DB, streams, fusionSources, activityID)
 	}
 
-	writeJSON(w, http.StatusOK, streams)
+	httputil.WriteJSON(w, http.StatusOK, streams)
 }
 
 // applyFusionSources overlays stream fields from referenced source activities onto

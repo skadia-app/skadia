@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -20,7 +21,7 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	key = strings.TrimPrefix(key, "/")
 
 	if bucket == "" || key == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing bucket or key", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing bucket or key", r.URL.Path)
 		return
 	}
 
@@ -29,7 +30,7 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	// S3 key patterns: "{userID}/...", "tag-covers/{userID}/...", "gear/{userID}/...",
 	// "marker-images/{userID}/...", "activity-photos/{userID}/..."
 	if bucket != "skadia-media" {
-		writeError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
 		return
 	}
 	allowedPrefixes := []string{
@@ -47,14 +48,14 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !hasAccess {
-		writeError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
 		return
 	}
 
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, key)
 	if err != nil {
 		slog.Error("media proxy: s3 download failed", "bucket", bucket, "key", key, "error", err)
-		writeError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
 		return
 	}
 

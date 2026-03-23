@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetMLSystemSettings returns ML system-wide settings (nightly jobs config).
@@ -18,7 +19,7 @@ func (h *Handler) GetMLSystemSettings(w http.ResponseWriter, r *http.Request) {
 		"SELECT setting_key, value_json FROM ml_system_settings ORDER BY setting_key")
 	if err != nil {
 		slog.Error("get ml system settings failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get ML settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get ML settings", r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -35,7 +36,7 @@ func (h *Handler) GetMLSystemSettings(w http.ResponseWriter, r *http.Request) {
 		result[key] = val
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // validMLSystemSettingKeys is the allowlist of accepted system-level ML setting keys.
@@ -51,23 +52,23 @@ var validMLSystemSettingKeys = map[string]bool{
 func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 	if key == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
 		return
 	}
 	if !validMLSystemSettingKeys[key] {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
 		return
 	}
 
 	var body any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
 	valueJSON, err := json.Marshal(body)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to marshal value", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to marshal value", r.URL.Path)
 		return
 	}
 
@@ -78,11 +79,11 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 		key, valueJSON)
 	if err != nil {
 		slog.Error("put ml system setting failed", "key", key, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save ML setting", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save ML setting", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 // GetMLUserSettings returns ML user preferences (notification toggles).
@@ -96,7 +97,7 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 		userID)
 	if err != nil {
 		slog.Error("get ml user settings failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get ML user settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get ML user settings", r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -113,7 +114,7 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 		result[key] = val
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // validMLUserSettingKeys is the allowlist of accepted user-level ML setting keys.
@@ -132,23 +133,23 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	key := chi.URLParam(r, "key")
 	if key == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
 		return
 	}
 	if !validMLUserSettingKeys[key] {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid setting key", r.URL.Path)
 		return
 	}
 
 	var body any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
 	valueJSON, err := json.Marshal(body)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to marshal value", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to marshal value", r.URL.Path)
 		return
 	}
 
@@ -159,9 +160,9 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 		userID, key, valueJSON)
 	if err != nil {
 		slog.Error("put ml user setting failed", "key", key, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save ML user setting", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save ML user setting", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }

@@ -20,32 +20,33 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	maxUploadSize := h.Config.MaxUploadSize
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large or invalid multipart form", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large or invalid multipart form", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing 'file' field", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing 'file' field", r.URL.Path)
 		return
 	}
 	defer file.Close()
 
 	fileBytes, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
 
@@ -56,7 +57,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	decompressed, format, decompErr := detectFormatAndDecompress(fileBytes, header.Filename, maxSize*10)
 	if decompErr != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unsupported or unreadable file: %s", decompErr), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unsupported or unreadable file: %s", decompErr), r.URL.Path)
 		return
 	}
 
@@ -83,12 +84,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, decompressed, userID)
 			if monErr != nil {
 				tracker.Error(r.Context(), monErr)
-				writeError(w, http.StatusUnprocessableEntity, "Process Error",
+				httputil.WriteError(w, http.StatusUnprocessableEntity, "Process Error",
 					fmt.Sprintf("failed to process monitoring FIT: %s", monErr), r.URL.Path)
 				return
 			}
 			tracker.Completed(r.Context(), "")
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":    "completed",
 				"data_type": "monitoring",
 				"fit_type":  ftype,
@@ -107,7 +108,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			singleData, singleErr := fitimport.ParseFIT(bytes.NewReader(decompressed), filename)
 			if singleErr != nil {
 				slog.Error("parse FIT failed", "error", singleErr)
-				writeError(w, http.StatusUnprocessableEntity, "Parse Error",
+				httputil.WriteError(w, http.StatusUnprocessableEntity, "Parse Error",
 					fmt.Sprintf("failed to parse FIT file: %s", singleErr), r.URL.Path)
 				return
 			}
@@ -126,7 +127,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 				slog.Error("s3 upload for multisport failed", "error", uploadErr)
 				msTracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
-				writeError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
+				httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
 				return
 			}
 
@@ -137,7 +138,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			)
 			if msErr != nil {
 				msTracker.Error(r.Context(), msErr)
-				writeError(w, http.StatusInternalServerError, "Import Error", msErr.Error(), r.URL.Path)
+				httputil.WriteError(w, http.StatusInternalServerError, "Import Error", msErr.Error(), r.URL.Path)
 				return
 			}
 
@@ -146,9 +147,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			// Return parent activity
 			parentAct, _ := h.DB.GetActivity(r.Context(), msResult.ParentID)
 			if parentAct != nil {
-				writeJSON(w, http.StatusCreated, parentAct)
+				httputil.WriteJSON(w, http.StatusCreated, parentAct)
 			} else {
-				writeJSON(w, http.StatusCreated, map[string]string{"parent_id": msResult.ParentID})
+				httputil.WriteJSON(w, http.StatusCreated, map[string]string{"parent_id": msResult.ParentID})
 			}
 			return
 		}
@@ -181,13 +182,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if processErr != nil {
 			slog.Error("process activity failed", "error", processErr)
 			tracker.Error(r.Context(), processErr)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 			return
 		}
 
 		if fitResult.Status == "skipped" {
 			tracker.Skipped(r.Context(), "duplicate", nil)
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":      "duplicate",
 				"activity_id": fitResult.ActivityID,
 			})
@@ -199,14 +200,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 			slog.Error("S3 upload failed", "error", uploadErr)
 			tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
-			writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 			return
 		}
 
 		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
 		if fitActivity == nil {
 			tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 			return
 		}
 
@@ -216,7 +217,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 		switch fitResult.Status {
 		case "enriched", "replaced":
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":      fitResult.Status,
 				"activity_id": fitResult.ActivityID,
 			})
@@ -234,7 +235,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if full == nil {
 			full = fitActivity
 		}
-		writeJSON(w, http.StatusCreated, model.UploadResponse{Activity: full, Warnings: warnings})
+		httputil.WriteJSON(w, http.StatusCreated, model.UploadResponse{Activity: full, Warnings: warnings})
 		return
 	}
 
@@ -248,7 +249,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("parse failed", "format", format, "error", err)
-		writeError(w, http.StatusUnprocessableEntity, "Parse Error",
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Parse Error",
 			fmt.Sprintf("failed to parse %s file: %s", format, err), r.URL.Path)
 		return
 	}
@@ -284,13 +285,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if processErr != nil {
 		slog.Error("process activity failed", "error", processErr)
 		tracker.Error(r.Context(), processErr)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to process activity", r.URL.Path)
 		return
 	}
 
 	if gpxResult.Status == "skipped" {
 		tracker.Skipped(r.Context(), "duplicate", nil)
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":      "duplicate",
 			"activity_id": gpxResult.ActivityID,
 		})
@@ -308,14 +309,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
 		slog.Error("S3 upload failed", "error", err)
 		tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", err))
-		writeError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 		return
 	}
 
 	gpxActivity, _ := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
 	if gpxActivity == nil {
 		tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 		return
 	}
 
@@ -324,7 +325,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	tracker.Completed(r.Context(), gpxResult.ActivityID)
 
 	if gpxResult.Status == "enriched" || gpxResult.Status == "replaced" {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":      gpxResult.Status,
 			"activity_id": gpxResult.ActivityID,
 		})
@@ -341,7 +342,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		Activity: full,
 		Warnings: warnings,
 	}
-	writeJSON(w, http.StatusCreated, resp)
+	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
 

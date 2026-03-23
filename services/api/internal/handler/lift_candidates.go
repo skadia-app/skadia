@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetLiftCandidates returns lift ride candidates for an activity.
@@ -12,10 +14,10 @@ func (h *Handler) GetLiftCandidates(w http.ResponseWriter, r *http.Request) {
 	activityID := chi.URLParam(r, "id")
 	candidates, err := h.DB.GetLiftCandidates(r.Context(), activityID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, candidates)
+	httputil.WriteJSON(w, http.StatusOK, candidates)
 }
 
 // ConfirmLiftCandidate marks a lift candidate as confirmed.
@@ -23,7 +25,7 @@ func (h *Handler) GetLiftCandidates(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	candID := chi.URLParam(r, "cid")
 	if err := h.DB.ConfirmLiftCandidate(r.Context(), candID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -34,7 +36,7 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RejectLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	candID := chi.URLParam(r, "cid")
 	if err := h.DB.RejectLiftCandidate(r.Context(), candID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

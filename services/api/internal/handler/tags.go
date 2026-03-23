@@ -17,31 +17,32 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ListTags returns all tags for the authenticated user.
 func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	tags, err := h.DB.ListTags(r.Context(), userID)
 	if err != nil {
 		slog.Error("list tags failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list tags", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tags)
 }
 
 // CreateTag creates a new tag for the authenticated user.
 func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -57,11 +58,11 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		Lng             *float64        `json:"lng"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 
@@ -79,18 +80,18 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.DB.CreateTag(r.Context(), userID, req.Name, req.Color, req.TextColor, isAuto, []byte(req.Conditions), []byte(req.ConditionGroups), req.ConditionsLogic, req.Description, req.Lat, req.Lng)
 	if err != nil {
 		slog.Error("create tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create tag", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, tag)
+	httputil.WriteJSON(w, http.StatusCreated, tag)
 }
 
 // UpdateTag updates an existing tag.
 func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -108,7 +109,7 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		Lng             *json.RawMessage `json:"lng"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
@@ -159,33 +160,33 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent, nil, nil)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 		return
 	}
 	if tag == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tag)
+	httputil.WriteJSON(w, http.StatusOK, tag)
 }
 
 // DeleteTag deletes a tag.
 func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteTag(r.Context(), tagID, userID); err != nil {
 		if err.Error() == "tag not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete tag", r.URL.Path)
 		return
 	}
 
@@ -198,7 +199,7 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -207,11 +208,11 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.DB.GetTagByID(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("upload tag cover: get tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
 		return
 	}
 	if tag == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 
@@ -224,11 +225,11 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			ActivityPhotoID  string `json:"activity_photo_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 			return
 		}
 		if req.ActivityPhotoURL == "" {
-			writeError(w, http.StatusBadRequest, "Bad Request", "activity_photo_url is required", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_photo_url is required", r.URL.Path)
 			return
 		}
 
@@ -273,10 +274,10 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &req.ActivityPhotoURL, thumbURLPtr)
 		if err != nil {
 			slog.Error("update tag cover_image_url failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 			return
 		}
-		writeJSON(w, http.StatusOK, updated)
+		httputil.WriteJSON(w, http.StatusOK, updated)
 		return
 	}
 
@@ -284,13 +285,13 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	const maxCoverSize = 10 << 20 // 10 MB
 	r.Body = http.MaxBytesReader(w, r.Body, maxCoverSize)
 	if err := r.ParseMultipartForm(maxCoverSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 10 MB)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 10 MB)", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("image")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no file in request (field: image)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no file in request (field: image)", r.URL.Path)
 		return
 	}
 	defer file.Close()
@@ -298,7 +299,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read cover image data failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
 
@@ -306,7 +307,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	// not the client-supplied Content-Type header which can be spoofed.
 	detectedCT, errMsg := validateImageBytes(data)
 	if errMsg != "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
 		return
 	}
 	fileCT := detectedCT
@@ -320,7 +321,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
 		slog.Error("s3 upload tag cover failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
 		return
 	}
 
@@ -344,11 +345,11 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL, thumbURLPtr)
 	if err != nil {
 		slog.Error("update tag cover_image_url failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // ClearTagCoverImage löscht das Cover-Bild und den Thumbnail eines Tags.
@@ -357,7 +358,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -365,11 +366,11 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.DB.GetTagByID(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("clear tag cover: get tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
 		return
 	}
 	if tag == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 
@@ -398,15 +399,15 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.DB.ClearTagCoverImages(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("clear tag cover: DB update failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to clear cover image", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to clear cover image", r.URL.Path)
 		return
 	}
 	if updated == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // AssignActivitiesToTag manually assigns a list of activities to a tag.
@@ -415,7 +416,7 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -424,11 +425,11 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		ActivityIDs []string `json:"activity_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if len(req.ActivityIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "activity_ids must not be empty", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_ids must not be empty", r.URL.Path)
 		return
 	}
 
@@ -441,7 +442,7 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 
 	if err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
 		slog.Error("assign activities to tag failed", "tag_id", tagID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
 		return
 	}
 
@@ -539,7 +540,7 @@ func (h *Handler) backfillWeatherForLocationTag(
 func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "not authenticated", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "not authenticated", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -548,7 +549,7 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 		ActivityIDs []string `json:"activity_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid body", r.URL.Path)
 		return
 	}
 	if len(req.ActivityIDs) == 0 {
@@ -560,17 +561,17 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 	tag, tagErr := h.DB.GetTagByID(r.Context(), tagID, userID)
 	if tagErr != nil {
 		slog.Error("unassign activities: get tag failed", "tag_id", tagID, "error", tagErr)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
 		return
 	}
 	if tag == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
 		slog.Error("unassign activities from tag failed", "tag_id", tagID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to unassign activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to unassign activities", r.URL.Path)
 		return
 	}
 
@@ -590,7 +591,7 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -598,11 +599,11 @@ func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
 	activities, err := h.DB.GetTagActivities(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("get tag activities failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, activities)
+	httputil.WriteJSON(w, http.StatusOK, activities)
 }
 
 // MergeTag merges a source tag into a target tag.
@@ -611,7 +612,7 @@ func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	targetTagID := chi.URLParam(r, "id")
@@ -620,15 +621,15 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 		SourceTagID string `json:"source_tag_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.SourceTagID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_tag_id is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_tag_id is required", r.URL.Path)
 		return
 	}
 	if req.SourceTagID == targetTagID {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source and target tag must differ", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source and target tag must differ", r.URL.Path)
 		return
 	}
 
@@ -636,22 +637,22 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errMsg := err.Error()
 		if errMsg == "target tag not found" || errMsg == "source tag not found" {
-			writeError(w, http.StatusNotFound, "Not Found", errMsg, r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", errMsg, r.URL.Path)
 			return
 		}
 		if errMsg == "source_is_system" || errMsg == "source_has_rule" {
-			writeJSON(w, http.StatusOK, map[string]any{
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status": "conflict",
 				"reason": errMsg,
 			})
 			return
 		}
 		slog.Error("merge tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to merge tags", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tag)
+	httputil.WriteJSON(w, http.StatusOK, tag)
 }
 
 // SyncTagLocation sets location_lat/location_lng on all activities linked to this tag,
@@ -660,7 +661,7 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -669,15 +670,15 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.DB.GetTagByID(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("sync tag location: get tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
 		return
 	}
 	if tag == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 		return
 	}
 	if tag.Lat == nil || tag.Lng == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "tag has no location coordinates", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tag has no location coordinates", r.URL.Path)
 		return
 	}
 
@@ -685,7 +686,7 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 	activityIDs, err := h.DB.GetTagActivityIDs(r.Context(), tagID)
 	if err != nil {
 		slog.Error("sync tag location: get activity ids failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag activities", r.URL.Path)
 		return
 	}
 
@@ -705,7 +706,7 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 
-	writeJSON(w, http.StatusOK, map[string]int{"updated_count": updated})
+	httputil.WriteJSON(w, http.StatusOK, map[string]int{"updated_count": updated})
 }
 
 // GetTagZone returns the zone for a tag.
@@ -713,7 +714,7 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetTagZone(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
@@ -721,15 +722,15 @@ func (h *Handler) GetTagZone(w http.ResponseWriter, r *http.Request) {
 	zone, err := h.DB.GetTagZone(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("get tag zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get tag zone", r.URL.Path)
 		return
 	}
 	if zone == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "no zone for tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no zone for tag", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, zone)
+	httputil.WriteJSON(w, http.StatusOK, zone)
 }
 
 // UpsertTagZone creates or replaces the zone for a tag.
@@ -737,37 +738,37 @@ func (h *Handler) GetTagZone(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpsertTagZone(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
 
 	var req model.TagZone
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.ZoneType != "circle" && req.ZoneType != "polygon" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "zone_type must be 'circle' or 'polygon'", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "zone_type must be 'circle' or 'polygon'", r.URL.Path)
 		return
 	}
 
 	zone, err := h.DB.UpsertTagZone(r.Context(), tagID, userID, req)
 	if err != nil {
 		if err.Error() == "tag not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
 			return
 		}
 		if err.Error() == "circle zone requires center and radius_m" {
-			writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return
 		}
 		slog.Error("upsert tag zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to upsert tag zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to upsert tag zone", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, zone)
+	httputil.WriteJSON(w, http.StatusOK, zone)
 }
 
 // DeleteTagZone removes the zone from a tag.
@@ -775,18 +776,18 @@ func (h *Handler) UpsertTagZone(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteTagZone(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
 
 	if err := h.DB.DeleteTagZone(r.Context(), tagID, userID); err != nil {
 		if err.Error() == "tag zone not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "tag zone not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag zone not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete tag zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete tag zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete tag zone", r.URL.Path)
 		return
 	}
 
@@ -798,7 +799,7 @@ func (h *Handler) DeleteTagZone(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -806,44 +807,44 @@ func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 
 	affected, err := h.DB.DeleteOrphanTag(r.Context(), userID, req.Name)
 	if err != nil {
 		slog.Error("delete orphan tag failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete orphan tag", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete orphan tag", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]int64{"affected": affected})
+	httputil.WriteJSON(w, http.StatusOK, map[string]int64{"affected": affected})
 }
 
 // SeedDefaultTags creates the default autotag definitions if they don't exist.
 func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.SeedSystemDefaults(r.Context(), userID); err != nil {
 		slog.Error("seed default tags failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to seed default tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to seed default tags", r.URL.Path)
 		return
 	}
 
 	tags, err := h.DB.ListTags(r.Context(), userID)
 	if err != nil {
 		slog.Error("list tags after seed failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list tags", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list tags", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tags)
 }

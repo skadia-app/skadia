@@ -10,6 +10,7 @@ import (
 	natsgo "github.com/nats-io/nats.go"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // StreamJobProgress streams enrichment progress via Server-Sent Events.
@@ -18,13 +19,13 @@ import (
 func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "Error", "streaming not supported", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Error", "streaming not supported", r.URL.Path)
 		return
 	}
 
@@ -70,7 +71,7 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("SSE NATS subscribe failed", "err", err)
-		writeError(w, http.StatusInternalServerError, "Error", "subscription failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Error", "subscription failed", r.URL.Path)
 		return
 	}
 	defer sub.Unsubscribe()

@@ -7,6 +7,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetImportSettings godoc
@@ -16,10 +17,10 @@ func (h *Handler) GetImportSettings(w http.ResponseWriter, r *http.Request) {
 	s, err := h.DB.GetImportSettings(r.Context(), userID)
 	if err != nil {
 		slog.Error("get import settings", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	httputil.WriteJSON(w, http.StatusOK, s)
 }
 
 // UpdateImportSettings godoc
@@ -28,7 +29,7 @@ func (h *Handler) UpdateImportSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var s model.ImportSettings
 	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 	// Validate + sanitize
@@ -41,8 +42,8 @@ func (h *Handler) UpdateImportSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.DB.UpdateImportSettings(r.Context(), userID, &s); err != nil {
 		slog.Error("update import settings", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	httputil.WriteJSON(w, http.StatusOK, s)
 }

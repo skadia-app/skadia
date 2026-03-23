@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // buildGarminRegistry returns a registry with all available importers.
@@ -39,11 +40,11 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 		SourcePath string `json:"source_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -51,7 +52,7 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildGarminRegistry()
 	modules := registry.Detect(src)
 
-	writeJSON(w, http.StatusOK, map[string]any{"modules": modules})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"modules": modules})
 }
 
 // StartGarminImport starts an async Garmin export import job.
@@ -61,7 +62,7 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -71,11 +72,11 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		Options    *importer.ImportOptions `json:"options,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.CreateGarminImportJob(r.Context(), userID, req.SourcePath)
 	if err != nil {
 		slog.Error("create garmin import job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
 		return
 	}
 
@@ -132,7 +133,7 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		slog.Info("garmin import completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // UploadGarminZIP accepts a multipart ZIP upload of a Garmin GDPR export, extracts it to
@@ -143,7 +144,7 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -156,7 +157,7 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("create garmin import job (zip) failed", "error", err)
 		os.RemoveAll(tmpDir)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
 		return
 	}
 
@@ -205,7 +206,7 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 		slog.Info("garmin import (zip) completed", "job_id", jobID, "errors", len(allErrors))
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // GetGarminImportJob returns the current status of an import job.
@@ -217,11 +218,11 @@ func (h *Handler) GetGarminImportJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.DB.GetGarminImportJob(r.Context(), userID, jobID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "import job not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "import job not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, job)
+	httputil.WriteJSON(w, http.StatusOK, job)
 }
 
 // ScanGarminExport analyses a Garmin export directory without writing to the DB.
@@ -233,7 +234,7 @@ func (h *Handler) GetGarminImportJob(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -241,11 +242,11 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 		SourcePath string `json:"source_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -279,7 +280,7 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 		result[m.Name] = stats
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // scanExistingGarminActivities iterates all activity files inside the Garmin UploadedFiles ZIPs,
@@ -341,7 +342,7 @@ func isGarminActivityFile(name string) bool {
 func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -377,7 +378,7 @@ func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
 		scanResult[m.Name] = stats
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"source_path": tmpDir,
 		"scan_result": scanResult,
 	})

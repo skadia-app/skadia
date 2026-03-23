@@ -14,6 +14,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // chatRateLimiter tracks per-user message rates in memory.
@@ -69,46 +70,46 @@ func (h *Handler) ChatRoutes() http.Handler {
 func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	sessions, err := h.DB.ListSessions(r.Context(), userID)
 	if err != nil {
 		slog.Error("list chat sessions failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list sessions", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list sessions", r.URL.Path)
 		return
 	}
 
 	if sessions == nil {
 		sessions = []*model.ChatSession{}
 	}
-	writeJSON(w, http.StatusOK, sessions)
+	httputil.WriteJSON(w, http.StatusOK, sessions)
 }
 
 // CreateChatSession handles POST /api/v1/chat/sessions
 func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	session, err := h.DB.CreateSession(r.Context(), userID)
 	if err != nil {
 		slog.Error("create chat session failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create session", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create session", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, session)
+	httputil.WriteJSON(w, http.StatusCreated, session)
 }
 
 // GetChatMessages handles GET /api/v1/chat/sessions/{id}/messages
 func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -116,28 +117,28 @@ func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Verify ownership
 	if _, err := h.DB.GetSession(r.Context(), sessionID, userID); err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "session not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "session not found", r.URL.Path)
 		return
 	}
 
 	messages, err := h.DB.GetMessages(r.Context(), sessionID, 200)
 	if err != nil {
 		slog.Error("get chat messages failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get messages", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get messages", r.URL.Path)
 		return
 	}
 
 	if messages == nil {
 		messages = []*model.ChatMessage{}
 	}
-	writeJSON(w, http.StatusOK, messages)
+	httputil.WriteJSON(w, http.StatusOK, messages)
 }
 
 // DeleteChatSession handles DELETE /api/v1/chat/sessions/{id}
 func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -145,7 +146,7 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		slog.Error("delete chat session failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete session", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete session", r.URL.Path)
 		return
 	}
 
@@ -158,13 +159,13 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	// Rate limit: 10 messages per minute per user
 	if !globalChatRateLimiter.Allow(userID, 10) {
-		writeError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
 		return
 	}
 
@@ -172,7 +173,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Verify session ownership
 	if _, err := h.DB.GetSession(r.Context(), sessionID, userID); err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "session not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "session not found", r.URL.Path)
 		return
 	}
 
@@ -183,19 +184,19 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		Message   string `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Message == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "message is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "message is required", r.URL.Path)
 		return
 	}
 	if len(req.Message) > 4000 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "message too long (max 4000 chars)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "message too long (max 4000 chars)", r.URL.Path)
 		return
 	}
 	if req.MessageID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "message_id is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "message_id is required", r.URL.Path)
 		return
 	}
 
@@ -207,7 +208,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.DB.CreateMessage(r.Context(), userMsg); err != nil {
 		slog.Error("persist user chat message failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to persist message", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to persist message", r.URL.Path)
 		return
 	}
 
@@ -231,7 +232,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// SSE response setup
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "Error", "streaming not supported", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Error", "streaming not supported", r.URL.Path)
 		return
 	}
 

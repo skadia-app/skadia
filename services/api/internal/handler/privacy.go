@@ -10,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) ListPrivacyZones(w http.ResponseWriter, r *http.Request) {
@@ -18,11 +19,11 @@ func (h *Handler) ListPrivacyZones(w http.ResponseWriter, r *http.Request) {
 	zones, err := h.DB.ListPrivacyZones(r.Context(), userID)
 	if err != nil {
 		slog.Error("list privacy zones failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list privacy zones", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list privacy zones", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, zones)
+	httputil.WriteJSON(w, http.StatusOK, zones)
 }
 
 func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
@@ -38,22 +39,22 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		Polygon  *string `json:"polygon"`   // GeoJSON Polygon string, required when zone_type='polygon'
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if req.ZoneType == "" {
 		req.ZoneType = "circle"
 	}
 	if req.ZoneType == "circle" && req.RadiusM <= 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "radius_m must be positive for circle zones", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "radius_m must be positive for circle zones", r.URL.Path)
 		return
 	}
 	if req.ZoneType == "polygon" && req.Polygon == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "polygon is required for polygon zones", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "polygon is required for polygon zones", r.URL.Path)
 		return
 	}
 	if req.Color == "" {
@@ -67,7 +68,7 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 	zone, err := h.DB.CreatePrivacyZone(r.Context(), userID, req.Name, req.Lat, req.Lng, req.RadiusM, req.Color, req.ZoneType, req.Polygon)
 	if err != nil {
 		slog.Error("create privacy zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create privacy zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create privacy zone", r.URL.Path)
 		return
 	}
 
@@ -78,7 +79,7 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, http.StatusCreated, zone)
+	httputil.WriteJSON(w, http.StatusCreated, zone)
 }
 
 func (h *Handler) UpdatePrivacyZone(w http.ResponseWriter, r *http.Request) {
@@ -87,18 +88,18 @@ func (h *Handler) UpdatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 
 	var update model.PrivacyZoneUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	zone, err := h.DB.UpdatePrivacyZone(r.Context(), zoneID, userID, &update)
 	if err != nil {
 		slog.Error("update privacy zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update privacy zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update privacy zone", r.URL.Path)
 		return
 	}
 	if zone == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "privacy zone not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "privacy zone not found", r.URL.Path)
 		return
 	}
 
@@ -109,7 +110,7 @@ func (h *Handler) UpdatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, http.StatusOK, zone)
+	httputil.WriteJSON(w, http.StatusOK, zone)
 }
 
 func (h *Handler) DeletePrivacyZone(w http.ResponseWriter, r *http.Request) {
@@ -118,11 +119,11 @@ func (h *Handler) DeletePrivacyZone(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeletePrivacyZone(r.Context(), zoneID, userID); err != nil {
 		if err.Error() == "privacy zone not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "privacy zone not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "privacy zone not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete privacy zone failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete privacy zone", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete privacy zone", r.URL.Path)
 		return
 	}
 

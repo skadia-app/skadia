@@ -1,4 +1,4 @@
-package analytics
+package httputil
 
 import (
 	"encoding/json"
@@ -7,13 +7,15 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func writeJSON(w http.ResponseWriter, status int, data any) {
+// WriteJSON writes a JSON response with the given status code.
+func WriteJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
 }
 
-func writeError(w http.ResponseWriter, status int, title, detail, instance string) {
+// WriteError writes an RFC 7807 problem detail response.
+func WriteError(w http.ResponseWriter, status int, title, detail, instance string) {
 	problem := model.ProblemDetail{
 		Type:     "https://skadia.io/errors/" + http.StatusText(status),
 		Title:    title,

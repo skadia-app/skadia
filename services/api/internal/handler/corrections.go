@@ -10,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // CorrectActivityDistance recalculates the activity's distance from its GPS track
@@ -22,7 +23,7 @@ import (
 func (h *Handler) CorrectActivityDistance(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -30,12 +31,12 @@ func (h *Handler) CorrectActivityDistance(w http.ResponseWriter, r *http.Request
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	if !activity.HasGPS {
-		writeError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
 		return
 	}
 
@@ -43,7 +44,7 @@ func (h *Handler) CorrectActivityDistance(w http.ResponseWriter, r *http.Request
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "distance_correction", &activityID, activityName, 1)
 	if err != nil {
 		slog.Error("correct-distance: failed to insert background job", "activity_id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 
@@ -114,7 +115,7 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 func (h *Handler) ResetActivityDistance(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) ResetActivityDistance(w http.ResponseWriter, r *http.Request) 
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -130,7 +131,7 @@ func (h *Handler) ResetActivityDistance(w http.ResponseWriter, r *http.Request) 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "distance_reset", &activityID, activityName, 1)
 	if err != nil {
 		slog.Error("reset-distance: failed to insert background job", "activity_id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
 		return
 	}
 

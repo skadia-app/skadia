@@ -10,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -21,7 +22,7 @@ type resolveSportConflictRequest struct {
 func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -29,17 +30,17 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	// Ownership + existence check
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	// Already resolved?
 	if !activity.SportConflictPending {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_resolved"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_resolved"})
 		return
 	}
 
@@ -53,7 +54,7 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	// Validate sport type against taxonomy (prevent garbage via direct API calls)
 	if req.SportType != "" {
 		if _, ok := sport.GetSportDef(req.SportType); !ok {
-			writeError(w, http.StatusBadRequest, "Bad Request", "unknown sport type", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown sport type", r.URL.Path)
 			return
 		}
 	}
@@ -65,12 +66,12 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	}
 	affected, err := h.DB.ResolveSportConflict(r.Context(), activityID, userID, sportPtr)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve conflict", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve conflict", r.URL.Path)
 		return
 	}
 	if !affected {
 		// Another request resolved first (TOCTOU)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_resolved"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_resolved"})
 		return
 	}
 
@@ -112,5 +113,5 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "resolved"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "resolved"})
 }

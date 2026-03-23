@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -125,7 +126,7 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 
 	days, err := h.DB.GetPMCRange(ctx, userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -174,7 +175,7 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 		Projection: projection,
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +199,7 @@ func (h *Handler) GetYearProgression(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -213,7 +214,7 @@ func (h *Handler) GetYearProgression(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.GetYearProgression(ctx, userID, metric, whereClause, filterArgs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -268,7 +269,7 @@ func (h *Handler) GetYearProgression(w http.ResponseWriter, r *http.Request) {
 		Years:    yearsList,
 		BestYear: bestYear,
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +292,7 @@ func (h *Handler) GetTrainingVolume(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -310,7 +311,7 @@ func (h *Handler) GetTrainingVolume(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.GetTrainingVolume(ctx, userID, granularity, metric, whereClause, filterArgs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -345,7 +346,7 @@ func (h *Handler) GetTrainingVolume(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, TrainingVolumeResponse{
+	httputil.WriteJSON(w, http.StatusOK, TrainingVolumeResponse{
 		Metric:      metric,
 		Granularity: granularity,
 		Periods:     periods,
@@ -371,7 +372,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -390,7 +391,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.GetZoneDistribution(ctx, userID, zoneType, granularity, whereClause, filterArgs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -415,7 +416,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, ZoneDistributionResponse{
+	httputil.WriteJSON(w, http.StatusOK, ZoneDistributionResponse{
 		ZoneType:    zoneType,
 		Granularity: granularity,
 		Periods:     periods,
@@ -430,17 +431,17 @@ func (h *Handler) GetPersonalRecords(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
 	records, err := h.DB.GetPersonalRecords(ctx, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"records": records,
 	})
 }

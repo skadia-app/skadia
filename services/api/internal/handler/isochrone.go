@@ -15,6 +15,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ---------------------------------------------------------------------------
@@ -71,24 +72,24 @@ type IsochroneResponse struct {
 func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	var req IsochroneRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	if len(req.Minutes) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "minutes must contain at least one value", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "minutes must contain at least one value", r.URL.Path)
 		return
 	}
 
 	// Validate coordinate range.
 	if req.Start[0] < -180 || req.Start[0] > 180 || req.Start[1] < -90 || req.Start[1] > 90 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
 		return
 	}
 
@@ -99,13 +100,13 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 
 	// ----- Router availability -----
 	if h.GraphManager == nil {
-		writeError(w, http.StatusServiceUnavailable, "No Routing Engine",
+		httputil.WriteError(w, http.StatusServiceUnavailable, "No Routing Engine",
 			"routing graph is not configured", r.URL.Path)
 		return
 	}
 	router := h.GraphManager.UnifiedRouter()
 	if router == nil {
-		writeError(w, http.StatusServiceUnavailable, "No Routing Engine",
+		httputil.WriteError(w, http.StatusServiceUnavailable, "No Routing Engine",
 			"routing graph has not been loaded yet", r.URL.Path)
 		return
 	}
@@ -113,7 +114,7 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	// ----- Build cost config -----
 	cfg, err := routing.BuildCostConfig(routing.ProfileConfig{Profile: req.Profile})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request",
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			fmt.Sprintf("unknown profile %q", req.Profile), r.URL.Path)
 		return
 	}
@@ -160,13 +161,13 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("isochrone: FindReachableWithCoords failed",
 			"error", err, "user_id", userID)
-		writeError(w, http.StatusServiceUnavailable, "No Trail Network",
+		httputil.WriteError(w, http.StatusServiceUnavailable, "No Trail Network",
 			"no routing graph nodes near the start point", r.URL.Path)
 		return
 	}
 
 	if len(reachable) == 0 {
-		writeJSON(w, http.StatusOK, IsochroneResponse{
+		httputil.WriteJSON(w, http.StatusOK, IsochroneResponse{
 			Polygons:  []IsochronePolygon{},
 			POIs:      []IsochronePOI{},
 			Truncated: truncated,
@@ -263,7 +264,7 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, IsochroneResponse{
+	httputil.WriteJSON(w, http.StatusOK, IsochroneResponse{
 		Polygons:  polygons,
 		POIs:      pois,
 		Truncated: truncated,

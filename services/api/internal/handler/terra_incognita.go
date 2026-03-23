@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetTerraIncognitaCoverage returns 5 concentric GeoJSON ring polygons
@@ -15,7 +16,7 @@ import (
 func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -29,7 +30,7 @@ func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Reque
 	rings, areaKm2, err := h.DB.GetTerraIncognitaCoverageCached(r.Context(), userID, radiusM)
 	if err != nil {
 		slog.Error("terra incognita coverage query failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to compute exploration coverage", r.URL.Path)
 		return
 	}
 

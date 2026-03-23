@@ -14,6 +14,7 @@ import (
 
 	goanalytics "github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // refreshSemaphores holds per-user mutexes to allow at most one concurrent
@@ -53,7 +54,7 @@ var metricLabel = map[string]string{
 func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -63,7 +64,7 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 	}
 	var anomalies []anomalyEntry
 	if err := json.Unmarshal(raw, &anomalies); err != nil {
-		writeJSON(w, http.StatusOK, []apiWarning{})
+		httputil.WriteJSON(w, http.StatusOK, []apiWarning{})
 		return
 	}
 
@@ -125,7 +126,7 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, warnings)
+	httputil.WriteJSON(w, http.StatusOK, warnings)
 }
 
 // mlProjectionDict is the shape the ML service stores in the "projection" cache key.
@@ -154,7 +155,7 @@ type apiProjection struct {
 func (h *Handler) GetInsightsProjection(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -164,20 +165,20 @@ func (h *Handler) GetInsightsProjection(w http.ResponseWriter, r *http.Request) 
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
 		return
 	}
 
 	// Decode the projection dict from the ML service.
 	var proj mlProjectionDict
 	if err := json.Unmarshal(raw, &proj); err != nil {
-		writeJSON(w, http.StatusOK, []apiProjection{})
+		httputil.WriteJSON(w, http.StatusOK, []apiProjection{})
 		return
 	}
 
 	// If there is no usable data, return an empty list so the frontend shows the empty-state.
 	if proj.CurrentCTL == nil || proj.ProjectedCTL28d == nil || proj.DataPoints == 0 {
-		writeJSON(w, http.StatusOK, []apiProjection{})
+		httputil.WriteJSON(w, http.StatusOK, []apiProjection{})
 		return
 	}
 
@@ -224,7 +225,7 @@ func (h *Handler) GetInsightsProjection(w http.ResponseWriter, r *http.Request) 
 		},
 	}
 
-	writeJSON(w, http.StatusOK, projections)
+	httputil.WriteJSON(w, http.StatusOK, projections)
 }
 
 // GetInsightsClusters returns ML-computed activity cluster analysis from the analytics cache.
@@ -244,7 +245,7 @@ func (h *Handler) GetInsightsCorrelations(w http.ResponseWriter, r *http.Request
 func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cacheKey string) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -255,7 +256,7 @@ func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cac
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "cache read failed", r.URL.Path)
 		return
 	}
 
@@ -272,7 +273,7 @@ func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cac
 func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
