@@ -26,7 +26,7 @@ func QueryOSMPassLandmarks(ctx context.Context, pool *pgxpool.Pool,
 	rows, err := pool.Query(ctx, `
 		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom), ele
 		FROM osm_pois
-		WHERE (category = 'pass' OR (category = 'summit' AND tags->>'natural' = 'saddle'))
+		WHERE (category = 'pass' OR (category = 'summit' AND subtype = 'saddle'))
 		  AND ST_Within(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
 		  AND ele IS NOT NULL AND ele > 800
 		ORDER BY ele DESC
@@ -47,19 +47,105 @@ func QueryOSMPassLandmarks(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// QueryOSMPeakLandmarks returns top-N highest peaks (excluding saddles) within bbox.
-func QueryOSMPeakLandmarks(ctx context.Context, pool *pgxpool.Pool,
-	west, south, east, north float64, limit int) ([]OSMLandmark, error) {
+// QueryOutdoorCrossings returns all outdoor crossings (passes, saddles, named cols)
+// within the given bounding box. These are candidates for landmark seed selection.
+// Uses: category='pass' (mountain passes), subtype='saddle' (geographical saddles),
+// and name-based matching for Joch/Scharte/Sattel/Forcella/etc.
+// Requires ele > 500m to include Mittelgebirge crossings.
+// NOTE: ele > 500 excludes coastal crossings (Cinque Terre ~200-400m, Norwegian
+// fjord crossings ~100-300m). Acceptable for v1: coastal regions have no
+// bottleneck problem (low relief). For global rollout, consider lowering to 300m
+// or making the threshold adaptive based on BBox elevation range.
+func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
+	west, south, east, north float64) ([]OSMLandmark, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom), ele
 		FROM osm_pois
-		WHERE category = 'summit'
-		  AND tags->>'natural' IS DISTINCT FROM 'saddle'
-		  AND ST_Within(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
-		  AND ele IS NOT NULL
-		ORDER BY ele DESC
-		LIMIT $5
-	`, west, south, east, north, limit)
+		WHERE ele IS NOT NULL AND ele > 500
+		  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+		  AND (
+		    category = 'pass'
+		    OR (category = 'summit' AND subtype = 'saddle')
+		    OR (category = 'summit' AND (
+		      name ILIKE '%joch%' OR name ILIKE '%scharte%'
+		      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
+		      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
+		      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
+		      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
+		    ))
+		  )
+	`, west, south, east, north)
+	// NOTE: 10 ILIKE patterns on name column. Performance is acceptable because:
+	// (a) geom && BBox narrows to ~1-5K rows before ILIKE runs
+	// (b) this runs only during preprocessing (~1/month), not in hot path
+	// If query exceeds 1s on large BBoxes, consider pg_trgm GIN index on osm_pois.name
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []OSMLandmark
+	for rows.Next() {
+		var lm OSMLandmark
+		if err := rows.Scan(&lm.OSMID, &lm.Name, &lm.Lat, &lm.Lon, &lm.Ele); err != nil {
+			return nil, err
+		}
+		results = append(results, lm)
+	}
+	return results, rows.Err()
+}
+
+// SelectCrossingSeedsSQL selects up to 4 crossing seeds via median-split quadrant
+// selection. Returns the highest crossing per quadrant (NW, NE, SW, SE).
+// Uses percentile_cont for robust median computation even with asymmetric distributions.
+//
+// NOTE: ORDER BY ele DESC within each quadrant is used as a proxy for topological
+// prominence (Spec Section 3.3). This is NOT the same as the rejected "ORDER BY
+// ele DESC for landmark selection" — that selected the globally highest passes
+// which cluster geographically. Here, the median split ensures geographic spread
+// FIRST, then ele DESC picks the most prominent crossing within each quadrant.
+func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
+	west, south, east, north float64) ([]OSMLandmark, error) {
+	rows, err := pool.Query(ctx, `
+		WITH crossings AS (
+			SELECT osm_id, COALESCE(name, '') AS name,
+			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
+			FROM osm_pois
+			WHERE ele IS NOT NULL AND ele > 500
+			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+			  AND (
+			    category = 'pass'
+			    OR (category = 'summit' AND subtype = 'saddle')
+			    OR (category = 'summit' AND (
+			      name ILIKE '%joch%' OR name ILIKE '%scharte%'
+			      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
+			      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
+			      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
+			      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
+			    ))
+			  )
+		),
+		medians AS (
+			SELECT
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lat) AS med_lat,
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lon) AS med_lon
+			FROM crossings
+		),
+		ranked AS (
+			SELECT c.osm_id, c.name, c.lat, c.lon, c.ele,
+				CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END AS lat_bin,
+				CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END AS lon_bin,
+				ROW_NUMBER() OVER (
+					PARTITION BY
+						CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END,
+						CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END
+					ORDER BY c.ele DESC
+				) AS rn
+			FROM crossings c, medians m
+		)
+		SELECT osm_id, name, lat, lon, ele
+		FROM ranked WHERE rn = 1
+		ORDER BY lat_bin, lon_bin
+	`, west, south, east, north)
 	if err != nil {
 		return nil, err
 	}
