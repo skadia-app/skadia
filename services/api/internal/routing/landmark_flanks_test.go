@@ -64,26 +64,31 @@ func TestFindFlankLandmarks_BasicNorthSouth(t *testing.T) {
 }
 
 func TestFindFlankLandmarks_NoValleyFallback(t *testing.T) {
-	// All neighbors at same elevation: no valley detected
+	// Neighbors slightly lower than crossing: valley detection finds only 1 direction
+	// (all on same bearing), falls back to N/S split. Phase 3 finds flanks because
+	// nodes are lower than crossing.
 	crossingSeed := graph.LandmarkCandidate{
 		GlobalNodeID: graph.MakeGlobalNodeID(1, 0),
-		Lat:          0, Lon: 0, Ele: 1000,
+		Lat:          0, Lon: 0, Ele: 2000, // 200m
 	}
 	tiles := []graph.TileScanResult{{
 		TileID:    1,
 		NodeCount: 3,
 		NodeLats:  []int32{0, 500000, -500000},
 		NodeLons:  []int32{0, 0, 0},
-		NodeEles:  []int32{1000, 1000, 1000}, // all same elevation
+		NodeEles:  []int32{2000, 800, 800}, // 80m valleys (120m lower)
 	}}
 	nodeMapping := map[uint32][]uint32{1: {0, 1, 2}}
 	costs := []float32{0, 20000, 20000}
 
 	flankA, flankB := FindFlankLandmarks(crossingSeed, costs, tiles, nodeMapping)
 
-	// Fallback: should still return 2 landmarks (N/S fixed split when no valley found)
-	if flankA.GlobalNodeID == 0 && flankB.GlobalNodeID == 0 {
-		t.Error("expected at least one flank landmark from fallback, got none")
+	// N/S fixed split should find both flanks (one N, one S of crossing)
+	if flankA.GlobalNodeID == 0 {
+		t.Error("expected flank A from N/S fallback, got none")
+	}
+	if flankB.GlobalNodeID == 0 {
+		t.Error("expected flank B from N/S fallback, got none")
 	}
 }
 

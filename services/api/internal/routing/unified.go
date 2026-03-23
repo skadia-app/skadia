@@ -87,7 +87,9 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 
 	// h_elev pre-computation: min(UphillCost, DownhillCost) for elevation heuristic.
 	// For 3 of 5 profiles this is 0 (no elevation heuristic, no overhead).
-	minElevCost := min(cfg.UphillCost, cfg.DownhillCost)
+	// Capped at 10 to prevent overly aggressive pruning with high elevation costs
+	// (e.g. Gravel minElevCost=40 would make h_elev dominate and slow Pass0).
+	minElevCost := min(cfg.UphillCost, cfg.DownhillCost, 10)
 
 	expansions := 0
 

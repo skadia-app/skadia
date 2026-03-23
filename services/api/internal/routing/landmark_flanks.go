@@ -40,7 +40,9 @@ func FindFlankLandmarks(
 
 	// --- Phase 1: Valley detection ---
 	// Find the 2 deepest reachable nodes in different directions (>60 deg apart)
-	// Cost range 5000-30000 (~5-30km) for valley detection
+	// Cost range 5000-30000 (~5-30km) for valley detection.
+	// NOTE: Uses absolute elevation, not relative prominence. A deep side-valley
+	// could win over the main valley. The >60 deg bearing check mitigates this.
 	type dirCandidate struct {
 		bearing float64
 		ele     int32

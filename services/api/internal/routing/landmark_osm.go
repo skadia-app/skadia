@@ -13,9 +13,9 @@ import (
 type OSMLandmark struct {
 	OSMID int64
 	Name  string
-	Lat   float64
-	Lon   float64
-	Ele   float64
+	Lat   float64 // degrees
+	Lon   float64 // degrees
+	Ele   float64 // meters (from osm_pois.ele, NOT decimeters)
 }
 
 // QueryOSMPassLandmarks returns top-N highest passes/saddles within bbox.
