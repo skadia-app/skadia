@@ -20,7 +20,7 @@ func (h *Handler) requireActivity(w http.ResponseWriter, r *http.Request, userID
 	}
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
-		slog.Error("load activity failed", "id", activityID, "error", err)
+		slog.Error("load activity failed", "id", activityID, "user_id", userID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return nil, "", false
 	}
@@ -45,6 +45,13 @@ func (h *Handler) startResetJob(
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
 		return
 	}
-	go runFn(jobID, activityID, userID)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("background job panicked", "type", jobType, "job_id", jobID, "panic", r)
+			}
+		}()
+		runFn(jobID, activityID, userID)
+	}()
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
 }

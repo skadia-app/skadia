@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -17,13 +18,15 @@ import (
 func WriteJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+	}
 }
 
 // WriteError writes an RFC 7807 problem detail response.
 func WriteError(w http.ResponseWriter, status int, title, detail, instance string) {
 	problem := model.ProblemDetail{
-		Type:     "https://skadia.io/errors/" + http.StatusText(status),
+		Type:     "https://skadia.io/errors/" + strings.ReplaceAll(http.StatusText(status), " ", "-"),
 		Title:    title,
 		Status:   status,
 		Detail:   detail,
@@ -31,7 +34,9 @@ func WriteError(w http.ResponseWriter, status int, title, detail, instance strin
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(problem)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+	}
 }
 
 // RequireUserID extracts the user ID from the request context.

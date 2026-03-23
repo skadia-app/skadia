@@ -74,8 +74,8 @@ func TestWriteError(t *testing.T) {
 	if problem.Instance != "/api/v1/test" {
 		t.Fatalf("expected instance '/api/v1/test', got '%s'", problem.Instance)
 	}
-	if problem.Type != "https://skadia.io/errors/Not Found" {
-		t.Fatalf("expected type 'https://skadia.io/errors/Not Found', got '%s'", problem.Type)
+	if problem.Type != "https://skadia.io/errors/Not-Found" {
+		t.Fatalf("expected type 'https://skadia.io/errors/Not-Found', got '%s'", problem.Type)
 	}
 }
 
@@ -179,6 +179,7 @@ func TestParsePagination(t *testing.T) {
 		{"?limit=999", 50, 200, 200, 0},
 		{"?limit=-1", 50, 200, 50, 0},
 		{"?limit=abc", 50, 200, 50, 0},
+		{"?offset=-5", 50, 200, 50, 0},
 	}
 	for _, tt := range tests {
 		r := httptest.NewRequest("GET", "/test"+tt.query, nil)
