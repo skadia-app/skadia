@@ -1442,7 +1442,9 @@ function ActivityRow({
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
-          <span className="w-4 text-center text-xs flex-shrink-0">{activity.is_ebike ? '🔌' : ''}</span>
+          <span className="w-4 text-center text-xs flex-shrink-0">
+            {activity.is_ebike ? '🔌' : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : ''}
+          </span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}

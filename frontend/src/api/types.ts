@@ -66,6 +66,9 @@ export interface Activity {
   sport_type: string
   sub_type: string | null
   is_ebike: boolean
+  is_virtual: boolean
+  exclude_from_heatmap: boolean
+  exclude_from_stats: boolean
   started_at: string
   ended_at?: string
   elapsed_time_s: number
