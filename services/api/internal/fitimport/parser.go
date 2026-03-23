@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/kit/semicircles"
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -323,6 +325,15 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var lengths []*mesgdef.Length
 	var climbPros []*mesgdef.ClimbPro
 	var rrIntervals []uint16
+	var events []*mesgdef.Event
+	var sets []*mesgdef.Set
+	var jumps []*mesgdef.Jump
+	var hrs []*mesgdef.Hr
+	var segmentLaps []*mesgdef.SegmentLap
+	var workout *mesgdef.Workout
+	var workoutSteps []*mesgdef.WorkoutStep
+	var devDataIds []*mesgdef.DeveloperDataId
+	var fieldDescs []*mesgdef.FieldDescription
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -359,6 +370,24 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 					rrIntervals = append(rrIntervals, rrMs)
 				}
 			}
+		case typedef.MesgNumEvent:
+			events = append(events, mesgdef.NewEvent(&fit.Messages[i]))
+		case typedef.MesgNumSet:
+			sets = append(sets, mesgdef.NewSet(&fit.Messages[i]))
+		case typedef.MesgNumJump:
+			jumps = append(jumps, mesgdef.NewJump(&fit.Messages[i]))
+		case typedef.MesgNumHr:
+			hrs = append(hrs, mesgdef.NewHr(&fit.Messages[i]))
+		case typedef.MesgNumSegmentLap:
+			segmentLaps = append(segmentLaps, mesgdef.NewSegmentLap(&fit.Messages[i]))
+		case typedef.MesgNumWorkout:
+			workout = mesgdef.NewWorkout(&fit.Messages[i])
+		case typedef.MesgNumWorkoutStep:
+			workoutSteps = append(workoutSteps, mesgdef.NewWorkoutStep(&fit.Messages[i]))
+		case typedef.MesgNumDeveloperDataId:
+			devDataIds = append(devDataIds, mesgdef.NewDeveloperDataId(&fit.Messages[i]))
+		case typedef.MesgNumFieldDescription:
+			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
 		}
 	}
 
@@ -524,6 +553,544 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.AvgCoreTemperatureC = float64(session.AvgCoreTemperature) / 100.0
 	}
 
+	// === FIT SDK — Movement / Cycles ===
+	if session.TotalCycles != basetype.Uint32Invalid {
+		v := int32(session.TotalCycles)
+		data.TotalCycles = &v
+	}
+	if session.TotalWork != basetype.Uint32Invalid {
+		v := int32(session.TotalWork)
+		data.TotalWorkJ = &v
+	}
+	if session.TotalFatCalories != basetype.Uint16Invalid {
+		v := int32(session.TotalFatCalories)
+		data.TotalFatCalories = &v
+	}
+	// MetabolicCalories: not available in SDK v0.26.0 Session struct — skipped
+	if session.TotalMovingTime != basetype.Uint32Invalid {
+		v := float64(session.TotalMovingTime) / 1000.0
+		data.TotalMovingTimeS = &v
+	}
+
+	// === FIT SDK — Swimming ===
+	if session.SwimStroke != typedef.SwimStrokeInvalid {
+		v := strings.ToLower(session.SwimStroke.String())
+		data.SwimStroke = &v
+	}
+	if session.PoolLength != basetype.Uint16Invalid {
+		v := float64(session.PoolLength) / 100.0
+		data.PoolLengthM = &v
+	}
+	if session.PoolLengthUnit != typedef.DisplayMeasureInvalid {
+		v := strings.ToLower(session.PoolLengthUnit.String())
+		data.PoolLengthUnit = &v
+	}
+	if session.NumLengths != basetype.Uint16Invalid {
+		v := int32(session.NumLengths)
+		data.NumLengths = &v
+	}
+	if session.NumActiveLengths != basetype.Uint16Invalid {
+		v := int32(session.NumActiveLengths)
+		data.NumActiveLengths = &v
+	}
+	if session.AvgStrokeCount != basetype.Uint32Invalid {
+		v := float64(session.AvgStrokeCount) / 10.0
+		data.AvgStrokeCount = &v
+	}
+	if session.AvgStrokeDistance != basetype.Uint16Invalid {
+		v := float64(session.AvgStrokeDistance) / 100.0
+		data.AvgStrokeDistanceM = &v
+	}
+	// StrokeCount []uint16 → []int32
+	if len(session.StrokeCount) > 0 {
+		sc := make([]int32, 0, len(session.StrokeCount))
+		for _, v := range session.StrokeCount {
+			if v != basetype.Uint16Invalid {
+				sc = append(sc, int32(v))
+			}
+		}
+		if len(sc) > 0 {
+			data.StrokeCount = sc
+		}
+	}
+	// ZoneCount []uint16 → []int32
+	if len(session.ZoneCount) > 0 {
+		zc := make([]int32, 0, len(session.ZoneCount))
+		for _, v := range session.ZoneCount {
+			if v != basetype.Uint16Invalid {
+				zc = append(zc, int32(v))
+			}
+		}
+		if len(zc) > 0 {
+			data.ZoneCount = zc
+		}
+	}
+
+	// === FIT SDK — Cadence Extended ===
+	if session.AvgFractionalCadence != basetype.Uint8Invalid {
+		v := float64(session.AvgFractionalCadence) / 128.0
+		data.AvgFractionalCadence = &v
+	}
+	if session.MaxFractionalCadence != basetype.Uint8Invalid {
+		v := float64(session.MaxFractionalCadence) / 128.0
+		data.MaxFractionalCadence = &v
+	}
+	if session.TotalFractionalCycles != basetype.Uint8Invalid {
+		v := float64(session.TotalFractionalCycles) / 128.0
+		data.TotalFractionalCycles = &v
+	}
+
+	// === FIT SDK — Running Dynamics ===
+	if session.AvgVerticalOscillation != basetype.Uint16Invalid {
+		v := float64(session.AvgVerticalOscillation) / 10.0
+		data.AvgVerticalOscillationMm = &v
+	}
+	if session.AvgStanceTime != basetype.Uint16Invalid {
+		v := float64(session.AvgStanceTime) / 10.0
+		data.AvgStanceTimeMs = &v
+	}
+	if session.AvgStanceTimePercent != basetype.Uint16Invalid {
+		v := float64(session.AvgStanceTimePercent) / 100.0
+		data.AvgStanceTimePct = &v
+	}
+	if session.AvgStanceTimeBalance != basetype.Uint16Invalid {
+		v := float64(session.AvgStanceTimeBalance) / 100.0
+		data.AvgStanceTimeBalancePct = &v
+	}
+	if session.AvgStepLength != basetype.Uint16Invalid {
+		v := float64(session.AvgStepLength) / 10.0
+		data.AvgStepLengthMm = &v
+	}
+	if session.AvgVerticalRatio != basetype.Uint16Invalid {
+		v := float64(session.AvgVerticalRatio) / 100.0
+		data.AvgVerticalRatioPct = &v
+	}
+
+	// === FIT SDK — Grade ===
+	if session.AvgGrade != basetype.Sint16Invalid {
+		v := float64(session.AvgGrade) / 100.0
+		data.AvgGradePct = &v
+	}
+	if session.AvgPosGrade != basetype.Sint16Invalid {
+		v := float64(session.AvgPosGrade) / 100.0
+		data.AvgPosGradePct = &v
+	}
+	if session.AvgNegGrade != basetype.Sint16Invalid {
+		v := float64(session.AvgNegGrade) / 100.0
+		data.AvgNegGradePct = &v
+	}
+	if session.MaxPosGrade != basetype.Sint16Invalid {
+		v := float64(session.MaxPosGrade) / 100.0
+		data.MaxPosGradePct = &v
+	}
+	if session.MaxNegGrade != basetype.Sint16Invalid {
+		v := float64(session.MaxNegGrade) / 100.0
+		data.MaxNegGradePct = &v
+	}
+
+	// === FIT SDK — Vertical Speed ===
+	if session.AvgPosVerticalSpeed != basetype.Sint16Invalid {
+		v := float64(session.AvgPosVerticalSpeed) / 1000.0
+		data.AvgPosVerticalSpeedMs = &v
+	}
+	if session.AvgNegVerticalSpeed != basetype.Sint16Invalid {
+		v := float64(session.AvgNegVerticalSpeed) / 1000.0
+		data.AvgNegVerticalSpeedMs = &v
+	}
+	if session.MaxPosVerticalSpeed != basetype.Sint16Invalid {
+		v := float64(session.MaxPosVerticalSpeed) / 1000.0
+		data.MaxPosVerticalSpeedMs = &v
+	}
+	if session.MaxNegVerticalSpeed != basetype.Sint16Invalid {
+		v := float64(session.MaxNegVerticalSpeed) / 1000.0
+		data.MaxNegVerticalSpeedMs = &v
+	}
+	if session.AvgVam != basetype.Uint16Invalid {
+		v := float64(session.AvgVam) / 1000.0
+		data.AvgVamMs = &v
+	}
+
+	// === FIT SDK — Altitude Extended ===
+	if session.EnhancedAvgAltitude != basetype.Uint32Invalid {
+		v := float64(session.EnhancedAvgAltitude)/5.0 - 500.0
+		data.AvgAltitudeM = &v
+	}
+	if session.TotalFractionalAscent != basetype.Uint8Invalid {
+		v := float64(session.TotalFractionalAscent) / 100.0
+		data.TotalFractionalAscentM = &v
+	}
+	if session.TotalFractionalDescent != basetype.Uint8Invalid {
+		v := float64(session.TotalFractionalDescent) / 100.0
+		data.TotalFractionalDescentM = &v
+	}
+
+	// === FIT SDK — Pedal Analytics ===
+	if session.AvgLeftTorqueEffectiveness != basetype.Uint8Invalid {
+		v := float64(session.AvgLeftTorqueEffectiveness) / 2.0
+		data.AvgLeftTorqueEffectivenessPct = &v
+	}
+	if session.AvgRightTorqueEffectiveness != basetype.Uint8Invalid {
+		v := float64(session.AvgRightTorqueEffectiveness) / 2.0
+		data.AvgRightTorqueEffectivenessPct = &v
+	}
+	if session.AvgLeftPedalSmoothness != basetype.Uint8Invalid {
+		v := float64(session.AvgLeftPedalSmoothness) / 2.0
+		data.AvgLeftPedalSmoothnessPct = &v
+	}
+	if session.AvgRightPedalSmoothness != basetype.Uint8Invalid {
+		v := float64(session.AvgRightPedalSmoothness) / 2.0
+		data.AvgRightPedalSmoothnessPct = &v
+	}
+	if session.AvgCombinedPedalSmoothness != basetype.Uint8Invalid {
+		v := float64(session.AvgCombinedPedalSmoothness) / 2.0
+		data.AvgCombinedPedalSmoothnessPct = &v
+	}
+	if session.AvgLeftPco != basetype.Sint8Invalid {
+		v := int16(session.AvgLeftPco)
+		data.AvgLeftPcoMm = &v
+	}
+	if session.AvgRightPco != basetype.Sint8Invalid {
+		v := int16(session.AvgRightPco)
+		data.AvgRightPcoMm = &v
+	}
+	// Power Phase arrays: []uint8, Scale: 0.7111111, fixed 2-element [start, end]
+	if len(session.AvgLeftPowerPhase) >= 2 {
+		if session.AvgLeftPowerPhase[0] != basetype.Uint8Invalid {
+			v := float64(session.AvgLeftPowerPhase[0]) * 0.7111111
+			data.AvgLeftPowerPhaseStartDeg = &v
+		}
+		if session.AvgLeftPowerPhase[1] != basetype.Uint8Invalid {
+			v := float64(session.AvgLeftPowerPhase[1]) * 0.7111111
+			data.AvgLeftPowerPhaseEndDeg = &v
+		}
+	}
+	if len(session.AvgLeftPowerPhasePeak) >= 2 {
+		if session.AvgLeftPowerPhasePeak[0] != basetype.Uint8Invalid {
+			v := float64(session.AvgLeftPowerPhasePeak[0]) * 0.7111111
+			data.AvgLeftPowerPhasePeakStartDeg = &v
+		}
+		if session.AvgLeftPowerPhasePeak[1] != basetype.Uint8Invalid {
+			v := float64(session.AvgLeftPowerPhasePeak[1]) * 0.7111111
+			data.AvgLeftPowerPhasePeakEndDeg = &v
+		}
+	}
+	if len(session.AvgRightPowerPhase) >= 2 {
+		if session.AvgRightPowerPhase[0] != basetype.Uint8Invalid {
+			v := float64(session.AvgRightPowerPhase[0]) * 0.7111111
+			data.AvgRightPowerPhaseStartDeg = &v
+		}
+		if session.AvgRightPowerPhase[1] != basetype.Uint8Invalid {
+			v := float64(session.AvgRightPowerPhase[1]) * 0.7111111
+			data.AvgRightPowerPhaseEndDeg = &v
+		}
+	}
+	if len(session.AvgRightPowerPhasePeak) >= 2 {
+		if session.AvgRightPowerPhasePeak[0] != basetype.Uint8Invalid {
+			v := float64(session.AvgRightPowerPhasePeak[0]) * 0.7111111
+			data.AvgRightPowerPhasePeakStartDeg = &v
+		}
+		if session.AvgRightPowerPhasePeak[1] != basetype.Uint8Invalid {
+			v := float64(session.AvgRightPowerPhasePeak[1]) * 0.7111111
+			data.AvgRightPowerPhasePeakEndDeg = &v
+		}
+	}
+
+	// === FIT SDK — Power/Cadence by Position ===
+	if len(session.AvgPowerPosition) > 0 {
+		pp := make([]int32, 0, len(session.AvgPowerPosition))
+		for _, v := range session.AvgPowerPosition {
+			if v != basetype.Uint16Invalid {
+				pp = append(pp, int32(v))
+			}
+		}
+		if len(pp) > 0 {
+			data.AvgPowerPositionW = pp
+		}
+	}
+	if len(session.MaxPowerPosition) > 0 {
+		pp := make([]int32, 0, len(session.MaxPowerPosition))
+		for _, v := range session.MaxPowerPosition {
+			if v != basetype.Uint16Invalid {
+				pp = append(pp, int32(v))
+			}
+		}
+		if len(pp) > 0 {
+			data.MaxPowerPositionW = pp
+		}
+	}
+	if len(session.AvgCadencePosition) > 0 {
+		cp := make([]int16, 0, len(session.AvgCadencePosition))
+		for _, v := range session.AvgCadencePosition {
+			if v != basetype.Uint8Invalid {
+				cp = append(cp, int16(v))
+			}
+		}
+		if len(cp) > 0 {
+			data.AvgCadencePosition = cp
+		}
+	}
+	if len(session.MaxCadencePosition) > 0 {
+		cp := make([]int16, 0, len(session.MaxCadencePosition))
+		for _, v := range session.MaxCadencePosition {
+			if v != basetype.Uint8Invalid {
+				cp = append(cp, int16(v))
+			}
+		}
+		if len(cp) > 0 {
+			data.MaxCadencePosition = cp
+		}
+	}
+
+	// === FIT SDK — Standing/Sitting ===
+	if session.TimeStanding != basetype.Uint32Invalid {
+		v := float64(session.TimeStanding) / 1000.0
+		data.TimeStandingS = &v
+	}
+	if session.StandCount != basetype.Uint16Invalid {
+		v := int32(session.StandCount)
+		data.StandCount = &v
+	}
+
+	// === FIT SDK — E-Bike ===
+	if session.AvgLevMotorPower != basetype.Uint16Invalid {
+		v := int32(session.AvgLevMotorPower)
+		data.AvgLevMotorPowerW = &v
+	}
+	if session.MaxLevMotorPower != basetype.Uint16Invalid {
+		v := int32(session.MaxLevMotorPower)
+		data.MaxLevMotorPowerW = &v
+	}
+	if session.LevBatteryConsumption != basetype.Uint8Invalid {
+		v := float64(session.LevBatteryConsumption) / 2.0
+		data.LevBatteryConsumptionPct = &v
+	}
+
+	// === FIT SDK — MTB Grit/Flow (float32 → float64) ===
+	if !math.IsNaN(float64(session.TotalGrit)) && session.TotalGrit != math.Float32frombits(basetype.Float32Invalid) {
+		v := float64(session.TotalGrit)
+		data.TotalGrit = &v
+	}
+	if !math.IsNaN(float64(session.TotalFlow)) && session.TotalFlow != math.Float32frombits(basetype.Float32Invalid) {
+		v := float64(session.TotalFlow)
+		data.TotalFlow = &v
+	}
+	if !math.IsNaN(float64(session.AvgGrit)) && session.AvgGrit != math.Float32frombits(basetype.Float32Invalid) {
+		v := float64(session.AvgGrit)
+		data.AvgGrit = &v
+	}
+	if !math.IsNaN(float64(session.AvgFlow)) && session.AvgFlow != math.Float32frombits(basetype.Float32Invalid) {
+		v := float64(session.AvgFlow)
+		data.AvgFlow = &v
+	}
+
+	// === FIT SDK — Jumps ===
+	if session.JumpCount != basetype.Uint16Invalid {
+		v := int32(session.JumpCount)
+		data.JumpCount = &v
+	}
+
+	// === FIT SDK — Ball Sports ===
+	if session.MaxBallSpeed != basetype.Uint16Invalid {
+		v := float64(session.MaxBallSpeed) / 100.0
+		data.MaxBallSpeedMs = &v
+	}
+	if session.AvgBallSpeed != basetype.Uint16Invalid {
+		v := float64(session.AvgBallSpeed) / 100.0
+		data.AvgBallSpeedMs = &v
+	}
+	if session.PlayerScore != basetype.Uint16Invalid {
+		v := int32(session.PlayerScore)
+		data.PlayerScore = &v
+	}
+	if session.OpponentScore != basetype.Uint16Invalid {
+		v := int32(session.OpponentScore)
+		data.OpponentScore = &v
+	}
+	if session.OpponentName != basetype.StringInvalid && session.OpponentName != "" {
+		data.OpponentName = &session.OpponentName
+	}
+
+	// === FIT SDK — Hemoglobin (arrays, multi-sensor) ===
+	if len(session.AvgTotalHemoglobinConc) > 0 {
+		hb := make([]float64, 0, len(session.AvgTotalHemoglobinConc))
+		for _, v := range session.AvgTotalHemoglobinConc {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/100.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.AvgTotalHemoglobinConc = hb
+		}
+	}
+	if len(session.MinTotalHemoglobinConc) > 0 {
+		hb := make([]float64, 0, len(session.MinTotalHemoglobinConc))
+		for _, v := range session.MinTotalHemoglobinConc {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/100.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.MinTotalHemoglobinConc = hb
+		}
+	}
+	if len(session.MaxTotalHemoglobinConc) > 0 {
+		hb := make([]float64, 0, len(session.MaxTotalHemoglobinConc))
+		for _, v := range session.MaxTotalHemoglobinConc {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/100.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.MaxTotalHemoglobinConc = hb
+		}
+	}
+	if len(session.AvgSaturatedHemoglobinPercent) > 0 {
+		hb := make([]float64, 0, len(session.AvgSaturatedHemoglobinPercent))
+		for _, v := range session.AvgSaturatedHemoglobinPercent {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/10.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.AvgSaturatedHemoglobinPct = hb
+		}
+	}
+	if len(session.MinSaturatedHemoglobinPercent) > 0 {
+		hb := make([]float64, 0, len(session.MinSaturatedHemoglobinPercent))
+		for _, v := range session.MinSaturatedHemoglobinPercent {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/10.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.MinSaturatedHemoglobinPct = hb
+		}
+	}
+	if len(session.MaxSaturatedHemoglobinPercent) > 0 {
+		hb := make([]float64, 0, len(session.MaxSaturatedHemoglobinPercent))
+		for _, v := range session.MaxSaturatedHemoglobinPercent {
+			if v != basetype.Uint16Invalid {
+				hb = append(hb, float64(v)/10.0)
+			}
+		}
+		if len(hb) > 0 {
+			data.MaxSaturatedHemoglobinPct = hb
+		}
+	}
+
+	// === FIT SDK — Diving ===
+	if session.AvgDepth != basetype.Uint32Invalid {
+		v := float64(session.AvgDepth) / 1000.0
+		data.AvgDepthM = &v
+	}
+	if session.MaxDepth != basetype.Uint32Invalid {
+		v := float64(session.MaxDepth) / 1000.0
+		data.MaxDepthM = &v
+	}
+	if session.SurfaceInterval != basetype.Uint32Invalid {
+		v := int32(session.SurfaceInterval)
+		data.SurfaceIntervalS = &v
+	}
+	if session.DiveNumber != basetype.Uint32Invalid {
+		v := int32(session.DiveNumber)
+		data.DiveNumber = &v
+	}
+	if session.StartCns != basetype.Uint8Invalid {
+		v := int16(session.StartCns)
+		data.StartCnsPct = &v
+	}
+	if session.EndCns != basetype.Uint8Invalid {
+		v := int16(session.EndCns)
+		data.EndCnsPct = &v
+	}
+	if session.StartN2 != basetype.Uint16Invalid {
+		v := int32(session.StartN2)
+		data.StartN2Pct = &v
+	}
+	if session.EndN2 != basetype.Uint16Invalid {
+		v := int32(session.EndN2)
+		data.EndN2Pct = &v
+	}
+	if session.O2Toxicity != basetype.Uint16Invalid {
+		v := int32(session.O2Toxicity)
+		data.O2ToxicityOtu = &v
+	}
+
+	// === FIT SDK — Respiration / HRV Extended ===
+	if session.EnhancedMaxRespirationRate != basetype.Uint16Invalid {
+		v := float64(session.EnhancedMaxRespirationRate) / 100.0
+		data.MaxRespirationRate = &v
+	}
+	if session.EnhancedMinRespirationRate != basetype.Uint16Invalid {
+		v := float64(session.EnhancedMinRespirationRate) / 100.0
+		data.MinRespirationRate = &v
+	}
+	if session.SdrrHrv != basetype.Uint8Invalid {
+		v := int16(session.SdrrHrv)
+		data.SdrrHrvMs = &v
+	}
+
+	// === FIT SDK — Temperature Extended ===
+	if session.MinCoreTemperature != basetype.Uint16Invalid {
+		v := float64(session.MinCoreTemperature) / 100.0
+		data.MinCoreTemperatureC = &v
+	}
+	if session.MaxCoreTemperature != basetype.Uint16Invalid {
+		v := float64(session.MaxCoreTemperature) / 100.0
+		data.MaxCoreTemperatureC = &v
+	}
+
+	// === FIT SDK — Misc ===
+	if session.AvgLapTime != basetype.Uint32Invalid {
+		v := float64(session.AvgLapTime) / 1000.0
+		data.AvgLapTimeS = &v
+	}
+	if session.BestLapIndex != basetype.Uint16Invalid {
+		v := int16(session.BestLapIndex)
+		data.BestLapIndex = &v
+	}
+	if session.NumLaps != basetype.Uint16Invalid {
+		v := int32(session.NumLaps)
+		data.NumLaps = &v
+	}
+	if session.FirstLapIndex != basetype.Uint16Invalid {
+		v := int32(session.FirstLapIndex)
+		data.FirstLapIndex = &v
+	}
+	if session.IntensityFactor != basetype.Uint16Invalid {
+		v := float64(session.IntensityFactor) / 1000.0
+		data.IntensityFactor = &v
+	}
+	// LeftRightBalance (LeftRightBalance100: uint16, mask 0x3FFF, scale /100)
+	if session.LeftRightBalance != typedef.LeftRightBalance100Invalid {
+		v := float64(uint16(session.LeftRightBalance)&0x3FFF) / 100.0
+		data.LeftRightBalance = &v
+	}
+	if session.SportProfileName != basetype.StringInvalid && session.SportProfileName != "" {
+		data.SportProfileName = &session.SportProfileName
+	}
+	if session.SportIndex != basetype.Uint8Invalid {
+		v := int16(session.SportIndex)
+		data.SportIndex = &v
+	}
+	// Bounding box (semicircles → degrees)
+	if session.NecLat != basetype.Sint32Invalid {
+		v := semicircles.ToDegrees(session.NecLat)
+		data.NecLat = &v
+	}
+	if session.NecLong != basetype.Sint32Invalid {
+		v := semicircles.ToDegrees(session.NecLong)
+		data.NecLng = &v
+	}
+	if session.SwcLat != basetype.Sint32Invalid {
+		v := semicircles.ToDegrees(session.SwcLat)
+		data.SwcLat = &v
+	}
+	if session.SwcLong != basetype.Sint32Invalid {
+		v := semicircles.ToDegrees(session.SwcLong)
+		data.SwcLng = &v
+	}
+
 	// TimeInZone messages
 	for _, tiz := range timeInZones {
 		for i, raw := range tiz.TimeInHrZone {
@@ -643,6 +1210,18 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.SplitSummaries = ExtractSplitSummaries(splitSummaries)
 	data.Lengths = ExtractLengths(lengths)
 	data.ClimbProEvents = ExtractClimbProEvents(climbPros)
+
+	// New FIT SDK record collections
+	data.Events = ExtractEvents(events)
+	data.Sets = ExtractSets(sets)
+	data.Jumps = ExtractJumps(jumps)
+	data.HrData = ExtractHrData(hrs)
+	data.SegmentLaps = ExtractSegmentLaps(segmentLaps)
+	if workout != nil {
+		data.Workout = ExtractWorkout(workout)
+		data.WorkoutSteps = ExtractWorkoutSteps(workoutSteps)
+	}
+	data.DeveloperFieldDefs = ExtractDeveloperFieldDefs(devDataIds, fieldDescs)
 
 	// For merged files (multi-source GPX exports and FIT-stitching tools) the session's TotalElapsedTime can be
 	// the span from first to last timestamp (e.g. 17h) rather than actual recording
