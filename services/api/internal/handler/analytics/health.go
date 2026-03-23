@@ -6,6 +6,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetHRV returns HRV chart data with baseline statistics and anomaly detection.
@@ -15,7 +16,7 @@ func (h *Handler) GetHRV(w http.ResponseWriter, r *http.Request) {
 
 	points, err := h.DB.GetHRVAnalysis(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "HRV Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "HRV Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -53,7 +54,7 @@ func (h *Handler) GetHRV(w http.ResponseWriter, r *http.Request) {
 		Anomalies    []string            `json:"anomalies"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		Points:       points,
 		BaselineMean: baselineMean,
 		BaselineStd:  baselineStd,
@@ -69,7 +70,7 @@ func (h *Handler) GetHRVCorrelation(w http.ResponseWriter, r *http.Request) {
 
 	pts, err := h.DB.GetHRVCorrelation(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "HRV Correlation Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "HRV Correlation Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -83,7 +84,7 @@ func (h *Handler) GetHRVCorrelation(w http.ResponseWriter, r *http.Request) {
 		Interpretation string                         `json:"interpretation"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		Points:         pts,
 		Correlation:    corr,
 		Interpretation: interpretation,
@@ -97,25 +98,25 @@ func (h *Handler) GetHRVDFAAlpha1(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	activityID := r.URL.Query().Get("activity_id")
 	if activityID == "" {
-		writeError(w, http.StatusBadRequest, "Missing Parameter",
+		httputil.WriteError(w, http.StatusBadRequest, "Missing Parameter",
 			"activity_id query parameter is required", r.URL.Path)
 		return
 	}
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || activity == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	intervals, err := h.DB.GetRRIntervals(r.Context(), activityID)
 	if err != nil {
 		// activity_rr_intervals table may not exist yet.
-		writeError(w, http.StatusInternalServerError, "R-R Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "R-R Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -132,7 +133,7 @@ func (h *Handler) GetHRVDFAAlpha1(w http.ResponseWriter, r *http.Request) {
 		Note       string  `json:"note"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		ActivityID: activityID,
 		Count:      len(intervals),
 		RRMs:       intervals,
@@ -148,7 +149,7 @@ func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
 	filter := ParseFilters(r)
 	hrvPts, err := h.DB.GetHRVAnalysis(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "HRV Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "HRV Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -156,7 +157,7 @@ func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
 	// Latest sleep.
 	latestSleep, err := h.DB.GetLatestHealthSleep(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Sleep Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "Sleep Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -164,7 +165,7 @@ func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
 	// Latest training load (ATL).
 	latestLoad, err := h.DB.GetLatestHealthTrainingLoad(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Training Load Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "Training Load Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -219,7 +220,7 @@ func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
 		Recommendation string  `json:"recommendation"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		Score:          score,
 		Level:          level,
 		HRVFactor:      round2(hrvFactor),
@@ -236,7 +237,7 @@ func (h *Handler) GetSleep(w http.ResponseWriter, r *http.Request) {
 
 	pts, err := h.DB.GetSleepAnalytics(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Sleep Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "Sleep Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -272,7 +273,7 @@ func (h *Handler) GetSleep(w http.ResponseWriter, r *http.Request) {
 		Trend          string                         `json:"trend"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		Points:         pts,
 		AvgDurationMin: round2(avgDur),
 		AvgScore:       round2(avgScore),
@@ -287,7 +288,7 @@ func (h *Handler) GetWeight(w http.ResponseWriter, r *http.Request) {
 
 	pts, err := h.DB.GetWeightAnalytics(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Weight Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "Weight Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -311,7 +312,7 @@ func (h *Handler) GetWeight(w http.ResponseWriter, r *http.Request) {
 		Change30d float64                `json:"change_30d"`
 	}
 
-	writeJSON(w, http.StatusOK, response{
+	httputil.WriteJSON(w, http.StatusOK, response{
 		Points:    pts,
 		CurrentKg: round2(currentKg),
 		Change30d: change30d,
@@ -325,7 +326,7 @@ func (h *Handler) GetHealthMetrics(w http.ResponseWriter, r *http.Request) {
 
 	metrics, err := h.DB.GetHealthMetrics(r.Context(), userID, filter.From, filter.To)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Health Metrics Query Failed",
+		httputil.WriteError(w, http.StatusInternalServerError, "Health Metrics Query Failed",
 			err.Error(), r.URL.Path)
 		return
 	}
@@ -334,7 +335,7 @@ func (h *Handler) GetHealthMetrics(w http.ResponseWriter, r *http.Request) {
 		Metrics []database.HealthMetric `json:"metrics"`
 	}
 
-	writeJSON(w, http.StatusOK, response{Metrics: metrics})
+	httputil.WriteJSON(w, http.StatusOK, response{Metrics: metrics})
 }
 
 // ---- helper functions ----

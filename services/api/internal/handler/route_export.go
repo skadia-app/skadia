@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ExportRouteGPX handles GET /api/v1/routes/{id}/gpx
@@ -21,24 +22,24 @@ import (
 func (h *Handler) ExportRouteGPX(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
 		return
 	}
 
 	route, err := h.DB.GetRoute(r.Context(), id, userID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("export route gpx: get route failed", "route_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch route", r.URL.Path)
 		return
 	}
 

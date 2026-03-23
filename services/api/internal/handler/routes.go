@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ListRoutes returns paginated planned routes for the authenticated user.
@@ -19,7 +20,7 @@ import (
 func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
@@ -39,18 +40,18 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset)
 	if err != nil {
 		slog.Error("list routes failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list routes", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list routes", r.URL.Path)
 		return
 	}
 
 	total, err := h.DB.CountRoutes(r.Context(), userID)
 	if err != nil {
 		slog.Error("count routes failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to count routes", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to count routes", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"routes": routes,
 		"total":  total,
 		"limit":  limit,
@@ -63,13 +64,13 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	var route model.PlannedRoute
 	if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
@@ -78,12 +79,12 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	id, err := h.DB.CreateRoute(r.Context(), &route)
 	if err != nil {
 		slog.Error("create route failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create route", r.URL.Path)
 		return
 	}
 
 	route.ID = id
-	writeJSON(w, http.StatusCreated, route)
+	httputil.WriteJSON(w, http.StatusCreated, route)
 }
 
 // GetRoute fetches a single planned route by ID, enforcing ownership.
@@ -91,13 +92,13 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
 		return
 	}
 
@@ -105,15 +106,15 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	route, err := h.DB.GetRoute(r.Context(), id, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("get route failed", "error", err, "id", id, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get route", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, route)
+	httputil.WriteJSON(w, http.StatusOK, route)
 }
 
 // UpdateRoute updates mutable fields of a planned route, enforcing ownership.
@@ -121,19 +122,19 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
 		return
 	}
 
 	var route model.PlannedRoute
 	if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
@@ -143,15 +144,15 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	// UpdateRoute enforces ownership via WHERE id = $1 AND user_id = $2
 	if err := h.DB.UpdateRoute(r.Context(), &route); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("update route failed", "error", err, "id", id, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update route", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, route)
+	httputil.WriteJSON(w, http.StatusOK, route)
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.
@@ -159,24 +160,24 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
 		return
 	}
 
 	// DeleteRoute enforces ownership via WHERE id = $1 AND user_id = $2
 	if err := h.DB.DeleteRoute(r.Context(), id, userID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete route failed", "error", err, "id", id, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete route", r.URL.Path)
 		return
 	}
 
@@ -188,13 +189,13 @@ func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing route id", r.URL.Path)
 		return
 	}
 
@@ -202,13 +203,13 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	newID, err := h.DB.DuplicateRoute(r.Context(), id, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
 			return
 		}
 		slog.Error("duplicate route failed", "error", err, "id", id, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to duplicate route", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to duplicate route", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"id": newID})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
 }

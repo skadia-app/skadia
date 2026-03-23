@@ -19,12 +19,13 @@ import (
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // RoutingGraphStatus returns the current routing status based on tile availability.
 func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"routing_available": false,
 		})
 		return
@@ -50,14 +51,14 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // RouteCalculate computes a route using the UnifiedRouter (TiledGraphReader).
 // Returns 503 if no routing engine is available.
 func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not configured",
 		})
 		return
@@ -65,7 +66,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 
 	unifiedRouter := h.GraphManager.UnifiedRouter()
 	if unifiedRouter == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not available",
 		})
 		return
@@ -79,7 +80,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "invalid request body",
 		})
 		return
@@ -90,20 +91,20 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 	}
 	if !validCoord(req.From[0], req.From[1]) || !validCoord(req.To[0], req.To[1]) {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "lat must be [-90,90], lon must be [-180,180]",
 		})
 		return
 	}
 	if len(req.Via) > 25 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "maximum 25 via points allowed",
 		})
 		return
 	}
 	for _, v := range req.Via {
 		if !validCoord(v[0], v[1]) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 				"error": "via point: lat must be [-90,90], lon must be [-180,180]",
 			})
 			return
@@ -115,7 +116,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		var err error
 		cfg, err = routing.BuildCostConfig(*req.Config)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 				"error": err.Error(),
 			})
 			return
@@ -182,7 +183,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			"duration_ms", duration.Milliseconds(),
 			"status", status,
 			"error", err)
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": status,
 			"error":  err.Error(),
 		})
@@ -209,7 +210,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 // POST /admin/routing/rebuild-tiles
 func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not configured",
 		})
 		return
@@ -217,7 +218,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
+		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthorized",
 		})
 		return
@@ -234,7 +235,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	h.DB.Pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM background_jobs WHERE job_type = 'tile_build' AND status = 'running'`).Scan(&running)
 	if running > 0 {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -265,7 +266,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
 		"tile_build", nil, &entityName, 0)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{
 			"error": "failed to create job",
 		})
 		return
@@ -303,7 +304,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status":   "started",
 		"job_id":   jobID,
 		"tile_dir": tileDir,
@@ -315,12 +316,12 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 // POST /admin/routing/rebuild-landmarks
 func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
 		return
 	}
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
 	}
 
@@ -333,7 +334,7 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 	entityName := "Landmarks"
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "tile_build", nil, &entityName, 0)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
 		return
 	}
 
@@ -351,7 +352,7 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "started", "job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "started", "job_id": jobID})
 }
 
 // BuildBRouterSegments builds BRouter rd5 segment files from local PBF data.
@@ -360,7 +361,7 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
+		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthorized",
 		})
 		return
@@ -380,7 +381,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		for _, id := range req.Regions {
 			reg, ok := osmregions.RegionByID(id)
 			if !ok {
-				writeJSON(w, http.StatusBadRequest, map[string]any{
+				httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 					"error": "unknown region: " + id,
 				})
 				return
@@ -402,7 +403,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(regions) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "no PBF files found for any region",
 		})
 		return
@@ -418,7 +419,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	h.DB.Pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_build' AND status = 'running'`).Scan(&running)
 	if running > 0 {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -426,7 +427,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
 		"brouter_segment_build", nil, &entityName, 100)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{
 			"error": "failed to create job",
 		})
 		return
@@ -458,7 +459,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status":   "started",
 		"job_id":   jobID,
 		"regions":  labels,
@@ -470,7 +471,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
 	}
 
@@ -478,7 +479,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		Regions []string `json:"regions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Regions) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "regions required"})
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "regions required"})
 		return
 	}
 
@@ -486,7 +487,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	for _, id := range req.Regions {
 		reg, ok := osmregions.RegionByID(id)
 		if !ok {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown region: " + id})
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown region: " + id})
 			return
 		}
 		regions = append(regions, reg)
@@ -494,7 +495,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 
 	tiles := osmregions.BRouterTileIDs(regions)
 	if len(tiles) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "no tiles for selected regions"})
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "no tiles for selected regions"})
 		return
 	}
 
@@ -502,7 +503,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	h.DB.Pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_download' AND status = 'running'`).Scan(&running)
 	if running > 0 {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -510,7 +511,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID,
 		"brouter_segment_download", nil, &entityName, int64(len(tiles)))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
 		return
 	}
 
@@ -543,7 +544,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		}
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "started",
 		"job_id": jobID,
 		"tiles":  len(tiles),

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ListActiveJobs gibt laufende Background-Jobs + Anzahl pending Enrichments zurück.
@@ -13,14 +14,14 @@ import (
 func (h *Handler) ListActiveJobs(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID)
 	if err != nil {
 		slog.Error("list active jobs failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list jobs", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list jobs", r.URL.Path)
 		return
 	}
 
@@ -42,7 +43,7 @@ func (h *Handler) ListActiveJobs(w http.ResponseWriter, r *http.Request) {
 		pending = 0
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"jobs":                jobs,
 		"pending_enrichments": pending,
 	})

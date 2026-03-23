@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ---------------------------------------------------------------------------
@@ -202,7 +203,7 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -211,14 +212,14 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.DB.GetLifetimeStats(ctx, userID, whereClause, args)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
 	// Streak data (no filters — always lifetime).
 	activeDays, err := h.DB.GetActiveDays(ctx, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 	currentStreak, maxStreak, _ := calculateDayStreaks(activeDays)
@@ -239,7 +240,7 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 		MaxDayStreak:      maxStreak,
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +263,7 @@ func (h *Handler) GetEddington(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -276,7 +277,7 @@ func (h *Handler) GetEddington(w http.ResponseWriter, r *http.Request) {
 
 	values, err := h.DB.GetEddingtonData(ctx, userID, metric, whereClause, args)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -311,7 +312,7 @@ func (h *Handler) GetEddington(w http.ResponseWriter, r *http.Request) {
 		topValues = topValues[:50]
 	}
 
-	writeJSON(w, http.StatusOK, eddingtonResponse{
+	httputil.WriteJSON(w, http.StatusOK, eddingtonResponse{
 		Metric:     metric,
 		Number:     e,
 		NextLevels: nextLevels,
@@ -327,7 +328,7 @@ func (h *Handler) GetDistributions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
@@ -345,11 +346,11 @@ func (h *Handler) GetDistributions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.GetDistribution(ctx, userID, distType, metric, whereClause, args)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"type":   distType,
 		"metric": metric,
 		"rows":   rows,
@@ -364,17 +365,17 @@ func (h *Handler) GetYearlyOverview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
 	rows, err := h.DB.GetYearlyOverview(ctx, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"rows": rows,
 	})
 }
@@ -395,20 +396,20 @@ func (h *Handler) GetStreaks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := middleware.GetUserID(ctx)
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "missing user identity", r.URL.Path)
 		return
 	}
 
 	days, err := h.DB.GetActiveDays(ctx, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
 	}
 
 	currentStreak, maxStreak, history := calculateDayStreaks(days)
 	currentWeekStreak, maxWeekStreak := calculateWeekStreaks(days)
 
-	writeJSON(w, http.StatusOK, streakResponse{
+	httputil.WriteJSON(w, http.StatusOK, streakResponse{
 		CurrentStreak:     currentStreak,
 		MaxStreak:         maxStreak,
 		CurrentWeekStreak: currentWeekStreak,

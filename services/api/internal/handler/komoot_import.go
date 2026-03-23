@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/komoot"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // --- Request/Response types ---
@@ -51,17 +52,17 @@ type KomootStartRequest struct {
 func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	var req KomootLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "email and password are required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "email and password are required", r.URL.Path)
 		return
 	}
 
@@ -69,13 +70,13 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	client, err := komoot.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		slog.Warn("komoot login failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Anmeldung bei Komoot fehlgeschlagen. Bitte E-Mail und Passwort prüfen."})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Anmeldung bei Komoot fehlgeschlagen. Bitte E-Mail und Passwort prüfen."})
 		return
 	}
 
 	// Validate encryption key is configured
 	if h.Config.KomootEncryptionKey == "" {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	encPassword, err := encryptAPIKey(req.Password, h.Config.KomootEncryptionKey)
 	if err != nil {
 		slog.Error("komoot: encrypt password failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt password", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt password", r.URL.Path)
 		return
 	}
 
@@ -117,11 +118,11 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 		ImportPhotos:      true,
 	}); err != nil {
 		slog.Error("komoot: save credentials failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save credentials", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":            "ok",
 		"komoot_user_id":    client.UserID(),
 		"credentials_saved": req.SaveCredentials,
@@ -141,42 +142,42 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	creds, err := h.DB.GetKomootCredentials(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load credentials", r.URL.Path)
 		return
 	}
 	if creds == nil {
-		writeJSON(w, http.StatusOK, KomootScanResult{HasCredentials: false})
+		httputil.WriteJSON(w, http.StatusOK, KomootScanResult{HasCredentials: false})
 		return
 	}
 
 	if h.Config.KomootEncryptionKey == "" {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
 		return
 	}
 
 	password, err := decryptAPIKey(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
 	if err != nil {
 		slog.Error("komoot: decrypt password failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
 		return
 	}
 
 	client, err := komoot.Login(r.Context(), creds.Email, password)
 	if err != nil {
 		slog.Warn("komoot scan: login with stored credentials failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Gespeicherte Komoot-Zugangsdaten ungültig. Bitte erneut anmelden."})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "invalid_credentials", "error": "Gespeicherte Komoot-Zugangsdaten ungültig. Bitte erneut anmelden."})
 		return
 	}
 
 	tours, err := client.ListTours(r.Context(), nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list tours", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list tours", r.URL.Path)
 		return
 	}
 
@@ -202,7 +203,7 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, KomootScanResult{
+	httputil.WriteJSON(w, http.StatusOK, KomootScanResult{
 		TourCount:      len(tours),
 		RecordedCount:  recordedCount,
 		PlannedCount:   plannedCount,
@@ -217,34 +218,34 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	var req KomootStartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	creds, err := h.DB.GetKomootCredentials(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load credentials", r.URL.Path)
 		return
 	}
 	if creds == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no Komoot credentials stored — login first", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no Komoot credentials stored — login first", r.URL.Path)
 		return
 	}
 
 	if h.Config.KomootEncryptionKey == "" {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "Komoot encryption key not configured", r.URL.Path)
 		return
 	}
 
 	password, err := decryptAPIKey(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
 		return
 	}
 
@@ -252,11 +253,11 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	alreadyRunning, err := h.DB.HasActiveKomootImportJob(r.Context(), userID)
 	if err != nil {
 		slog.Error("komoot: check active job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check active jobs", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check active jobs", r.URL.Path)
 		return
 	}
 	if alreadyRunning {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -265,7 +266,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "komoot_import", nil, &entityName, 0)
 	if err != nil {
 		slog.Error("komoot: create background job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
 		return
 	}
 
@@ -385,7 +386,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		)
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // GetKomootImportJob returns the status of a Komoot import job.
@@ -394,21 +395,21 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	jobID := chi.URLParam(r, "id")
 
 	job, err := h.DB.GetKomootImportJob(r.Context(), userID, jobID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Not Found", "job not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "job not found", r.URL.Path)
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get job", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, job)
+	httputil.WriteJSON(w, http.StatusOK, job)
 }
 
 // KomootCredentialsStatus checks if stored Komoot credentials exist for the user.
@@ -417,16 +418,16 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	creds, err := h.DB.GetKomootCredentials(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check credentials", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"has_credentials": creds != nil,
 		"email": func() string {
 			if creds != nil {
@@ -443,13 +444,13 @@ func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request
 func (h *Handler) KomootDeleteCredentials(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.DeleteKomootCredentials(r.Context(), userID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete credentials", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete credentials", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

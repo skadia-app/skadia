@@ -31,6 +31,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // recomputeJobState tracks the in-memory state of an async recompute-all job.
@@ -70,7 +71,7 @@ func (c *segCollector) forEach(fn func(segID string)) {
 func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -80,11 +81,11 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("reprocess: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -93,7 +94,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		children, err := h.DB.GetChildActivities(r.Context(), id)
 		if err != nil {
 			slog.Error("reprocess multisport: get children failed", "id", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get child activities", r.URL.Path)
 			return
 		}
 		parentID := id
@@ -105,7 +106,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "recompute_multisport", &parentID, parentName, int64(len(children)+1))
 		if err != nil {
 			slog.Error("reprocess multisport: create job failed", "id", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create background job", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create background job", r.URL.Path)
 			return
 		}
 
@@ -129,7 +130,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			slog.Info("reprocess multisport: done", "id", parentID, "children", len(children))
 		}()
 
-		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+		httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 		return
 	}
 
@@ -179,7 +180,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "running",
 		"job_id": jobID,
 	})
@@ -192,7 +193,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -201,7 +202,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	if r.Body != nil && r.ContentLength > 0 {
 		var f database.ReprocessFilter
 		if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid filter JSON", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid filter JSON", r.URL.Path)
 			return
 		}
 		filter = &f
@@ -211,7 +212,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	h.recomputeJob.mu.Lock()
 	if h.recomputeJob.running {
 		h.recomputeJob.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -220,7 +221,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		h.recomputeJob.mu.Unlock()
 		slog.Error("reprocess-all: list ids failed", "user_id", userID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
@@ -385,7 +386,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		"total", len(ids),
 	)
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_id": jobID,
 		"status": "running",
 		"total":  len(ids),
@@ -404,7 +405,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 
 	// No job has ever been started.
 	if jobID == "" {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": "idle",
 		})
 		return
@@ -414,7 +415,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 	errors := h.recomputeJob.errors.Load()
 
 	if running {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":    "running",
 			"job_id":    jobID,
 			"processed": processed,
@@ -425,7 +426,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Job finished (completed).
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":    "completed",
 		"job_id":    jobID,
 		"processed": processed,

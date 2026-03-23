@@ -13,6 +13,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
@@ -21,11 +22,11 @@ func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.ListRules(r.Context(), userID)
 	if err != nil {
 		slog.Error("list rules failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
@@ -33,30 +34,30 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 
 	var create model.AutomationRuleCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if len(create.Conditions) == 0 && len(create.ConditionGroups) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "conditions or condition_groups are required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "conditions or condition_groups are required", r.URL.Path)
 		return
 	}
 	if len(create.Actions) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "actions are required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "actions are required", r.URL.Path)
 		return
 	}
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
 	if err != nil {
 		slog.Error("create rule failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, rule)
+	httputil.WriteJSON(w, http.StatusCreated, rule)
 }
 
 func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
@@ -65,22 +66,22 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 
 	var update model.AutomationRuleUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	rule, err := h.DB.UpdateRule(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update rule failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
 		return
 	}
 	if rule == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, rule)
+	httputil.WriteJSON(w, http.StatusOK, rule)
 }
 
 func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -89,11 +90,11 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteRule(r.Context(), id, userID); err != nil {
 		if err.Error() == "rule not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete rule failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete rule", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete rule", r.URL.Path)
 		return
 	}
 
@@ -107,7 +108,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	allRules, err := h.DB.ListRules(r.Context(), userID)
 	if err != nil {
 		slog.Error("apply rules: list failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
 		return
 	}
 
@@ -119,7 +120,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(activeRules) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"job_id":   nil,
 			"applied":  0,
 			"affected": 0,
@@ -131,7 +132,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	activityIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
 	if err != nil {
 		slog.Error("apply rules: list activities failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
@@ -169,7 +170,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "apply rules started",
 		"job_id": jobID,
 	})

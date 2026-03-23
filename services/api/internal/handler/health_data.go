@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ── Mobile Health Data Ingest ────────────────────────────────────────────────
@@ -28,11 +29,11 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 
 	var req healthIngestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 	if req.Type == "" || req.Date == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "type and date required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "type and date required", r.URL.Path)
 		return
 	}
 
@@ -46,12 +47,12 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			TimeOfDay *string  `json:"time_of_day"`
 		}
 		if err := json.Unmarshal(req.Data, &d); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid hrv data", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid hrv data", r.URL.Path)
 			return
 		}
 		ts, err := time.Parse("2006-01-02", req.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
 			return
 		}
 		timeOfDay := "daily_avg"
@@ -68,7 +69,7 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.DB.UpsertHealthHRVSnapshot(r.Context(), snap); err != nil {
 			slog.Error("ingest hrv failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save hrv data", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save hrv data", r.URL.Path)
 			return
 		}
 
@@ -85,7 +86,7 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			ScoreOverall  *int   `json:"score_overall"`
 		}
 		if err := json.Unmarshal(req.Data, &d); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid sleep data", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid sleep data", r.URL.Path)
 			return
 		}
 		midnight, _ := time.Parse("2006-01-02", req.Date)
@@ -115,7 +116,7 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.DB.UpsertHealthSleep(r.Context(), sleep); err != nil {
 			slog.Error("ingest sleep failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save sleep data", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save sleep data", r.URL.Path)
 			return
 		}
 
@@ -129,16 +130,16 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			BoneMassG   *int     `json:"bone_mass_g"`
 		}
 		if err := json.Unmarshal(req.Data, &d); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid weight data", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid weight data", r.URL.Path)
 			return
 		}
 		if d.WeightG <= 0 {
-			writeError(w, http.StatusBadRequest, "Bad Request", "weight_g must be positive", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "weight_g must be positive", r.URL.Path)
 			return
 		}
 		ts, err := time.Parse("2006-01-02", req.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
 			return
 		}
 		entry := &model.HealthWeightEntry{
@@ -153,7 +154,7 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.DB.UpsertHealthWeightEntry(r.Context(), entry); err != nil {
 			slog.Error("ingest weight failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save weight data", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save weight data", r.URL.Path)
 			return
 		}
 
@@ -163,7 +164,7 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			RestingHR *int `json:"resting_hr_bpm"`
 		}
 		if err := json.Unmarshal(req.Data, &d); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid resting_hr data", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid resting_hr data", r.URL.Path)
 			return
 		}
 		summary := &model.HealthDailySummary{
@@ -174,20 +175,20 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.DB.UpsertHealthDailySummary(r.Context(), summary); err != nil {
 			slog.Error("ingest resting_hr failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save resting hr data", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save resting hr data", r.URL.Path)
 			return
 		}
 
 	default:
 		// Not yet implemented type — accept gracefully with 202 Accepted
-		writeJSON(w, http.StatusAccepted, map[string]string{
+		httputil.WriteJSON(w, http.StatusAccepted, map[string]string{
 			"status": "accepted",
 			"note":   "type '" + req.Type + "' not yet implemented",
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // defaultDateRange returns from/to query params, defaulting to the last 30 days.
@@ -224,13 +225,13 @@ func (h *Handler) GetHealthDailySummaries(w http.ResponseWriter, r *http.Request
 	items, err := h.DB.GetHealthDailySummaries(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health daily summaries failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health daily summaries", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health daily summaries", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthDailySummary{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/sleep?from=&to=
@@ -241,13 +242,13 @@ func (h *Handler) GetHealthSleep(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthSleep(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health sleep failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health sleep", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health sleep", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthSleep{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/hrv?from=&to=
@@ -258,13 +259,13 @@ func (h *Handler) GetHealthHRV(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthHRV(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health hrv failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health hrv", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health hrv", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthHRVSnapshot{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/weight?from=&to=
@@ -275,13 +276,13 @@ func (h *Handler) GetHealthWeight(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthWeight(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health weight failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health weight", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health weight", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthWeightEntry{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // POST /health/weight — manual weight entry creation
@@ -290,11 +291,11 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 
 	var create model.HealthWeightCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.WeightG <= 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "weight_g must be a positive integer", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "weight_g must be a positive integer", r.URL.Path)
 		return
 	}
 
@@ -321,10 +322,10 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 
 	if err := h.DB.UpsertHealthWeightEntry(r.Context(), entry); err != nil {
 		slog.Error("create health weight entry failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to save weight entry", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save weight entry", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusCreated, entry)
+	httputil.WriteJSON(w, http.StatusCreated, entry)
 }
 
 // GET /health/readiness?from=&to=
@@ -335,13 +336,13 @@ func (h *Handler) GetHealthReadiness(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthReadiness(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health readiness failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health readiness", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health readiness", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthReadinessScore{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/training-load?from=&to=
@@ -352,13 +353,13 @@ func (h *Handler) GetHealthTrainingLoad(w http.ResponseWriter, r *http.Request) 
 	items, err := h.DB.GetHealthTrainingLoad(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health training load failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health training load", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health training load", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthTrainingLoad{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/stress?from=&to=
@@ -369,13 +370,13 @@ func (h *Handler) GetHealthStress(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthStress(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health stress failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health stress", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health stress", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthStressSnapshot{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/spo2?from=&to=
@@ -386,13 +387,13 @@ func (h *Handler) GetHealthSpO2(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthSpO2(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health spo2 failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health spo2", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health spo2", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthSpO2Snapshot{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/blood-pressure?from=&to=
@@ -403,13 +404,13 @@ func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request)
 	items, err := h.DB.GetHealthBloodPressure(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health blood pressure failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health blood pressure", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health blood pressure", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthBloodPressure{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/fitness-age?from=&to=
@@ -420,13 +421,13 @@ func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.GetHealthFitnessAge(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get health fitness age failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health fitness age", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health fitness age", r.URL.Path)
 		return
 	}
 	if items == nil {
 		items = []model.HealthFitnessAge{}
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GET /health/overview
@@ -436,8 +437,8 @@ func (h *Handler) GetHealthOverview(w http.ResponseWriter, r *http.Request) {
 	overview, err := h.DB.GetHealthOverview(r.Context(), userID)
 	if err != nil {
 		slog.Error("get health overview failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get health overview", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get health overview", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	httputil.WriteJSON(w, http.StatusOK, overview)
 }

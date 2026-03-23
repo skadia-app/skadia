@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/editor"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ── Trim ──────────────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ import (
 func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -46,11 +47,11 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("trim: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -59,11 +60,11 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 		TrimEnd   *string `json:"trim_end"`   // RFC3339 timestamp (optional)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.TrimStart == nil && req.TrimEnd == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "at least one of trim_start or trim_end is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least one of trim_start or trim_end is required", r.URL.Path)
 		return
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	if req.TrimStart != nil {
 		trimStart, err = time.Parse(time.RFC3339, *req.TrimStart)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "trim_start is not a valid RFC3339 timestamp", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "trim_start is not a valid RFC3339 timestamp", r.URL.Path)
 			return
 		}
 	} else {
@@ -81,7 +82,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	if req.TrimEnd != nil {
 		trimEnd, err = time.Parse(time.RFC3339, *req.TrimEnd)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "trim_end is not a valid RFC3339 timestamp", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "trim_end is not a valid RFC3339 timestamp", r.URL.Path)
 			return
 		}
 	} else if activity.EndedAt != nil {
@@ -91,7 +92,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !trimStart.Before(trimEnd) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "trim_start must be before trim_end", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "trim_start must be before trim_end", r.URL.Path)
 		return
 	}
 
@@ -99,7 +100,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	streams, err := h.DB.GetStreamPoints(r.Context(), activityID)
 	if err != nil {
 		slog.Error("trim: get streams failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 		return
 	}
 
@@ -110,7 +111,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	// Persist updated metrics to the activities table.
 	if err := h.applyTrimMetrics(r.Context(), activityID, metrics); err != nil {
 		slog.Error("trim: update metrics failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
 		return
 	}
 
@@ -142,10 +143,10 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 	// Return updated activity.
 	updated, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || updated == nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // applyTrimMetrics updates activities table with recalculated values from trim.
@@ -204,7 +205,7 @@ func (h *Handler) applyTrimMetrics(ctx context.Context, activityID string, m edi
 func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -213,11 +214,11 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil {
 		slog.Error("split: get activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -225,22 +226,22 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		SplitAt string `json:"split_at"` // RFC3339
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	splitAt, err := time.Parse(time.RFC3339, req.SplitAt)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "split_at is not a valid RFC3339 timestamp", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "split_at is not a valid RFC3339 timestamp", r.URL.Path)
 		return
 	}
 
 	// Validate that the split point falls within the activity window.
 	if !splitAt.After(activity.StartedAt) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "split_at must be after activity start", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "split_at must be after activity start", r.URL.Path)
 		return
 	}
 	if activity.EndedAt != nil && !splitAt.Before(*activity.EndedAt) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "split_at must be before activity end", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "split_at must be before activity end", r.URL.Path)
 		return
 	}
 
@@ -248,7 +249,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	streams, err := h.DB.GetStreamPoints(r.Context(), activityID)
 	if err != nil {
 		slog.Error("split: get streams failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load streams", r.URL.Path)
 		return
 	}
 
@@ -256,11 +257,11 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	part2Streams := editor.FilterStreamsAfter(streams, splitAt)
 
 	if len(part1Streams) < 2 {
-		writeError(w, http.StatusUnprocessableEntity, "Unprocessable", "split point too close to activity start (fewer than 2 stream points in part 1)", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Unprocessable", "split point too close to activity start (fewer than 2 stream points in part 1)", r.URL.Path)
 		return
 	}
 	if len(part2Streams) < 2 {
-		writeError(w, http.StatusUnprocessableEntity, "Unprocessable", "split point too close to activity end (fewer than 2 stream points in part 2)", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Unprocessable", "split point too close to activity end (fewer than 2 stream points in part 2)", r.URL.Path)
 		return
 	}
 
@@ -270,7 +271,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	// Update the original activity to reflect part 1.
 	if err := h.applyTrimMetrics(r.Context(), activityID, metrics1); err != nil {
 		slog.Error("split: update part1 metrics failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
 		return
 	}
 
@@ -355,7 +356,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		slog.Error("split: create new activity failed", "id", activityID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create split activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create split activity", r.URL.Path)
 		return
 	}
 
@@ -411,7 +412,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		{Type: "trim_end", Timestamp: &splitAtStr},
 	})
 
-	writeJSON(w, http.StatusCreated, map[string]string{
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{
 		"activity_id":     activityID,
 		"new_activity_id": newID,
 	})
@@ -427,7 +428,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	targetID := chi.URLParam(r, "id")
@@ -437,15 +438,15 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 		Fields   []string `json:"fields"` // "hr", "power", "cadence", "temperature", "title", "tags", "gear"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.SourceID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_id is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_id is required", r.URL.Path)
 		return
 	}
 	if len(req.Fields) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "at least one field is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least one field is required", r.URL.Path)
 		return
 	}
 
@@ -453,11 +454,11 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	target, err := h.DB.GetActivity(r.Context(), targetID)
 	if err != nil {
 		slog.Error("merge: get target activity failed", "id", targetID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load target activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load target activity", r.URL.Path)
 		return
 	}
 	if target == nil || target.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "target activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "target activity not found", r.URL.Path)
 		return
 	}
 
@@ -465,11 +466,11 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	source, err := h.DB.GetActivity(r.Context(), req.SourceID)
 	if err != nil {
 		slog.Error("merge: get source activity failed", "id", req.SourceID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load source activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load source activity", r.URL.Path)
 		return
 	}
 	if source == nil || source.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "source activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "source activity not found", r.URL.Path)
 		return
 	}
 
@@ -506,7 +507,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	if len(streamFields) > 0 {
 		if err := h.mergeStreamFields(r.Context(), targetID, req.SourceID, streamFields); err != nil {
 			slog.Error("merge: stream fields failed", "target", targetID, "source", req.SourceID, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to merge stream fields", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to merge stream fields", r.URL.Path)
 			return
 		}
 	}
@@ -582,10 +583,10 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	// Return updated target activity.
 	updated, err := h.DB.GetActivity(r.Context(), targetID)
 	if err != nil || updated == nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to reload activity", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 // mergeStreamFields copies the specified stream columns from the source activity's

@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -17,14 +18,14 @@ import (
 func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
 
 	var sources database.FusionSources
 	if err := json.NewDecoder(r.Body).Decode(&sources); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
@@ -40,11 +41,11 @@ func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.SetFusionSources(r.Context(), activityID, userID, sources); err != nil {
 		slog.Error("set fusion sources", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to set fusion sources", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to set fusion sources", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // FusionCandidate beschreibt eine Aktivität die als Fusionsquelle in Frage kommt.
@@ -71,7 +72,7 @@ type FusionCandidate struct {
 func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -85,7 +86,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	// Ziel-Aktivität laden um started_at + ended_at für Overlap-Berechnung zu bekommen.
 	target, err := h.DB.GetActivity(r.Context(), activityID)
 	if err != nil || target == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
@@ -132,7 +133,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		slog.Error("find fusion candidates", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to find fusion candidates", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to find fusion candidates", r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -160,5 +161,5 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 		result = append(result, c)
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }

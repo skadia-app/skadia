@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 type importLogResponse struct {
@@ -52,11 +53,11 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, limit, offset)
 	if err != nil {
 		slog.Error("list import log", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load import log", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load import log", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, importLogResponse{
+	httputil.WriteJSON(w, http.StatusOK, importLogResponse{
 		Entries: entries,
 		Total:   total,
 	})

@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -58,7 +59,7 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 
 	hasData := len(categories) > 0 || ways > 0 || lifts > 0 || routes > 0
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"categories": categories,
 		"ways":       ways,
 		"lifts":      lifts,
@@ -88,7 +89,7 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 		       pbf_size_bytes, import_duration_s, categories, status
 		FROM osm_import_regions ORDER BY continent, label`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -119,7 +120,7 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 	if regions == nil {
 		regions = []region{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"regions": regions})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"regions": regions})
 }
 
 // GetOSMDiskUsage returns estimated disk usage of OSM tables.
@@ -159,7 +160,7 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 	if tables == nil {
 		tables = []tableSize{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"tables":      tables,
 		"total_bytes": totalBytes,
 	})
@@ -170,7 +171,7 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	regionID := chi.URLParam(r, "regionID")
 	if regionID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing region ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing region ID", r.URL.Path)
 		return
 	}
 
@@ -179,11 +180,11 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.Pool.QueryRow(r.Context(),
 		"SELECT status FROM osm_import_regions WHERE region_id = $1", regionID).Scan(&status)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Not Found", "Region nicht gefunden", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "Region nicht gefunden", r.URL.Path)
 		return
 	}
 	if status == "importing" {
-		writeJSON(w, http.StatusOK, map[string]string{
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{
 			"status":  "importing",
 			"message": "Region wird gerade importiert — Löschen nicht möglich",
 		})
@@ -194,7 +195,7 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool}
 	if err := pipeline.ClearRegionData(r.Context(), regionID); err != nil {
 		slog.Error("delete region: clear data failed", "region", regionID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -211,7 +212,7 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	os.Remove(pbfPath)
 	os.Remove(strings.TrimSuffix(pbfPath, ".osm.pbf") + "-filtered.osm.pbf")
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // SearchAddress performs trigram-based search across streets and places.
@@ -219,7 +220,7 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(q) < 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "query must be at least 2 characters", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "query must be at least 2 characters", r.URL.Path)
 		return
 	}
 	searchType := r.URL.Query().Get("type")
@@ -319,7 +320,7 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	if results == nil {
 		results = []searchResult{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": results, "count": len(results)})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"results": results, "count": len(results)})
 }
 
 // GetDEMStatus returns available DEM data sources and tile counts.
@@ -339,7 +340,7 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 		ORDER BY resolution_m ASC`)
 	if err != nil {
 		// dem schema might not exist — return empty
-		writeJSON(w, http.StatusOK, map[string]any{"sources": []demSource{}, "total_tiles": 0})
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"sources": []demSource{}, "total_tiles": 0})
 		return
 	}
 	defer rows.Close()
@@ -356,7 +357,7 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 	if sources == nil {
 		sources = []demSource{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sources": sources, "total_tiles": totalTiles})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"sources": sources, "total_tiles": totalTiles})
 }
 
 // RetryOSMEnrichment re-runs only the enrichment + splitting phases (6+7) on existing osm_ways.
@@ -374,7 +375,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	h.DB.Pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM background_jobs WHERE job_type = 'osm_enrichment' AND status = 'running'`).Scan(&running)
 	if running > 0 {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -384,7 +385,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 		h.DB.Pool.QueryRow(r.Context(),
 			`SELECT count(*) FROM osm_way_regions WHERE region_id = ANY($1)`, req.Regions).Scan(&wayCount)
 		if wayCount == 0 {
-			writeError(w, http.StatusBadRequest, "Bad Request",
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 				"Keine Ways für die gewählten Regionen vorhanden. Enrichment benötigt importierte Ways.", r.URL.Path)
 			return
 		}
@@ -396,7 +397,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_enrichment", nil, &entityName, 100)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -411,7 +412,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 		pipeline.RunEnrichmentAndSplitting(ctx, regionFilter, reporter)
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // RetryOSMTopology was removed: BadRouter's CSR graph builder computes topology
@@ -437,7 +438,7 @@ func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 		schedule.Day = 1
 		schedule.Hour = 3
 	}
-	writeJSON(w, http.StatusOK, schedule)
+	httputil.WriteJSON(w, http.StatusOK, schedule)
 }
 
 // SetOSMSchedule configures the automatic update schedule for all imported regions.
@@ -451,13 +452,13 @@ func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 		Hour     int    `json:"hour"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 	switch req.Interval {
 	case "manual", "weekly", "monthly":
 	default:
-		writeError(w, http.StatusBadRequest, "Bad Request", "interval must be manual|weekly|monthly", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "interval must be manual|weekly|monthly", r.URL.Path)
 		return
 	}
 
@@ -468,7 +469,7 @@ func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 		WHERE status = 'imported'`,
 		req.Interval, req.Weekday, req.Day, req.Hour)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // StartOSMUpdateScheduler launches a background goroutine that checks every hour

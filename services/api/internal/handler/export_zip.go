@@ -15,6 +15,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ExportActivitiesZip exports multiple activities as a single ZIP archive.
@@ -27,7 +28,7 @@ import (
 func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -36,7 +37,7 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 		Format string   `json:"format"`
 	}
 	if err := jsonDecodeBody(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 	if body.Format == "" {
@@ -46,7 +47,7 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	case "original", "gpx", "tcx", "fit":
 		// valid
 	default:
-		writeError(w, http.StatusBadRequest, "Bad Request", "unsupported format: "+body.Format, r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported format: "+body.Format, r.URL.Path)
 		return
 	}
 
@@ -57,12 +58,12 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 		ids, err = h.DB.ListActivityIDsForUser(r.Context(), userID)
 		if err != nil {
 			slog.Error("export-zip: list all activity ids failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 			return
 		}
 	}
 	if len(ids) > 1000 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "max 1000 activities per ZIP request", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 1000 activities per ZIP request", r.URL.Path)
 		return
 	}
 
@@ -115,7 +116,7 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := zw.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to finalize ZIP", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to finalize ZIP", r.URL.Path)
 		return
 	}
 

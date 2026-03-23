@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -30,7 +31,7 @@ type summitVisitResponse struct {
 func (h *Handler) GetSummitCollection(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -64,7 +65,7 @@ func (h *Handler) GetSummitCollection(w http.ResponseWriter, r *http.Request) {
 	summits, err := h.DB.GetSummitCollection(r.Context(), userID, f)
 	if err != nil {
 		slog.Error("summit collection query failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit collection", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit collection", r.URL.Path)
 		return
 	}
 
@@ -87,7 +88,7 @@ func (h *Handler) GetSummitCollection(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 type summitActivityResponse struct {
@@ -104,7 +105,7 @@ type summitActivityResponse struct {
 func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 	acts, err := h.DB.GetSummitActivities(r.Context(), userID, osmID, name)
 	if err != nil {
 		slog.Error("summit activities query failed", "error", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit activities", r.URL.Path)
 		return
 	}
 
@@ -137,7 +138,7 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 			ElevationGainM: a.ElevationGainM,
 		})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GetSummitActivitiesByName returns all activities linked to a summit by name.
@@ -145,18 +146,18 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name query param required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name query param required", r.URL.Path)
 		return
 	}
 	acts, err := h.DB.GetSummitActivities(r.Context(), userID, nil, name)
 	if err != nil {
 		slog.Error("summit activities by name query failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to query summit activities", r.URL.Path)
 		return
 	}
 	resp := make([]summitActivityResponse, 0, len(acts))
@@ -170,5 +171,5 @@ func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Reque
 			ElevationGainM: a.ElevationGainM,
 		})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }

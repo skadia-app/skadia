@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // SimilarRoute represents a route similar to the target activity.
@@ -31,18 +32,18 @@ type SimilarRoute struct {
 func (h *Handler) GetSimilarRoutes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	activityIDStr := r.URL.Query().Get("activity_id")
 	if activityIDStr == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "activity_id required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id required", r.URL.Path)
 		return
 	}
 	activityID, err := uuid.Parse(activityIDStr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid activity_id", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid activity_id", r.URL.Path)
 		return
 	}
 
@@ -104,7 +105,7 @@ func (h *Handler) GetSimilarRoutes(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.Pool.Query(r.Context(), query, activityID, userID, maxResults)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "query failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "query failed", r.URL.Path)
 		return
 	}
 	defer rows.Close()
@@ -120,9 +121,9 @@ func (h *Handler) GetSimilarRoutes(w http.ResponseWriter, r *http.Request) {
 		results = append(results, sr)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "row iteration failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "row iteration failed", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, results)
+	httputil.WriteJSON(w, http.StatusOK, results)
 }

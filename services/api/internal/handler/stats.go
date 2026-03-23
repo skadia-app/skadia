@@ -8,12 +8,13 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -21,41 +22,41 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	toStr := r.URL.Query().Get("to")
 
 	if fromStr == "" || toStr == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "from and to query parameters are required (YYYY-MM-DD)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "from and to query parameters are required (YYYY-MM-DD)", r.URL.Path)
 		return
 	}
 
 	from, err := time.Parse("2006-01-02", fromStr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid from date, expected YYYY-MM-DD", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid from date, expected YYYY-MM-DD", r.URL.Path)
 		return
 	}
 
 	to, err := time.Parse("2006-01-02", toStr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid to date, expected YYYY-MM-DD", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid to date, expected YYYY-MM-DD", r.URL.Path)
 		return
 	}
 
 	if to.Before(from) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "to must be after from", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "to must be after from", r.URL.Path)
 		return
 	}
 
 	days, err := h.DB.GetPMCRange(r.Context(), userID, from, to)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch PMC data", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch PMC data", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, days)
+	httputil.WriteJSON(w, http.StatusOK, days)
 }
 
 // GetPowerCurve returns the best-effort power duration curve for a user.
 func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 	q := r.URL.Query()
@@ -71,12 +72,12 @@ func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 		var err error
 		fromTime, err = time.Parse("2006-01-02", fromStr)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid from date", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid from date", r.URL.Path)
 			return
 		}
 		toTime, err = time.Parse("2006-01-02", toStr)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid to date", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid to date", r.URL.Path)
 			return
 		}
 	} else {
@@ -94,7 +95,7 @@ func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 	powerStreams, err := h.DB.GetPowerStreamsForPeriod(r.Context(), userID, fromTime, toTime, sportType)
 	if err != nil {
 		slog.Error("get power streams for period failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load power data", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load power data", r.URL.Path)
 		return
 	}
 
@@ -156,5 +157,5 @@ func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
 	if resp.Points == nil {
 		resp.Points = []model.PowerCurvePoint{}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }

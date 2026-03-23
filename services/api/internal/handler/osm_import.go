@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // Kategorie-Definitionen: ID → betroffene Tabellen.
@@ -69,24 +70,24 @@ func (r osmImportRequest) shouldRunEnrichment() bool {
 func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	if jobID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "missing job ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing job ID", r.URL.Path)
 		return
 	}
 	_, err := h.DB.Pool.Exec(r.Context(),
 		`UPDATE background_jobs SET status = 'failed',
 		 finished_at = now() WHERE id = $1 AND status IN ('running', 'pending')`, jobID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 	shutdown.Cancel(jobID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 // ListOSMRegions gibt den Regions-Katalog zurück.
 // GET /api/v1/admin/osm-regions
 func (h *Handler) ListOSMRegions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"regions": osmregions.Regions})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"regions": osmregions.Regions})
 }
 
 // StartOSMImport startet einen asynchronen OSM-Import-Job.
@@ -96,7 +97,7 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 
 	var req osmImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Regions) == 0 || len(req.Categories) == 0 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "regions and categories required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "regions and categories required", r.URL.Path)
 		return
 	}
 
@@ -105,7 +106,7 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	for _, id := range req.Regions {
 		reg, ok := osmregions.RegionByID(id)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "Bad Request", "unknown region: "+id, r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown region: "+id, r.URL.Path)
 			return
 		}
 		validRegions = append(validRegions, reg)
@@ -114,14 +115,14 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	// Kategorien validieren
 	for _, cat := range req.Categories {
 		if _, ok := osmCategories[cat]; !ok {
-			writeError(w, http.StatusBadRequest, "Bad Request", "unknown category: "+cat, r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown category: "+cat, r.URL.Path)
 			return
 		}
 	}
 
 	// Dependency check: tiles require enrichment
 	if req.BuildTiles && !req.shouldRunEnrichment() {
-		writeError(w, http.StatusBadRequest, "Bad Request",
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"Tiles benötigen Enrichment. build_tiles=true und run_enrichment=false können nicht kombiniert werden.", r.URL.Path)
 		return
 	}
@@ -141,7 +142,7 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "osm_import", nil, &entityName, progressTotal)
 	if err != nil {
 		slog.Error("failed to insert osm import job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -149,7 +150,7 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 		h.runOSMImport(ctx, jobID, userID, validRegions, req)
 	})
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, regions []osmregions.Region, req osmImportRequest) {

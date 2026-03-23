@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetVisitedPOIs returns GeoJSON FeatureCollection of visited POIs.
@@ -13,7 +14,7 @@ func (h *Handler) GetVisitedPOIs(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	pois, err := h.DB.GetVisitedPOIs(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get visited pois", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get visited pois", r.URL.Path)
 		return
 	}
 	features := make([]map[string]any, 0, len(pois))

@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ShadowFSSettingsResponse is the GET response for shadow FS settings.
@@ -28,14 +29,14 @@ type ShadowFSSettingsRequest struct {
 func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	schema, err := h.DB.GetUserFileNamingSchema(r.Context(), userID)
 	if err != nil {
 		slog.Error("get file naming schema failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
 		return
 	}
 
@@ -63,20 +64,20 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 		resp.HotfolderPath = h.ShadowFS.HotfolderPath
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // UpdateShadowFSSettings updates the user's file naming schema and/or hotfolder toggle.
 func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	var req ShadowFSSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
@@ -84,7 +85,7 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 	if req.Schema != "" {
 		if err := h.DB.UpdateUserFileNamingSchema(r.Context(), userID, req.Schema); err != nil {
 			slog.Error("update file naming schema failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
 			return
 		}
 	}
@@ -99,7 +100,7 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 
 		if err := h.DB.UpdateUserHotfolderEnabled(r.Context(), userID, *req.HotfolderEnabled); err != nil {
 			slog.Error("update hotfolder enabled failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update hotfolder setting", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update hotfolder setting", r.URL.Path)
 			return
 		}
 
@@ -135,7 +136,7 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 		resp.HotfolderPath = h.ShadowFS.HotfolderPath
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // PreviewRenameRequest is the POST body for previewing a rename.
@@ -147,30 +148,30 @@ type PreviewRenameRequest struct {
 func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	if h.ShadowFS == nil {
-		writeError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
 		return
 	}
 
 	var req PreviewRenameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	if req.NewSchema == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "new_schema is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "new_schema is required", r.URL.Path)
 		return
 	}
 
 	activities, err := h.DB.ListActivitiesWithLocalPath(r.Context(), userID)
 	if err != nil {
 		slog.Error("list activities for rename preview failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activities", r.URL.Path)
 		return
 	}
 
@@ -197,25 +198,25 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 		items = []shadowfs.RenameItem{}
 	}
 
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // ExecuteRename performs the actual rename of shadow files.
 func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
 	if h.ShadowFS == nil {
-		writeError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
 		return
 	}
 
 	var items []shadowfs.RenameItem
 	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
@@ -232,7 +233,7 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // WriteShadowForActivity writes the shadow file for a newly uploaded activity.

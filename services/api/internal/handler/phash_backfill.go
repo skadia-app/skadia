@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // phashBucketName returns the S3 bucket used for activity photos.
@@ -31,7 +32,7 @@ func phashBucketName() string {
 func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 
@@ -42,11 +43,11 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		userID).Scan(&alreadyRunning)
 	if err != nil {
 		slog.Error("phash backfill: check active job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check active jobs", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check active jobs", r.URL.Path)
 		return
 	}
 	if alreadyRunning {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -54,19 +55,19 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 	photos, err := h.DB.PhotosWithoutPHash(r.Context(), userID)
 	if err != nil {
 		slog.Error("phash backfill: failed to list photos", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
 
 	if len(photos) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
 		return
 	}
 
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "phash_backfill", nil, nil, int64(len(photos)))
 	if err != nil {
 		slog.Error("phash backfill: failed to create background job", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
 		return
 	}
 
@@ -161,7 +162,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		slog.Info("phash backfill: completed", "user_id", userID, "job_id", jobID, "processed", processed, "any_failed", anyFailed)
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_id": jobID,
 		"queued": len(photos),
 	})

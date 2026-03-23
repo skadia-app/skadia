@@ -14,6 +14,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) ListCustomMaps(w http.ResponseWriter, r *http.Request) {
@@ -21,21 +22,21 @@ func (h *Handler) ListCustomMaps(w http.ResponseWriter, r *http.Request) {
 	maps, err := h.DB.ListCustomMaps(r.Context(), userID)
 	if err != nil {
 		slog.Error("list custom maps failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list custom maps", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list custom maps", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, maps)
+	httputil.WriteJSON(w, http.StatusOK, maps)
 }
 
 func (h *Handler) CreateCustomMap(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var req model.CreateCustomMapRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if req.Color == "" {
@@ -44,10 +45,10 @@ func (h *Handler) CreateCustomMap(w http.ResponseWriter, r *http.Request) {
 	m, err := h.DB.CreateCustomMap(r.Context(), userID, req.Name, req.Color, req.Description)
 	if err != nil {
 		slog.Error("create custom map failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create custom map", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create custom map", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusCreated, m)
+	httputil.WriteJSON(w, http.StatusCreated, m)
 }
 
 func (h *Handler) UpdateCustomMap(w http.ResponseWriter, r *http.Request) {
@@ -55,16 +56,16 @@ func (h *Handler) UpdateCustomMap(w http.ResponseWriter, r *http.Request) {
 	mapID := chi.URLParam(r, "mapID")
 	var req model.UpdateCustomMapRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	m, err := h.DB.UpdateCustomMap(r.Context(), mapID, userID, req)
 	if err != nil {
 		slog.Error("update custom map failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update custom map", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update custom map", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	httputil.WriteJSON(w, http.StatusOK, m)
 }
 
 func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
@@ -72,11 +73,11 @@ func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
 	mapID := chi.URLParam(r, "mapID")
 	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "custom map not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "custom map not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete custom map failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete custom map", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete custom map", r.URL.Path)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -88,10 +89,10 @@ func (h *Handler) ListCustomMapMarkers(w http.ResponseWriter, r *http.Request) {
 	markers, err := h.DB.ListCustomMapMarkers(r.Context(), mapID, userID)
 	if err != nil {
 		slog.Error("list custom map markers failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list markers", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list markers", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, markers)
+	httputil.WriteJSON(w, http.StatusOK, markers)
 }
 
 func (h *Handler) CreateCustomMapMarker(w http.ResponseWriter, r *http.Request) {
@@ -99,20 +100,20 @@ func (h *Handler) CreateCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	mapID := chi.URLParam(r, "mapID")
 	var req model.CreateMarkerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	mk, err := h.DB.CreateCustomMapMarker(r.Context(), mapID, userID, req)
 	if err != nil {
 		slog.Error("create custom map marker failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create marker", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create marker", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusCreated, mk)
+	httputil.WriteJSON(w, http.StatusCreated, mk)
 }
 
 func (h *Handler) UpdateCustomMapMarker(w http.ResponseWriter, r *http.Request) {
@@ -121,16 +122,16 @@ func (h *Handler) UpdateCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	markerID := chi.URLParam(r, "markerID")
 	var req model.UpdateMarkerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, req)
 	if err != nil {
 		slog.Error("update custom map marker failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, mk)
+	httputil.WriteJSON(w, http.StatusOK, mk)
 }
 
 func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) {
@@ -139,11 +140,11 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	markerID := chi.URLParam(r, "markerID")
 	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete custom map marker failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete marker", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete marker", r.URL.Path)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -155,7 +156,7 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	mapID := chi.URLParam(r, "mapID")
@@ -169,25 +170,25 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 			ImageURL string `json:"image_url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 			return
 		}
 		if req.ImageURL == "" {
-			writeError(w, http.StatusBadRequest, "Bad Request", "image_url is required", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "image_url is required", r.URL.Path)
 			return
 		}
 		updateReq := model.UpdateMarkerRequest{ImageURL: &req.ImageURL}
 		mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 		if err != nil {
 			if err == pgx.ErrNoRows {
-				writeError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
+				httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
 				return
 			}
 			slog.Error("update marker image_url failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
 			return
 		}
-		writeJSON(w, http.StatusOK, mk)
+		httputil.WriteJSON(w, http.StatusOK, mk)
 		return
 	}
 
@@ -195,13 +196,13 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	const maxImageSize = 10 << 20 // 10 MB
 	r.Body = http.MaxBytesReader(w, r.Body, maxImageSize)
 	if err := r.ParseMultipartForm(maxImageSize); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "file too large (max 10 MB)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 10 MB)", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "no file in request", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no file in request", r.URL.Path)
 		return
 	}
 	defer file.Close()
@@ -209,7 +210,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read marker image data failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read file", r.URL.Path)
 		return
 	}
 
@@ -217,7 +218,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	// not the client-supplied Content-Type header which can be spoofed.
 	detectedCT, errMsg := validateImageBytes(data)
 	if errMsg != "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", errMsg, r.URL.Path)
 		return
 	}
 	fileCT := detectedCT
@@ -231,7 +232,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 
 	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
 		slog.Error("s3 upload marker image failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
 		return
 	}
 
@@ -240,13 +241,13 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
 			return
 		}
 		slog.Error("update marker image_url failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, mk)
+	httputil.WriteJSON(w, http.StatusOK, mk)
 }

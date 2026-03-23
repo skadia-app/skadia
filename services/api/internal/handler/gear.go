@@ -30,6 +30,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
@@ -39,11 +40,11 @@ func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
 	items, err := h.DB.ListGear(r.Context(), userID, status)
 	if err != nil {
 		slog.Error("list gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list gear", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
@@ -51,26 +52,26 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 
 	var create model.GearCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if create.Type == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
 		return
 	}
 
 	gear, err := h.DB.CreateGear(r.Context(), userID, &create)
 	if err != nil {
 		slog.Error("create gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create gear", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, gear)
+	httputil.WriteJSON(w, http.StatusCreated, gear)
 }
 
 func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
@@ -80,19 +81,19 @@ func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
 	gear, err := h.DB.GetGear(r.Context(), id)
 	if err != nil {
 		slog.Error("get gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
 	if gear == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 	if gear.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, gear)
+	httputil.WriteJSON(w, http.StatusOK, gear)
 }
 
 func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
@@ -103,32 +104,32 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.DB.GetGear(r.Context(), id)
 	if err != nil {
 		slog.Error("update gear: get gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
 	if existing == nil || existing.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 
 	var update model.GearUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	gear, err := h.DB.UpdateGear(r.Context(), id, &update)
 	if err != nil {
 		slog.Error("update gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update gear", r.URL.Path)
 		return
 	}
 	if gear == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, gear)
+	httputil.WriteJSON(w, http.StatusOK, gear)
 }
 
 func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
@@ -137,11 +138,11 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteGear(r.Context(), userID, id); err != nil {
 		if err.Error() == "gear not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
 		return
 	}
 
@@ -156,11 +157,11 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.DB.GetGear(r.Context(), id)
 	if err != nil {
 		slog.Error("update gear status: get gear failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
 	if existing == nil || existing.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 
@@ -168,32 +169,32 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.Status != "active" && req.Status != "stored" && req.Status != "retired" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "status must be active, stored, or retired", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "status must be active, stored, or retired", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.UpdateGearStatus(r.Context(), id, req.Status); err != nil {
 		if err.Error() == "gear not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 			return
 		}
 		slog.Error("update gear status failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update gear status", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update gear status", r.URL.Path)
 		return
 	}
 
 	gear, err := h.DB.GetGear(r.Context(), id)
 	if err != nil {
 		slog.Error("get gear after status update failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, gear)
+	httputil.WriteJSON(w, http.StatusOK, gear)
 }
 
 func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
@@ -204,36 +205,36 @@ func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
 	gear, err := h.DB.GetGear(r.Context(), gearID)
 	if err != nil {
 		slog.Error("get gear for component failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
 		return
 	}
 	if gear == nil || gear.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
 
 	var create model.GearComponentCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if create.Type == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
 		return
 	}
 
 	component, err := h.DB.CreateComponent(r.Context(), gearID, &create)
 	if err != nil {
 		slog.Error("create component failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create component", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create component", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, component)
+	httputil.WriteJSON(w, http.StatusCreated, component)
 }
 
 func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
@@ -252,22 +253,22 @@ func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
 		WeightG       *int     `json:"weight_g,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	component, err := h.DB.UpdateComponent(r.Context(), id, req.Name, req.Type, req.Brand, req.Model, req.Notes, req.IsRetired, req.PurchasePrice, req.PurchaseDate, req.SerialNumber, req.WeightG)
 	if err != nil {
 		slog.Error("update component failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update component", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update component", r.URL.Path)
 		return
 	}
 	if component == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, component)
+	httputil.WriteJSON(w, http.StatusOK, component)
 }
 
 func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
@@ -275,11 +276,11 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteComponent(r.Context(), id); err != nil {
 		if err.Error() == "component not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete component failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete component", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete component", r.URL.Path)
 		return
 	}
 
@@ -293,11 +294,11 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 		ToGearID string `json:"to_gear_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if req.ToGearID == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "to_gear_id is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "to_gear_id is required", r.URL.Path)
 		return
 	}
 
@@ -305,7 +306,7 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
 	if err != nil {
 		slog.Error("get component history for transfer failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get component", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get component", r.URL.Path)
 		return
 	}
 
@@ -320,7 +321,7 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 		// Fallback: get gear_id directly from the component
 		gear, err := h.DB.GetGear(r.Context(), req.ToGearID)
 		if err != nil || gear == nil {
-			writeError(w, http.StatusNotFound, "Not Found", "target gear not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "target gear not found", r.URL.Path)
 			return
 		}
 		// Use a simple query to get the current gear_id
@@ -329,7 +330,7 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.TransferComponent(r.Context(), componentID, fromGearID, req.ToGearID); err != nil {
 		slog.Error("transfer component failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to transfer component", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to transfer component", r.URL.Path)
 		return
 	}
 
@@ -342,11 +343,11 @@ func (h *Handler) GetComponentHistory(w http.ResponseWriter, r *http.Request) {
 	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
 	if err != nil {
 		slog.Error("get component history failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get component history", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get component history", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, history)
+	httputil.WriteJSON(w, http.StatusOK, history)
 }
 
 func (h *Handler) GetChainRotation(w http.ResponseWriter, r *http.Request) {
@@ -355,15 +356,15 @@ func (h *Handler) GetChainRotation(w http.ResponseWriter, r *http.Request) {
 	group, err := h.DB.GetChainRotation(r.Context(), gearID)
 	if err != nil {
 		slog.Error("get chain rotation failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
 		return
 	}
 	if group == nil {
-		writeJSON(w, http.StatusOK, nil)
+		httputil.WriteJSON(w, http.StatusOK, nil)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, group)
+	httputil.WriteJSON(w, http.StatusOK, group)
 }
 
 func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
@@ -372,26 +373,26 @@ func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
 
 	var create database.ChainRotationGroupCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if len(create.ComponentIDs) < 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "at least 2 components required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least 2 components required", r.URL.Path)
 		return
 	}
 
 	group, err := h.DB.CreateChainRotation(r.Context(), userID, gearID, &create)
 	if err != nil {
 		slog.Error("create chain rotation failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create chain rotation", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, group)
+	httputil.WriteJSON(w, http.StatusCreated, group)
 }
 
 func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
@@ -401,17 +402,17 @@ func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
 	group, err := h.DB.GetChainRotation(r.Context(), gearID)
 	if err != nil {
 		slog.Error("get chain rotation for swap failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
 		return
 	}
 	if group == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "chain rotation not found for this gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "chain rotation not found for this gear", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.SwapChain(r.Context(), group.ID); err != nil {
 		slog.Error("swap chain failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to swap chain", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to swap chain", r.URL.Path)
 		return
 	}
 
@@ -419,11 +420,11 @@ func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.DB.GetChainRotation(r.Context(), gearID)
 	if err != nil {
 		slog.Error("get chain rotation after swap failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get chain rotation", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
@@ -434,13 +435,13 @@ func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
 		SwapIntervalHM *float64 `json:"swap_interval_hm"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.UpdateChainRotation(r.Context(), groupID, req.SwapIntervalKM, req.SwapIntervalHM); err != nil {
 		slog.Error("update chain rotation failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update chain rotation", r.URL.Path)
 		return
 	}
 
@@ -452,11 +453,11 @@ func (h *Handler) DeleteChainRotation(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteChainRotation(r.Context(), groupID); err != nil {
 		if err.Error() == "chain rotation not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete chain rotation failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete chain rotation", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete chain rotation", r.URL.Path)
 		return
 	}
 
@@ -469,11 +470,11 @@ func (h *Handler) ListServiceEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := h.DB.ListServiceEvents(r.Context(), componentID)
 	if err != nil {
 		slog.Error("list service events failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list service events", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list service events", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, events)
+	httputil.WriteJSON(w, http.StatusOK, events)
 }
 
 func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
@@ -481,22 +482,22 @@ func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
 
 	var create database.ServiceEventCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.PerformedAt == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "performed_at is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "performed_at is required", r.URL.Path)
 		return
 	}
 
 	event, err := h.DB.CreateServiceEvent(r.Context(), componentID, &create)
 	if err != nil {
 		slog.Error("create service event failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create service event", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create service event", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, event)
+	httputil.WriteJSON(w, http.StatusCreated, event)
 }
 
 func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
@@ -504,11 +505,11 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteServiceEvent(r.Context(), eventID); err != nil {
 		if err.Error() == "service event not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete service event failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete service event", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete service event", r.URL.Path)
 		return
 	}
 
@@ -521,11 +522,11 @@ func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
 	presets, err := h.DB.ListComponentPresets(r.Context(), gearType)
 	if err != nil {
 		slog.Error("list component presets failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list component presets", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list component presets", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, presets)
+	httputil.WriteJSON(w, http.StatusOK, presets)
 }
 
 // --- Bike Setups ---
@@ -536,11 +537,11 @@ func (h *Handler) ListBikeSetups(w http.ResponseWriter, r *http.Request) {
 	setups, err := h.DB.ListBikeSetups(r.Context(), gearID)
 	if err != nil {
 		slog.Error("list bike setups failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list bike setups", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list bike setups", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, setups)
+	httputil.WriteJSON(w, http.StatusOK, setups)
 }
 
 func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
@@ -548,22 +549,22 @@ func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
 
 	var create model.BikeSetupCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 
 	setup, err := h.DB.CreateBikeSetup(r.Context(), gearID, &create)
 	if err != nil {
 		slog.Error("create bike setup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create bike setup", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create bike setup", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, setup)
+	httputil.WriteJSON(w, http.StatusCreated, setup)
 }
 
 func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
@@ -571,22 +572,22 @@ func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
 
 	var update model.BikeSetupUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	setup, err := h.DB.UpdateBikeSetup(r.Context(), id, &update)
 	if err != nil {
 		slog.Error("update bike setup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update bike setup", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update bike setup", r.URL.Path)
 		return
 	}
 	if setup == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, setup)
+	httputil.WriteJSON(w, http.StatusOK, setup)
 }
 
 func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
@@ -594,11 +595,11 @@ func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteBikeSetup(r.Context(), id); err != nil {
 		if err.Error() == "bike setup not found" {
-			writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
 			return
 		}
 		slog.Error("delete bike setup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete bike setup", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete bike setup", r.URL.Path)
 		return
 	}
 
@@ -611,15 +612,15 @@ func (h *Handler) ActivateBikeSetup(w http.ResponseWriter, r *http.Request) {
 	setup, err := h.DB.ActivateBikeSetup(r.Context(), id)
 	if err != nil {
 		slog.Error("activate bike setup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to activate bike setup", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to activate bike setup", r.URL.Path)
 		return
 	}
 	if setup == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, setup)
+	httputil.WriteJSON(w, http.StatusOK, setup)
 }
 
 func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
@@ -628,11 +629,11 @@ func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
 	alerts, err := h.DB.GetMaintenanceAlerts(r.Context(), userID)
 	if err != nil {
 		slog.Error("get maintenance alerts failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get maintenance alerts", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get maintenance alerts", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, alerts)
+	httputil.WriteJSON(w, http.StatusOK, alerts)
 }
 
 // --- Gear Documents ---
@@ -644,20 +645,20 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	// Limit to 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
 	if err := r.ParseMultipartForm(30 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
 		return
 	}
 	defer file.Close()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
 		return
 	}
 
@@ -676,7 +677,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		"application/pdf": true,
 	}
 	if !allowed[contentType] {
-		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
 		return
 	}
 
@@ -685,7 +686,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
 		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
 			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
-				writeError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
+				httputil.WriteError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
 				return
 			}
 		}
@@ -697,7 +698,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 
 	// Duplikat-Prüfung
 	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
 
@@ -732,7 +733,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	// Upload to S3
 	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
 		slog.Error("s3 upload failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 		return
 	}
 
@@ -767,7 +768,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
 		slog.Error("insert gear document failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return
 	}
 
@@ -814,7 +815,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, result)
+	httputil.WriteJSON(w, http.StatusCreated, result)
 }
 
 // generatePDFThumbnail rendert die erste Seite eines PDFs als JPEG.
@@ -917,10 +918,10 @@ func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
 	docs, err := h.DB.ListGearDocuments(r.Context(), gearID)
 	if err != nil {
 		slog.Error("list gear documents failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	httputil.WriteJSON(w, http.StatusOK, docs)
 }
 
 // UploadComponentDocument uploads a photo/document for a specific gear component.
@@ -931,20 +932,20 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 	// Limit to 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
 	if err := r.ParseMultipartForm(30 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
 		return
 	}
 	defer file.Close()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
 		return
 	}
 
@@ -959,7 +960,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		"application/pdf": true,
 	}
 	if !allowed[contentType] {
-		writeError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
 		return
 	}
 
@@ -967,7 +968,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
 		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
 			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
-				writeError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
+				httputil.WriteError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
 				return
 			}
 		}
@@ -978,7 +979,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 	// Duplikat-Prüfung
 	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
 
@@ -1010,7 +1011,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
 		slog.Error("s3 upload failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 		return
 	}
 
@@ -1040,11 +1041,11 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
 		slog.Error("insert component document failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, result)
+	httputil.WriteJSON(w, http.StatusCreated, result)
 }
 
 // ListComponentDocuments returns all documents for a gear component.
@@ -1053,10 +1054,10 @@ func (h *Handler) ListComponentDocuments(w http.ResponseWriter, r *http.Request)
 	docs, err := h.DB.ListComponentDocuments(r.Context(), componentID)
 	if err != nil {
 		slog.Error("list component documents failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to list documents", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	httputil.WriteJSON(w, http.StatusOK, docs)
 }
 
 func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
@@ -1064,11 +1065,11 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 	bucket, key, err := h.DB.DeleteGearDocument(r.Context(), docID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
 		return
 	}
 	if bucket == "" {
-		writeError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
 		return
 	}
 
@@ -1085,18 +1086,18 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	doc, err := h.DB.GetGearDocument(r.Context(), docID)
 	if err != nil {
 		slog.Error("get gear document failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Database error", "Failed to get document", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to get document", r.URL.Path)
 		return
 	}
 	if doc == nil {
-		writeError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
 		return
 	}
 
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), doc.S3Bucket, doc.S3Key)
 	if err != nil {
 		slog.Error("s3 download failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
 		return
 	}
 
@@ -1115,16 +1116,16 @@ func (h *Handler) PatchGearReview(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var req model.GearReviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 	if req.ReviewStatus != "confirmed" && req.ReviewStatus != "rejected" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "review_status must be confirmed or rejected", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "review_status must be confirmed or rejected", r.URL.Path)
 		return
 	}
 	if req.ReviewStatus == "rejected" {
 		if err := h.DB.DeleteGear(r.Context(), userID, gearID); err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete gear", r.URL.Path)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1132,10 +1133,10 @@ func (h *Handler) PatchGearReview(w http.ResponseWriter, r *http.Request) {
 	}
 	gear, err := h.DB.UpdateGearReviewStatus(r.Context(), gearID, userID, req.ReviewStatus)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update review status", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update review status", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, gear)
+	httputil.WriteJSON(w, http.StatusOK, gear)
 }
 
 // ListPendingReviewGear returns gear items awaiting user review.
@@ -1143,10 +1144,10 @@ func (h *Handler) ListPendingReviewGear(w http.ResponseWriter, r *http.Request) 
 	userID := middleware.GetUserID(r.Context())
 	items, err := h.DB.ListPendingReviewGear(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list pending review gear", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list pending review gear", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, items)
 }
 
 // GetGearCosts returns the cost summary for a gear item.
@@ -1155,12 +1156,12 @@ func (h *Handler) GetGearCosts(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.DB.GetGearCostSummary(r.Context(), id)
 	if err != nil {
 		slog.Error("get gear costs failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear costs", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear costs", r.URL.Path)
 		return
 	}
 	if summary == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 		return
 	}
-	writeJSON(w, http.StatusOK, summary)
+	httputil.WriteJSON(w, http.StatusOK, summary)
 }

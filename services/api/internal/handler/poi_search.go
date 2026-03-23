@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // POIResult is a point-of-interest search result returned to the client.
@@ -24,13 +25,13 @@ type POIResult struct {
 func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
 		return
 	}
 
 	q := r.URL.Query().Get("q")
 	if len(q) < 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "query too short (min 2 chars)", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "query too short (min 2 chars)", r.URL.Path)
 		return
 	}
 
@@ -64,7 +65,7 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if summitErr != nil && amenityErr != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Error", "POI search failed", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "POI search failed", r.URL.Path)
 		return
 	}
 
@@ -75,7 +76,7 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 		results = []POIResult{}
 	}
 
-	writeJSON(w, http.StatusOK, results)
+	httputil.WriteJSON(w, http.StatusOK, results)
 }
 
 // poiRowsToResults converts database POIRows to handler POIResults.

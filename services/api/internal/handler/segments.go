@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +48,11 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	result, err := h.DB.ListSegments(r.Context(), params)
 	if err != nil {
 		slog.Error("list segments failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list segments", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list segments", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
@@ -59,15 +60,15 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 	var create model.SegmentCreate
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if create.Name == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
 	if create.GeoJSONTrack == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "geojson_track is required", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "geojson_track is required", r.URL.Path)
 		return
 	}
 	if create.SportGroup == "" {
@@ -90,15 +91,15 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
 		if strings.Contains(err.Error(), "lap segment must be a closed loop") {
-			writeError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
 			return
 		}
 		slog.Error("create segment failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to create segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create segment", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, segment)
+	httputil.WriteJSON(w, http.StatusCreated, segment)
 
 	// Backfill: match new segment against all existing activities asynchronously.
 	go func(segID, uID string) {
@@ -134,21 +135,21 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	segment, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
 		slog.Error("get segment failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return
 	}
 	if segment == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, segment)
+	httputil.WriteJSON(w, http.StatusOK, segment)
 }
 
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -157,32 +158,32 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.DB.GetSegment(r.Context(), id, "")
 	if err != nil {
 		slog.Error("update segment: get segment failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
 		return
 	}
 	if existing == nil || existing.CreatedBy != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
 		return
 	}
 
 	var update model.SegmentUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
 	segment, err := h.DB.UpdateSegment(r.Context(), id, userID, &update)
 	if err != nil {
 		slog.Error("update segment failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to update segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update segment", r.URL.Path)
 		return
 	}
 	if segment == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, segment)
+	httputil.WriteJSON(w, http.StatusOK, segment)
 }
 
 func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
@@ -191,15 +192,15 @@ func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.DeleteSegment(r.Context(), userID, id); err != nil {
 		if strings.Contains(err.Error(), "cannot be deleted") {
-			writeError(w, http.StatusForbidden, "Forbidden", err.Error(), r.URL.Path)
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", err.Error(), r.URL.Path)
 			return
 		}
 		if err.Error() == "segment not found or not owned by user" {
-			writeError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
 			return
 		}
 		slog.Error("delete segment failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete segment", r.URL.Path)
 		return
 	}
 
@@ -221,17 +222,17 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 	efforts, err := h.DB.GetSegmentLeaderboard(r.Context(), id, sportType, isReverse, gearID)
 	if err != nil {
 		slog.Error("get segment leaderboard failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get leaderboard", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get leaderboard", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, efforts)
+	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
 func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -239,22 +240,22 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("get activity segment efforts: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	efforts, err := h.DB.GetActivitySegmentEfforts(r.Context(), id)
 	if err != nil {
 		slog.Error("get activity segment efforts failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment efforts", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment efforts", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, efforts)
+	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
 // RecomputeSegment re-matches all of the user's GPS activities against a single segment.
@@ -266,11 +267,11 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	seg, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
 		slog.Error("segment recompute: get segment failed", "segment_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return
 	}
 	if seg == nil {
-		writeError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
 		return
 	}
 
@@ -278,7 +279,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	ids, err := h.DB.ListActivityIDsForSegmentBackfill(r.Context(), userID, id)
 	if err != nil {
 		slog.Error("segment recompute: list activities failed", "segment_id", id, "user_id", userID, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
 	}
 
@@ -334,7 +335,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "recompute started",
 		"job_id": jobID,
 	})
@@ -343,7 +344,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -351,29 +352,29 @@ func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request
 	activity, err := h.DB.GetActivity(r.Context(), id)
 	if err != nil {
 		slog.Error("get detected laps: get activity failed", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
 		return
 	}
 	if activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 
 	laps, err := h.DB.GetDetectedLaps(r.Context(), id)
 	if err != nil {
 		slog.Error("get detected laps failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to get detected laps", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get detected laps", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, laps)
+	httputil.WriteJSON(w, http.StatusOK, laps)
 }
 
 // GetSegmentFavoriteStatus checks if a segment is favorited by the user.
 func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
@@ -381,54 +382,54 @@ func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Reques
 	isFavorite, err := h.DB.IsSegmentFavoriteByUser(r.Context(), userID, segmentID)
 	if err != nil {
 		slog.Error("check favorite status failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to check favorite status", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check favorite status", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"favorite": isFavorite})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"favorite": isFavorite})
 }
 
 // AddSegmentFavorite adds a segment to the user's favorites.
 func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
 
 	if err := h.DB.AddSegmentFavorite(r.Context(), userID, segmentID); err != nil {
 		slog.Error("add favorite failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to add favorite", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add favorite", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 // RemoveSegmentFavorite removes a segment from the user's favorites.
 func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
 
 	if err := h.DB.RemoveSegmentFavorite(r.Context(), userID, segmentID); err != nil {
 		slog.Error("remove favorite failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to remove favorite", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to remove favorite", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 // GetSegmentPerformances retrieves all efforts on a segment from the user's activities.
 func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
@@ -442,11 +443,11 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 	performances, err := h.DB.GetSegmentPerformances(r.Context(), segmentID, userID, isReverse)
 	if err != nil {
 		slog.Error("get segment performances failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch performances", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch performances", r.URL.Path)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"performances": performances,
 		"count":        len(performances),
 	})

@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -53,19 +54,19 @@ var validStreamFields = map[string]string{
 func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	targetID := chi.URLParam(r, "id")
 
 	var req FusionMergeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
 
 	if len(req.Sources) > 2 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "max 2 additional sources allowed", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 2 additional sources allowed", r.URL.Path)
 		return
 	}
 
@@ -76,11 +77,11 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	for _, id := range allIDs {
 		act, err := h.DB.GetActivity(r.Context(), id)
 		if err != nil || act == nil {
-			writeError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
 			return
 		}
 		if act.UserID != userID {
-			writeError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
 			return
 		}
 		activities[id] = act
@@ -89,15 +90,15 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// FieldMap validieren.
 	for field, sourceID := range req.FieldMap {
 		if _, ok := validStreamFields[field]; !ok {
-			writeError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unknown field: %s", field), r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unknown field: %s", field), r.URL.Path)
 			return
 		}
 		if sourceID != "fuse" && !slices.Contains(allIDs, sourceID) {
-			writeError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("source %s not in sources list", sourceID), r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("source %s not in sources list", sourceID), r.URL.Path)
 			return
 		}
 		if sourceID == "fuse" && field != "gps" {
-			writeError(w, http.StatusBadRequest, "Bad Request", "fuse only allowed for gps field", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fuse only allowed for gps field", r.URL.Path)
 			return
 		}
 	}
@@ -108,7 +109,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	merged, err := createMergedActivity(ctx, h.DB, activities[targetID])
 	if err != nil {
 		slog.Error("fusion-merge: create merged activity failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
 		return
 	}
 
@@ -125,7 +126,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		slog.Error("fusion-merge: copy streams failed", "error", err)
 		// Rollback: neu erstellte Aktivität löschen
 		h.DB.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1`, merged.ID) //nolint:errcheck
-		writeError(w, http.StatusInternalServerError, "Internal Server Error", "failed to copy streams", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to copy streams", r.URL.Path)
 		return
 	}
 
@@ -140,13 +141,13 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		if field == "gps" {
 			if sourceID == "fuse" {
 				if err := h.fuseGPSTracks(ctx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
-					writeError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 					return
 				}
 			} else {
 				if err := h.mergeGPSFromSource(ctx, merged.ID, sourceID); err != nil {
 					slog.Error("fusion-merge: GPS merge failed", "error", err)
-					writeError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
 					return
 				}
 			}
@@ -157,7 +158,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		col := validStreamFields[field]
 		if err := h.fusionMergeStreamColumn(ctx, merged.ID, sourceID, col); err != nil {
 			slog.Error("fusion-merge: stream column merge failed", "field", field, "col", col, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
 			return
 		}
 	}
@@ -244,7 +245,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", allIDs)
-	writeJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
 }
 
 // fusionMergeStreamColumn kopiert eine einzelne Stream-Spalte von sourceID → targetID
@@ -441,7 +442,7 @@ func createMergedActivity(ctx context.Context, db *database.DB, src *model.Activ
 func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -449,11 +450,11 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := h.DB.GetActivity(ctx, id)
 	if err != nil || activity == nil || activity.UserID != userID {
-		writeError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
 	if activity.FusionSources == nil {
-		writeError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
 		return
 	}
 
@@ -463,14 +464,14 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		id, userID,
 	); err != nil {
 		slog.Error("revert-fusion: restore sources failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to restore sources", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to restore sources", r.URL.Path)
 		return
 	}
 
 	// Fusion-Ergebnis löschen.
 	if err := h.DB.DeleteActivity(ctx, userID, id); err != nil {
 		slog.Error("revert-fusion: delete result failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal Error", "failed to delete fusion result", r.URL.Path)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete fusion result", r.URL.Path)
 		return
 	}
 
