@@ -399,9 +399,11 @@ func SelectLandmarks(
 
 	// --- Slot 12-15: Farthest-Point from flank seeds ---
 	if farthestDijkstra != nil && pickIdx > 0 {
-		// Anti-clustering: minimum Euclidean distance between landmarks
+		// Anti-clustering: minimum Euclidean distance between landmarks.
+		// Apply cos²(lat) correction so E-W and N-S spacing are comparable.
+		cosLat2 := cosLat * cosLat
 		diagSq := float64((maxLat-minLat)*(maxLat-minLat)) +
-			float64((maxLon-minLon)*(maxLon-minLon))
+			float64((maxLon-minLon)*(maxLon-minLon))*cosLat2
 		minSpacingSq := diagSq / 36.0 // (diag/6)^2
 
 		// Rotate through flank landmarks as seeds (prefer flanks over BBox corners)
@@ -441,12 +443,12 @@ func SelectLandmarks(
 				continue
 			}
 
-			// Anti-clustering check
+			// Anti-clustering check (with cos²(lat) correction)
 			tooClose := false
 			for li := range pickIdx {
 				dlat := float64(candidate.Lat - landmarks[li].Lat)
 				dlon := float64(candidate.Lon - landmarks[li].Lon)
-				if dlat*dlat+dlon*dlon < minSpacingSq {
+				if dlat*dlat+dlon*dlon*cosLat2 < minSpacingSq {
 					tooClose = true
 					break
 				}
