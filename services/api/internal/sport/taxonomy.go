@@ -158,7 +158,6 @@ func init() {
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
 		{
-		{
 			SportType: "alpine_skiing", CategoryKey: "winter", LabelDE: "Alpin-Ski", AutoTitleDE: "Skifahrt",
 			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
 			SubTypes: map[string]SubTypeDef{
