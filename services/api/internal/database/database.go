@@ -1697,6 +1697,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.IsIndoor)
 	sets = append(sets, fmt.Sprintf("is_ebike = %s", idx()))
 	args = append(args, data.IsEbike)
+	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))
+	args = append(args, data.HasGPS)
 
 	// Location (start)
 	latIdx := idx()
