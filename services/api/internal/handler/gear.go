@@ -791,6 +791,10 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	// Limit to 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
@@ -1090,6 +1094,10 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		return
 	}
 	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
 	// Limit to 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
