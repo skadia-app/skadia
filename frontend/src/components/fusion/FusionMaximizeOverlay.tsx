@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -203,12 +204,7 @@ export default function FusionMaximizeOverlay({ tracks, streams, onClose }: Fusi
     fusionMapRef.current?.setHoverPoints(points.length > 0 ? points : null)
   }, [streams])
 
-  // Escape key to close
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   // Lock body scroll
   useEffect(() => {

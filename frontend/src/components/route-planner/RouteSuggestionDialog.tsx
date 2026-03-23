@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useMutation } from '@tanstack/react-query'
 import { suggestRoute, type RouteSuggestionParams, type RouteSuggestion } from '@/api/routes'
 import { useAccentColor } from '@/lib/accentColor'
@@ -124,14 +125,7 @@ export default function RouteSuggestionDialog({
     if (!isNaN(n) && n >= 100 && n <= 3000) setElevationHm(n)
   }
 
-  // M3: Escape key to close dialog
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const mutation = useMutation({
     mutationFn: () => {

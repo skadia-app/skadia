@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchGearDocuments, uploadGearDocument, deleteGearDocument,
@@ -542,14 +543,7 @@ function PreviewPanel({
     document.body.removeChild(a)
   }, [blobUrl, doc.original_filename])
 
-  // Close on Escape
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const isPdf = doc.content_type === 'application/pdf'
   const isImage = doc.content_type.startsWith('image/')

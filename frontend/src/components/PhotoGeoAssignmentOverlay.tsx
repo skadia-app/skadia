@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -191,15 +192,7 @@ export default function PhotoGeoAssignmentOverlay({
   // Keep addMarkerRef pointing at the freshest version
   addMarkerRef.current = addMarkerForPhoto
 
-  // ── ESC key to close ───────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   // ── Lock body scroll ───────────────────────────────────────────────────────
 

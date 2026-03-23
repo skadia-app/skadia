@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { apiUpload } from '@/api/client'
@@ -405,15 +406,7 @@ export default function ImportHub() {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open])
+  useEscapeKey(() => setOpen(false), open)
 
   const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return

@@ -114,3 +114,15 @@ export function buildRasterStyle(style: BaseStyle): StyleSpecification | string 
 export const RASTER_STYLES = Object.entries(BASE_STYLES).filter(
   ([, def]) => def.type === 'raster'
 ) as [BaseStyle, RasterStyleDef][]
+
+/** Read the user's last-used map style from localStorage. */
+export function getSavedMapStyle(): BaseStyle {
+  try {
+    const raw = localStorage.getItem('skadia-map-viewport')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.baseStyle) return parsed.baseStyle as BaseStyle
+    }
+  } catch { /* ignore */ }
+  return 'osm'
+}

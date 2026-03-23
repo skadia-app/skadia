@@ -13,6 +13,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchTrainingVolumeSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
+import { sportChartColor } from '@/lib/sportColors'
 
 echarts.use([
   BarChart,
@@ -28,22 +29,6 @@ echarts.use([
 type Granularity = 'week' | 'month'
 type VolumeMetric = 'distance' | 'duration' | 'tss'
 type ChartType = 'bar' | 'line'
-
-const SPORT_COLORS: Record<string, string> = {
-  running: '#3b82f6',
-  cycling: '#10b981',
-  swimming: '#06b6d4',
-  hiking: '#84cc16',
-  walking: '#a3e635',
-  trail_running: '#22d3ee',
-  virtual_ride: '#34d399',
-  skiing: '#93c5fd',
-  other: '#9ca3af',
-}
-
-function sportColor(sport: string): string {
-  return SPORT_COLORS[sport] ?? '#9ca3af'
-}
 
 function getMetricField(metric: VolumeMetric): 'distance_m' | 'duration_s' | 'tss' {
   switch (metric) {
@@ -91,7 +76,7 @@ export default function TrainingVolumeChart() {
           const match = data.find(d => d.period === period && d.sport_type === sport)
           return match ? (match.value > 0 ? match.value : null) : null
         })
-        const color = sportColor(sport)
+        const color = sportChartColor(sport)
         if (chartType === 'line') {
           return {
             name: sport, type: 'line' as const, data: values, showSymbol: false,
