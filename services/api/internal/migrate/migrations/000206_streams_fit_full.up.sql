@@ -119,5 +119,6 @@ ALTER TABLE activity_streams SET (
 -- 5. Re-add compression policy
 SELECT add_compression_policy('activity_streams', INTERVAL '7 days');
 
--- 6. Recompress all chunks
-SELECT compress_chunk(c, true) FROM show_chunks('activity_streams') c;
+-- 6. Recompression happens asynchronously via the compression policy (7 days).
+-- No synchronous recompression needed — newly decompressed chunks will be
+-- recompressed by the background worker within the policy interval.

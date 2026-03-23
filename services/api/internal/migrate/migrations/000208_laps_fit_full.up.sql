@@ -47,8 +47,8 @@ ALTER TABLE activity_laps
   ADD COLUMN avg_vam_ms                            REAL,
 
   -- Temperature (5) — avg_temperature_c already exists
-  ADD COLUMN max_temperature_c                     REAL,
-  ADD COLUMN min_temperature_c                     REAL,
+  ADD COLUMN max_temperature_c                     SMALLINT,
+  ADD COLUMN min_temperature_c                     SMALLINT,
   ADD COLUMN avg_core_temperature_c                REAL,
   ADD COLUMN min_core_temperature_c                REAL,
   ADD COLUMN max_core_temperature_c                REAL,
@@ -123,6 +123,6 @@ ALTER TABLE activity_laps
 
   -- Misc (4)
   ADD COLUMN repetition_num                        INTEGER,
-  ADD COLUMN wkt_step_index                        INTEGER,
+  ADD COLUMN wkt_step_index                        SMALLINT,
   ADD COLUMN event_group                           SMALLINT,
   ADD COLUMN gps_accuracy_m                        SMALLINT;
