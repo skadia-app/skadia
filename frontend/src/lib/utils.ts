@@ -1,7 +1,11 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { sportLabel as taxonomySportLabel, sportColor as taxonomySportColor } from '@/lib/sportTaxonomy'
-export { fmtDuration as formatDuration, fmtDist as formatDistance } from '@/lib/format'
+import { fmtDuration, fmtDist } from '@/lib/format'
+
+/** Backwards-compatible re-export — defaults to 'human' style (was the old utils.ts format). */
+export const formatDuration = (s: number) => fmtDuration(s, 'human')
+export const formatDistance = fmtDist
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
