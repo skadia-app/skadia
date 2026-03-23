@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"math"
@@ -409,6 +410,11 @@ func SelectLandmarks(
 			seedStart = 0 // fallback: use BBox corners as seeds
 		}
 
+		// Cache farthest results per source to avoid redundant full Dijkstras.
+		// Each Dijkstra is ~10-30s on ~20M nodes — repeating with same source
+		// returns the same deterministic result.
+		farthestCache := make(map[uint64]LandmarkCandidate)
+
 		seedIdx := 0
 		attempts := 0
 		for pickIdx < 16 && attempts < 32 {
@@ -420,10 +426,16 @@ func SelectLandmarks(
 			}
 			src := landmarks[srcSlot].GlobalNodeID
 
-			candidate, err := farthestDijkstra(src)
-			if err != nil {
-				slog.Warn("farthest dijkstra failed", "error", err, "idx", pickIdx)
-				break
+			// Check cache before running expensive Dijkstra
+			candidate, cached := farthestCache[src]
+			if !cached {
+				var err error
+				candidate, err = farthestDijkstra(src)
+				if err != nil {
+					slog.Warn("farthest dijkstra failed", "error", err, "idx", pickIdx)
+					break
+				}
+				farthestCache[src] = candidate
 			}
 			if candidate.GlobalNodeID == 0 || used[candidate.GlobalNodeID] {
 				continue
@@ -528,7 +540,7 @@ func fillLandmarksFromElevSpread(tiles []TileScanResult, landmarks *[16]Landmark
 	if len(sample) == 0 {
 		return
 	}
-	slices.SortFunc(sample, func(a, b LandmarkCandidate) int { return int(a.Ele - b.Ele) })
+	slices.SortFunc(sample, func(a, b LandmarkCandidate) int { return cmp.Compare(a.Ele, b.Ele) })
 	step := max(1, len(sample)/(16-*pickIdx+1))
 	for i := step; *pickIdx < 16 && i < len(sample); i += step {
 		if !used[sample[i].GlobalNodeID] {
@@ -540,15 +552,19 @@ func fillLandmarksFromElevSpread(tiles []TileScanResult, landmarks *[16]Landmark
 }
 
 // FindNearestInTiles finds the nearest node to (latE7, lonE7) across all tiles.
+// Uses cos(lat) correction on longitude for correct distance at high latitudes.
 func FindNearestInTiles(tiles []TileScanResult, latE7, lonE7 int32) (LandmarkCandidate, bool) {
 	var best LandmarkCandidate
 	bestDist := int64(math.MaxInt64)
 	found := false
+	// cos²(lat) correction: at 47°N (Alps), 1° lon ≈ 0.68 × 1° lat
+	midLatRad := float64(latE7) * 1.745329252e-9 // E7 → radians
+	cosLat2 := int64(math.Cos(midLatRad) * math.Cos(midLatRad) * 1e6)
 	for _, t := range tiles {
 		for i := range t.NodeCount {
 			dlat := int64(t.NodeLats[i] - latE7)
 			dlon := int64(t.NodeLons[i] - lonE7)
-			d := dlat*dlat + dlon*dlon
+			d := dlat*dlat + dlon*dlon*cosLat2/1e6
 			if d < bestDist {
 				bestDist = d
 				found = true

@@ -262,7 +262,7 @@ func RunUnifiedLandmarkPreprocessing(
 				if flankA.GlobalNodeID != 0 {
 					flankLandmarks = append(flankLandmarks, flankA)
 					slog.Info("flank landmark found",
-						"seed", si, "side", "A",
+						"seed", si, "seed_name", seeds[si].Name, "side", "A",
 						"lat", float64(flankA.Lat)/1e7,
 						"lon", float64(flankA.Lon)/1e7,
 						"ele_m", float64(flankA.Ele)/10.0)
@@ -270,7 +270,7 @@ func RunUnifiedLandmarkPreprocessing(
 				if flankB.GlobalNodeID != 0 {
 					flankLandmarks = append(flankLandmarks, flankB)
 					slog.Info("flank landmark found",
-						"seed", si, "side", "B",
+						"seed", si, "seed_name", seeds[si].Name, "side", "B",
 						"lat", float64(flankB.Lat)/1e7,
 						"lon", float64(flankB.Lon)/1e7,
 						"ele_m", float64(flankB.Ele)/10.0)
