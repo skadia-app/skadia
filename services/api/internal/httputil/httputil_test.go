@@ -1,11 +1,14 @@
 package httputil
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -70,5 +73,59 @@ func TestWriteError(t *testing.T) {
 	}
 	if problem.Type != "https://skadia.io/errors/Not Found" {
 		t.Fatalf("expected type 'https://skadia.io/errors/Not Found', got '%s'", problem.Type)
+	}
+}
+
+func TestRequireUserID_Present(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	ctx := context.WithValue(r.Context(), middleware.UserIDKey, "user-123")
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	userID, ok := RequireUserID(w, r)
+	if !ok || userID != "user-123" {
+		t.Fatalf("got userID=%q ok=%v", userID, ok)
+	}
+}
+
+func TestRequireUserID_Missing(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	_, ok := RequireUserID(w, r)
+	if ok {
+		t.Fatal("expected ok=false for missing userID")
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("got status %d, want 401", w.Code)
+	}
+}
+
+func TestDecodeJSON_Valid(t *testing.T) {
+	body := strings.NewReader(`{"name":"test"}`)
+	r := httptest.NewRequest("POST", "/", body)
+	w := httptest.NewRecorder()
+
+	type req struct {
+		Name string `json:"name"`
+	}
+	val, ok := DecodeJSON[req](w, r)
+	if !ok || val.Name != "test" {
+		t.Fatalf("got val=%+v ok=%v", val, ok)
+	}
+}
+
+func TestDecodeJSON_Invalid(t *testing.T) {
+	body := strings.NewReader(`{invalid`)
+	r := httptest.NewRequest("POST", "/test", body)
+	w := httptest.NewRecorder()
+
+	type req struct{ Name string }
+	_, ok := DecodeJSON[req](w, r)
+	if ok {
+		t.Fatal("expected ok=false for invalid JSON")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", w.Code)
 	}
 }

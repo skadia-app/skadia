@@ -10,12 +10,12 @@ import (
 )
 
 const (
-	lapGridCellSizeM    = 25.0  // spatial hash grid cell size
-	lapMinDistanceM     = 100.0 // minimum lap distance
-	lapMinTimeS         = 20    // minimum lap time
-	lapMedianTolerance  = 0.50  // ±50% of median distance
-	lapMinLaps          = 2     // minimum number of laps for detection
-	lapHotspotRadiusCells = 1   // 3x3 neighborhood (center ± 1)
+	lapGridCellSizeM      = 25.0  // spatial hash grid cell size
+	lapMinDistanceM       = 100.0 // minimum lap distance
+	lapMinTimeS           = 20    // minimum lap time
+	lapMedianTolerance    = 0.50  // ±50% of median distance
+	lapMinLaps            = 2     // minimum number of laps for detection
+	lapHotspotRadiusCells = 1     // 3x3 neighborhood (center ± 1)
 )
 
 // gridCell is a spatial hash grid cell key.

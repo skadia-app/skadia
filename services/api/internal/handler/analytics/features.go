@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -17,9 +16,8 @@ import (
 // Query params: metric (default: hrv_rmssd), days (default: 180).
 // Returns empty list if ML has not yet computed the data.
 func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -38,9 +36,9 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteJSON(w, http.StatusOK, map[string]any{
-				"metric":      metric,
+				"metric":       metric,
 				"changepoints": []any{},
-				"computed":    false,
+				"computed":     false,
 			})
 			return
 		}
@@ -66,9 +64,8 @@ func (h *Handler) GetChangepoints(w http.ResponseWriter, r *http.Request) {
 // GetHRVExtended reads curated HRV metrics from user_daily_features for a given activity.
 // Query param: activity_id (required).
 func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -136,9 +133,8 @@ func (h *Handler) GetHRVExtended(w http.ResponseWriter, r *http.Request) {
 // GetActivityFeatures reads TSFEL features from user_daily_features for a given activity.
 // Query param: activity_id (required).
 func (h *Handler) GetActivityFeatures(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

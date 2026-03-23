@@ -1,10 +1,10 @@
 package analytics
 
 import (
-	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/ml"
+	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {

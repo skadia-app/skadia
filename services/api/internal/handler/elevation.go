@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -23,9 +22,8 @@ import (
 //
 // Response: 202 Accepted  { "job_id": "<uuid>", "status": "started" }
 func (h *Handler) ResetActivityElevation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -103,9 +101,8 @@ func (h *Handler) runElevationResetJob(jobID, activityID, userID string) {
 //	  "source":     "srtm30" | "copernicus30" | "none" | ...
 //	}
 func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -159,9 +156,8 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 //	  ]
 //	}
 func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -211,9 +207,8 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 //  1. scripts/dem-import.sh <source> <dir>   → lädt GeoTIFFs per raster2pgsql in DB
 //  2. POST /api/v1/dem/import                → ANALYZE + Overview-Raster im Hintergrund
 func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -308,9 +303,8 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 // DEM value deviates by less than 50 m from the recorded value, and sets
 // activities.elevation_source = 'dem'.
 func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

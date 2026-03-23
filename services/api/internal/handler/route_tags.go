@@ -8,7 +8,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -16,9 +15,8 @@ import (
 // PUT /api/v1/routes/{id}/tags
 // Body: {"tag_ids": ["uuid1", "uuid2"]}
 func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -64,9 +62,8 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 // AddRouteTag adds a single tag to a route.
 // POST /api/v1/routes/{id}/tags/{tagId}
 func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -95,9 +92,8 @@ func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
 // RemoveRouteTag removes a single tag from a route.
 // DELETE /api/v1/routes/{id}/tags/{tagId}
 func (h *Handler) RemoveRouteTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")

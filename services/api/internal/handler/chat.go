@@ -12,9 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // chatRateLimiter tracks per-user message rates in memory.
@@ -68,9 +67,8 @@ func (h *Handler) ChatRoutes() http.Handler {
 
 // ListChatSessions handles GET /api/v1/chat/sessions
 func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -89,9 +87,8 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 
 // CreateChatSession handles POST /api/v1/chat/sessions
 func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -107,9 +104,8 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 
 // GetChatMessages handles GET /api/v1/chat/sessions/{id}/messages
 func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -136,9 +132,8 @@ func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 
 // DeleteChatSession handles DELETE /api/v1/chat/sessions/{id}
 func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -157,9 +152,8 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 // It persists the user message, streams the ML response via SSE, and
 // persists the assistant reply when done.
 func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

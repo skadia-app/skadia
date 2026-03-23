@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -48,15 +47,13 @@ type RouteRequest struct {
 //
 // POST /api/v1/routing/route
 func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	_, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var req RouteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[RouteRequest](w, r)
+	if !ok {
 		return
 	}
 

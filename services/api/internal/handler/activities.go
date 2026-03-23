@@ -22,17 +22,15 @@ import (
 	"github.com/muktihari/fit/proto"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
 // GET /api/v1/activities/sport-type-stats
 func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	stats, err := h.DB.GetSportTypeStats(r.Context(), userID)
@@ -48,7 +46,10 @@ func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	cursor := r.URL.Query().Get("cursor")
 	limit := 20
@@ -121,9 +122,8 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -145,9 +145,8 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 // GetChildActivities returns all child activities for a multisport parent.
 // GET /api/v1/activities/{id}/children
 func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -177,9 +176,8 @@ func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -196,9 +194,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update model.ActivityUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.ActivityUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -217,9 +214,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -295,16 +291,19 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/v1/activities
 // Body: {"ids": ["uuid1", "uuid2", ...]}
 func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
 	var body struct {
 		IDs []string `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.IDs) == 0 {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if len(body.IDs) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "ids array required", r.URL.Path)
 		return
 	}
@@ -325,9 +324,8 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 
 // ExportActivity exports an activity in the requested format.
 func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -905,9 +903,8 @@ func exportMultiSessionFIT(
 // GetZoneDistribution returns the HR and power zone distribution for an activity.
 func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -1002,7 +999,10 @@ func computeHRZones(streams []model.StreamPoint, maxHR int) []model.TimeInZone {
 // GetCombinedTrack returns a GeoJSON FeatureCollection with one Feature per child activity track.
 // GET /api/v1/activities/{id}/combined-track
 func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 	ctx := r.Context()
 
@@ -1062,7 +1062,10 @@ func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/activities/group
 // Body: { "activity_ids": ["uuid1", "uuid2", ...], "title": "Mein Triathlon" }
 func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	ctx := r.Context()
 
 	var req struct {
@@ -1129,7 +1132,10 @@ func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
 // UngroupActivities dissolves a multisport group: clears parent_id on all children, then deletes the parent.
 // DELETE /api/v1/activities/{id}/group
 func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	parentID := chi.URLParam(r, "id")
 	ctx := r.Context()
 

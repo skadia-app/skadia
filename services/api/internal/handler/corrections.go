@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -21,9 +20,8 @@ import (
 //
 // Response: 202 Accepted  { "job_id": "<uuid>", "status": "started" }
 func (h *Handler) CorrectActivityDistance(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -113,9 +111,8 @@ func (h *Handler) runDistanceCorrectionJob(jobID, activityID string) {
 //
 // Response: 202 Accepted  { "job_id": "<uuid>", "status": "started" }
 func (h *Handler) ResetActivityDistance(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -174,4 +171,3 @@ func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
 	slog.Info("distance reset: complete", "job_id", jobID, "activity_id", activityID)
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
-

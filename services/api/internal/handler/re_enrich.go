@@ -10,10 +10,9 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 var validReEnrichModules = []string{
@@ -26,9 +25,8 @@ var validReEnrichModules = []string{
 //
 // POST /api/v1/activities/re-enrich
 func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -36,7 +34,11 @@ func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
 		Modules []string `json:"modules"`
 		IDs     []string `json:"ids,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Modules) == 0 {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if len(req.Modules) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "modules required", r.URL.Path)
 		return
 	}

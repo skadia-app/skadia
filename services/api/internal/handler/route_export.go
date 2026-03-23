@@ -11,18 +11,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ExportRouteGPX handles GET /api/v1/routes/{id}/gpx
 // Returns a GPX file for the requested planned route.
 // Ownership is enforced via GetRoute (WHERE user_id = $2).
 func (h *Handler) ExportRouteGPX(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -61,8 +59,8 @@ func (h *Handler) ExportRouteGPX(w http.ResponseWriter, r *http.Request) {
 // geoJSONLineCoords decodes coordinates from a PostGIS ST_AsGeoJSON LineString.
 // Each element is [lon, lat] or [lon, lat, ele].
 type geoJSONLineCoords struct {
-	Type        string       `json:"type"`
-	Coordinates [][]float64  `json:"coordinates"`
+	Type        string      `json:"type"`
+	Coordinates [][]float64 `json:"coordinates"`
 }
 
 // writeRouteGPX renders a GPX 1.1 document for route directly to w.

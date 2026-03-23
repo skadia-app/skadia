@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
@@ -29,9 +28,8 @@ type summitVisitResponse struct {
 // grouped by osm_id with visit statistics.
 // Optional query parameters: country (comma-separated ISO codes), min_elevation, max_elevation, year.
 func (h *Handler) GetSummitCollection(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -103,9 +101,8 @@ type summitActivityResponse struct {
 // GetSummitActivities returns all activities linked to a summit.
 // URL param: osm_id (int) — falls back to query param "name" when osm_id is 0.
 func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -144,9 +141,8 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 // GetSummitActivitiesByName returns all activities linked to a summit by name.
 // Query param: name (required)
 func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	name := r.URL.Query().Get("name")

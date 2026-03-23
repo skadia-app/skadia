@@ -20,11 +20,10 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // importBytesResult holds the outcome of importFileBytes.
@@ -43,9 +42,8 @@ type importBytesResult struct {
 // POST /api/v1/import/from-url
 // Body: { "url": "https://example.com/activity.fit" }
 func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

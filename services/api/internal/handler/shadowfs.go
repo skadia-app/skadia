@@ -2,14 +2,12 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ShadowFSSettingsResponse is the GET response for shadow FS settings.
@@ -27,9 +25,8 @@ type ShadowFSSettingsRequest struct {
 
 // GetShadowFSSettings returns the user's shadow FS configuration.
 func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -69,15 +66,13 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 
 // UpdateShadowFSSettings updates the user's file naming schema and/or hotfolder toggle.
 func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var req ShadowFSSettingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[ShadowFSSettingsRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -146,9 +141,8 @@ type PreviewRenameRequest struct {
 
 // PreviewRename returns a preview of what files would be renamed.
 func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -157,9 +151,8 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req PreviewRenameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[PreviewRenameRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -203,9 +196,8 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 
 // ExecuteRename performs the actual rename of shadow files.
 func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -214,9 +206,8 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var items []shadowfs.RenameItem
-	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	items, ok := httputil.DecodeJSON[[]shadowfs.RenameItem](w, r)
+	if !ok {
 		return
 	}
 

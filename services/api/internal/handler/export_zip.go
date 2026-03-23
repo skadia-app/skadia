@@ -13,9 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ExportActivitiesZip exports multiple activities as a single ZIP archive.
@@ -26,9 +25,8 @@ import (
 // If ids is empty or omitted, all activities for the user are exported.
 // This is the foundation for a future full user-data export.
 func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -189,12 +187,12 @@ func writeGPXBytes(w *bytes.Buffer, activity *model.Activity, streams []model.St
 		name = *activity.Title
 	}
 	gpx := gpxRoot{
-		Version:      "1.1",
-		Creator:      "Skadia",
-		Xmlns:        "http://www.topografix.com/GPX/1/1",
+		Version:     "1.1",
+		Creator:     "Skadia",
+		Xmlns:       "http://www.topografix.com/GPX/1/1",
 		XmlnsGpxTpx: "http://www.garmin.com/xmlschemas/TrackPointExtension/v1",
-		Metadata:     gpxMeta{Time: activity.StartedAt.Format(time.RFC3339)},
-		Trk:          gpxTrack{Name: name},
+		Metadata:    gpxMeta{Time: activity.StartedAt.Format(time.RFC3339)},
+		Trk:         gpxTrack{Name: name},
 	}
 	var points []gpxPoint
 	for _, s := range streams {
@@ -254,7 +252,7 @@ func (bw *bytesWriter) Header() http.Header {
 	}
 	return bw.headers
 }
-func (bw *bytesWriter) WriteHeader(int)              {}
+func (bw *bytesWriter) WriteHeader(int)             {}
 func (bw *bytesWriter) Write(b []byte) (int, error) { return bw.buf.Write(b) }
 
 // jsonDecodeBody decodes the JSON request body into v.

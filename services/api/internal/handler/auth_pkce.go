@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -35,9 +34,8 @@ func (h *Handler) ExchangeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req MobileTokenRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[MobileTokenRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Code == "" || req.CodeVerifier == "" {
@@ -80,9 +78,8 @@ func (h *Handler) MobileRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req MobileRefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[MobileRefreshRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.RefreshToken == "" {

@@ -6,10 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/skadia-app/skadia/services/api/internal/importer"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func derefStr(s *string) string {
@@ -58,9 +57,8 @@ func activityTitle(a *model.Activity) string {
 // GetFusionQueue gibt Tier-2 Fusionskandidaten zurück.
 // GET /api/v1/fusion-queue?limit=20
 func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

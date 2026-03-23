@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	goanalytics "github.com/skadia-app/skadia/services/api/internal/analytics"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -42,19 +41,18 @@ type apiWarning struct {
 
 // metricLabel maps internal metric names to human-readable German labels.
 var metricLabel = map[string]string{
-	"hrv_rmssd":  "HRV (RMSSD)",
-	"resting_hr": "Ruhepuls",
+	"hrv_rmssd":   "HRV (RMSSD)",
+	"resting_hr":  "Ruhepuls",
 	"sleep_score": "Schlafqualität",
-	"spo2":       "SpO₂",
+	"spo2":        "SpO₂",
 }
 
 // GetInsightsWarnings reads the "anomalies" cache key written by the Go analytics
 // package and transforms each AnomalyEntry into Warning[] entries for the frontend.
 // Returns 204 No Content when no data has been computed yet.
 func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -140,22 +138,21 @@ type mlProjectionDict struct {
 
 // apiProjection is the shape the frontend Projection type expects.
 type apiProjection struct {
-	Metric        string   `json:"metric"`
-	Target        float64  `json:"target"`
-	Current       float64  `json:"current"`
-	PredictedDate *string  `json:"predicted_date"`
-	OnTrack       bool     `json:"on_track"`
-	WeeklyNeeded  float64  `json:"weekly_needed"`
-	Explanation   *string  `json:"explanation"`
+	Metric        string  `json:"metric"`
+	Target        float64 `json:"target"`
+	Current       float64 `json:"current"`
+	PredictedDate *string `json:"predicted_date"`
+	OnTrack       bool    `json:"on_track"`
+	WeeklyNeeded  float64 `json:"weekly_needed"`
+	Explanation   *string `json:"explanation"`
 }
 
 // GetInsightsProjection reads the "projection" cache key written by the ML service
 // and transforms the CTL projection dict into the Projection[] array the frontend expects.
 // Returns 204 No Content when the ML service has not yet computed the data.
 func (h *Handler) GetInsightsProjection(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -243,9 +240,8 @@ func (h *Handler) GetInsightsCorrelations(w http.ResponseWriter, r *http.Request
 // serveInsightsCache is a shared helper: reads the given cache key and writes
 // the raw JSONB payload to the response, or 204 when no cache entry exists yet.
 func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cacheKey string) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -271,9 +267,8 @@ func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cac
 // At most one computation per user runs concurrently; additional requests are silently
 // dropped (the in-flight computation will write fresh results).
 func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

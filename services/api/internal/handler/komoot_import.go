@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,10 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/komoot"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // --- Request/Response types ---
@@ -50,15 +48,13 @@ type KomootStartRequest struct {
 //
 // POST /api/v1/import/komoot/login
 func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var req KomootLoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[KomootLoginRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Email == "" || req.Password == "" {
@@ -140,9 +136,8 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/v1/import/komoot/scan
 func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -216,15 +211,13 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/v1/import/komoot/start
 func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var req KomootStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[KomootStartRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -393,9 +386,8 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/import/komoot/jobs/{id}
 func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	jobID := chi.URLParam(r, "id")
@@ -416,9 +408,8 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/import/komoot/credentials
 func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -442,9 +433,8 @@ func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request
 //
 // DELETE /api/v1/import/komoot/credentials
 func (h *Handler) KomootDeleteCredentials(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

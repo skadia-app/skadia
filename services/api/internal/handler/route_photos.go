@@ -2,7 +2,6 @@ package handler
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,18 +12,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // UploadRoutePhoto handles POST /api/v1/routes/{id}/photos
 // Accepts a multipart form with a "photo" field, generates thumbnails, uploads to S3.
 func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -172,9 +169,8 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRoutePhoto handles DELETE /api/v1/routes/{id}/photos/{photoId}
 func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -218,9 +214,8 @@ type reorderRoutePhotosRequest struct {
 
 // ReorderRoutePhotos handles PUT /api/v1/routes/{id}/photos/reorder
 func (h *Handler) ReorderRoutePhotos(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
@@ -237,9 +232,8 @@ func (h *Handler) ReorderRoutePhotos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req reorderRoutePhotosRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[reorderRoutePhotosRequest](w, r)
+	if !ok {
 		return
 	}
 	if len(req.PhotoIDs) == 0 {

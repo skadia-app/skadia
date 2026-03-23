@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,17 +9,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ListRoutes returns paginated planned routes for the authenticated user.
 // GET /api/v1/routes
 func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -62,15 +59,13 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 // CreateRoute creates a new planned route for the authenticated user.
 // POST /api/v1/routes
 func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var route model.PlannedRoute
-	if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	route, ok := httputil.DecodeJSON[model.PlannedRoute](w, r)
+	if !ok {
 		return
 	}
 
@@ -90,9 +85,8 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 // GetRoute fetches a single planned route by ID, enforcing ownership.
 // GET /api/v1/routes/{id}
 func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -120,9 +114,8 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 // UpdateRoute updates mutable fields of a planned route, enforcing ownership.
 // PATCH /api/v1/routes/{id}
 func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -132,9 +125,8 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var route model.PlannedRoute
-	if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	route, ok := httputil.DecodeJSON[model.PlannedRoute](w, r)
+	if !ok {
 		return
 	}
 
@@ -158,9 +150,8 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 // DeleteRoute removes a planned route, enforcing ownership.
 // DELETE /api/v1/routes/{id}
 func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -187,9 +178,8 @@ func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 // DuplicateRoute creates a copy of a planned route owned by the authenticated user.
 // POST /api/v1/routes/{id}/duplicate
 func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

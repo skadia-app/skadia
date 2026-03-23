@@ -11,10 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -363,7 +362,10 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 // RetryOSMEnrichment re-runs only the enrichment + splitting phases (6+7) on existing osm_ways.
 // POST /api/v1/admin/osm-import/retry-enrichment
 func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	var req struct {
 		Regions []string `json:"regions"`

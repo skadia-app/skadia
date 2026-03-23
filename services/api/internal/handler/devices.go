@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,9 +8,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // registerDeviceRequest is the JSON body for POST /devices/register.
@@ -25,11 +23,13 @@ type registerDeviceRequest struct {
 //
 // POST /api/v1/devices/register
 func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var req registerDeviceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[registerDeviceRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Token == "" {
@@ -59,7 +59,10 @@ func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/devices
 func (h *Handler) ListDevices(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	devices, err := h.DB.ListDevices(r.Context(), userID)
 	if err != nil {
@@ -77,7 +80,10 @@ func (h *Handler) ListDevices(w http.ResponseWriter, r *http.Request) {
 //
 // DELETE /api/v1/devices/{id}
 func (h *Handler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	deviceID := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteDevice(r.Context(), deviceID, userID); err != nil {

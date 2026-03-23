@@ -11,9 +11,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/phash"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/phash"
 )
 
 // phashBucketName returns the S3 bucket used for activity photos.
@@ -30,9 +29,8 @@ func phashBucketName() string {
 //
 // POST /api/v1/admin/phash-backfill
 func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

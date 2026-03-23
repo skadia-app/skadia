@@ -8,16 +8,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ListImportQueue handles GET /api/v1/import-queue
 // Query param: status=pending|resolved|dismissed|all (default: pending)
 func (h *Handler) ListImportQueue(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -37,9 +35,8 @@ func (h *Handler) ListImportQueue(w http.ResponseWriter, r *http.Request) {
 
 // CountImportQueue handles GET /api/v1/import-queue/count
 func (h *Handler) CountImportQueue(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -55,9 +52,8 @@ func (h *Handler) CountImportQueue(w http.ResponseWriter, r *http.Request) {
 // PatchImportQueueItem handles PATCH /api/v1/import-queue/{id}
 // Body: {"status": "resolved"|"dismissed"|"pending"}
 func (h *Handler) PatchImportQueueItem(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -90,9 +86,8 @@ func (h *Handler) PatchImportQueueItem(w http.ResponseWriter, r *http.Request) {
 
 // DeleteImportQueueItem handles DELETE /api/v1/import-queue/{id}
 func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -109,9 +104,8 @@ func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) 
 // Assigns a queued image_no_match item to an activity via the ImportService pipeline.
 // Body: {"activity_id": "uuid"}
 func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -119,7 +113,11 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		ActivityID string `json:"activity_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ActivityID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if req.ActivityID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id is required", r.URL.Path)
 		return
 	}
@@ -144,9 +142,8 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 // GetImportQueueItemThumb handles GET /api/v1/import-queue/{id}/thumb
 // Returns the thumbnail image for a queued item stored in S3.
 func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -183,4 +180,3 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
-

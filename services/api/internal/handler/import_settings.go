@@ -1,19 +1,20 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetImportSettings godoc
 // GET /api/v1/settings/import
 func (h *Handler) GetImportSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	s, err := h.DB.GetImportSettings(r.Context(), userID)
 	if err != nil {
 		slog.Error("get import settings", "error", err)
@@ -26,10 +27,12 @@ func (h *Handler) GetImportSettings(w http.ResponseWriter, r *http.Request) {
 // UpdateImportSettings godoc
 // PUT /api/v1/settings/import
 func (h *Handler) UpdateImportSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	var s model.ImportSettings
-	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	s, ok := httputil.DecodeJSON[model.ImportSettings](w, r)
+	if !ok {
 		return
 	}
 	// Validate + sanitize

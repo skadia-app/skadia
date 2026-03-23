@@ -8,13 +8,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListPrivacyZones(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	zones, err := h.DB.ListPrivacyZones(r.Context(), userID)
 	if err != nil {
@@ -27,7 +29,10 @@ func (h *Handler) ListPrivacyZones(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	var req struct {
 		Name     string  `json:"name"`
@@ -83,12 +88,14 @@ func (h *Handler) CreatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdatePrivacyZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	zoneID := chi.URLParam(r, "id")
 
-	var update model.PrivacyZoneUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.PrivacyZoneUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -114,7 +121,10 @@ func (h *Handler) UpdatePrivacyZone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeletePrivacyZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	zoneID := chi.URLParam(r, "id")
 
 	if err := h.DB.DeletePrivacyZone(r.Context(), zoneID, userID); err != nil {

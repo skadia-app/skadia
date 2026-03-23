@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,12 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/go-chi/chi/v5"
 )
 
 // Kategorie-Definitionen: ID → betroffene Tabellen.
@@ -93,10 +91,16 @@ func (h *Handler) ListOSMRegions(w http.ResponseWriter, r *http.Request) {
 // StartOSMImport startet einen asynchronen OSM-Import-Job.
 // POST /api/v1/admin/osm-import/start
 func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var req osmImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Regions) == 0 || len(req.Categories) == 0 {
+	req, ok := httputil.DecodeJSON[osmImportRequest](w, r)
+	if !ok {
+		return
+	}
+	if len(req.Regions) == 0 || len(req.Categories) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "regions and categories required", r.URL.Path)
 		return
 	}
@@ -356,8 +360,8 @@ type regionReporter struct {
 	lastErr string
 }
 
-func (r *regionReporter) SetPhase(p string)  { r.inner.SetPhase(p) }
-func (r *regionReporter) SetTotal(t int64)   { r.inner.SetTotal(t) }
+func (r *regionReporter) SetPhase(p string)   { r.inner.SetPhase(p) }
+func (r *regionReporter) SetTotal(t int64)    { r.inner.SetTotal(t) }
 func (r *regionReporter) SetProgress(c int64) { r.inner.SetProgress(c) }
 func (r *regionReporter) Fail(msg string)     { r.lastErr = msg }
 func (r *regionReporter) Complete()           {}

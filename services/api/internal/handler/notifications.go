@@ -9,16 +9,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ListNotifications returns recent notifications for the authenticated user.
 //
 // GET /api/v1/notifications?limit=50
 func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -52,7 +54,10 @@ func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/v1/notifications/{id}/read
 func (h *Handler) MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	notifID := chi.URLParam(r, "id")
 
 	if err := h.DB.MarkRead(r.Context(), notifID, userID); err != nil {
@@ -72,7 +77,10 @@ func (h *Handler) MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/v1/notifications/read-all
 func (h *Handler) MarkAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	if err := h.DB.MarkAllRead(r.Context(), userID); err != nil {
 		slog.Error("mark all notifications read failed", "error", err)
@@ -87,7 +95,10 @@ func (h *Handler) MarkAllNotificationsRead(w http.ResponseWriter, r *http.Reques
 //
 // DELETE /api/v1/notifications/{id}
 func (h *Handler) DeleteNotification(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	notifID := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteNotification(r.Context(), notifID, userID); err != nil {
@@ -107,7 +118,10 @@ func (h *Handler) DeleteNotification(w http.ResponseWriter, r *http.Request) {
 //
 // DELETE /api/v1/notifications
 func (h *Handler) DeleteAllNotifications(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	if err := h.DB.DeleteAllNotifications(r.Context(), userID); err != nil {
 		slog.Error("delete all notifications failed", "error", err)
@@ -122,7 +136,10 @@ func (h *Handler) DeleteAllNotifications(w http.ResponseWriter, r *http.Request)
 //
 // GET /api/v1/notifications/unread-count
 func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	count, err := h.DB.GetUnreadCount(r.Context(), userID)
 	if err != nil {

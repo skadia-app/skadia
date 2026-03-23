@@ -15,19 +15,17 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 const maxPhotoSize = 200 << 20 // 200 MB (Videos können größer sein)
 
 func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -125,9 +123,8 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -157,7 +154,10 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	photoID := chi.URLParam(r, "photoID")
 	bucket, key, keyThumb, keyPreview, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
@@ -176,7 +176,10 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
@@ -195,7 +198,10 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
@@ -225,16 +231,14 @@ type patchPhotoLocationRequest struct {
 // Updates the GPS position and/or timestamp of a photo. When location_source is
 // 'manual' a meta-sidecar JSON is written to S3 so the original file remains untouched.
 func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	photoID := chi.URLParam(r, "photoID")
 
-	var req patchPhotoLocationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[patchPhotoLocationRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -300,7 +304,10 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileHash st
 }
 
 func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	photoID := chi.URLParam(r, "photoID")
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
@@ -330,9 +337,8 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 // RecomputePhotoPreviews regenerates preview thumbnails for all user photos
 // using the current photo_preview_size setting. Runs as a background job.
 func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -461,9 +467,8 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 // Strava import). It also corrects is_video and content_type for such rows.
 // Runs as a background job; returns 202 Accepted immediately.
 func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -629,9 +634,8 @@ func videoContentTypeFromExt(ext string) string {
 // photos that currently have no embedding stored (clip_embedding IS NULL).
 // Runs as a background job; returns 202 Accepted immediately.
 func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -688,7 +692,10 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	entries, err := h.DB.ListMapPhotos(r.Context(), userID)
 	if err != nil {
 		slog.Error("list map photos failed", "error", err)
@@ -714,7 +721,6 @@ func setPhotoURLs(p *model.ActivityPhoto) {
 		p.PreviewURL = base + "/full" // fallback: original
 	}
 }
-
 
 // contentTypeFromExtension gibt den MIME-Type anhand der Dateiendung zurück.
 // Wird als Fallback genutzt wenn http.DetectContentType() application/octet-stream liefert
@@ -845,4 +851,3 @@ func (h *Handler) interpolateFromTrack(ctx context.Context, activityID, userID s
 	}
 	return sp.Lat, sp.Lng
 }
-
