@@ -212,7 +212,7 @@ func RunUnifiedLandmarkPreprocessing(
 		return best, nil
 	}
 
-	meta, err := graph.SelectLandmarks(tiles, farthestDijkstra, osmPassCandidates, osmPeakCandidates)
+	meta, err := graph.SelectLandmarksLegacy(tiles, farthestDijkstra, osmPassCandidates, osmPeakCandidates)
 	if err != nil {
 		return nil, fmt.Errorf("select landmarks: %w", err)
 	}

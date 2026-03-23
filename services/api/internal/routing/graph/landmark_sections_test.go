@@ -18,7 +18,7 @@ func TestSelectLandmarksBasic(t *testing.T) {
 			NodeEles: []int32{500, 800, 15000, 40000}},
 	}
 
-	meta, err := SelectLandmarks(tiles, nil, nil, nil)
+	meta, err := SelectLandmarksLegacy(tiles, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestSelectLandmarksWithOSMPass(t *testing.T) {
 	passCandidates := []LandmarkCandidate{
 		{GlobalNodeID: passNodeID, Lat: 474000000, Lon: 114000000, Ele: 13700},
 	}
-	meta, err := SelectLandmarks(tiles, nil, passCandidates, nil)
+	meta, err := SelectLandmarksLegacy(tiles, nil, passCandidates, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
