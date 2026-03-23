@@ -50,6 +50,7 @@ const ImportQueuePage = lazy(() => import('@/pages/ImportQueuePage'))
 const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
 const DeviceListPage = lazy(() => import('@/pages/DeviceListPage'))
 const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
+const ManualActivityPage = lazy(() => import('@/pages/ManualActivityPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -113,6 +114,7 @@ export default function App() {
                         <Route path="dashboard" element={<DashboardPage />} />
                         <Route path="photos" element={<PhotoGalleryPage />} />
                         <Route path="activities" element={<ActivitiesPage />} />
+                        <Route path="activities/manual" element={<ManualActivityPage />} />
                         <Route path="activities/compare" element={<ActivityComparisonPage />} />
                         <Route path="fusion" element={<FusionPage />} />
                         <Route path="activities/:id" element={<ActivityDetailPage />} />
