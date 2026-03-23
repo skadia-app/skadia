@@ -1,0 +1,559 @@
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { createManualActivity } from '@/api/manualActivity'
+import { fetchGear } from '@/api/gear'
+import { fetchTags } from '@/api/tags'
+import { CATEGORIES, SPORT_DEFS, sportsInCategory } from '@/lib/sportTaxonomy'
+import { useToast } from '@/lib/toast'
+import type { Gear } from '@/api/types'
+import type { Tag } from '@/api/tags'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function parseDuration(h: string, m: string, s: string): number {
+  return (parseInt(h) || 0) * 3600 + (parseInt(m) || 0) * 60 + (parseInt(s) || 0)
+}
+
+const RPE_COLORS: Record<number, string> = {
+  1:  '#22c55e',
+  2:  '#4ade80',
+  3:  '#86efac',
+  4:  '#fde047',
+  5:  '#facc15',
+  6:  '#fb923c',
+  7:  '#f97316',
+  8:  '#ef4444',
+  9:  '#dc2626',
+  10: '#991b1b',
+}
+
+const FEEL_OPTIONS = [
+  { value: 0, emoji: '😫', label: 'Erschöpft' },
+  { value: 1, emoji: '😕', label: 'Schlecht' },
+  { value: 2, emoji: '😐', label: 'Neutral' },
+  { value: 3, emoji: '🙂', label: 'Gut' },
+  { value: 4, emoji: '😄', label: 'Super' },
+]
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function ManualActivityPage() {
+  const navigate = useNavigate()
+  const { addToast } = useToast()
+
+  // ── Form state ──────────────────────────────────────────────────────────────
+  const [sportType, setSportType] = useState('running')
+  const [subType, setSubType] = useState('')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+
+  // Datum/Uhrzeit: default = heute, aktuelle Stunde
+  const now = new Date()
+  const localDateStr = now.toISOString().slice(0, 10)
+  const localTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const [date, setDate] = useState(localDateStr)
+  const [time, setTime] = useState(localTimeStr)
+
+  // Dauer in h / min / s
+  const [durH, setDurH] = useState('0')
+  const [durM, setDurM] = useState('30')
+  const [durS, setDurS] = useState('0')
+
+  const [distanceKm, setDistanceKm] = useState('')
+  const [elevGain, setElevGain] = useState('')
+  const [elevLoss, setElevLoss] = useState('')
+
+  // Rechte Spalte
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [gearId, setGearId] = useState('')
+  const [isEbike, setIsEbike] = useState(false)
+  const [rpe, setRpe] = useState<number | null>(null)
+  const [feel, setFeel] = useState<number | null>(null)
+
+  const [submitting, setSubmitting] = useState(false)
+
+  // ── Data queries ────────────────────────────────────────────────────────────
+  const { data: gearList = [] } = useQuery<Gear[]>({
+    queryKey: ['gear', 'active'],
+    queryFn: () => fetchGear('active'),
+  })
+
+  const { data: tagList = [] } = useQuery<Tag[]>({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
+  })
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const selectedSportDef = SPORT_DEFS.find(d => d.sportType === sportType)
+  const isBike = selectedSportDef?.categoryKey === 'bike'
+
+  function handleSportChange(newSport: string) {
+    setSportType(newSport)
+    setSubType('')
+    if (SPORT_DEFS.find(d => d.sportType === newSport)?.categoryKey !== 'bike') {
+      setIsEbike(false)
+    }
+  }
+
+  function toggleTag(tagId: string) {
+    setSelectedTags(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId],
+    )
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+
+    const elapsedTimeS = parseDuration(durH, durM, durS)
+    if (elapsedTimeS <= 0) {
+      addToast({ type: 'error', title: 'Dauer fehlt', message: 'Bitte gib eine Dauer ein.' })
+      return
+    }
+
+    // Combine date + time → RFC3339 in local timezone
+    const startedAt = new Date(`${date}T${time}:00`).toISOString()
+
+    setSubmitting(true)
+    try {
+      const result = await createManualActivity({
+        sport_type: sportType,
+        sub_type: subType || undefined,
+        title: title || undefined,
+        description: description || undefined,
+        started_at: startedAt,
+        elapsed_time_s: elapsedTimeS,
+        distance_m: distanceKm ? parseFloat(distanceKm) * 1000 : undefined,
+        elevation_gain_m: elevGain ? parseFloat(elevGain) : undefined,
+        elevation_loss_m: elevLoss ? parseFloat(elevLoss) : undefined,
+        tags: selectedTags.length ? selectedTags : undefined,
+        gear_id: gearId || undefined,
+        is_ebike: isEbike || undefined,
+        workout_rpe: rpe ?? undefined,
+        workout_feel: feel ?? undefined,
+      })
+      addToast({ type: 'success', title: 'Aktivität erstellt' })
+      navigate(`/activities/${result.id}`)
+    } catch {
+      addToast({ type: 'error', title: 'Fehler', message: 'Aktivität konnte nicht erstellt werden.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-neutral-100">
+      {/* Header */}
+      <div className="border-b border-neutral-800 bg-neutral-900 px-4 py-4">
+        <div className="mx-auto max-w-5xl flex items-center gap-4">
+          <Link
+            to="/activities"
+            className="flex items-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-200 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            Zurück
+          </Link>
+          <h1 className="text-lg font-semibold text-neutral-100">Aktivität erstellen</h1>
+        </div>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="mx-auto max-w-5xl px-4 py-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+
+          {/* ── Linke Spalte ─────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-5">
+
+            {/* Sportart — Kategorie-Auswahl */}
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium text-neutral-300">Sportart</legend>
+              <div className="rounded-lg border border-neutral-700 bg-neutral-900 overflow-hidden">
+                {CATEGORIES.map(cat => {
+                  const sports = sportsInCategory(cat.key)
+                  if (!sports.length) return null
+                  return (
+                    <details key={cat.key} open={sports.some(s => s.sportType === sportType)}>
+                      <summary
+                        className="flex cursor-pointer select-none items-center gap-2 px-3 py-2.5 text-sm font-medium text-neutral-300 hover:bg-neutral-800 transition-colors"
+                        style={{ borderLeft: `3px solid ${cat.color}` }}
+                      >
+                        <span className="flex-1">{cat.label}</span>
+                        <svg className="h-4 w-4 text-neutral-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </summary>
+                      <div className="flex flex-wrap gap-1.5 px-3 py-2 bg-neutral-950/50">
+                        {sports.map(s => (
+                          <button
+                            key={s.sportType}
+                            type="button"
+                            onClick={() => handleSportChange(s.sportType)}
+                            className={[
+                              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                              sportType === s.sportType
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700',
+                            ].join(' ')}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+            </fieldset>
+
+            {/* SubType — nur wenn SubTypes vorhanden */}
+            {selectedSportDef && selectedSportDef.subTypes.length > 0 && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                  Unterart
+                </label>
+                <select
+                  value={subType}
+                  onChange={e => setSubType(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">— keine —</option>
+                  {selectedSportDef.subTypes.map(st => (
+                    <option key={st.subType} value={st.subType}>{st.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Datum + Uhrzeit */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-300">Datum</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-300">Uhrzeit</label>
+                <input
+                  type="time"
+                  value={time}
+                  onChange={e => setTime(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Dauer */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">Dauer</label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <input
+                    type="number"
+                    min="0"
+                    value={durH}
+                    onChange={e => setDurH(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                  />
+                  <p className="mt-0.5 text-center text-xs text-neutral-500">h</p>
+                </div>
+                <span className="text-neutral-500 text-lg pb-4">:</span>
+                <div className="flex-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={durM}
+                    onChange={e => setDurM(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                  />
+                  <p className="mt-0.5 text-center text-xs text-neutral-500">min</p>
+                </div>
+                <span className="text-neutral-500 text-lg pb-4">:</span>
+                <div className="flex-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={durS}
+                    onChange={e => setDurS(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                  />
+                  <p className="mt-0.5 text-center text-xs text-neutral-500">sek</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Distanz */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                Distanz <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={distanceKm}
+                  onChange={e => setDistanceKm(e.target.value)}
+                  placeholder="0.0"
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 pr-12 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-neutral-500">km</span>
+              </div>
+            </div>
+
+            {/* Höhenmeter */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                  Anstieg <span className="text-neutral-500 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    value={elevGain}
+                    onChange={e => setElevGain(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                  Abstieg <span className="text-neutral-500 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    value={elevLoss}
+                    onChange={e => setElevLoss(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Titel */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                Titel <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Aktivitätstitel"
+                maxLength={200}
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Beschreibung */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                Beschreibung <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Notizen zur Aktivität..."
+                rows={4}
+                className="w-full resize-none rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* ── Rechte Spalte ────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-5">
+
+            {/* Tags */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-neutral-300">
+                Tags <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              {tagList.length === 0 ? (
+                <p className="text-sm text-neutral-500">Keine Tags vorhanden.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {tagList.map(tag => {
+                    const selected = selectedTags.includes(tag.id)
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => toggleTag(tag.id)}
+                        className={[
+                          'rounded-full px-3 py-1 text-xs font-medium transition-all',
+                          selected
+                            ? 'ring-2 ring-white/30 ring-offset-1 ring-offset-neutral-950'
+                            : 'opacity-70 hover:opacity-100',
+                        ].join(' ')}
+                        style={{
+                          backgroundColor: tag.color,
+                          color: tag.text_color,
+                        }}
+                      >
+                        {tag.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Ausrüstung */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+                Ausrüstung <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              <select
+                value={gearId}
+                onChange={e => setGearId(e.target.value)}
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">— keine —</option>
+                {gearList.map(gear => (
+                  <option key={gear.id} value={gear.id}>{gear.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* E-Bike Toggle — nur bei bike-Kategorie */}
+            {isBike && (
+              <div className="flex items-center justify-between rounded-lg border border-neutral-700 bg-neutral-900 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-neutral-200">E-Bike</p>
+                  <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isEbike}
+                  onClick={() => setIsEbike(v => !v)}
+                  className={[
+                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                    isEbike ? 'bg-blue-600' : 'bg-neutral-600',
+                  ].join(' ')}
+                >
+                  <span
+                    className={[
+                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
+                      isEbike ? 'translate-x-5' : 'translate-x-0',
+                    ].join(' ')}
+                  />
+                </button>
+              </div>
+            )}
+
+            {/* RPE Slider */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-300">
+                  Belastung (RPE) <span className="text-neutral-500 font-normal">(optional)</span>
+                </label>
+                {rpe !== null && (
+                  <span
+                    className="text-sm font-bold tabular-nums"
+                    style={{ color: RPE_COLORS[rpe] }}
+                  >
+                    {rpe} / 10
+                  </span>
+                )}
+              </div>
+              <div className="rounded-lg border border-neutral-700 bg-neutral-900 px-4 py-3">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={rpe ?? 5}
+                  onChange={e => setRpe(parseInt(e.target.value))}
+                  className="w-full accent-blue-500 cursor-pointer"
+                  style={rpe !== null ? { accentColor: RPE_COLORS[rpe] } : {}}
+                />
+                <div className="mt-1.5 flex justify-between text-xs text-neutral-600">
+                  <span>1</span>
+                  <span>5</span>
+                  <span>10</span>
+                </div>
+                {rpe === null && (
+                  <p
+                    className="mt-1 text-center text-xs text-neutral-600 cursor-pointer hover:text-neutral-400"
+                    onClick={() => setRpe(5)}
+                  >
+                    Klicken zum Festlegen
+                  </p>
+                )}
+                {rpe !== null && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setRpe(null)}
+                      className="text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
+                    >
+                      Zurücksetzen
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Feel Emoji-Buttons */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-neutral-300">
+                Wie war es? <span className="text-neutral-500 font-normal">(optional)</span>
+              </label>
+              <div className="flex gap-2 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-3">
+                {FEEL_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.label}
+                    onClick={() => setFeel(feel === opt.value ? null : opt.value)}
+                    className={[
+                      'flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-xl transition-all',
+                      feel === opt.value
+                        ? 'bg-blue-600/20 ring-1 ring-blue-500'
+                        : 'hover:bg-neutral-800 opacity-60 hover:opacity-100',
+                    ].join(' ')}
+                  >
+                    <span>{opt.emoji}</span>
+                    <span className="text-xs text-neutral-500 hidden sm:block">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Spacer + Submit */}
+            <div className="flex-1" />
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Wird gespeichert...' : 'Aktivität erstellen'}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  )
+}
