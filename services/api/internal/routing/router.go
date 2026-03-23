@@ -365,5 +365,8 @@ func segmentMaxCost(state *SparseRouterState, from, to uint64, cfg *CostConfig) 
 	if segCost <= 0 {
 		segCost = toNS.BestCost - fromNS.BestCost
 	}
+	// segCost <= 0 can occur on strongly descending segments where elevation
+	// correction reduces EffectiveCost. In findRouteUnified, maxCost=0 means
+	// "unlimited" — this is safe (no budget constraint for this segment).
 	return segCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
 }
