@@ -513,8 +513,10 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.RebuildActivityTrack(ctx, targetID); err != nil {
 			slog.Warn("merge: track rebuild failed", "id", targetID, "err", err)
 		}
-		if err := h.DB.RebuildHeatmapData(ctx, targetID); err != nil {
-			slog.Warn("merge: heatmap rebuild failed", "id", targetID, "err", err)
+		if !target.ExcludeFromHeatmap {
+			if err := h.DB.RebuildHeatmapData(ctx, targetID); err != nil {
+				slog.Warn("merge: heatmap rebuild failed", "id", targetID, "err", err)
+			}
 		}
 		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	}

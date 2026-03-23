@@ -447,9 +447,13 @@ func (h *Handler) applySidecarEdits(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// Rebuild heatmap lines if GPS was modified
+	// Rebuild heatmap lines if GPS was modified (skip for heatmap-excluded activities)
 	if hasGPS {
-		if err := h.rebuildHeatmapForActivity(ctx, activityID, userID); err != nil {
+		var excludeHeatmap bool
+		_ = h.DB.Pool.QueryRow(ctx, "SELECT exclude_from_heatmap FROM activities WHERE id = $1", activityID).Scan(&excludeHeatmap)
+		if excludeHeatmap {
+			_ = h.DB.DeleteHeatmapData(ctx, activityID)
+		} else if err := h.rebuildHeatmapForActivity(ctx, activityID, userID); err != nil {
 			slog.Error("editor: rebuild heatmap failed", "id", activityID, "error", err)
 		}
 	}

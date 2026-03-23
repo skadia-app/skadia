@@ -227,6 +227,21 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Side-effect: toggle heatmap data when exclude_from_heatmap changes.
+	if update.ExcludeFromHeatmap != nil {
+		if *update.ExcludeFromHeatmap {
+			_ = h.DB.DeleteHeatmapData(r.Context(), id)
+		} else {
+			interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
+			var subTypePtr *string
+			if activity.SubType != nil && *activity.SubType != "" {
+				subTypePtr = activity.SubType
+			}
+			_ = h.DB.InsertHeatmapData(r.Context(), userID, id, activity.SportType, subTypePtr, activity.StartedAt, interval)
+		}
+		h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, activity)
 }
 

@@ -211,8 +211,10 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.RebuildActivityTrack(ctx, merged.ID); err != nil {
 			slog.Warn("fusion-merge: rebuild track failed", "error", err)
 		}
-		if err := h.DB.RebuildHeatmapData(ctx, merged.ID); err != nil {
-			slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
+		if !merged.ExcludeFromHeatmap {
+			if err := h.DB.RebuildHeatmapData(ctx, merged.ID); err != nil {
+				slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
+			}
 		}
 		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	}

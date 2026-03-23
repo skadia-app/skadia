@@ -549,7 +549,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.DB.DeleteHeatmapData(ctx, activityID); err != nil {
 			slog.Error("reprocess: delete heatmap data failed", "id", activityID, "error", err)
 		}
-		if len(data.TrackPoints) >= 2 {
+		var excludeHeatmap bool
+		_ = h.DB.Pool.QueryRow(ctx, "SELECT exclude_from_heatmap FROM activities WHERE id = $1", activityID).Scan(&excludeHeatmap)
+		if !excludeHeatmap && len(data.TrackPoints) >= 2 {
 			var subTypePtr *string
 			if data.SubType != "" {
 				subTypePtr = &data.SubType

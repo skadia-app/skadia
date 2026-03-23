@@ -66,6 +66,12 @@ func (db *DB) EnsureActivityTrack(ctx context.Context, activityID string) error 
 // GPS merge). Uses a transaction with a shared temp table so the expensive track
 // decomposition (ST_DumpPoints + ST_Distance) runs only once.
 func (db *DB) RebuildHeatmapData(ctx context.Context, activityID string) error {
+	var excludeHeatmap bool
+	_ = db.Pool.QueryRow(ctx, "SELECT exclude_from_heatmap FROM activities WHERE id = $1", activityID).Scan(&excludeHeatmap)
+	if excludeHeatmap {
+		return db.DeleteHeatmapData(ctx, activityID)
+	}
+
 	// Remove existing heatmap entries for this activity.
 	if err := db.DeleteHeatmapData(ctx, activityID); err != nil {
 		return err
