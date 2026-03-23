@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { type FusionQueueEntry } from '@/api/importWizard'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { fmtDist } from '@/lib/format'
+import { fmtDist, fmtDuration } from '@/lib/format'
 
 interface DuplicateReviewPanelProps {
   entries: FusionQueueEntry[]
@@ -22,13 +22,6 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
   }
 
 
-
-  // Decimal-hours format for time differences — not consolidatable with fmtDuration
-  function formatTimeDiff(sec: number) {
-    if (sec < 60) return `${Math.round(sec)}s`
-    if (sec < 3600) return `${Math.round(sec / 60)} min`
-    return `${(sec / 3600).toFixed(1)} h`
-  }
 
   const visible = entries.filter(e => {
     const key = pairKey(e.activity_id_a, e.activity_id_b)
@@ -66,7 +59,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                 {Math.round(entry.overlap_percent)}% Übereinstimmung
               </span>
               <span>·</span>
-              <span>Zeitdifferenz: {formatTimeDiff(entry.time_diff_sec)}</span>
+              <span>Zeitdifferenz: {fmtDuration(entry.time_diff_sec, 'decimal')}</span>
             </div>
 
             {/* Side-by-side */}
