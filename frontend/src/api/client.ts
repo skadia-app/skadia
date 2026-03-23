@@ -151,6 +151,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Parse filename from Content-Disposition header. */
+export function parseContentDisposition(header: string | null): string | undefined {
+  const match = (header ?? '').match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined
+}
+
 /** Authenticated binary download: fetches a protected URL with auth header and returns a Blob */
 export async function apiDownload(path: string): Promise<{ blob: Blob; filename?: string }> {
   const token = getToken()
@@ -166,8 +172,6 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename?
   }
   if (!res.ok) throw new ApiError(res.status, await res.text())
   const blob = await res.blob()
-  const cd = res.headers.get('Content-Disposition') ?? ''
-  const match = cd.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : undefined
+  const filename = parseContentDisposition(res.headers.get('Content-Disposition'))
   return { blob, filename }
 }
