@@ -555,18 +555,19 @@ func fillLandmarksFromElevSpread(tiles []TileScanResult, landmarks *[16]Landmark
 
 // FindNearestInTiles finds the nearest node to (latE7, lonE7) across all tiles.
 // Uses cos(lat) correction on longitude for correct distance at high latitudes.
+// Uses float64 arithmetic (consistent with findNearestCosLat) to avoid int64
+// overflow for large lon differences (>0.45° triggers overflow with int64 scaling).
 func FindNearestInTiles(tiles []TileScanResult, latE7, lonE7 int32) (LandmarkCandidate, bool) {
 	var best LandmarkCandidate
-	bestDist := int64(math.MaxInt64)
+	bestDist := math.MaxFloat64
 	found := false
-	// cos²(lat) correction: at 47°N (Alps), 1° lon ≈ 0.68 × 1° lat
 	midLatRad := float64(latE7) * 1.745329252e-9 // E7 → radians
-	cosLat2 := int64(math.Cos(midLatRad) * math.Cos(midLatRad) * 1e6)
+	cosLat2 := math.Cos(midLatRad) * math.Cos(midLatRad)
 	for _, t := range tiles {
 		for i := range t.NodeCount {
-			dlat := int64(t.NodeLats[i] - latE7)
-			dlon := int64(t.NodeLons[i] - lonE7)
-			d := dlat*dlat + dlon*dlon*cosLat2/1e6
+			dlat := float64(t.NodeLats[i] - latE7)
+			dlon := float64(t.NodeLons[i] - lonE7)
+			d := dlat*dlat + dlon*dlon*cosLat2
 			if d < bestDist {
 				bestDist = d
 				found = true
