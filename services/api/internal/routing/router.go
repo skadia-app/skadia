@@ -91,12 +91,14 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		)
 		// Skip backward search for short routes — overhead > benefit under 10km
 		if euclidDist >= 10_000 {
+			bwdStart := time.Now()
 			initialUB := float32(euclidDist) * 2.0 * cfg.AvgCostPerKm / 1000.0
 			bwdResult := RunBackwardSearch(r.reader, dst, cfg, initialUB)
 			bwd = &bwdResult
-			slog.Debug("backward search complete",
+			slog.Info("backward search complete",
 				"nodes_reached", len(bwd.LowerBound),
-				"upper_bound", bwd.UpperBound)
+				"upper_bound", bwd.UpperBound,
+				"duration_ms", time.Since(bwdStart).Milliseconds())
 		}
 	}
 
