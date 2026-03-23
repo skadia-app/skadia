@@ -325,6 +325,13 @@ func main() {
 			r.Get("/activities/{id}/children", h.GetChildActivities)
 			r.Get("/activities/{id}/combined-track", h.GetCombinedTrack)
 			r.Delete("/activities/{id}/group", h.UngroupActivities)
+			r.Get("/activities/{id}/events", h.HandleGetActivityEvents)
+			r.Get("/activities/{id}/sets", h.HandleGetActivitySets)
+			r.Get("/activities/{id}/jumps", h.HandleGetActivityJumps)
+			r.Get("/activities/{id}/hr-data", h.HandleGetActivityHrData)
+			r.Get("/activities/{id}/segment-laps", h.HandleGetActivitySegmentLaps)
+			r.Get("/workouts", h.HandleListWorkouts)
+			r.Get("/workouts/{id}", h.HandleGetWorkout)
 			r.Get("/stats/pmc", h.GetPMC)
 			r.Get("/stats/power-curve", h.GetPowerCurve)
 

@@ -2067,6 +2067,7 @@ type SegmentLapRecord struct {
 // WorkoutRecord holds structured workout data from FIT workout messages.
 // Maps to workouts table (Spec 4.5).
 type WorkoutRecord struct {
+	ID             string   `json:"id,omitempty"`
 	Name           *string  `json:"name,omitempty"`
 	Description    *string  `json:"description,omitempty"`
 	Sport          *int16   `json:"sport,omitempty"`

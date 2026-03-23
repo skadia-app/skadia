@@ -224,7 +224,58 @@ func (db *DB) GetLaps(ctx context.Context, activityID string) ([]model.LapRespon
 			start_lat, start_lng, end_lat, end_lng,
 			total_work_j, intensity, swim_stroke,
 			num_lengths, num_active_lengths,
-			avg_altitude_m, max_altitude_m, min_altitude_m
+			avg_altitude_m, max_altitude_m, min_altitude_m,
+			-- Cycles/Strokes
+			total_cycles, total_fat_calories, avg_stroke_distance_m,
+			first_length_index, avg_fractional_cadence, max_fractional_cadence,
+			total_fractional_cycles, stroke_count, zone_count,
+			-- Running Dynamics
+			avg_vertical_oscillation_mm, avg_stance_time_ms, avg_stance_time_pct,
+			avg_stance_time_balance_pct, avg_step_length_mm, avg_vertical_ratio_pct,
+			-- Grade
+			avg_grade_pct, avg_pos_grade_pct, avg_neg_grade_pct,
+			max_pos_grade_pct, max_neg_grade_pct,
+			-- Vertical Speed
+			avg_pos_vertical_speed_ms, avg_neg_vertical_speed_ms,
+			max_pos_vertical_speed_ms, max_neg_vertical_speed_ms, avg_vam_ms,
+			-- Temperature Extended
+			max_temperature_c, min_temperature_c,
+			avg_core_temperature_c, min_core_temperature_c, max_core_temperature_c,
+			-- Pedal Analytics
+			avg_left_torque_effectiveness_pct, avg_right_torque_effectiveness_pct,
+			avg_left_pedal_smoothness_pct, avg_right_pedal_smoothness_pct,
+			avg_combined_pedal_smoothness_pct,
+			avg_left_pco_mm, avg_right_pco_mm,
+			avg_left_power_phase_start_deg, avg_left_power_phase_end_deg,
+			avg_left_power_phase_peak_start_deg, avg_left_power_phase_peak_end_deg,
+			avg_right_power_phase_start_deg, avg_right_power_phase_end_deg,
+			avg_right_power_phase_peak_start_deg, avg_right_power_phase_peak_end_deg,
+			-- Power/Cadence by Position
+			avg_power_position_w, max_power_position_w,
+			avg_cadence_position, max_cadence_position,
+			-- Standing/Sitting
+			time_standing_s, stand_count,
+			-- L/R Balance
+			left_right_balance,
+			-- E-Bike
+			avg_lev_motor_power_w, max_lev_motor_power_w, lev_battery_consumption_pct,
+			-- Grit/Flow
+			total_grit, total_flow, avg_grit, avg_flow,
+			-- Jumps
+			jump_count,
+			-- Scores
+			player_score, opponent_score,
+			-- Hemoglobin
+			avg_total_hemoglobin_conc, min_total_hemoglobin_conc, max_total_hemoglobin_conc,
+			avg_saturated_hemoglobin_pct, min_saturated_hemoglobin_pct, max_saturated_hemoglobin_pct,
+			-- Diving
+			avg_depth_m, max_depth_m,
+			-- Respiration
+			avg_respiration_rate, max_respiration_rate,
+			-- Altitude Extended
+			total_fractional_ascent_m, total_fractional_descent_m,
+			-- Misc
+			repetition_num, wkt_step_index, event_group, gps_accuracy_m
 		FROM activity_laps
 		WHERE activity_id = $1
 		ORDER BY message_index`,
@@ -253,6 +304,57 @@ func (db *DB) GetLaps(ctx context.Context, activityID string) ([]model.LapRespon
 			&r.TotalWorkJ, &intensity, &swimStroke,
 			&r.NumLengths, &r.NumActiveLengths,
 			&r.AvgAltitudeM, &r.MaxAltitudeM, &r.MinAltitudeM,
+			// Cycles/Strokes
+			&r.TotalCycles, &r.TotalFatCalories, &r.AvgStrokeDistanceM,
+			&r.FirstLengthIndex, &r.AvgFractionalCadence, &r.MaxFractionalCadence,
+			&r.TotalFractionalCycles, &r.StrokeCount, &r.ZoneCount,
+			// Running Dynamics
+			&r.AvgVerticalOscillationMm, &r.AvgStanceTimeMs, &r.AvgStanceTimePct,
+			&r.AvgStanceTimeBalancePct, &r.AvgStepLengthMm, &r.AvgVerticalRatioPct,
+			// Grade
+			&r.AvgGradePct, &r.AvgPosGradePct, &r.AvgNegGradePct,
+			&r.MaxPosGradePct, &r.MaxNegGradePct,
+			// Vertical Speed
+			&r.AvgPosVerticalSpeedMs, &r.AvgNegVerticalSpeedMs,
+			&r.MaxPosVerticalSpeedMs, &r.MaxNegVerticalSpeedMs, &r.AvgVamMs,
+			// Temperature Extended
+			&r.MaxTemperatureC, &r.MinTemperatureC,
+			&r.AvgCoreTemperatureC, &r.MinCoreTemperatureC, &r.MaxCoreTemperatureC,
+			// Pedal Analytics
+			&r.AvgLeftTorqueEffectivenessPct, &r.AvgRightTorqueEffectivenessPct,
+			&r.AvgLeftPedalSmoothnessPct, &r.AvgRightPedalSmoothnessPct,
+			&r.AvgCombinedPedalSmoothnessPct,
+			&r.AvgLeftPcoMm, &r.AvgRightPcoMm,
+			&r.AvgLeftPowerPhaseStartDeg, &r.AvgLeftPowerPhaseEndDeg,
+			&r.AvgLeftPowerPhasePeakStartDeg, &r.AvgLeftPowerPhasePeakEndDeg,
+			&r.AvgRightPowerPhaseStartDeg, &r.AvgRightPowerPhaseEndDeg,
+			&r.AvgRightPowerPhasePeakStartDeg, &r.AvgRightPowerPhasePeakEndDeg,
+			// Power/Cadence by Position
+			&r.AvgPowerPositionW, &r.MaxPowerPositionW,
+			&r.AvgCadencePosition, &r.MaxCadencePosition,
+			// Standing/Sitting
+			&r.TimeStandingS, &r.StandCount,
+			// L/R Balance
+			&r.LeftRightBalance,
+			// E-Bike
+			&r.AvgLevMotorPowerW, &r.MaxLevMotorPowerW, &r.LevBatteryConsumptionPct,
+			// Grit/Flow
+			&r.TotalGrit, &r.TotalFlow, &r.AvgGrit, &r.AvgFlow,
+			// Jumps
+			&r.JumpCount,
+			// Scores
+			&r.PlayerScore, &r.OpponentScore,
+			// Hemoglobin
+			&r.AvgTotalHemoglobinConc, &r.MinTotalHemoglobinConc, &r.MaxTotalHemoglobinConc,
+			&r.AvgSaturatedHemoglobinPct, &r.MinSaturatedHemoglobinPct, &r.MaxSaturatedHemoglobinPct,
+			// Diving
+			&r.AvgDepthM, &r.MaxDepthM,
+			// Respiration
+			&r.AvgRespirationRate, &r.MaxRespirationRate,
+			// Altitude Extended
+			&r.TotalFractionalAscentM, &r.TotalFractionalDescentM,
+			// Misc
+			&r.RepetitionNum, &r.WktStepIndex, &r.EventGroup, &r.GpsAccuracyM,
 		); err != nil {
 			return nil, fmt.Errorf("scan lap: %w", err)
 		}
