@@ -20,9 +20,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetLLMConfig returns the full LLM system configuration.
@@ -44,9 +43,8 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update model.LLMSystemConfigUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.LLMSystemConfigUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -207,7 +205,10 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 
 // PatchLLMUserConfig saves the model override for a user.
 func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Role      string  `json:"role"`
 		ModelName *string `json:"model_name"`
@@ -225,7 +226,10 @@ func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 
 // GetLLMUserConfig returns user overrides.
 func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	configs, err := h.DB.GetLLMUserConfig(r.Context(), userID)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get user LLM config", r.URL.Path)

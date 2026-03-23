@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
@@ -16,16 +14,14 @@ import (
 // POST /api/v1/activities/{id}/fusion
 // Body: {"gps": "uuid-A", "hr": "uuid-B", ...}
 func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
 
-	var sources database.FusionSources
-	if err := json.NewDecoder(r.Body).Decode(&sources); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	sources, ok := httputil.DecodeJSON[database.FusionSources](w, r)
+	if !ok {
 		return
 	}
 
@@ -70,9 +66,8 @@ type FusionCandidate struct {
 // making them potential candidates for stream fusion.
 // Includes stream availability flags and temporal overlap percentage.
 func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")

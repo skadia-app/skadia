@@ -8,10 +8,10 @@ import (
 
 // MLCallbackPayload is the payload from the ML service.
 type MLCallbackPayload struct {
-	Type   string          `json:"type"`             // "enrichment", "analytics", "chat"
+	Type   string          `json:"type"` // "enrichment", "analytics", "chat"
 	UserID string          `json:"user_id"`
 	TaskID string          `json:"task_id"`
-	Status string          `json:"status"`           // "done", "error"
+	Status string          `json:"status"` // "done", "error"
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
 }

@@ -13,10 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // buildGarminRegistry returns a registry with all available importers.
@@ -60,9 +59,8 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/garmin/start
 // Body: {"source_path": "/path/to/garmin/export", "modules": ["activities", "profile"]}
 func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -142,9 +140,8 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/garmin/upload-zip
 // Body: multipart/form-data { file: <export.zip> }
 func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -214,7 +211,10 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/import/garmin/jobs/{id}
 func (h *Handler) GetGarminImportJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	job, err := h.DB.GetGarminImportJob(r.Context(), userID, jobID)
 	if err != nil {
@@ -232,9 +232,8 @@ func (h *Handler) GetGarminImportJob(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/garmin/scan
 // Body: {"source_path": "/path/to/garmin/export"}
 func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -340,9 +339,8 @@ func isGarminActivityFile(name string) bool {
 // POST /api/v1/import/garmin/upload-zip-scan
 // Body: multipart/form-data { file: <export.zip> }
 func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

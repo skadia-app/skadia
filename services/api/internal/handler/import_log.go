@@ -6,9 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 type importLogResponse struct {
@@ -20,7 +19,10 @@ type importLogResponse struct {
 // GET /api/v1/imports
 // Query params: status (comma-separated), source_platform, limit, offset
 func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	q := r.URL.Query()
 

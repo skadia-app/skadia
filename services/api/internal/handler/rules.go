@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,13 +10,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	items, err := h.DB.ListRules(r.Context(), userID)
 	if err != nil {
@@ -30,11 +31,13 @@ func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var create model.AutomationRuleCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.AutomationRuleCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -62,11 +65,13 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var update model.AutomationRuleUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.AutomationRuleUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -86,7 +91,10 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	if err := h.DB.DeleteRule(r.Context(), id, userID); err != nil {
 		if err.Error() == "rule not found" {
@@ -102,7 +110,10 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	// Load all active rules upfront (fast, no heavy work in the request goroutine).
 	allRules, err := h.DB.ListRules(r.Context(), userID)

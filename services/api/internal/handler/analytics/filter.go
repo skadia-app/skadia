@@ -35,7 +35,7 @@ type AnalyticsFilter struct {
 	HRMax            *int
 	PowerMin         *int
 	PowerMax         *int
-	IsEbike *bool // nil=neutral, true=only ebike, false=exclude ebike
+	IsEbike          *bool // nil=neutral, true=only ebike, false=exclude ebike
 	// Tri-state tag filters
 	IncludeTags []uuid.UUID // activity must have ALL of these tags
 	ExcludeTags []uuid.UUID // activity must have NONE of these tags

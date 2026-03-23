@@ -12,10 +12,9 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 const maxMediaUploadSize = 50 << 20 // 50 MB total
@@ -36,9 +35,8 @@ type mediaUploadResult struct {
 // Images are EXIF-parsed and auto-assigned to activities when possible.
 // Files that cannot be auto-assigned go into the import_queue.
 func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

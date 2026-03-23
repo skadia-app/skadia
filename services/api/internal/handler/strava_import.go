@@ -13,11 +13,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/strava"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // buildStravaRegistry returns a registry with all available Strava importers.
@@ -61,9 +60,8 @@ func (h *Handler) DetectStravaModules(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/strava/start
 // Body: {"source_path": "/path/to/strava/export", "modules": ["activities", "profile"]}
 func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -143,9 +141,8 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/strava/upload-zip
 // Body: multipart/form-data { file: <export.zip> }
 func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -215,7 +212,10 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/import/strava/jobs/{id}
 func (h *Handler) GetStravaImportJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	job, err := h.DB.GetStravaImportJob(r.Context(), userID, jobID)
 	if err != nil {
@@ -233,9 +233,8 @@ func (h *Handler) GetStravaImportJob(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/import/strava/scan
 // Body: {"source_path": "/path/to/strava/export"}
 func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -402,9 +401,8 @@ func stravaCSVHeader(row []string) map[string]int {
 // POST /api/v1/import/strava/upload-zip-scan
 // Body: multipart/form-data { file: <export.zip> }
 func (h *Handler) UploadStravaZIPScan(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

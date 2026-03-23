@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,13 +9,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -56,11 +57,13 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var create model.SegmentCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.SegmentCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -130,7 +133,10 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	segment, err := h.DB.GetSegment(r.Context(), id, userID)
 	if err != nil {
@@ -147,9 +153,8 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -166,9 +171,8 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update model.SegmentUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.SegmentUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -187,7 +191,10 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteSegment(r.Context(), userID, id); err != nil {
@@ -230,9 +237,8 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -261,7 +267,10 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 // RecomputeSegment re-matches all of the user's GPS activities against a single segment.
 // Useful after editing a segment or when matching failed due to a bug.
 func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	seg, err := h.DB.GetSegment(r.Context(), id, userID)
@@ -342,9 +351,8 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -372,9 +380,8 @@ func (h *Handler) GetActivityDetectedLaps(w http.ResponseWriter, r *http.Request
 
 // GetSegmentFavoriteStatus checks if a segment is favorited by the user.
 func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
@@ -391,9 +398,8 @@ func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Reques
 
 // AddSegmentFavorite adds a segment to the user's favorites.
 func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
@@ -409,9 +415,8 @@ func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 
 // RemoveSegmentFavorite removes a segment from the user's favorites.
 func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	segmentID := chi.URLParam(r, "id")
@@ -427,9 +432,8 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 
 // GetSegmentPerformances retrieves all efforts on a segment from the user's activities.
 func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	segmentID := chi.URLParam(r, "id")

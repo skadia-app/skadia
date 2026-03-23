@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
@@ -14,7 +13,10 @@ import (
 // GET /api/v1/media/{bucket}/{key...}
 // Used for tag cover images, custom map marker images, and other user-uploaded media.
 func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	bucket := chi.URLParam(r, "bucket")
 	// chi wildcard (*) captures the rest of the path including slashes
 	key := chi.URLParam(r, "*")

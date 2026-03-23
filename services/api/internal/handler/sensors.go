@@ -4,13 +4,15 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) GetSensors(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)

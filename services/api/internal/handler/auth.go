@@ -100,10 +100,10 @@ func (h *Handler) AuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Clear state cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:    stateCookieName,
-		Value:   "",
-		Path:    "/",
-		MaxAge:  -1,
+		Name:     stateCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
 		HttpOnly: true,
 	})
 

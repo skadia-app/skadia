@@ -14,17 +14,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ListTags returns all tags for the authenticated user.
 func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -40,9 +38,8 @@ func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 
 // CreateTag creates a new tag for the authenticated user.
 func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -89,9 +86,8 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 
 // UpdateTag updates an existing tag.
 func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -173,9 +169,8 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 
 // DeleteTag deletes a tag.
 func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -197,9 +192,8 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 // Supports multipart file upload (field "file") or JSON body with { "activity_photo_url": "..." }.
 // POST /api/v1/tags/{id}/cover-image
 func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -356,9 +350,8 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 // Das verknüpfte Activity-Photo bleibt unangetastet.
 // DELETE /api/v1/tags/{id}/cover-image
 func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -414,9 +407,8 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/tags/{id}/assign-activities
 // Body: {"activity_ids": ["id1", "id2"]}
 func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -538,9 +530,8 @@ func (h *Handler) backfillWeatherForLocationTag(
 // DELETE /api/v1/tags/{id}/activities
 // Body: {"activity_ids": ["id1", "id2"]}
 func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "not authenticated", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -589,9 +580,8 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 
 // GetTagActivities returns a list of activities that have the given tag.
 func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -610,9 +600,8 @@ func (h *Handler) GetTagActivities(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/tags/{id}/merge   body: { "source_tag_id": "uuid" }
 // The tag identified by {id} survives; source_tag_id is deleted.
 func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	targetTagID := chi.URLParam(r, "id")
@@ -659,9 +648,8 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 // using the tag's own lat/lng coordinates. Only acts when the tag has a location set.
 // POST /api/v1/tags/{id}/sync-location
 func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "id")
@@ -712,9 +700,8 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 // GetTagZone returns the zone for a tag.
 // GET /api/v1/tag-zones/{tagId}
 func (h *Handler) GetTagZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
@@ -736,16 +723,14 @@ func (h *Handler) GetTagZone(w http.ResponseWriter, r *http.Request) {
 // UpsertTagZone creates or replaces the zone for a tag.
 // PUT /api/v1/tag-zones/{tagId}
 func (h *Handler) UpsertTagZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
 
-	var req model.TagZone
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.TagZone](w, r)
+	if !ok {
 		return
 	}
 	if req.ZoneType != "circle" && req.ZoneType != "polygon" {
@@ -774,9 +759,8 @@ func (h *Handler) UpsertTagZone(w http.ResponseWriter, r *http.Request) {
 // DeleteTagZone removes the zone from a tag.
 // DELETE /api/v1/tag-zones/{tagId}
 func (h *Handler) DeleteTagZone(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	tagID := chi.URLParam(r, "tagId")
@@ -797,9 +781,8 @@ func (h *Handler) DeleteTagZone(w http.ResponseWriter, r *http.Request) {
 // DeleteOrphanTag removes an orphan tag name (not in tags table) from all activities.tags TEXT[].
 // DELETE /api/v1/tags/orphan   body: {"name": "tagname"}
 func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -827,9 +810,8 @@ func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
 
 // SeedDefaultTags creates the default autotag definitions if they don't exist.
 func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

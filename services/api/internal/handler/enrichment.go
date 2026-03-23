@@ -12,17 +12,15 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // GetGeoTags returns geo tags for an activity.
 func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -54,9 +52,8 @@ func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
 
 // BackfillWeather fetches weather data for all activities missing it (background job).
 func (h *Handler) BackfillWeather(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -229,9 +226,8 @@ func (h *Handler) buildWeatherRequestsForCandidate(
 
 // BackfillEnrichment re-runs stage1 enrichment for all activities.
 func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -283,9 +279,8 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 // For events that occur during an activity, it queries the closest GPS stream
 // point to refine the calculation based on the track position at that time.
 func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -360,9 +355,8 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 
 // GetActivityClimbs returns detected climbs for an activity.
 func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -394,9 +388,8 @@ func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 
 // GetActivityStops returns detected stops for an activity.
 func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -425,9 +418,8 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 
 // GetActivitySurfaces returns detected surfaces for an activity.
 func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -456,9 +448,8 @@ func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
 
 // GetEnrichmentStatus returns per-module enrichment status for an activity.
 func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -502,9 +493,8 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -520,17 +510,15 @@ func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) 
 
 // UpdateEnrichmentSettings updates the user's enrichment settings.
 func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
 	// Decode the incoming JSON into a raw map so we can distinguish an
 	// explicit false from a missing field (Go bool zero-value problem).
-	var rawPatch map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&rawPatch); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	rawPatch, ok := httputil.DecodeJSON[map[string]json.RawMessage](w, r)
+	if !ok {
 		return
 	}
 

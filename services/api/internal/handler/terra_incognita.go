@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -14,9 +13,8 @@ import (
 // Results are served from terra_incognita_cache (keyed by user + heatmap line
 // count + radius) to avoid the ~30 s PostGIS computation on every request.
 func (h *Handler) GetTerraIncognitaCoverage(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

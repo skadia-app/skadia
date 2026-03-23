@@ -1,19 +1,20 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 )
 
 // ListHardware handles GET /api/v1/hardware?type=recorder|sensor
 func (h *Handler) ListHardware(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	deviceType := r.URL.Query().Get("type")
 
 	devices, err := h.DB.ListHWDevices(r.Context(), userID, deviceType)
@@ -28,7 +29,10 @@ func (h *Handler) ListHardware(w http.ResponseWriter, r *http.Request) {
 
 // GetHardware handles GET /api/v1/hardware/{id}
 func (h *Handler) GetHardware(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	device, err := h.DB.GetHWDevice(r.Context(), id)
@@ -47,7 +51,10 @@ func (h *Handler) GetHardware(w http.ResponseWriter, r *http.Request) {
 
 // PatchHardware handles PATCH /api/v1/hardware/{id}
 func (h *Handler) PatchHardware(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	// Ownership check
@@ -62,9 +69,8 @@ func (h *Handler) PatchHardware(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req model.DeviceUpdate
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.DeviceUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -89,7 +95,10 @@ func (h *Handler) PatchHardware(w http.ResponseWriter, r *http.Request) {
 
 // DeleteHardware handles DELETE /api/v1/hardware/{id}
 func (h *Handler) DeleteHardware(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	// Ownership check
@@ -117,11 +126,13 @@ func (h *Handler) DeleteHardware(w http.ResponseWriter, r *http.Request) {
 
 // MergeHardware handles POST /api/v1/hardware/merge
 func (h *Handler) MergeHardware(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var req model.DeviceMerge
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.DeviceMerge](w, r)
+	if !ok {
 		return
 	}
 	if req.SourceID == "" || req.TargetID == "" {
@@ -140,7 +151,10 @@ func (h *Handler) MergeHardware(w http.ResponseWriter, r *http.Request) {
 
 // ListHardwareActivities handles GET /api/v1/hardware/{id}/activities?after=cursor
 func (h *Handler) ListHardwareActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	after := r.URL.Query().Get("after")
 

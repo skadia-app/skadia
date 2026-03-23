@@ -28,13 +28,15 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	status := r.URL.Query().Get("status")
 
 	items, err := h.DB.ListGear(r.Context(), userID, status)
@@ -48,11 +50,13 @@ func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var create model.GearCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.GearCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -75,7 +79,10 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	gear, err := h.DB.GetGear(r.Context(), id)
@@ -97,7 +104,10 @@ func (h *Handler) GetGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	// Verify ownership before updating.
@@ -112,9 +122,8 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update model.GearUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.GearUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -133,7 +142,10 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteGear(r.Context(), userID, id); err != nil {
@@ -150,7 +162,10 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	// Verify ownership before updating status.
@@ -198,7 +213,10 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
 
 	// Verify gear exists and belongs to the user
@@ -213,9 +231,8 @@ func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var create model.GearComponentCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.GearComponentCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -368,12 +385,14 @@ func (h *Handler) GetChainRotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
 
-	var create database.ChainRotationGroupCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[database.ChainRotationGroupCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -480,9 +499,8 @@ func (h *Handler) ListServiceEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
 	componentID := chi.URLParam(r, "id")
 
-	var create database.ServiceEventCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[database.ServiceEventCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.PerformedAt == "" {
@@ -547,9 +565,8 @@ func (h *Handler) ListBikeSetups(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
 	gearID := chi.URLParam(r, "id")
 
-	var create model.BikeSetupCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.BikeSetupCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.Name == "" {
@@ -570,9 +587,8 @@ func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var update model.BikeSetupUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.BikeSetupUpdate](w, r)
+	if !ok {
 		return
 	}
 
@@ -624,7 +640,10 @@ func (h *Handler) ActivateBikeSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	alerts, err := h.DB.GetMaintenanceAlerts(r.Context(), userID)
 	if err != nil {
@@ -639,7 +658,10 @@ func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
 // --- Gear Documents ---
 
 func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
 
 	// Limit to 30MB
@@ -926,7 +948,10 @@ func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
 
 // UploadComponentDocument uploads a photo/document for a specific gear component.
 func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	componentID := chi.URLParam(r, "id")
 
 	// Limit to 30MB
@@ -1113,10 +1138,12 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 // PatchGearReview updates the review status of a gear item.
 func (h *Handler) PatchGearReview(w http.ResponseWriter, r *http.Request) {
 	gearID := chi.URLParam(r, "id")
-	userID := middleware.GetUserID(r.Context())
-	var req model.GearReviewRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	req, ok := httputil.DecodeJSON[model.GearReviewRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.ReviewStatus != "confirmed" && req.ReviewStatus != "rejected" {
@@ -1141,7 +1168,10 @@ func (h *Handler) PatchGearReview(w http.ResponseWriter, r *http.Request) {
 
 // ListPendingReviewGear returns gear items awaiting user review.
 func (h *Handler) ListPendingReviewGear(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	items, err := h.DB.ListPendingReviewGear(r.Context(), userID)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list pending review gear", r.URL.Path)

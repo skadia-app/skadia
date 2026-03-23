@@ -10,18 +10,16 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // RouteFromActivityWaypoints returns waypoints derived from an activity's GPS track
 // WITHOUT saving a route to the database. Used by "Open in Route Planner" button.
 // GET /api/v1/routes/from-activity/{activityId}/waypoints
 func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "activityId")
@@ -74,9 +72,8 @@ func (h *Handler) RouteFromActivityWaypoints(w http.ResponseWriter, r *http.Requ
 // RouteFromActivity creates a new planned route from an existing activity's GPS track.
 // POST /api/v1/routes/from-activity/{activityId}
 func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "activityId")

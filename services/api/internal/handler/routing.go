@@ -3,10 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,11 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // RoutingGraphStatus returns the current routing status based on tile availability.
@@ -73,9 +72,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		From   [2]float64            `json:"from"`   // [lat, lon]
-		To     [2]float64            `json:"to"`     // [lat, lon]
-		Via    [][2]float64          `json:"via"`    // optional [[lat, lon], ...]
+		From   [2]float64             `json:"from"` // [lat, lon]
+		To     [2]float64             `json:"to"`   // [lat, lon]
+		Via    [][2]float64           `json:"via"`  // optional [[lat, lon], ...]
 		Config *routing.ProfileConfig `json:"config"`
 	}
 
@@ -216,7 +215,10 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	if userID == "" {
 		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthorized",
@@ -319,7 +321,10 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
 		return
 	}
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	if userID == "" {
 		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
@@ -359,7 +364,10 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 // This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
 // POST /admin/routing/build-brouter-segments
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	if userID == "" {
 		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthorized",
@@ -460,16 +468,19 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"status":   "started",
-		"job_id":   jobID,
-		"regions":  labels,
+		"status":  "started",
+		"job_id":  jobID,
+		"regions": labels,
 	})
 }
 
 // DownloadBRouterSegments downloads pre-built BRouter rd5 segments from brouter.de.
 // POST /admin/routing/download-brouter-segments
 func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	if userID == "" {
 		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
@@ -478,8 +489,12 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Regions []string `json:"regions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Regions) == 0 {
-		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "regions required"})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if len(req.Regions) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "regions required", r.URL.Path)
 		return
 	}
 

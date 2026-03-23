@@ -1,19 +1,20 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
@@ -37,7 +38,10 @@ func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetSplits(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
@@ -71,7 +75,10 @@ func (h *Handler) GetSplits(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetLengths(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
@@ -95,7 +102,10 @@ func (h *Handler) GetLengths(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 
 	activity, err := h.DB.GetActivity(r.Context(), activityID)
@@ -121,7 +131,10 @@ func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
 // PatchSplit updates mutable split fields (currently only climbing_grade).
 // PATCH /api/v1/activities/{id}/splits/{splitId}
 func (h *Handler) PatchSplit(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	activityID := chi.URLParam(r, "id")
 	splitID := chi.URLParam(r, "splitId")
 
@@ -135,9 +148,8 @@ func (h *Handler) PatchSplit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update model.SplitUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.SplitUpdate](w, r)
+	if !ok {
 		return
 	}
 

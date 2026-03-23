@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -23,9 +22,8 @@ type POIResult struct {
 // SearchPOIs handles GET /api/v1/search/pois?q=...&types=...&limit=...
 // Searches peaks and amenities using pg_trgm similarity matching.
 func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	_, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 

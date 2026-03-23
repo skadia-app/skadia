@@ -6,9 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ── Mobile Health Data Ingest ────────────────────────────────────────────────
@@ -25,11 +24,13 @@ type healthIngestRequest struct {
 //
 // POST /api/v1/import/health-data
 func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var req healthIngestRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[healthIngestRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Type == "" || req.Date == "" {
@@ -168,10 +169,10 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		summary := &model.HealthDailySummary{
-			UserID:          userID,
-			CalendarDate:    req.Date,
+			UserID:           userID,
+			CalendarDate:     req.Date,
 			RestingHeartRate: d.RestingHR,
-			SourceType:      "mobile",
+			SourceType:       "mobile",
 		}
 		if err := h.DB.UpsertHealthDailySummary(r.Context(), summary); err != nil {
 			slog.Error("ingest resting_hr failed", "error", err)
@@ -219,7 +220,10 @@ func defaultTimestampRange(r *http.Request) (from, to string) {
 
 // GET /health/daily-summary?from=&to=
 func (h *Handler) GetHealthDailySummaries(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultDateRange(r)
 
 	items, err := h.DB.GetHealthDailySummaries(r.Context(), userID, from, to)
@@ -236,7 +240,10 @@ func (h *Handler) GetHealthDailySummaries(w http.ResponseWriter, r *http.Request
 
 // GET /health/sleep?from=&to=
 func (h *Handler) GetHealthSleep(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultDateRange(r)
 
 	items, err := h.DB.GetHealthSleep(r.Context(), userID, from, to)
@@ -253,7 +260,10 @@ func (h *Handler) GetHealthSleep(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/hrv?from=&to=
 func (h *Handler) GetHealthHRV(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultTimestampRange(r)
 
 	items, err := h.DB.GetHealthHRV(r.Context(), userID, from, to)
@@ -270,7 +280,10 @@ func (h *Handler) GetHealthHRV(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/weight?from=&to=
 func (h *Handler) GetHealthWeight(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultTimestampRange(r)
 
 	items, err := h.DB.GetHealthWeight(r.Context(), userID, from, to)
@@ -287,11 +300,13 @@ func (h *Handler) GetHealthWeight(w http.ResponseWriter, r *http.Request) {
 
 // POST /health/weight — manual weight entry creation
 func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
-	var create model.HealthWeightCreate
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	create, ok := httputil.DecodeJSON[model.HealthWeightCreate](w, r)
+	if !ok {
 		return
 	}
 	if create.WeightG <= 0 {
@@ -330,7 +345,10 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 
 // GET /health/readiness?from=&to=
 func (h *Handler) GetHealthReadiness(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultDateRange(r)
 
 	items, err := h.DB.GetHealthReadiness(r.Context(), userID, from, to)
@@ -347,7 +365,10 @@ func (h *Handler) GetHealthReadiness(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/training-load?from=&to=
 func (h *Handler) GetHealthTrainingLoad(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultDateRange(r)
 
 	items, err := h.DB.GetHealthTrainingLoad(r.Context(), userID, from, to)
@@ -364,7 +385,10 @@ func (h *Handler) GetHealthTrainingLoad(w http.ResponseWriter, r *http.Request) 
 
 // GET /health/stress?from=&to=
 func (h *Handler) GetHealthStress(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultTimestampRange(r)
 
 	items, err := h.DB.GetHealthStress(r.Context(), userID, from, to)
@@ -381,7 +405,10 @@ func (h *Handler) GetHealthStress(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/spo2?from=&to=
 func (h *Handler) GetHealthSpO2(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultTimestampRange(r)
 
 	items, err := h.DB.GetHealthSpO2(r.Context(), userID, from, to)
@@ -398,7 +425,10 @@ func (h *Handler) GetHealthSpO2(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/blood-pressure?from=&to=
 func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultTimestampRange(r)
 
 	items, err := h.DB.GetHealthBloodPressure(r.Context(), userID, from, to)
@@ -415,7 +445,10 @@ func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request)
 
 // GET /health/fitness-age?from=&to=
 func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	from, to := defaultDateRange(r)
 
 	items, err := h.DB.GetHealthFitnessAge(r.Context(), userID, from, to)
@@ -432,7 +465,10 @@ func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
 
 // GET /health/overview
 func (h *Handler) GetHealthOverview(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	overview, err := h.DB.GetHealthOverview(r.Context(), userID)
 	if err != nil {

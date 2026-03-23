@@ -1,21 +1,18 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetMe returns the authenticated user's ID.
 // GET /api/v1/me
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"user_id": userID})
@@ -23,9 +20,8 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 
 // GetProfile returns the user's physiological profile.
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	profile, err := h.DB.GetUserProfile(r.Context(), userID)
@@ -39,14 +35,12 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 
 // PatchProfile updates the user's physiological profile.
 func (h *Handler) PatchProfile(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
-	var update model.UserProfileUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	update, ok := httputil.DecodeJSON[model.UserProfileUpdate](w, r)
+	if !ok {
 		return
 	}
 	profile, err := h.DB.UpdateUserProfile(r.Context(), userID, &update)
@@ -60,9 +54,8 @@ func (h *Handler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 
 // GetWeatherSettings returns the user's weather preferences.
 func (h *Handler) GetWeatherSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	prefs, err := h.DB.GetWeatherPrefs(r.Context(), userID)
@@ -76,14 +69,12 @@ func (h *Handler) GetWeatherSettings(w http.ResponseWriter, r *http.Request) {
 
 // UpdateWeatherSettings updates the user's weather preferences.
 func (h *Handler) UpdateWeatherSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
-	var prefs model.WeatherPrefs
-	if err := json.NewDecoder(r.Body).Decode(&prefs); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	prefs, ok := httputil.DecodeJSON[model.WeatherPrefs](w, r)
+	if !ok {
 		return
 	}
 	switch prefs.ReadingMode {
@@ -114,9 +105,8 @@ func (h *Handler) UpdateWeatherSettings(w http.ResponseWriter, r *http.Request) 
 // DetectMaxHR calculates the 90th percentile max HR from historical activity data
 // and updates max_hr_detected_bpm if the result is higher than the current value.
 func (h *Handler) DetectMaxHR(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	detectedMaxHR, err := h.DB.GetMaxHRPercentile(r.Context(), userID)

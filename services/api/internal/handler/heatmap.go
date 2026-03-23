@@ -1,17 +1,18 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) BackfillHeatmap(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
 
 	count, err := h.DB.BackfillHeatmapAll(r.Context(), userID, interval)
@@ -26,7 +27,10 @@ func (h *Handler) BackfillHeatmap(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) BackfillHeatmapPoints(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
 
 	count, err := h.DB.BackfillHeatmapAll(r.Context(), userID, interval)
@@ -41,7 +45,10 @@ func (h *Handler) BackfillHeatmapPoints(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) GetHeatmapSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	s, err := h.DB.GetHeatmapSettings(r.Context(), userID)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get heatmap settings", r.URL.Path)
@@ -51,10 +58,12 @@ func (h *Handler) GetHeatmapSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateHeatmapSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	var req model.HeatmapSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	req, ok := httputil.DecodeJSON[model.HeatmapSettings](w, r)
+	if !ok {
 		return
 	}
 	if req.SamplingIntervalM < 10 || req.SamplingIntervalM > 100 {

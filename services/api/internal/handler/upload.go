@@ -15,18 +15,16 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -345,7 +343,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
-
 // postInsertActivity runs all post-insert steps by delegating to the shared
 // ImportService.PostProcess pipeline. This ensures that the upload handler and
 // the cross-platform import pipeline use identical post-processing logic.
@@ -363,7 +360,6 @@ func (h *Handler) postInsertActivity(
 		slog.Error("post-process activity failed", "id", activity.ID, "error", err)
 	}
 }
-
 
 func detectFormat(data []byte, filename string) string {
 	return importutil.DetectFormat(data, filename)

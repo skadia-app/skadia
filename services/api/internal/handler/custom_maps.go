@@ -12,13 +12,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func (h *Handler) ListCustomMaps(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	maps, err := h.DB.ListCustomMaps(r.Context(), userID)
 	if err != nil {
 		slog.Error("list custom maps failed", "error", err)
@@ -29,10 +31,12 @@ func (h *Handler) ListCustomMaps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateCustomMap(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	var req model.CreateCustomMapRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	req, ok := httputil.DecodeJSON[model.CreateCustomMapRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" {
@@ -52,11 +56,13 @@ func (h *Handler) CreateCustomMap(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateCustomMap(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
-	var req model.UpdateCustomMapRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.UpdateCustomMapRequest](w, r)
+	if !ok {
 		return
 	}
 	m, err := h.DB.UpdateCustomMap(r.Context(), mapID, userID, req)
@@ -69,7 +75,10 @@ func (h *Handler) UpdateCustomMap(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
 	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); err != nil {
 		if err == pgx.ErrNoRows {
@@ -84,7 +93,10 @@ func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListCustomMapMarkers(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
 	markers, err := h.DB.ListCustomMapMarkers(r.Context(), mapID, userID)
 	if err != nil {
@@ -96,11 +108,13 @@ func (h *Handler) ListCustomMapMarkers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateCustomMapMarker(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
-	var req model.CreateMarkerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.CreateMarkerRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" {
@@ -117,12 +131,14 @@ func (h *Handler) CreateCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) UpdateCustomMapMarker(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
-	var req model.UpdateMarkerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[model.UpdateMarkerRequest](w, r)
+	if !ok {
 		return
 	}
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, req)
@@ -135,7 +151,10 @@ func (h *Handler) UpdateCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
 	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); err != nil {
@@ -154,9 +173,8 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 // Supports multipart file upload (field "file") or JSON body with { "image_url": "..." }.
 // POST /api/v1/custom-maps/{mapID}/markers/{markerID}/image
 func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	mapID := chi.URLParam(r, "mapID")

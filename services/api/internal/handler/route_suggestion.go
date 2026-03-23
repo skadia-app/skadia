@@ -10,9 +10,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 // profileMap maps incoming profile names to BadRouter profile names.
@@ -85,15 +84,13 @@ type RouteSuggestionResponse struct {
 //
 // POST /api/v1/routes/suggest
 func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	var req RouteSuggestionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[RouteSuggestionRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -380,7 +377,6 @@ func selectDiverseViaPoints(
 	}
 	return result
 }
-
 
 // bearingDeg returns the initial bearing (0-360 deg) from (lat1, lon1) to
 // (lat2, lon2), where all angles are in decimal degrees.

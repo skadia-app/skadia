@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -15,9 +14,8 @@ import (
 // geo features are available at runtime (Lite vs. Full mode).
 // GET /api/v1/capabilities
 func (h *Handler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 
