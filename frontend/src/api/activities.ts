@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, parseContentDisposition } from './client'
 import { getToken, clearToken } from '@/lib/auth'
 import { ApiError } from './client'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent } from './types'
@@ -277,9 +277,7 @@ export async function downloadActivitiesZip(
   }
   if (!res.ok) throw new ApiError(res.status, await res.text())
   const blob = await res.blob()
-  const cd = res.headers.get('Content-Disposition') ?? ''
-  const match = cd.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `skadia-export.zip`
+  const filename = parseContentDisposition(res.headers.get('Content-Disposition')) ?? 'skadia-export.zip'
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = objectUrl
