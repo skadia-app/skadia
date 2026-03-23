@@ -38,8 +38,9 @@ func TestParseFilters_Seasons(t *testing.T) {
 func TestBuildWhereClause_Empty(t *testing.T) {
 	f := AnalyticsFilter{}
 	clause, args := f.BuildWhereClause(1)
-	if clause != "" || len(args) != 0 {
-		t.Errorf("expected empty clause, got %q with %d args", clause, len(args))
+	// Even with no explicit filters, exclude_from_stats is always applied.
+	if clause != " AND NOT a.exclude_from_stats" || len(args) != 0 {
+		t.Errorf("expected exclude_from_stats clause, got %q with %d args", clause, len(args))
 	}
 }
 
