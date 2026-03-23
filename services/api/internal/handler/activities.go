@@ -921,7 +921,7 @@ func (h *Handler) GetZoneDistribution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try pre-computed zones first
-	zones, err := h.DB.GetTimeInZones(r.Context(), id)
+	zones, err := h.DB.GetTimeInZones(r.Context(), id, nil, nil)
 	if err != nil {
 		slog.Warn("get time in zones failed", "activity_id", id, "error", err)
 	}
