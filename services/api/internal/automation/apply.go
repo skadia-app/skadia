@@ -33,8 +33,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		if !rule.IsActive {
 			continue
 		}
-		// Skip ebike_sync — managed by DB trigger, not rules engine
-		if rule.SystemType != nil && *rule.SystemType == "ebike_sync" {
+		// Skip ebike_sync / virtual_sync — managed by DB trigger, not rules engine
+		if rule.SystemType != nil && (*rule.SystemType == "ebike_sync" || *rule.SystemType == "virtual_sync") {
 			continue
 		}
 
