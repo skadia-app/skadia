@@ -108,7 +108,11 @@ type SingleGraphReader struct {
 func (r *SingleGraphReader) ForEachInEdge(nodeID uint64, fn func(EdgeView)) {
 	_, localID := SplitGlobalNodeID(nodeID)
 	g := r.G
-	if g == nil || g.RevOffsets == nil || localID >= g.NodeCount {
+	if g == nil || localID >= g.NodeCount {
+		return
+	}
+	g.EnsureReverseAdj()
+	if g.RevOffsets == nil { // empty graph
 		return
 	}
 	for ri := g.RevOffsets[localID]; ri < g.RevOffsets[localID+1]; ri++ {

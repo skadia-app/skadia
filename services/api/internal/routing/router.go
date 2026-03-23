@@ -139,11 +139,16 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 				totalExp += segRes.expansions
 				totalMs += segRes.durationMs
 				for k, v := range segRes.state.nodes {
-					// Preserve segment-boundary nodes from previous segments
-					// to maintain the parent chain for retrack.
-					if _, exists := mergedState.nodes[k]; !exists {
-						mergedState.nodes[k] = v
+					// The src node of each segment is initialized with BestCost=0
+					// and Parent=0 by findRouteUnified. If we overwrite a node from
+					// a previous segment with this zero-state, the parent chain
+					// breaks at the segment boundary. Only skip the segment's src node.
+					if k == seg.From {
+						if _, exists := mergedState.nodes[k]; exists {
+							continue // keep previous segment's state for this boundary node
+						}
 					}
+					mergedState.nodes[k] = v
 				}
 			}
 

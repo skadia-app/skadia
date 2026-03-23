@@ -31,7 +31,6 @@ func newBidiTestGraph() *SingleGraphReader {
 		IsBorder:  make([]bool, 5),
 		NodeTags:  make([]byte, 5),
 	}
-	g.BuildReverseAdj()
 	return &SingleGraphReader{G: g}
 }
 
@@ -76,7 +75,6 @@ func TestRunBackwardSearchDisconnected(t *testing.T) {
 		IsBorder:  make([]bool, 3),
 		NodeTags:  make([]byte, 3),
 	}
-	g.BuildReverseAdj()
 	reader := &SingleGraphReader{G: g}
 	cfg := DefaultCostConfig()
 	result := RunBackwardSearch(reader, 2, cfg, 100000)
@@ -104,7 +102,6 @@ func TestRunBackwardSearchDirectedGraph(t *testing.T) {
 		IsBorder:  make([]bool, 4),
 		NodeTags:  make([]byte, 4),
 	}
-	g.BuildReverseAdj()
 	reader := &SingleGraphReader{G: g}
 	cfg := DefaultCostConfig()
 
@@ -143,7 +140,6 @@ func TestForEachInEdgeDirected(t *testing.T) {
 		IsBorder:  make([]bool, 3),
 		NodeTags:  make([]byte, 3),
 	}
-	g.BuildReverseAdj()
 	reader := &SingleGraphReader{G: g}
 
 	// Node 0: no incoming edges
