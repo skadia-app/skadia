@@ -657,9 +657,13 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 7. Rewrite sidecar metadata.
+	// 7. Rewrite sidecar metadata (v3 with user-editable fields).
 	metaKey := info.FileKey + ".meta"
-	meta := sidecar.GenerateMeta(activityID, data)
+	activity, actErr := h.DB.GetActivity(ctx, activityID)
+	if actErr != nil {
+		slog.Error("reprocess: get activity for meta failed", "id", activityID, "error", actErr)
+	}
+	meta := sidecar.GenerateMetaV3(activityID, data, activity)
 	metaBytes, mErr := meta.Marshal()
 	if mErr == nil {
 		if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
