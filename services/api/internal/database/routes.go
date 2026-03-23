@@ -164,8 +164,7 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			total_elevation_loss = $13,
 			estimated_time_min = $14,
 			time_override      = $15,
-			auto_tag           = $16,
-			updated_at         = NOW()
+			auto_tag           = $16
 		WHERE id = $1 AND user_id = $2
 	`,
 		route.ID, route.UserID,

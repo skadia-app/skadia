@@ -42,7 +42,7 @@ func (db *DB) InsertImportLog(ctx context.Context, entry model.ImportLogEntry) (
 func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, errorMsg *string, activityID *string, durationMs *int) error {
 	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log
-		SET status = $2, error_msg = $3, activity_id = $4, duration_ms = $5, updated_at = NOW()
+		SET status = $2, error_msg = $3, activity_id = $4, duration_ms = $5
 		WHERE id = $1`,
 		id, status, errorMsg, activityID, durationMs,
 	)
@@ -58,7 +58,7 @@ func (db *DB) UpdateImportLogStatus(ctx context.Context, id, status string, erro
 // UpdateImportLogFileHash writes a computed file hash back to the DB.
 func (db *DB) UpdateImportLogFileHash(ctx context.Context, id, fileHash string) error {
 	result, err := db.Pool.Exec(ctx, `
-		UPDATE import_log SET file_hash = $2, updated_at = NOW() WHERE id = $1`,
+		UPDATE import_log SET file_hash = $2 WHERE id = $1`,
 		id, fileHash,
 	)
 	if err != nil {
@@ -73,7 +73,7 @@ func (db *DB) UpdateImportLogFileHash(ctx context.Context, id, fileHash string) 
 // UpdateImportLogSkipReason sets the skip_reason field of an import_log entry.
 func (db *DB) UpdateImportLogSkipReason(ctx context.Context, id, skipReason string) error {
 	result, err := db.Pool.Exec(ctx, `
-		UPDATE import_log SET skip_reason = $2, updated_at = NOW() WHERE id = $1`,
+		UPDATE import_log SET skip_reason = $2 WHERE id = $1`,
 		id, skipReason,
 	)
 	if err != nil {
@@ -88,7 +88,7 @@ func (db *DB) UpdateImportLogSkipReason(ctx context.Context, id, skipReason stri
 // UpdateImportLogMetadata sets the metadata field of an import_log entry.
 func (db *DB) UpdateImportLogMetadata(ctx context.Context, id string, metadata []byte) error {
 	result, err := db.Pool.Exec(ctx, `
-		UPDATE import_log SET metadata = $2, updated_at = NOW() WHERE id = $1`,
+		UPDATE import_log SET metadata = $2 WHERE id = $1`,
 		id, metadata,
 	)
 	if err != nil {
@@ -191,8 +191,7 @@ func (db *DB) CleanupStaleProcessing(ctx context.Context, olderThan time.Duratio
 	result, err := db.Pool.Exec(ctx, `
 		UPDATE import_log
 		SET status = 'error',
-		    error_msg = 'processing timeout — server may have restarted',
-		    updated_at = NOW()
+		    error_msg = 'processing timeout — server may have restarted'
 		WHERE status = 'processing' AND updated_at < $1`,
 		cutoff,
 	)

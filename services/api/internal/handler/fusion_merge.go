@@ -15,9 +15,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -52,16 +51,14 @@ var validStreamFields = map[string]string{
 // FusionMerge führt eine 3-Quellen-Fusion durch und erstellt eine neue Aktivität:
 // POST /api/v1/activities/{id}/fusion-merge
 func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	targetID := chi.URLParam(r, "id")
 
-	var req FusionMergeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	req, ok := httputil.DecodeJSON[FusionMergeRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -168,7 +165,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	if req.TitleSource != nil && *req.TitleSource != targetID {
 		if src, ok := activities[*req.TitleSource]; ok && src.Title != nil {
 			if _, err := h.DB.Pool.Exec(ctx,
-				`UPDATE activities SET title = $2, has_edits = true, updated_at = NOW() WHERE id = $1`,
+				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				merged.ID, *src.Title,
 			); err != nil {
 				slog.Warn("fusion-merge: update title failed", "error", err)
@@ -179,7 +176,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 5. Gear übernehmen.
 	if req.GearSource != nil {
 		if src, ok := activities[*req.GearSource]; ok && src.GearID != nil {
-			h.DB.Pool.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true, updated_at = NOW() WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
+			h.DB.Pool.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
 		}
 	}
 
@@ -202,7 +199,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
 	for _, id := range allIDs {
 		if _, err := h.DB.Pool.Exec(ctx,
-			`UPDATE activities SET parent_id = $2, updated_at = NOW() WHERE id = $1 AND user_id = $3`,
+			`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
 			id, merged.ID, userID,
 		); err != nil {
 			slog.Warn("fusion-merge: hide source failed", "id", id, "error", err)
@@ -369,7 +366,7 @@ func (h *Handler) fitLevelMerge(
 
 	// file_hash der Ziel-Aktivität aktualisieren.
 	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE activities SET file_hash = $2, has_edits = true, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET file_hash = $2, has_edits = true WHERE id = $1`,
 		targetID, newHash,
 	); err != nil {
 		return fmt.Errorf("update file_hash: %w", err)
@@ -440,9 +437,8 @@ func createMergedActivity(ctx context.Context, db *database.DB, src *model.Activ
 // RevertFusion löscht eine Fusion-Ergebnis-Aktivität und stellt die Quellen wieder her.
 // POST /api/v1/activities/{id}/revert-fusion
 func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -460,7 +456,7 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 
 	// Alle versteckten Quellen (parent_id = id) wiederherstellen.
 	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE activities SET parent_id = NULL, updated_at = NOW() WHERE parent_id = $1 AND user_id = $2`,
+		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
 		id, userID,
 	); err != nil {
 		slog.Error("revert-fusion: restore sources failed", "error", err)

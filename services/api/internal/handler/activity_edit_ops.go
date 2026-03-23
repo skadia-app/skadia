@@ -22,9 +22,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/editor"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ── Trim ──────────────────────────────────────────────────────────────────────
@@ -36,9 +35,8 @@ import (
 // POST /api/v1/activities/{id}/trim
 // Body: { "trim_start": "RFC3339", "trim_end": "RFC3339" }
 func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -173,8 +171,7 @@ func (h *Handler) applyTrimMetrics(ctx context.Context, activityID string, m edi
 			max_power_w     = COALESCE($12, max_power_w),
 			avg_cadence     = COALESCE($13, avg_cadence),
 			avg_temperature_c = COALESCE($14, avg_temperature_c),
-			has_edits       = true,
-			updated_at      = NOW()
+			has_edits       = true
 		WHERE id = $1`,
 		activityID,
 		m.StartedAt,
@@ -203,9 +200,8 @@ func (h *Handler) applyTrimMetrics(ctx context.Context, activityID string, m edi
 // POST /api/v1/activities/{id}/split
 // Body: { "split_at": "RFC3339" }
 func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -426,9 +422,8 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/activities/{id}/merge
 // Body: { "source_id": "uuid", "fields": ["hr", "power", ...] }
 func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	targetID := chi.URLParam(r, "id")
@@ -527,7 +522,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	// Merge title.
 	if fieldSet["title"] && source.Title != nil {
 		_, err = h.DB.Pool.Exec(r.Context(),
-			`UPDATE activities SET title = $2, has_edits = true, updated_at = NOW() WHERE id = $1`,
+			`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 			targetID, *source.Title,
 		)
 		if err != nil {
@@ -538,7 +533,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	// Merge gear.
 	if fieldSet["gear"] && source.GearID != nil {
 		_, err = h.DB.Pool.Exec(r.Context(),
-			`UPDATE activities SET gear_id = $2, has_edits = true, updated_at = NOW() WHERE id = $1`,
+			`UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`,
 			targetID, *source.GearID,
 		)
 		if err != nil {
@@ -555,7 +550,7 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 
 	// Mark source as fusion source.
 	_, _ = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET is_fusion_source = true, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET is_fusion_source = true WHERE id = $1`,
 		req.SourceID,
 	)
 
@@ -675,7 +670,6 @@ func (h *Handler) mergeActivityTags(ctx context.Context, targetID, sourceID, use
 				WHERE at_join.activity_id = a.id
 			), '{}'::TEXT[]
 		),
-		updated_at = NOW()
 		WHERE a.id = $1`, targetID,
 	)
 	return nil

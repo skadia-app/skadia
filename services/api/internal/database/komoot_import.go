@@ -65,8 +65,7 @@ func (db *DB) SaveKomootCredentials(ctx context.Context, userID string, creds Ko
 			sync_enabled = EXCLUDED.sync_enabled,
 			import_planned = EXCLUDED.import_planned,
 			import_recorded = EXCLUDED.import_recorded,
-			import_photos = EXCLUDED.import_photos,
-			updated_at = NOW()
+			import_photos = EXCLUDED.import_photos
 	`, userID, creds.Email, creds.EncryptedPassword, creds.KomootUserID,
 		creds.SyncEnabled, creds.ImportPlanned, creds.ImportRecorded, creds.ImportPhotos,
 	)

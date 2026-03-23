@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -60,9 +59,8 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	body, ok := httputil.DecodeJSON[any](w, r)
+	if !ok {
 		return
 	}
 
@@ -73,9 +71,9 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`INSERT INTO ml_system_settings (setting_key, value_json, updated_at)
-		 VALUES ($1, $2, NOW())
-		 ON CONFLICT (setting_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = NOW()`,
+		`INSERT INTO ml_system_settings (setting_key, value_json)
+		 VALUES ($1, $2)
+		 ON CONFLICT (setting_key) DO UPDATE SET value_json = EXCLUDED.value_json`,
 		key, valueJSON)
 	if err != nil {
 		slog.Error("put ml system setting failed", "key", key, "error", err)
@@ -90,7 +88,10 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/settings/ml/user
 func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	rows, err := h.DB.Pool.Query(r.Context(),
 		"SELECT setting_key, value_json FROM ml_user_settings WHERE user_id = $1 ORDER BY setting_key",
@@ -130,7 +131,10 @@ var validMLUserSettingKeys = map[string]bool{
 //
 // PUT /api/v1/settings/ml/user/{key}
 func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	key := chi.URLParam(r, "key")
 	if key == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing setting key", r.URL.Path)
@@ -141,9 +145,8 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+	body, ok := httputil.DecodeJSON[any](w, r)
+	if !ok {
 		return
 	}
 
@@ -154,9 +157,9 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`INSERT INTO ml_user_settings (user_id, setting_key, value_json, updated_at)
-		 VALUES ($1, $2, $3, NOW())
-		 ON CONFLICT (user_id, setting_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = NOW()`,
+		`INSERT INTO ml_user_settings (user_id, setting_key, value_json)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, setting_key) DO UPDATE SET value_json = EXCLUDED.value_json`,
 		userID, key, valueJSON)
 	if err != nil {
 		slog.Error("put ml user setting failed", "key", key, "error", err)
