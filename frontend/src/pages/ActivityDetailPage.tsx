@@ -341,7 +341,7 @@ export default function ActivityDetailPage() {
 
       {/* Tags in one row */}
       <div className="flex flex-wrap items-center gap-2">
-        <TagsBadges tags={activity.tags} activityId={activity.id} />
+        <TagsBadges tags={activity.tags} activityId={activity.id} isVirtual={activity.is_virtual} />
       </div>
 
       {/* Description */}
@@ -1721,7 +1721,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
-function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }) {
+function TagsBadges({ tags, activityId, isVirtual }: { tags: string[]; activityId: string; isVirtual?: boolean }) {
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -1881,7 +1881,7 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
       </div>
 
       {tags.map((tag, i) => {
-        const isHardcoded = tag === 'virtuell' && activity.is_virtual
+        const isHardcoded = tag === 'virtuell' && isVirtual
         return (
           <span
             key={tag}
