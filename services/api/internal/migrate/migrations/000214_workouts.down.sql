@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS workout_steps;
+DROP TABLE IF EXISTS workouts;
