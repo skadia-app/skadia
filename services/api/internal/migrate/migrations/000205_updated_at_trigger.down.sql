@@ -8,4 +8,6 @@ DROP TRIGGER IF EXISTS trg_chat_sessions_updated_at ON chat_sessions;
 DROP TRIGGER IF EXISTS trg_ml_system_settings_updated_at ON ml_system_settings;
 DROP TRIGGER IF EXISTS trg_ml_user_settings_updated_at ON ml_user_settings;
 DROP TRIGGER IF EXISTS trg_planned_routes_updated_at ON planned_routes;
+DROP TRIGGER IF EXISTS trg_bike_setups_updated_at ON bike_setups;
+DROP TRIGGER IF EXISTS trg_import_log_updated_at ON import_log;
 DROP FUNCTION IF EXISTS set_updated_at();
