@@ -15,13 +15,15 @@ import (
 // Node 4: edges to [3]       Offsets[4]=7, Offsets[5]=8
 // Targets: [1, 0, 2, 1, 3, 2, 4, 3]
 func newBidiTestGraph() *SingleGraphReader {
+	// highway=track (enum 15) is passable for all profiles.
+	const trackTags1 uint64 = 15
 	g := &graph.Graph{
 		NodeCount: 5,
 		EdgeCount: 8,
 		Offsets:   []uint32{0, 1, 3, 5, 7, 8},
 		Targets:   []uint32{1, 0, 2, 1, 3, 2, 4, 3},
 		EdgeDist:  []uint32{1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000},
-		EdgeTags1: make([]uint64, 8),
+		EdgeTags1: []uint64{trackTags1, trackTags1, trackTags1, trackTags1, trackTags1, trackTags1, trackTags1, trackTags1},
 		EdgeTags2: make([]uint64, 8),
 		NodeLat:   []int32{470000000, 470010000, 470020000, 470030000, 470040000},
 		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000, 110000000},
@@ -65,7 +67,7 @@ func TestRunBackwardSearchDisconnected(t *testing.T) {
 		Offsets:   []uint32{0, 1, 2, 2}, // Node 2 has no outgoing edges
 		Targets:   []uint32{1, 0},
 		EdgeDist:  []uint32{1000, 1000},
-		EdgeTags1: make([]uint64, 2),
+		EdgeTags1: []uint64{15, 15}, // highway=track
 		EdgeTags2: make([]uint64, 2),
 		NodeLat:   []int32{470000000, 470010000, 470020000},
 		NodeLon:   []int32{110000000, 110000000, 110000000},
