@@ -303,8 +303,7 @@ func (db *DB) UpdateActivityFileInfo(ctx context.Context, id, bucket, key, forma
 			original_file_key = $3,
 			original_file_format = $4,
 			original_filename = $5,
-			sidecar_meta_key = $6,
-			updated_at = NOW()
+			sidecar_meta_key = $6
 		WHERE id = $1`,
 		id, bucket, key, format, filename, metaKey,
 	)
@@ -856,8 +855,6 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		return db.GetActivity(ctx, id)
 	}
 
-	sets = append(sets, "updated_at = NOW()")
-
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -1018,7 +1015,7 @@ func (db *DB) ListActivityIDsForUser(ctx context.Context, userID string) ([]stri
 // to prevent cross-user mutations.
 func (db *DB) UpdateMovingTime(ctx context.Context, activityID, userID string, movingTimeS int) error {
 	result, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET moving_time_s = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+		`UPDATE activities SET moving_time_s = $1 WHERE id = $2 AND user_id = $3`,
 		movingTimeS, activityID, userID,
 	)
 	if err != nil {
@@ -1355,7 +1352,7 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfEmpty(data.SourceDevice))
 
 	// Always reset enrichment and timestamp
-	sets = append(sets, "enrichment_status = 'pending'", "updated_at = NOW()")
+	sets = append(sets, "enrichment_status = 'pending'")
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
@@ -1547,7 +1544,7 @@ func (db *DB) GetUserFileNamingSchema(ctx context.Context, userID string) (strin
 // UpdateUserFileNamingSchema updates the file naming schema for a user.
 func (db *DB) UpdateUserFileNamingSchema(ctx context.Context, userID, schema string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE users SET file_naming_schema = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE users SET file_naming_schema = $2 WHERE id = $1`,
 		userID, schema,
 	)
 	if err != nil {
@@ -1595,7 +1592,7 @@ func (db *DB) GetUsersWithHotfolderEnabled(ctx context.Context) ([]string, error
 // UpdateUserHotfolderEnabled persists the hotfolder_enabled toggle for a user.
 func (db *DB) UpdateUserHotfolderEnabled(ctx context.Context, userID string, enabled bool) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE users SET hotfolder_enabled = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE users SET hotfolder_enabled = $2 WHERE id = $1`,
 		userID, enabled,
 	)
 	if err != nil {
@@ -1607,7 +1604,7 @@ func (db *DB) UpdateUserHotfolderEnabled(ctx context.Context, userID string, ena
 // UpdateActivityLocalFilePath sets the local_file_path for an activity.
 func (db *DB) UpdateActivityLocalFilePath(ctx context.Context, activityID, path string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET local_file_path = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET local_file_path = $2 WHERE id = $1`,
 		activityID, path,
 	)
 	if err != nil {
@@ -1620,7 +1617,7 @@ func (db *DB) UpdateActivityLocalFilePath(ctx context.Context, activityID, path 
 // for activities belonging to the given user.
 func (db *DB) UpdateActivityLocalFilePathByOldPath(ctx context.Context, userID, oldPath, newPath string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET local_file_path = $3, updated_at = NOW()
+		`UPDATE activities SET local_file_path = $3
 		 WHERE user_id = $1 AND local_file_path = $2`,
 		userID, oldPath, newPath,
 	)
@@ -2957,8 +2954,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		SET tags = array_append(
 		              array_remove(tags, $1::text),
 		              $2::text
-		          ),
-		    updated_at = NOW()
+		          )
 		WHERE user_id = $3
 		  AND $1 = ANY(tags)
 		  AND NOT ($2 = ANY(tags))`,
@@ -2970,8 +2966,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	// For activities that already had both names: just remove sourceName.
 	_, err = tx.Exec(ctx, `
 		UPDATE activities
-		SET tags = array_remove(tags, $1::text),
-		    updated_at = NOW()
+		SET tags = array_remove(tags, $1::text)
 		WHERE user_id = $2
 		  AND $1 = ANY(tags)`,
 		sourceName, userID,
@@ -3047,8 +3042,6 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 		argIdx++
 	}
 
-	sets = append(sets, "updated_at = NOW()")
-
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -3061,7 +3054,6 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 // COALESCE semantics: each column is only written if the existing DB value is NULL.
 // This is safe for concurrent imports — parallel importers cannot overwrite each
 // other's data and will never replace a real value with a zero/null.
-// updated_at is always refreshed regardless of COALESCE.
 func (db *DB) UpdateEnrichmentFieldsSafe(ctx context.Context, activityID string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
@@ -3078,8 +3070,6 @@ func (db *DB) UpdateEnrichmentFieldsSafe(ctx context.Context, activityID string,
 		args = append(args, val)
 		argIdx++
 	}
-
-	sets = append(sets, "updated_at = NOW()")
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
@@ -3297,7 +3287,7 @@ func (db *DB) GetActivityClimbs(ctx context.Context, activityID string) ([]model
 func (db *DB) DeleteOrphanTag(ctx context.Context, userID, tagName string) (int64, error) {
 	result, err := db.Pool.Exec(ctx, `
 		UPDATE activities
-		SET tags = array_remove(tags, $2), updated_at = NOW()
+		SET tags = array_remove(tags, $2)
 		WHERE user_id = $1 AND $2 = ANY(tags)`,
 		userID, tagName,
 	)
@@ -3689,8 +3679,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true
-			),
-			updated_at = NOW()
+			)
 		WHERE id = $1`, activityID)
 	return err
 }
@@ -3745,7 +3734,7 @@ func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, a
 		// Keep denormalized TEXT[] cache in sync.
 		// COALESCE guards against NULL tags array: NOT ($2 = ANY(NULL)) → NULL → FALSE, skips update.
 		_, _ = db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), $2), updated_at = NOW()
+			`UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), $2)
 			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(COALESCE(tags, '{}')))`,
 			actID, tagName, userID)
 	}
@@ -3774,7 +3763,7 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 		}
 		// Keep denormalized TEXT[] cache in sync.
 		_, _ = db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_remove(tags, $2), updated_at = NOW()
+			`UPDATE activities SET tags = array_remove(tags, $2)
 			 WHERE id = $1 AND user_id = $3`,
 			actID, tagName, userID)
 	}

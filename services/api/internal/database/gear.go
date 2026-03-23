@@ -1448,7 +1448,7 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 			activityID, tagID)
 		// TEXT[] cache
 		_, _ = db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_append(tags, $1), updated_at = NOW()
+			`UPDATE activities SET tags = array_append(tags, $1)
 			 WHERE id = $2 AND NOT ($1 = ANY(COALESCE(tags, '{}')))`,
 			tagName, activityID)
 		// activity_count
@@ -1471,7 +1471,7 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
 			activityID, tagID)
 		_, _ = db.Pool.Exec(ctx,
-			`UPDATE activities SET tags = array_remove(tags, $1), updated_at = NOW() WHERE id = $2`,
+			`UPDATE activities SET tags = array_remove(tags, $1) WHERE id = $2`,
 			tagName, activityID)
 		_, _ = db.Pool.Exec(ctx,
 			`UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = $1) WHERE id = $1`,
@@ -1646,7 +1646,6 @@ func (db *DB) UpdateBikeSetup(ctx context.Context, id string, update *model.Bike
 		return s, nil
 	}
 
-	sets = append(sets, "updated_at = NOW()")
 	args = append(args, id)
 	query := fmt.Sprintf(
 		`UPDATE bike_setups SET %s WHERE id = $%d RETURNING `+bikeSetupCols,
@@ -1793,7 +1792,7 @@ func (db *DB) GetGearDocumentsByGearIDs(ctx context.Context, gearIDs []string) (
 
 func (db *DB) ActivateBikeSetup(ctx context.Context, id string) (*model.BikeSetup, error) {
 	s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
-		`UPDATE bike_setups SET is_active = true, updated_at = NOW()
+		`UPDATE bike_setups SET is_active = true
 		 WHERE id = $1 RETURNING `+bikeSetupCols, id,
 	))
 	if err != nil {

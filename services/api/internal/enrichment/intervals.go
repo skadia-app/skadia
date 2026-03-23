@@ -526,7 +526,7 @@ func retractIntervalTag(ctx context.Context, db *database.DB, activityID, userID
 
 	if !hasManualTag {
 		db.Pool.Exec(ctx, //nolint:errcheck
-			`UPDATE activities SET tags = array_remove(tags, 'Intervalltraining'), updated_at = NOW()
+			`UPDATE activities SET tags = array_remove(tags, 'Intervalltraining')
 			 WHERE id = $1`, activityID)
 	}
 }
@@ -554,8 +554,7 @@ func upsertIntervalTag(ctx context.Context, db *database.DB, activityID, userID 
 
 	if _, err := db.Pool.Exec(ctx, `
 		UPDATE activities
-		SET tags = array_append(tags, 'Intervalltraining'),
-		    updated_at = NOW()
+		SET tags = array_append(tags, 'Intervalltraining')
 		WHERE id = $1
 		  AND NOT ('Intervalltraining' = ANY(COALESCE(tags, '{}')))
 	`, activityID); err != nil {

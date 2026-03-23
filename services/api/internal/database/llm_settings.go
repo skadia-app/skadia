@@ -46,8 +46,7 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 		   api_base = EXCLUDED.api_base,
 		   model_name = EXCLUDED.model_name,
 		   api_key_enc = COALESCE(EXCLUDED.api_key_enc, llm_system_config.api_key_enc),
-		   enabled = EXCLUDED.enabled,
-		   updated_at = NOW()`,
+		   enabled = EXCLUDED.enabled`,
 		role, update.BackendType, update.APIBase, update.ModelName, encryptedKey, update.Enabled)
 	return err
 }

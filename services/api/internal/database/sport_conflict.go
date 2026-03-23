@@ -14,15 +14,13 @@ func (db *DB) ResolveSportConflict(ctx context.Context, activityID, userID strin
 			UPDATE activities
 			SET sport_type = $1,
 			    sport_type_is_manual = true,
-			    sport_conflict_pending = false,
-			    updated_at = NOW()
+			    sport_conflict_pending = false
 			WHERE id = $2 AND user_id = $3 AND sport_conflict_pending = true`
 		args = []any{*newSportType, activityID, userID}
 	} else {
 		query = `
 			UPDATE activities
-			SET sport_conflict_pending = false,
-			    updated_at = NOW()
+			SET sport_conflict_pending = false
 			WHERE id = $1 AND user_id = $2 AND sport_conflict_pending = true`
 		args = []any{activityID, userID}
 	}

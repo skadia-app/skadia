@@ -58,8 +58,7 @@ func (db *DB) UpdateCustomMap(ctx context.Context, id, userID string, req model.
 		SET name        = COALESCE($3, name),
 		    description = COALESCE($4, description),
 		    color       = COALESCE($5, color),
-		    is_visible  = COALESCE($6, is_visible),
-		    updated_at  = NOW()
+		    is_visible  = COALESCE($6, is_visible)
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, name, description, color, is_visible, sort_order, created_at, updated_at
 	`, id, userID, req.Name, req.Description, req.Color, req.IsVisible).Scan(
@@ -128,8 +127,7 @@ func (db *DB) UpdateCustomMapMarker(ctx context.Context, id, mapID, userID strin
 		    lat         = COALESCE($6, lat),
 		    lng         = COALESCE($7, lng),
 		    color       = COALESCE($8, color),
-		    image_url   = COALESCE($9, image_url),
-		    updated_at  = NOW()
+		    image_url   = COALESCE($9, image_url)
 		WHERE id = $1 AND map_id = $2 AND user_id = $3
 		RETURNING id, map_id, user_id, name, description, lat, lng, color, image_url, created_at, updated_at
 	`, id, mapID, userID, req.Name, req.Description, req.Lat, req.Lng, req.Color, req.ImageURL).Scan(

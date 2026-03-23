@@ -216,7 +216,7 @@ func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID strin
 	_, err = pool.Exec(ctx, `
 		UPDATE activities SET
 			distance_m = (SELECT MAX(distance_m) FROM activity_streams WHERE activity_id = $1 AND distance_m IS NOT NULL),
-			has_edits = true, updated_at = NOW()
+			has_edits = true
 		WHERE id = $1
 	`, targetID)
 	return err

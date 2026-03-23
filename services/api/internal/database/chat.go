@@ -86,7 +86,7 @@ func (db *DB) CreateMessage(ctx context.Context, msg *model.ChatMessage) (*model
 	}
 	// Best-effort touch on parent session
 	_, _ = db.Pool.Exec(ctx,
-		`UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1`,
+		`UPDATE chat_sessions SET updated_at = updated_at WHERE id = $1`,
 		msg.SessionID,
 	)
 	return &m, nil
@@ -122,7 +122,7 @@ func (db *DB) GetMessages(ctx context.Context, sessionID string, limit int) ([]*
 // UpdateSessionTitle sets the title of a chat session.
 func (db *DB) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE chat_sessions SET title = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE chat_sessions SET title = $2 WHERE id = $1`,
 		sessionID, title,
 	)
 	if err != nil {

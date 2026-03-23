@@ -12,7 +12,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/editor"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -34,9 +33,8 @@ func editorKey(userID, activityID string) string {
 //
 // GET /api/v1/activities/{id}/edits
 func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -82,9 +80,8 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 //
 // PUT /api/v1/activities/{id}/edits
 func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -101,9 +98,8 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var sidecar editor.EditSidecar
-	if err := json.NewDecoder(r.Body).Decode(&sidecar); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	sidecar, ok := httputil.DecodeJSON[editor.EditSidecar](w, r)
+	if !ok {
 		return
 	}
 
@@ -133,7 +129,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	// Mark activity as having edits
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET has_edits = true, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET has_edits = true WHERE id = $1`,
 		activityID,
 	)
 	if err != nil {
@@ -147,9 +143,8 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 //
 // DELETE /api/v1/activities/{id}/edits
 func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -174,7 +169,7 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	// Clear has_edits flag
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET has_edits = false, edits_applied_at = NULL, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET has_edits = false, edits_applied_at = NULL WHERE id = $1`,
 		activityID,
 	)
 	if err != nil {
@@ -188,9 +183,8 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/v1/activities/{id}/edits/detect-hr-spikes
 func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -258,9 +252,8 @@ func (h *Handler) DetectHRSpikesHandler(w http.ResponseWriter, r *http.Request) 
 //
 // POST /api/v1/activities/{id}/edits/detect-gps-outliers
 func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -307,10 +300,10 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"count":          len(timestamps),
-		"timestamps":     timestamps,
-		"max_speed_ms":   maxSpeed,
-		"sport_type":     activity.SportType,
+		"count":        len(timestamps),
+		"timestamps":   timestamps,
+		"max_speed_ms": maxSpeed,
+		"sport_type":   activity.SportType,
 	})
 }
 
@@ -319,9 +312,8 @@ func (h *Handler) DetectGPSOutliersHandler(w http.ResponseWriter, r *http.Reques
 //
 // POST /api/v1/activities/{id}/edits/apply
 func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "no user ID in context", r.URL.Path)
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
 		return
 	}
 	activityID := chi.URLParam(r, "id")
@@ -371,7 +363,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	// Mark edits as applied
 	now := time.Now()
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET edits_applied_at = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE activities SET edits_applied_at = $2 WHERE id = $1`,
 		activityID, now,
 	)
 	if err != nil {

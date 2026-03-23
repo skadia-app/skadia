@@ -91,7 +91,7 @@ func (t *ImportTracker) Skipped(ctx context.Context, reason string, activityID *
 	}
 	_, err := t.db.Pool.Exec(ctx, `
 		UPDATE import_log
-		SET status = 'skipped', activity_id = $2, skip_reason = $3, duration_ms = $4, updated_at = NOW()
+		SET status = 'skipped', activity_id = $2, skip_reason = $3, duration_ms = $4
 		WHERE id = $1`,
 		t.logID, activityID, reasonPtr, elapsed,
 	)

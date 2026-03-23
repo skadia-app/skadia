@@ -109,14 +109,13 @@ func (db *DB) UpsertTagZone(ctx context.Context, tagID, userID string, zone mode
 	var z *model.TagZone
 	if zone.ZoneType == "polygon" && zone.Polygon != nil {
 		row := db.Pool.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO tag_zones (tag_id, zone_type, polygon, updated_at)
-			VALUES ($1, 'polygon', ST_GeomFromGeoJSON($2), NOW())
+			INSERT INTO tag_zones (tag_id, zone_type, polygon)
+			VALUES ($1, 'polygon', ST_GeomFromGeoJSON($2))
 			ON CONFLICT (tag_id) DO UPDATE SET
 				zone_type  = EXCLUDED.zone_type,
 				center     = NULL,
 				radius_m   = NULL,
-				polygon    = EXCLUDED.polygon,
-				updated_at = NOW()
+				polygon    = EXCLUDED.polygon
 			RETURNING %s`, tagZoneCols),
 			tagID, *zone.Polygon,
 		)
@@ -129,14 +128,13 @@ func (db *DB) UpsertTagZone(ctx context.Context, tagID, userID string, zone mode
 		lng := zone.Center[0]
 		lat := zone.Center[1]
 		row := db.Pool.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO tag_zones (tag_id, zone_type, center, radius_m, updated_at)
-			VALUES ($1, 'circle', ST_SetSRID(ST_MakePoint($2, $3), 4326), $4, NOW())
+			INSERT INTO tag_zones (tag_id, zone_type, center, radius_m)
+			VALUES ($1, 'circle', ST_SetSRID(ST_MakePoint($2, $3), 4326), $4)
 			ON CONFLICT (tag_id) DO UPDATE SET
 				zone_type  = EXCLUDED.zone_type,
 				center     = EXCLUDED.center,
 				radius_m   = EXCLUDED.radius_m,
-				polygon    = NULL,
-				updated_at = NOW()
+				polygon    = NULL
 			RETURNING %s`, tagZoneCols),
 			tagID, lng, lat, *zone.RadiusM,
 		)

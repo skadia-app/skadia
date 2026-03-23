@@ -88,8 +88,7 @@ func (db *DB) SyncWeatherTagsToActivityTags(ctx context.Context, activityID, use
 		     FROM activity_tags at2
 		     JOIN tags t ON t.id = at2.tag_id
 		     WHERE at2.activity_id = a.id
-		 ), '{}'),
-		 updated_at = NOW()
+		 ), '{}')
 		 WHERE a.id = $1`,
 		activityID)
 	if err != nil {

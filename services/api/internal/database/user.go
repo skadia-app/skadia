@@ -60,8 +60,7 @@ func (db *DB) GetOrCreateUserByOIDCSubject(ctx context.Context, legacyOIDCSubjec
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (username) DO UPDATE
 		   SET legacy_oidc_subject = EXCLUDED.legacy_oidc_subject,
-		       email        = COALESCE(EXCLUDED.email, users.email),
-		       updated_at   = NOW()
+		       email        = COALESCE(EXCLUDED.email, users.email)
 		 RETURNING id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at`,
 		username, nilIfEmpty(email), legacyOIDCSubject,
 	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
@@ -110,8 +109,7 @@ func (db *DB) UpdateUserProfile(ctx context.Context, userID string, u *model.Use
 		    ftp_w          = COALESCE($6, ftp_w),
 		    lthr_bpm       = COALESCE($7, lthr_bpm),
 		    max_hr_bpm     = COALESCE($8, max_hr_bpm),
-		    resting_hr_bpm = COALESCE($9, resting_hr_bpm),
-		    updated_at     = NOW()
+		    resting_hr_bpm = COALESCE($9, resting_hr_bpm)
 		 WHERE id = $1`,
 		userID, birthDateForDB(u.BirthDate), u.Gender, u.HeightCm, u.WeightKg,
 		u.FtpW, u.LthrBpm, u.MaxHrBpm, u.RestingHrBpm,
