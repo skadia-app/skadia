@@ -99,59 +99,95 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
 			nec_lat, nec_lng, swc_lat, swc_lng
 		) VALUES (
+			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
 			$3, $4,
+			-- FIT Sport IDs ($5-$6)
 			$5, $6,
+			-- Time ($7-$10)
 			$7, $8, $9, $10,
+			-- Distance / Elevation ($11-$15)
 			$11, $12, $13,
 			$14, $15,
+			-- Speed ($16-$17)
 			$16, $17,
+			-- Heart Rate ($18-$19)
 			$18, $19,
+			-- Power ($20-$22)
 			$20, $21, $22,
+			-- Cadence / Temperature ($23-$24)
 			$23, $24,
+			-- TSS / TRIMP / Flags ($25-$29)
 			$25, $26, $27, $28, $29,
+			-- Start/End Location ($30-$33)
 			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
 			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
+			-- File / Source ($34-$37)
 			$34, $35,
 			$36, $37,
+			-- Parent ID ($38)
 			$38,
+			-- Visibility / Conflict ($39-$40)
 			$39,
 			$40,
+			-- FIT SDK: Workout ($41)
 			$41,
+			-- FIT SDK: Cycles/Work/Calories ($42-$46)
 			$42, $43, $44, $45, $46,
+			-- FIT SDK: Swimming ($47-$55)
 			$47, $48, $49,
 			$50, $51, $52, $53,
 			$54, $55,
+			-- FIT SDK: Fractional Cadence ($56-$58)
 			$56, $57, $58,
+			-- FIT SDK: Running Dynamics ($59-$64)
 			$59, $60, $61,
 			$62, $63, $64,
+			-- FIT SDK: Grade ($65-$69)
 			$65, $66, $67, $68, $69,
+			-- FIT SDK: Vertical Speed ($70-$74)
 			$70, $71,
 			$72, $73, $74,
+			-- FIT SDK: Altitude / Fractional ($75-$77)
 			$75, $76, $77,
+			-- FIT SDK: Pedal Torque/Smoothness ($78-$82)
 			$78, $79,
 			$80, $81,
 			$82,
+			-- FIT SDK: PCO ($83-$84)
 			$83, $84,
+			-- FIT SDK: Power Phase Left ($85-$88)
 			$85, $86,
 			$87, $88,
+			-- FIT SDK: Power Phase Right ($89-$92)
 			$89, $90,
 			$91, $92,
+			-- FIT SDK: Power/Cadence Position ($93-$96)
 			$93, $94,
 			$95, $96,
+			-- FIT SDK: Standing ($97-$98)
 			$97, $98,
+			-- FIT SDK: LEV/E-Bike ($99-$101)
 			$99, $100, $101,
+			-- FIT SDK: Grit/Flow ($102-$106)
 			$102, $103, $104, $105,
 			$106,
+			-- FIT SDK: Ball Sports ($107-$111)
 			$107, $108, $109, $110, $111,
+			-- FIT SDK: Hemoglobin ($112-$117)
 			$112, $113, $114,
 			$115, $116, $117,
+			-- FIT SDK: Diving ($118-$126)
 			$118, $119, $120, $121,
 			$122, $123, $124, $125, $126,
+			-- FIT SDK: Respiration/HRV/Core ($127-$131)
 			$127, $128, $129,
 			$130, $131,
+			-- FIT SDK: Lap Stats ($132-$135)
 			$132, $133, $134, $135,
+			-- FIT SDK: Intensity/Balance/Profile ($136-$139)
 			$136, $137, $138, $139,
+			-- Bounding Box ($140-$143)
 			$140, $141, $142, $143
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,

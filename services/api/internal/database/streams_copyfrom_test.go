@@ -9,15 +9,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// TestInsertStreams_ColumnOrder verifies that the CopyFrom column list in InsertStreams
-// exactly matches the order of values produced from StreamPoint fields.
-// This test requires a real database connection (integration test).
-//
-// To run: go test -tags integration -run TestInsertStreams_ColumnOrder ./internal/database/
-//
-// TODO: Wire up with test database. For now this test documents the expected column-value
-// mapping and will catch compile-time field name mismatches.
-func TestInsertStreams_ColumnOrder(t *testing.T) {
+// TestStreamPoint_AllFieldsPopulated verifies that all StreamPoint fields
+// can be populated with non-zero values. A real column-order test requires
+// a database connection (use //go:build integration).
+func TestStreamPoint_AllFieldsPopulated(t *testing.T) {
 	// Build a StreamPoint with unique sentinel values for every field.
 	// If any column-value pair is swapped, the read-back assertion will fail.
 	now := time.Now().Truncate(time.Microsecond)

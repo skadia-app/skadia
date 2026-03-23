@@ -102,8 +102,7 @@ func (db *DB) InsertActivitySegmentLaps(ctx context.Context, activityID string, 
 				$84, $85, $86, $87,
 				$88, $89,
 				$90, $91,
-				$92, $93, $94, $95,
-				$96, $97
+				$92, $93, $94
 			)`,
 			l.ID, activityID, l.MessageIndex, l.Timestamp, l.StartTime,
 			l.Name, l.UUID, l.Status, l.Manufacturer, l.Sport, l.SubSport,
