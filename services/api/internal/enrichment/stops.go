@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	stopFallbackConfinM   = 20.0    // max spatial spread for fallback stops
 	stopGastronomyMinDurS = 600     // 10 min for gastronomy geo-tag
 	stopPOISearchRadiusM  = 100.0   // outer SQL search radius (covers all categories)
-	degreesToMetersLat    = 111320.0 // meters per degree latitude
+	degreesToMetersLat    = geo.MetersPerDegreeLat
 )
 
 // poiStopConfig defines per-category thresholds for POI-first stop detection.

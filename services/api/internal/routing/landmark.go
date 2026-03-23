@@ -207,11 +207,9 @@ func ScaledAvgCostPerKm(landmarkAvg, profileCf, landmarkCf float32) float32 {
 // Uses standard math.Cos for build-time precision.
 // See also: equirectDist() in distance.go (float32 meters, Bhaskara approx for hot path).
 func equirectDistKm(lat1, lon1, lat2, lon2 int32) float64 {
-	const degToRad = 1.745329252e-9 // pi / (180 * 1e7)
-	const earthRKm = 6371.0
-	dlat := float64(lat2-lat1) * degToRad
-	dlon := float64(lon2-lon1) * degToRad
-	midLat := float64(lat1+lat2) / 2.0 * degToRad
+	dlat := float64(lat2-lat1) * degToRadFP
+	dlon := float64(lon2-lon1) * degToRadFP
+	midLat := float64(lat1+lat2) / 2.0 * degToRadFP
 	cosLat := math.Cos(midLat)
 	dx := dlon * cosLat
 	dy := dlat

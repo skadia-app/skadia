@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
@@ -161,8 +162,8 @@ func resampleStreamPoints(stream []EnrichmentStreamPoint, spacingM float64) []st
 // in metres between two lat/lng points. Accurate to ~0.1% for distances
 // under 100 km.
 func equirectDistMeters(lat1, lng1, lat2, lng2 float64) float64 {
-	dLat := (lat2 - lat1) * 111320.0
-	dLng := (lng2 - lng1) * math.Cos(lat1*math.Pi/180.0) * 111320.0
+	dLat := (lat2 - lat1) * geo.MetersPerDegreeLat
+	dLng := (lng2 - lng1) * math.Cos(lat1*math.Pi/180.0) * geo.MetersPerDegreeLat
 	return math.Sqrt(dLat*dLat + dLng*dLng)
 }
 

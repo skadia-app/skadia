@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -176,8 +177,8 @@ func buildSpatialGrid(stream []database.GPSStreamPoint) map[gridCell]int {
 
 	for _, p := range stream {
 		// Convert lat/lng to approximate meters from reference
-		dy := (p.Lat - refLat) * 111320.0
-		dx := (p.Lng - refLng) * 111320.0 * cosLat
+		dy := (p.Lat - refLat) * geo.MetersPerDegreeLat
+		dx := (p.Lng - refLng) * geo.MetersPerDegreeLat * cosLat
 
 		cell := gridCell{
 			x: int(math.Floor(dx / lapGridCellSizeM)),
@@ -221,8 +222,8 @@ func extractLapBoundaries(stream []database.GPSStreamPoint, hotspot gridCell) []
 	// Find all indices within hotspot neighborhood
 	var inHotspot []int
 	for i, p := range stream {
-		dy := (p.Lat - refLat) * 111320.0
-		dx := (p.Lng - refLng) * 111320.0 * cosLat
+		dy := (p.Lat - refLat) * geo.MetersPerDegreeLat
+		dx := (p.Lng - refLng) * geo.MetersPerDegreeLat * cosLat
 		cell := gridCell{
 			x: int(math.Floor(dx / lapGridCellSizeM)),
 			y: int(math.Floor(dy / lapGridCellSizeM)),
