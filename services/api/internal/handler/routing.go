@@ -341,11 +341,9 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 		south, west, north, east := routing.BBoxFromTiles(tiles)
 		osmPass, _ := routing.QueryOSMPassLandmarks(ctx, h.DB.Pool, west, south, east, north, 4)
 		osmPassC := routing.SnapOSMLandmarksToGraph(osmPass, tiles)
-		osmPeaks, _ := routing.QueryOSMPeakLandmarks(ctx, h.DB.Pool, west, south, east, north, 4)
-		osmPeakC := routing.SnapOSMLandmarksToGraph(osmPeaks, tiles)
 
 		meta, landmarkErr := routing.RunUnifiedLandmarkPreprocessing(ctx, tileDir,
-			osmPassC, osmPeakC,
+			osmPassC, nil,
 			func(step string, current, total int) {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, step)
 			})
