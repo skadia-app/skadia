@@ -344,6 +344,13 @@ export default function ActivityDetailPage() {
         <TagsBadges tags={activity.tags} activityId={activity.id} />
       </div>
 
+      {/* Description */}
+      {activity.description && (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap leading-relaxed">
+          {activity.description}
+        </p>
+      )}
+
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
 
@@ -420,7 +427,7 @@ export default function ActivityDetailPage() {
       )}
 
       {/* Erweiterte Metriken */}
-      {(activity.variability_index != null || activity.efficiency_factor != null || activity.aerobic_decoupling != null || activity.workout_rpe != null || activity.aerobic_training_effect != null) && (
+      {(activity.variability_index != null || activity.efficiency_factor != null || activity.aerobic_decoupling != null || activity.workout_rpe != null || activity.workout_feel != null || activity.aerobic_training_effect != null) && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {activity.variability_index != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
@@ -449,10 +456,23 @@ export default function ActivityDetailPage() {
               </div>
             </div>
           )}
+          {activity.workout_feel != null && (
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gefühl</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Subjektives Wohlbefinden beim Training">
+                {(['😫', '😕', '😐', '🙂', '😄'] as const)[activity.workout_feel] ?? activity.workout_feel}
+              </div>
+            </div>
+          )}
           {activity.workout_rpe != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
               <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">RPE</div>
-              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Subjektive Belastung (RPE 1-10, aus Garmin-Gerät)">
+              <div className={`text-lg font-semibold ${
+                activity.workout_rpe <= 3 ? 'text-green-600 dark:text-green-400' :
+                activity.workout_rpe <= 6 ? 'text-yellow-600 dark:text-yellow-400' :
+                activity.workout_rpe <= 8 ? 'text-orange-600 dark:text-orange-400' :
+                'text-red-600 dark:text-red-400'
+              }`} title="Subjektive Belastung (RPE 1-10, aus Garmin-Gerät)">
                 {activity.workout_rpe}/10
               </div>
             </div>
