@@ -20,6 +20,7 @@ export interface ActivityFilterState {
   isIndoor: boolean | null
   hasGPS: boolean | null
   isEbike: boolean | null
+  isVirtual: boolean | null
   gearId: string
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
@@ -34,6 +35,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   isIndoor: null,
   hasGPS: null,
   isEbike: null,
+  isVirtual: null,
   gearId: '',
   tagFilters: [],
   gearFilters: [],
@@ -52,6 +54,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.isIndoor !== null) p.set('indoor', String(f.isIndoor))
   if (f.hasGPS !== null) p.set('gps', String(f.hasGPS))
   if (f.isEbike !== null) p.set('ebike', String(f.isEbike))
+  if (f.isVirtual !== null) p.set('virtual', String(f.isVirtual))
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
   const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
@@ -82,6 +85,8 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (gps !== null) f.hasGPS = gps === 'true'
   const ebike = p.get('ebike')
   if (ebike !== null) f.isEbike = ebike === 'true'
+  const virtual_ = p.get('virtual')
+  if (virtual_ !== null) f.isVirtual = virtual_ === 'true'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
   // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
@@ -105,6 +110,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     isIndoor: f.isIndoor,
     hasGPS: f.hasGPS,
     isEbike: f.isEbike,
+    isVirtual: f.isVirtual,
     gearId: f.gearId,
     search: f.search,
     includeTags: includeTags.length ? includeTags : undefined,
@@ -171,6 +177,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.dateTo) n++
     if (f.hasGPS !== null) n++
     if (f.isEbike !== null) n++
+    if (f.isVirtual !== null) n++
     if (f.gearId) n++
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
@@ -262,6 +269,9 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   }
   if (filters.isEbike !== null) {
     chips.push({ label: filters.isEbike ? 'Nur E-Bike' : 'Ohne E-Bike', onRemove: () => onChange({ ...filters, isEbike: null }) })
+  }
+  if (filters.isVirtual !== null) {
+    chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })
   }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
@@ -409,7 +419,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
-            {/* GPS / E-Bike */}
+            {/* GPS / E-Bike / Virtuell */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">GPS</div>
@@ -446,6 +456,28 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                       onClick={() => onChange({ ...filters, isEbike: val })}
                       className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
                         filters.isEbike === val
+                          ? 'bg-accent-DEFAULT text-white font-medium'
+                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Virtuell</div>
+                <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+                  {([
+                    [null, 'Alle'],
+                    [true, 'Nur'],
+                    [false, 'Ohne'],
+                  ] as [boolean | null, string][]).map(([val, label]) => (
+                    <button
+                      key={String(val)}
+                      onClick={() => onChange({ ...filters, isVirtual: val })}
+                      className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
+                        filters.isVirtual === val
                           ? 'bg-accent-DEFAULT text-white font-medium'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
