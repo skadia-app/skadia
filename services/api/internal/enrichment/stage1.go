@@ -321,6 +321,26 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Manual activity tag: if is_manual_entry is true, ensure "manuell" tag
+	if data.IsManualEntry {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "manuell")
+
+		var manualTagID string
+		row := db.Pool.QueryRow(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+			VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', true, false, 'Manuell erstellte Aktivität')
+			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			RETURNING id
+		`, userID)
+		if err := row.Scan(&manualTagID); err == nil {
+			_ = db.LinkActivityTag(ctx, activityID, manualTagID, "auto")
+		}
+	}
+
 	if len(fields) == 0 {
 		return
 	}

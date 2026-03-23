@@ -67,6 +67,7 @@ type ActivityData struct {
 
 	IsIndoor             bool
 	IsEbike              bool
+	IsManualEntry        bool
 	SportConflictPending bool
 	HasGPS               bool
 	StartLat             float64
@@ -378,6 +379,7 @@ type Activity struct {
 	FitSportID              *int16     `json:"fit_sport_id,omitempty"`
 	FitSubSportID           *int16     `json:"fit_sub_sport_id,omitempty"`
 	IsEbike                 bool       `json:"is_ebike"`
+	IsManualEntry           bool       `json:"is_manual_entry"`
 	StartedAt               time.Time  `json:"started_at"`
 	EndedAt                 *time.Time `json:"ended_at,omitempty"`
 	ElapsedTimeS            *int       `json:"elapsed_time_s,omitempty"`
@@ -636,6 +638,8 @@ type ActivityUpdate struct {
 	LocationLat            *float64 `json:"location_lat,omitempty"`
 	LocationLng            *float64 `json:"location_lng,omitempty"`
 	ExcludeLiftSubtraction *bool    `json:"exclude_lift_subtraction,omitempty"`
+	WorkoutFeel            *int     `json:"workout_feel,omitempty"`
+	WorkoutRpe             *int     `json:"workout_rpe,omitempty"`
 }
 
 // ActivityList is the paginated list response.

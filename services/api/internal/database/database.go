@@ -149,7 +149,8 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			min_core_temperature_c, max_core_temperature_c,
 			avg_lap_time_s, best_lap_index, num_laps, first_lap_index,
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
-			nec_lat, nec_lng, swc_lat, swc_lng
+			nec_lat, nec_lng, swc_lat, swc_lng,
+			is_manual_entry, workout_feel, workout_rpe
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -238,7 +239,9 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			-- FIT SDK: Intensity/Balance/Profile ($135-$138)
 			$135, $136, $137, $138,
 			-- Bounding Box ($139-$142)
-			$139, $140, $141, $142
+			$139, $140, $141, $142,
+			-- Manual / Workout ($143-$145)
+			$143, $144, $145
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -294,6 +297,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $131-$134
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $135-$138
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $139-$142
+		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe),                       // $143-$145
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -309,6 +313,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 		StartedAt:            data.StartedAt,
 		IsEbike:              isEbike,
 		IsIndoor:             data.IsIndoor,
+		IsManualEntry:        data.IsManualEntry,
 		HasGPS:               data.HasGPS,
 		NeedsClassification:  data.SportType == "unknown",
 		OriginalFilename:     ptrString(data.OriginalName),
@@ -607,7 +612,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.avg_lap_time_s, a.best_lap_index, a.num_laps, a.first_lap_index,
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
-		COALESCE(a.sidecar_meta_key, ''), COALESCE(a.title_is_manual, false)
+		COALESCE(a.sidecar_meta_key, ''), COALESCE(a.title_is_manual, false),
+		a.is_manual_entry, a.workout_feel, a.workout_rpe
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -688,6 +694,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.IntensityFactor, &a.LeftRightBalance, &a.SportProfileName, &a.SportIndex,
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
 		&a.SidecarMetaKey, &a.TitleIsManual,
+		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -1145,6 +1152,16 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.ExcludeLiftSubtraction != nil {
 		sets = append(sets, fmt.Sprintf("exclude_lift_subtraction = $%d", argIdx))
 		args = append(args, *update.ExcludeLiftSubtraction)
+		argIdx++
+	}
+	if update.WorkoutFeel != nil {
+		sets = append(sets, fmt.Sprintf("workout_feel = $%d", argIdx))
+		args = append(args, *update.WorkoutFeel)
+		argIdx++
+	}
+	if update.WorkoutRpe != nil {
+		sets = append(sets, fmt.Sprintf("workout_rpe = $%d", argIdx))
+		args = append(args, *update.WorkoutRpe)
 		argIdx++
 	}
 
@@ -1969,6 +1986,14 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.SwcLat)
 	sets = append(sets, fmt.Sprintf("swc_lng = %s", idx()))
 	args = append(args, data.SwcLng)
+
+	// Manual entry / Workout feel & RPE
+	sets = append(sets, fmt.Sprintf("is_manual_entry = %s", idx()))
+	args = append(args, data.IsManualEntry)
+	sets = append(sets, fmt.Sprintf("workout_feel = %s", idx()))
+	args = append(args, nilIfZeroInt(data.WorkoutFeel))
+	sets = append(sets, fmt.Sprintf("workout_rpe = %s", idx()))
+	args = append(args, nilIfZeroInt(data.WorkoutRpe))
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")
