@@ -353,6 +353,25 @@ func (tc *tiledCache) flush() {
 	tc.usedBytes = 0
 }
 
+// SetCacheBudget changes the cache budget at runtime.
+// Evicts LRU tiles if the new budget is smaller than current usage.
+func (tc *tiledCache) SetCacheBudget(newBytes int64) {
+	tc.mu.Lock()
+	tc.maxBytes = newBytes
+	for tc.usedBytes > tc.maxBytes && tc.order.Len() > 1 {
+		back := tc.order.Back()
+		if back == nil {
+			break
+		}
+		evicted := back.Value.(*tiledCacheEntry)
+		tc.order.Remove(back)
+		delete(tc.items, evicted.tileID)
+		tc.usedBytes -= evicted.sizeBytes
+		tc.evictions.Add(1)
+	}
+	tc.mu.Unlock()
+}
+
 // Flush evicts all cached tiles from the TiledGraphReader.
 // Call after a tile rebuild to ensure stale tiles are not served.
 func (r *TiledGraphReader) Flush() {
@@ -369,6 +388,11 @@ func (r *TiledGraphReader) Flush() {
 func (r *TiledGraphReader) CacheStats() (hits, misses, evictions, usedBytes, budgetBytes int64) {
 	return r.cache.hits.Load(), r.cache.misses.Load(), r.cache.evictions.Load(),
 		r.cache.usedBytes, r.cache.maxBytes
+}
+
+// SetCacheBudget adjusts the tile cache budget at runtime.
+func (r *TiledGraphReader) SetCacheBudget(newBytes int64) {
+	r.cache.SetCacheBudget(newBytes)
 }
 
 func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {

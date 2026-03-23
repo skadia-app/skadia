@@ -116,6 +116,36 @@ func (m *GraphManager) Reader() GraphReader {
 	return m.tiledReader
 }
 
+// SetCacheBudget adjusts the tile cache budget at runtime.
+func (m *GraphManager) SetCacheBudget(newBytes int64) {
+	if m.tiledReader != nil {
+		m.tiledReader.SetCacheBudget(newBytes)
+	}
+}
+
+// CacheStats returns cache statistics.
+func (m *GraphManager) CacheStats() (hits, misses, evictions, usedBytes, budgetBytes int64) {
+	if m.tiledReader != nil {
+		return m.tiledReader.CacheStats()
+	}
+	return 0, 0, 0, 0, 0
+}
+
+// MaxConcurrentRoutes returns the recommended concurrent route limit based on cache budget.
+func (m *GraphManager) MaxConcurrentRoutes() int {
+	if m.tiledReader == nil {
+		return 8
+	}
+	_, _, _, _, budget := m.tiledReader.CacheStats()
+	if budget <= 1_500_000_000 {
+		return 2
+	}
+	if budget <= 3_500_000_000 {
+		return 3
+	}
+	return 4
+}
+
 // RebuildTiles builds all tiles from PostGIS data and (re-)initializes
 // tile mode. Returns an error if a rebuild is already in progress.
 func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
