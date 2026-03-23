@@ -97,6 +97,7 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 			), 0) AS daily_tss
 		 FROM activities
 		 WHERE user_id = $1 AND started_at >= $2 AND started_at < ($3::date + 1)
+		   AND NOT exclude_from_stats
 		 GROUP BY day
 		 ORDER BY day`,
 		userID, from, to,
