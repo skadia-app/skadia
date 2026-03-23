@@ -71,14 +71,23 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 ) (*routeResult, error) {
 
 	start := time.Now()
-	state := newSparseRouterState(8192)                           // C19: value-type map
-	frontier := Frontier{entries: make([]FrontierEntry, 0, 8192)} // K17: capacity hint
 
-	dstLat, dstLon, _ := reader.NodeCoord(dst)
+	// Pre-size based on euclidean distance: ~30,000 nodes per km of air distance.
+	// Eliminates ~10 rehash cycles for long routes (e.g. 2.6M expansions with 8192 hint).
+	srcLat, srcLon, _ := reader.NodeCoord(src)
+	dstLat, dstLon, dstEle := reader.NodeCoord(dst)
+	euclidKm := equirectDistKm(srcLat, srcLon, dstLat, dstLon)
+	stateHint := max(8192, int(euclidKm*30_000))
+	state := newSparseRouterState(stateHint)
+	frontier := Frontier{entries: make([]FrontierEntry, 0, 8192)} // K17: capacity hint
 
 	// Seed source node
 	state.nodes[src] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0}
 	frontier.Push(FrontierEntry{NodeID: src, Cost: 0})
+
+	// h_elev pre-computation: min(UphillCost, DownhillCost) for elevation heuristic.
+	// For 3 of 5 profiles this is 0 (no elevation heuristic, no overhead).
+	minElevCost := min(cfg.UphillCost, cfg.DownhillCost)
 
 	expansions := 0
 
@@ -143,7 +152,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		}
 
 		// Current node coordinates (once per expansion, for turn cost direction)
-		curLat, curLon, _ := reader.NodeCoord(entry.NodeID)
+		curLat, curLon, curEle := reader.NodeCoord(entry.NodeID)
 
 		reader.ForEachEdge(entry.NodeID, func(ev EdgeView) {
 			ecf := cfg.EdgeCost(ev.Tags1, ev.Tags2)
@@ -230,7 +239,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				return
 			}
 
-			// Heuristic: ALT (max of euclidean and landmark lower bound)
+			// Heuristic: max(euclidean, ALT, elevation)
 			hEuclid := equirectDist(ev.TargetLat, ev.TargetLon, dstLat, dstLon)
 			var h float32
 			if landmarkH != nil {
@@ -239,6 +248,21 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			} else {
 				h = hEuclid
 			}
+
+			// h_elev: admissible elevation-based lower bound.
+			// targetEle = curEle + DeltaEle (both in dm, DeltaEle = target - source).
+			// For profiles where min(UphillCost, DownhillCost) = 0, this is a no-op.
+			if minElevCost > 0 {
+				targetEle := curEle + ev.DeltaEle
+				elevDiffDm := targetEle - dstEle
+				if elevDiffDm < 0 {
+					elevDiffDm = -elevDiffDm
+				}
+				elevDiffM := float32(elevDiffDm) / 10.0 // dm -> m
+				hElev := max(0, elevDiffM-cfg.ElevPenaltyBuffer) * minElevCost
+				h = max(h, hElev)
+			}
+
 			fCost := newEffective + passCoeff*h
 
 			// Dominance check: only update if new effective cost is strictly better
