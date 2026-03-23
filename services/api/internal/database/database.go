@@ -1181,7 +1181,44 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 	rows, err := db.Pool.Query(ctx, `
 		SELECT time, lat, lng, altitude_m, speed_ms, distance_m,
 			heart_rate, power_w, cadence, temperature_c,
-			ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance
+			ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance,
+			-- FIT SDK — Terrain & Movement
+			respiration_rate, stress_level,
+			grade_pct, vertical_speed_ms, gps_accuracy_m,
+			calories, resistance, total_cycles, accumulated_power_w,
+			absolute_pressure_pa, ascent_rate_ms, time_from_course_s,
+			activity_type, device_index,
+			-- FIT SDK — Running Dynamics extended
+			step_length_mm, vertical_ratio_pct, stance_time_balance_pct,
+			cycle_length_m, fractional_cadence,
+			-- FIT SDK — Pedal Analytics
+			left_torque_effectiveness_pct, right_torque_effectiveness_pct,
+			left_pedal_smoothness_pct, right_pedal_smoothness_pct,
+			combined_pedal_smoothness_pct,
+			left_pco_mm, right_pco_mm,
+			-- FIT SDK — Power Phase
+			left_power_phase_start_deg, left_power_phase_end_deg,
+			left_power_phase_peak_start_deg, left_power_phase_peak_end_deg,
+			right_power_phase_start_deg, right_power_phase_end_deg,
+			right_power_phase_peak_start_deg, right_power_phase_peak_end_deg,
+			-- FIT SDK — Hemoglobin / Muscle Oxygen
+			total_hemoglobin_conc, total_hemoglobin_conc_min, total_hemoglobin_conc_max,
+			saturated_hemoglobin_pct, saturated_hemoglobin_pct_min, saturated_hemoglobin_pct_max,
+			-- FIT SDK — E-Bike
+			motor_power_w, ebike_travel_range_km, ebike_battery_level_pct,
+			ebike_assist_mode, ebike_assist_level_pct,
+			-- FIT SDK — Health / Stress
+			core_temperature_c, enhanced_respiration_rate, current_stress, battery_soc_pct,
+			-- FIT SDK — MTB Metrics
+			grit, flow,
+			-- FIT SDK — Racket / Ball Sports
+			stroke_type, zone, ball_speed_ms,
+			-- FIT SDK — Diving
+			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
+			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
+			pressure_sac, volume_sac, rmv, po2,
+			-- FIT SDK — Developer Fields
+			developer_fields
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC`,
@@ -1199,6 +1236,43 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.Time, &s.Lat, &s.Lng, &s.AltitudeM, &s.SpeedMS, &s.DistanceM,
 			&s.HeartRate, &s.PowerW, &s.Cadence, &s.TemperatureC,
 			&s.GroundContactTimeMs, &s.VerticalOscillationMm, &s.StanceTimePercent, &s.LeftRightBalance,
+			// FIT SDK — Terrain & Movement
+			&s.RespirationRate, &s.StressLevel,
+			&s.GradePct, &s.VerticalSpeedMs, &s.GpsAccuracyM,
+			&s.Calories, &s.Resistance, &s.TotalCycles, &s.AccumulatedPowerW,
+			&s.AbsolutePressurePa, &s.AscentRateMs, &s.TimeFromCourseS,
+			&s.ActivityType, &s.DeviceIndex,
+			// FIT SDK — Running Dynamics extended
+			&s.StepLengthMm, &s.VerticalRatioPct, &s.StanceTimeBalancePct,
+			&s.CycleLengthM, &s.FractionalCadence,
+			// FIT SDK — Pedal Analytics
+			&s.LeftTorqueEffectivenessPct, &s.RightTorqueEffectivenessPct,
+			&s.LeftPedalSmoothnessPct, &s.RightPedalSmoothnessPct,
+			&s.CombinedPedalSmoothnessPct,
+			&s.LeftPcoMm, &s.RightPcoMm,
+			// FIT SDK — Power Phase
+			&s.LeftPowerPhaseStartDeg, &s.LeftPowerPhaseEndDeg,
+			&s.LeftPowerPhasePeakStartDeg, &s.LeftPowerPhasePeakEndDeg,
+			&s.RightPowerPhaseStartDeg, &s.RightPowerPhaseEndDeg,
+			&s.RightPowerPhasePeakStartDeg, &s.RightPowerPhasePeakEndDeg,
+			// FIT SDK — Hemoglobin / Muscle Oxygen
+			&s.TotalHemoglobinConc, &s.TotalHemoglobinConcMin, &s.TotalHemoglobinConcMax,
+			&s.SaturatedHemoglobinPct, &s.SaturatedHemoglobinPctMin, &s.SaturatedHemoglobinPctMax,
+			// FIT SDK — E-Bike
+			&s.MotorPowerW, &s.EbikeTravelRangeKm, &s.EbikeBatteryLevelPct,
+			&s.EbikeAssistMode, &s.EbikeAssistLevelPct,
+			// FIT SDK — Health / Stress
+			&s.CoreTemperatureC, &s.EnhancedRespirationRate, &s.CurrentStress, &s.BatterySocPct,
+			// FIT SDK — MTB Metrics
+			&s.Grit, &s.Flow,
+			// FIT SDK — Racket / Ball Sports
+			&s.StrokeType, &s.Zone, &s.BallSpeedMs,
+			// FIT SDK — Diving
+			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
+			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
+			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// FIT SDK — Developer Fields
+			&s.DeveloperFields,
 		); err != nil {
 			return nil, fmt.Errorf("scan stream: %w", err)
 		}
