@@ -30,3 +30,21 @@ func (h *Handler) requireActivity(w http.ResponseWriter, r *http.Request, userID
 	}
 	return activity, activityID, true
 }
+
+// startResetJob creates a background job and starts it in a goroutine.
+// Writes 202 Accepted with job_id on success.
+func (h *Handler) startResetJob(
+	w http.ResponseWriter, r *http.Request,
+	userID, activityID string, activityName *string, jobType string,
+	progressTotal int64,
+	runFn func(jobID, activityID, userID string),
+) {
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, jobType, &activityID, activityName, progressTotal)
+	if err != nil {
+		slog.Error("insert background job failed", "type", jobType, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
+		return
+	}
+	go runFn(jobID, activityID, userID)
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "started"})
+}

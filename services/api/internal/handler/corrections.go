@@ -115,31 +115,11 @@ func (h *Handler) ResetActivityDistance(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	activity, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
-
-	activityName := activity.Title
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "distance_reset", &activityID, activityName, 1)
-	if err != nil {
-		slog.Error("reset-distance: failed to insert background job", "activity_id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create background job", r.URL.Path)
-		return
-	}
-
-	go h.runDistanceResetJob(jobID, activityID, userID)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
-		"job_id": jobID,
-		"status": "started",
-	})
+	h.startResetJob(w, r, userID, activityID, activity.Title, "distance_reset", 1, h.runDistanceResetJob)
 }
 
 func (h *Handler) runDistanceResetJob(jobID, activityID, userID string) {
