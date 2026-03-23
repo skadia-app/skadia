@@ -127,10 +127,7 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 				$107, $108,
 				$109, $110, $111,
 				$112, $113, $114,
-				$115, $116,
-				$117, $118,
-				$119, $120,
-				$121, $122, $123, $124
+				$115, $116
 			)`,
 			l.ID, activityID, l.MessageIndex, nilIfZeroTime(l.StartTime), nilIfZeroTime(l.EndTime),
 			nilIfEmpty(l.LapTrigger), nilIfEmpty(l.Sport), nilIfEmpty(l.SubSport),

@@ -5,7 +5,6 @@ interface Props {
   laps: Lap[]
   sportType: string
 }
-}
 
 function fmtPace(speedMs?: number): string {
   if (speedMs == null || speedMs <= 0) return '--'
