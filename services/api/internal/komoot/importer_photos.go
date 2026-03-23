@@ -1,18 +1,15 @@
 package komoot
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/bep/imagemeta"
 
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importutil"
 )
 
 // PhotosImporter imports photos from tour cover_images (own photos uploaded directly to a tour).
@@ -83,9 +80,7 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			contentType := komootPhotoContentType(data, imageURL)
 
 			// EXIF: extract taken_at and GPS coords
-			var takenAt *time.Time
-			var lat, lng *float64
-			takenAt, lat, lng = extractKomootEXIF(data, contentType)
+			takenAt, lat, lng := importutil.ExtractEXIF(data, contentType)
 
 			// Fallback GPS from cover_image location field
 			var locationSource string
@@ -166,52 +161,3 @@ func komootPhotoContentType(data []byte, imageURL string) string {
 	return ct
 }
 
-// komootImageFormatFromContentType maps a MIME type to the imagemeta.ImageFormat for EXIF decoding.
-func komootImageFormatFromContentType(ct string) imagemeta.ImageFormat {
-	switch {
-	case strings.Contains(ct, "jpeg"), strings.Contains(ct, "jpg"):
-		return imagemeta.JPEG
-	case strings.Contains(ct, "png"):
-		return imagemeta.PNG
-	case strings.Contains(ct, "tiff"):
-		return imagemeta.TIFF
-	case strings.Contains(ct, "webp"):
-		return imagemeta.WebP
-	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
-		return imagemeta.HEIF
-	case strings.Contains(ct, "avif"):
-		return imagemeta.AVIF
-	default:
-		return imagemeta.JPEG
-	}
-}
-
-// extractKomootEXIF reads taken_at, lat, lng from image EXIF data.
-// Reuses the imagemeta library consistent with the Strava importer.
-func extractKomootEXIF(data []byte, contentType string) (takenAt *time.Time, lat *float64, lng *float64) {
-	var tags imagemeta.Tags
-	_, err := imagemeta.Decode(imagemeta.Options{
-		R:           bytes.NewReader(data),
-		ImageFormat: komootImageFormatFromContentType(contentType),
-		Sources:     imagemeta.EXIF,
-		HandleTag: func(info imagemeta.TagInfo) error {
-			tags.Add(info)
-			return nil
-		},
-	})
-	if err != nil {
-		return nil, nil, nil
-	}
-
-	var t *time.Time
-	if tm, err := tags.GetDateTime(); err == nil && !tm.IsZero() {
-		t = &tm
-	}
-
-	if la, lo, err := tags.GetLatLong(); err == nil && (la != 0 || lo != 0) {
-		lat = &la
-		lng = &lo
-	}
-
-	return t, lat, lng
-}

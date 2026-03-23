@@ -8,13 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/strava"
 )
@@ -43,12 +43,8 @@ func (h *Handler) DetectStravaModules(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if req.SourcePath == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
-		return
-	}
-	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
+	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -79,12 +75,8 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if req.SourcePath == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_path is required", r.URL.Path)
-		return
-	}
-	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
+	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -249,12 +241,12 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SourcePath string `json:"source_path"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourcePath == "" {
-		writeError(w, http.StatusBadRequest, "Bad Request", "source_path required", r.URL.Path)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if !strings.HasPrefix(filepath.Clean(req.SourcePath), os.TempDir()) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "invalid source path", r.URL.Path)
+	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 
