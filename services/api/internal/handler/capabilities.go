@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -37,8 +36,5 @@ func (h *Handler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 		"dem_correction", caps.DEMCorrection,
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(caps); err != nil {
-		slog.Error("failed to encode capabilities response", "error", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, caps)
 }
