@@ -23,7 +23,7 @@ func SimplifyDouglasPeucker(ls orb.LineString, thresholdMeters float64) orb.Line
 		return ls
 	}
 	centerLat := centerLatitude(ls)
-	thresholdDeg := thresholdMeters / 111320.0
+	thresholdDeg := thresholdMeters / MetersPerDegreeLat
 	cosLat := math.Cos(centerLat * math.Pi / 180.0)
 	if cosLat > 0.01 {
 		thresholdDeg = thresholdDeg / math.Sqrt(cosLat)

@@ -9,6 +9,9 @@ import (
 
 const earthRadiusPi = orb.EarthRadius * math.Pi
 
+// MetersPerDegreeLat is the approximate number of meters per degree of latitude.
+const MetersPerDegreeLat = 111320.0
+
 // DistanceHaversine returns the great-circle distance in meters between two
 // WGS84 coordinates using the Haversine formula.
 func DistanceHaversine(lat1, lng1, lat2, lng2 float64) float64 {

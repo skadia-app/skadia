@@ -13,18 +13,23 @@ import "math"
 // equirectDist calculates equirectangular approximation distance in meters.
 // Input coordinates are fixed-point int32 (value * 1e7).
 // Accuracy: <0.3% error at DACH latitudes (46-55°N).
-func equirectDist(lat1, lon1, lat2, lon2 int32) float32 {
-	const degToRad = 1.745329252e-9 // pi / (180 * 1e7)
-	const earthR = 6_371_000.0
 
-	dlat := float32(lat2-lat1) * degToRad
-	dlon := float32(lon2-lon1) * degToRad
-	midLat := float32(lat1+lat2) / 2.0 * degToRad
+// Shared routing constants — used by distance.go and landmark.go.
+const (
+	degToRadFP = 1.745329252e-9 // pi / (180 * 1e7), for int32 fixed-point coords
+	earthRM    = 6_371_000.0    // Earth radius in meters
+	earthRKm   = 6371.0         // Earth radius in kilometers
+)
+
+func equirectDist(lat1, lon1, lat2, lon2 int32) float32 {
+	dlat := float32(lat2-lat1) * degToRadFP
+	dlon := float32(lon2-lon1) * degToRadFP
+	midLat := float32(lat1+lat2) / 2.0 * degToRadFP
 	cosLat := cosApprox(midLat)
 
 	dx := dlon * cosLat
 	dy := dlat
-	return earthR * float32(math.Sqrt(float64(dx*dx+dy*dy)))
+	return earthRM * float32(math.Sqrt(float64(dx*dx+dy*dy)))
 }
 
 // cosApprox computes cos(x) using Bhaskara I's approximation.
