@@ -2,7 +2,6 @@ package handler
 
 import (
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -28,13 +26,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Verify ownership.
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("upload route photo: get route failed", "id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID) {
 		return
 	}
 
@@ -178,13 +170,7 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Verify route ownership.
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete route photo: get route failed", "id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID) {
 		return
 	}
 
@@ -222,13 +208,7 @@ func (h *Handler) ReorderRoutePhotos(w http.ResponseWriter, r *http.Request) {
 
 	// Verify route ownership.
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("reorder route photos: get route failed", "id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID) {
 		return
 	}
 

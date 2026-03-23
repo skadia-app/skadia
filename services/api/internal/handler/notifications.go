@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -60,13 +58,7 @@ func (h *Handler) MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
 	}
 	notifID := chi.URLParam(r, "id")
 
-	if err := h.DB.MarkRead(r.Context(), notifID, userID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "notification not found", r.URL.Path)
-			return
-		}
-		slog.Error("mark notification read failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to mark notification as read", r.URL.Path)
+	if err := h.DB.MarkRead(r.Context(), notifID, userID); httputil.HandleDBErr(w, r, err, "notification not found") {
 		return
 	}
 
@@ -101,13 +93,7 @@ func (h *Handler) DeleteNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	notifID := chi.URLParam(r, "id")
 
-	if err := h.DB.DeleteNotification(r.Context(), notifID, userID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "notification not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete notification failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete notification", r.URL.Path)
+	if err := h.DB.DeleteNotification(r.Context(), notifID, userID); httputil.HandleDBErr(w, r, err, "notification not found") {
 		return
 	}
 

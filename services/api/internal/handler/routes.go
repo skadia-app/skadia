@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -21,18 +18,7 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	offset := 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
-			limit = parsed
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
+	limit, offset := httputil.ParsePagination(r, 50, 200)
 
 	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset)
 	if err != nil {
@@ -98,13 +84,7 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 
 	// GetRoute already enforces ownership via WHERE user_id = $2
 	route, err := h.DB.GetRoute(r.Context(), id, userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("get route failed", "error", err, "id", id, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", id, "user_id", userID) {
 		return
 	}
 
@@ -134,13 +114,7 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	route.UserID = userID
 
 	// UpdateRoute enforces ownership via WHERE id = $1 AND user_id = $2
-	if err := h.DB.UpdateRoute(r.Context(), &route); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("update route failed", "error", err, "id", id, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update route", r.URL.Path)
+	if err := h.DB.UpdateRoute(r.Context(), &route); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
 		return
 	}
 
@@ -162,13 +136,7 @@ func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// DeleteRoute enforces ownership via WHERE id = $1 AND user_id = $2
-	if err := h.DB.DeleteRoute(r.Context(), id, userID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete route failed", "error", err, "id", id, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete route", r.URL.Path)
+	if err := h.DB.DeleteRoute(r.Context(), id, userID); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
 		return
 	}
 
@@ -191,13 +159,7 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 
 	// DuplicateRoute enforces ownership via WHERE id = $1 AND user_id = $2
 	newID, err := h.DB.DuplicateRoute(r.Context(), id, userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("duplicate route failed", "error", err, "id", id, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to duplicate route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", id, "user_id", userID) {
 		return
 	}
 

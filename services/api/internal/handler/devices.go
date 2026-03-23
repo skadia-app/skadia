@@ -1,12 +1,10 @@
 package handler
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -86,13 +84,7 @@ func (h *Handler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	deviceID := chi.URLParam(r, "id")
 
-	if err := h.DB.DeleteDevice(r.Context(), deviceID, userID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "device not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete device failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete device", r.URL.Path)
+	if err := h.DB.DeleteDevice(r.Context(), deviceID, userID); httputil.HandleDBErr(w, r, err, "device not found") {
 		return
 	}
 

@@ -373,10 +373,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 
 	// Concurrent-Guard: nur ein Enrichment gleichzeitig
-	var running int
-	h.DB.Pool.QueryRow(r.Context(),
-		`SELECT count(*) FROM background_jobs WHERE job_type = 'osm_enrichment' AND status = 'running'`).Scan(&running)
-	if running > 0 {
+	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "osm_enrichment"); running {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}

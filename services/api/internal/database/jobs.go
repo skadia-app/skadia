@@ -248,6 +248,15 @@ func (db *DB) HasRunningJob(ctx context.Context, userID, jobType string) (bool, 
 	return exists, err
 }
 
+// HasRunningJobGlobal checks if any job of the given type is running (not user-scoped).
+func (db *DB) HasRunningJobGlobal(ctx context.Context, jobType string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM background_jobs WHERE job_type = $1 AND status = 'running')",
+		jobType).Scan(&exists)
+	return exists, err
+}
+
 // CountPendingEnrichments zählt Aktivitäten mit enrichment_status='pending' für einen User.
 func (db *DB) CountPendingEnrichments(ctx context.Context, userID string) (int, error) {
 	var count int
