@@ -60,6 +60,12 @@ type Graph struct {
 	// Pending landmark data for serialization (not kept after Serialize)
 	pendingLandmarkSections map[uint16][]float32
 
+	// Heap-cached landmark distances (lazily loaded on first access per set).
+	// Eliminates pread64 syscalls in the A* hot path.
+	// Each set: NodeCount * LandmarksPerSet float32 values.
+	heapLandmarkOnce [NumLandmarkSets]sync.Once
+	heapLandmarkData [NumLandmarkSets][]float32
+
 	// Reverse adjacency (lazy-built on first ForEachInEdge, not serialized).
 	// RevOffsets[i] = start index in RevTargets for incoming edges of node i.
 	// RevTargets[j] = source node of the j-th reverse edge.
