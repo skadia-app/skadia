@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -11,6 +10,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHRVCorrelation } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -54,8 +54,6 @@ function interpretLabel(interpretation: string): string {
 export default function HRVCorrelationChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [preset, setPreset] = useState<TimePreset>('90d')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const { from, to } = useMemo(() => getDateRange(preset), [preset])
 
@@ -74,85 +72,70 @@ export default function HRVCorrelationChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (!data || !data.points || data.points.length === 0) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
+      const scatterData = data.points.map(p => [p.daily_tss, p.rmssd])
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
-
-  useEffect(() => {
-    if (!chartRef.current || !data || !data.points || data.points.length === 0) return
-
-    const scatterData = data.points.map(p => [p.daily_tss, p.rmssd])
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 60, right: 20, top: 20, bottom: 50 },
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const p = params as { value: [number, number]; dataIndex: number }
-          if (!p.value) return ''
-          const date = data.points[p.dataIndex]?.date ?? ''
-          return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${date}</div>
-            <div>TSS: <strong style="color:#f9fafb">${p.value[0].toFixed(0)}</strong></div>
-            <div>RMSSD: <strong style="color:#f9fafb">${p.value[1].toFixed(1)} ms</strong></div>`
-        },
-      },
-      xAxis: {
-        type: 'value',
-        name: 'TSS (Vortag)',
-        nameLocation: 'center',
-        nameGap: 30,
-        nameTextStyle: { fontSize: 11, color: '#6b7280' },
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'RMSSD (ms)',
-        nameLocation: 'center',
-        nameGap: 42,
-        nameTextStyle: { fontSize: 11, color: '#6b7280' },
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      series: [
-        {
-          type: 'scatter',
-          data: scatterData,
-          symbolSize: 8,
-          itemStyle: {
-            color: '#6366f1',
-            opacity: 0.7,
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 60, right: 20, top: 20, bottom: 50 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const p = params as { value: [number, number]; dataIndex: number }
+            if (!p.value) return ''
+            const date = data.points[p.dataIndex]?.date ?? ''
+            return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${date}</div>
+              <div>TSS: <strong style="color:#f9fafb">${p.value[0].toFixed(0)}</strong></div>
+              <div>RMSSD: <strong style="color:#f9fafb">${p.value[1].toFixed(1)} ms</strong></div>`
           },
-          emphasis: {
+        },
+        xAxis: {
+          type: 'value',
+          name: 'TSS (Vortag)',
+          nameLocation: 'center',
+          nameGap: 30,
+          nameTextStyle: { fontSize: 11, color: '#6b7280' },
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'RMSSD (ms)',
+          nameLocation: 'center',
+          nameGap: 42,
+          nameTextStyle: { fontSize: 11, color: '#6b7280' },
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        series: [
+          {
+            type: 'scatter',
+            data: scatterData,
+            symbolSize: 8,
             itemStyle: {
-              opacity: 1,
-              borderColor: '#6366f1',
-              borderWidth: 2,
+              color: '#6366f1',
+              opacity: 0.7,
+            },
+            emphasis: {
+              itemStyle: {
+                opacity: 1,
+                borderColor: '#6366f1',
+                borderWidth: 2,
+              },
             },
           },
-        },
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        ],
+      }
+    },
+    [data],
+  )
 
   const corrColor = data
     ? Math.abs(data.correlation) >= 0.4

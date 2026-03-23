@@ -1,7 +1,5 @@
-import { useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -12,6 +10,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { getPowerCurve } from '@/api/activities'
 import type { PDCParams } from '@/api/activities'
 import type { PowerCurvePoint } from '@/api/types'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -49,9 +48,6 @@ function formatDuration(s: number): string {
 }
 
 export default function PowerDurationCurve() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const query0 = useQuery({
     queryKey: ['power-curve', DEFAULT_CURVES[0].label, DEFAULT_CURVES[0].params],
     queryFn: () => getPowerCurve(DEFAULT_CURVES[0].params),
@@ -72,98 +68,80 @@ export default function PowerDurationCurve() {
   const isLoading = queries.some(q => q.isLoading)
   const hasData = queries.some(q => (q.data?.points?.length ?? 0) > 0)
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const obs = new ResizeObserver(() => chart.resize())
-    obs.observe(containerRef.current)
-    return () => {
-      obs.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [hasData])
+  const containerRef = useECharts(
+    () => {
+      if (!hasData) return { series: [] }
 
-  useEffect(() => {
-    if (!chartRef.current || !hasData) return
+      const series = DEFAULT_CURVES.map((curve, i) => {
+        const points = queries[i].data?.points
+        if (!points?.length) return null
+        return {
+          name: curve.label,
+          type: 'line' as const,
+          smooth: true,
+          symbol: 'none',
+          data: points.map((p: PowerCurvePoint) => [p.duration_s, p.power_w]),
+          lineStyle: { color: curve.color, width: 2 },
+          itemStyle: { color: curve.color },
+        }
+      }).filter(Boolean)
 
-    const series = DEFAULT_CURVES.map((curve, i) => {
-      const points = queries[i].data?.points
-      if (!points?.length) return null
       return {
-        name: curve.label,
-        type: 'line' as const,
-        smooth: true,
-        symbol: 'none',
-        data: points.map((p: PowerCurvePoint) => [p.duration_s, p.power_w]),
-        lineStyle: { color: curve.color, width: 2 },
-        itemStyle: { color: curve.color },
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 36, bottom: 40 },
+        legend: {
+          top: 4,
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemWidth: 16,
+          itemHeight: 3,
+        },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            const dur = items[0].value[0]
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${formatDuration(dur)}</div>`
+            for (const p of items) {
+              html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span style="display:inline-block;width:10px;height:2px;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${Math.round(p.value[1])} W</strong>
+              </div>`
+            }
+            return html
+          },
+        },
+        xAxis: {
+          type: 'log',
+          min: 1,
+          max: 3600,
+          name: 'Dauer',
+          nameTextStyle: { fontSize: 10, color: '#6b7280' },
+          nameLocation: 'end',
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            formatter: (value: number) => DURATION_LABELS[value] ?? '',
+          },
+          axisLine: { lineStyle: { color: '#374151' } },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Watt',
+          nameTextStyle: { fontSize: 10, color: '#6b7280' },
+          axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => `${v}W` },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        series,
       }
-    }).filter(Boolean)
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 36, bottom: 40 },
-      legend: {
-        top: 4,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemWidth: 16,
-        itemHeight: 3,
-      },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          const dur = items[0].value[0]
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${formatDuration(dur)}</div>`
-          for (const p of items) {
-            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-              <span style="display:inline-block;width:10px;height:2px;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${Math.round(p.value[1])} W</strong>
-            </div>`
-          }
-          return html
-        },
-      },
-      xAxis: {
-        type: 'log',
-        min: 1,
-        max: 3600,
-        name: 'Dauer',
-        nameTextStyle: { fontSize: 10, color: '#6b7280' },
-        nameLocation: 'end',
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (value: number) => DURATION_LABELS[value] ?? '',
-        },
-        axisLine: { lineStyle: { color: '#374151' } },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Watt',
-        nameTextStyle: { fontSize: 10, color: '#6b7280' },
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => `${v}W`,
-        },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      series,
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query0.data, query1.data, query2.data, hasData])
+    },
+    [query0.data, query1.data, query2.data, hasData], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   return (
     <div className="space-y-3">

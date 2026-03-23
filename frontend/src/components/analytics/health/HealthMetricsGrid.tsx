@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthMetrics } from '@/api/analytics'
 import type { HealthMetric } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -17,13 +17,8 @@ interface MiniChartProps {
 }
 
 function MiniChart({ points, color }: MiniChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || points.length === 0) return
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-
-    const option: EChartsCoreOption = {
+  const containerRef = useECharts(
+    () => ({
       backgroundColor: 'transparent',
       grid: { left: 0, right: 0, top: 2, bottom: 2 },
       xAxis: { type: 'category', show: false, data: points.map(p => p.date) },
@@ -40,18 +35,9 @@ function MiniChart({ points, color }: MiniChartProps) {
           smooth: 0.3,
         },
       ],
-    }
-
-    chart.setOption(option)
-
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current!)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-    }
-  }, [points, color])
+    }),
+    [points, color],
+  )
 
   if (points.length === 0) return null
 

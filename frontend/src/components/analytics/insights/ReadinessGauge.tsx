@@ -1,12 +1,11 @@
-import { useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { GaugeChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchInsightsReadiness } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([GaugeChart, TooltipComponent, CanvasRenderer])
 
@@ -40,9 +39,6 @@ function levelLabel(level: string): string {
 
 export default function ReadinessGauge() {
   const { toQueryString } = useAnalyticsFilters()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const queryParams = toQueryString()
 
   const { data, isLoading, isError } = useQuery({
@@ -58,73 +54,61 @@ export default function ReadinessGauge() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
-
-  useEffect(() => {
-    if (!chartRef.current || !data) return
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      series: [
-        {
-          type: 'gauge',
-          startAngle: 200,
-          endAngle: -20,
-          min: 0,
-          max: 100,
-          splitNumber: 4,
-          axisLine: {
-            lineStyle: {
-              width: 20,
-              color: [
-                [0.4, '#ef4444'],
-                [0.7, '#f59e0b'],
-                [1, '#10b981'],
-              ],
+  const containerRef = useECharts(
+    () => {
+      if (!data) return { series: [] }
+      return {
+        backgroundColor: 'transparent',
+        series: [
+          {
+            type: 'gauge',
+            startAngle: 200,
+            endAngle: -20,
+            min: 0,
+            max: 100,
+            splitNumber: 4,
+            axisLine: {
+              lineStyle: {
+                width: 20,
+                color: [
+                  [0.4, '#ef4444'],
+                  [0.7, '#f59e0b'],
+                  [1, '#10b981'],
+                ],
+              },
             },
+            pointer: {
+              itemStyle: { color: 'auto' },
+              length: '55%',
+              width: 4,
+            },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: {
+              fontSize: 10,
+              color: '#9ca3af',
+              distance: -30,
+            },
+            detail: {
+              valueAnimation: true,
+              fontSize: 28,
+              fontWeight: 'bold',
+              color: 'auto',
+              formatter: '{value}',
+              offsetCenter: [0, '30%'],
+            },
+            title: {
+              fontSize: 12,
+              color: '#6b7280',
+              offsetCenter: [0, '52%'],
+            },
+            data: [{ value: data.score, name: levelLabel(data.level) }],
           },
-          pointer: {
-            itemStyle: { color: 'auto' },
-            length: '55%',
-            width: 4,
-          },
-          axisTick: { show: false },
-          splitLine: { show: false },
-          axisLabel: {
-            fontSize: 10,
-            color: '#9ca3af',
-            distance: -30,
-          },
-          detail: {
-            valueAnimation: true,
-            fontSize: 28,
-            fontWeight: 'bold',
-            color: 'auto',
-            formatter: '{value}',
-            offsetCenter: [0, '30%'],
-          },
-          title: {
-            fontSize: 12,
-            color: '#6b7280',
-            offsetCenter: [0, '52%'],
-          },
-          data: [{ value: data.score, name: levelLabel(data.level) }],
-        },
-      ],
-    }
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        ],
+      }
+    },
+    [data],
+  )
 
   if (isLoading) {
     return (

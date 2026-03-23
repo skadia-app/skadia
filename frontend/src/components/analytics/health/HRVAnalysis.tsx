@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -16,6 +15,7 @@ import { fetchHRVAnalysis } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([
   LineChart,
@@ -59,8 +59,6 @@ export default function HRVAnalysisChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [preset, setPreset] = useState<TimePreset>('90d')
   const changepoints = useChangepoints('hrv_rmssd', 180)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const { from, to } = useMemo(() => getDateRange(preset), [preset])
 
@@ -79,183 +77,149 @@ export default function HRVAnalysisChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (!data) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
+      const points = data.points ?? []
+      if (points.length === 0) return { series: [] }
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+      const dates = points.map(p => p.date)
+      const rmssdValues = points.map(p => p.rmssd)
+      const mean = data.baseline_mean
+      const std = data.baseline_std
 
-  useEffect(() => {
-    if (!chartRef.current || !data) return
+      const upperBand = dates.map(() => mean + std)
+      const lowerBand = dates.map(() => mean - std)
 
-    const points = data.points ?? []
-    if (points.length === 0) {
-      chartRef.current.setOption({ series: [] }, { notMerge: true })
-      return
-    }
+      const anomalyDates = new Set(data.anomalies ?? [])
+      const markPointData = points
+        .filter(p => anomalyDates.has(p.date) && p.rmssd != null)
+        .map(p => ({
+          name: 'Anomalie',
+          coord: [p.date, p.rmssd],
+          symbol: 'pin',
+          symbolSize: 24,
+          label: { show: false },
+          itemStyle: { color: '#f97316' },
+        }))
 
-    const dates = points.map(p => p.date)
-    const rmssdValues = points.map(p => p.rmssd)
-    const mean = data.baseline_mean
-    const std = data.baseline_std
-
-    // Baseline band: two constant series for upper/lower
-    const upperBand = dates.map(() => mean + std)
-    const lowerBand = dates.map(() => mean - std)
-
-    // Anomaly markPoints: find indices where date matches anomaly dates
-    const anomalyDates = new Set(data.anomalies ?? [])
-    const markPointData = points
-      .filter(p => anomalyDates.has(p.date) && p.rmssd != null)
-      .map(p => ({
-        name: 'Anomalie',
-        coord: [p.date, p.rmssd],
-        symbol: 'pin',
-        symbolSize: 24,
-        label: { show: false },
-        itemStyle: { color: '#f97316' },
-      }))
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 44, bottom: 40 },
-      legend: {
-        data: ['RMSSD', 'Baseline ±1 SD'],
-        top: 8,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemHeight: 8,
-        itemWidth: 14,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{
-            seriesName: string
-            value: number | null
-            axisValueLabel: string
-            color: string
-            seriesType: string
-          }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          for (const p of items) {
-            if (p.seriesName === 'Baseline ±1 SD' || p.value == null) continue
-            html += `<div style="display:flex;align-items:center;gap:6px">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${p.value.toFixed(1)} ms</strong>
-            </div>`
-          }
-          return html
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 44, bottom: 40 },
+        legend: {
+          data: ['RMSSD', 'Baseline ±1 SD'],
+          top: 8,
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemHeight: 8,
+          itemWidth: 14,
         },
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => `${v}ms`,
-        },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
-      series: [
-        // Upper baseline band (invisible, just acts as top boundary)
-        {
-          name: 'Baseline ±1 SD',
-          type: 'line',
-          data: upperBand,
-          showSymbol: false,
-          lineStyle: { opacity: 0 },
-          areaStyle: {
-            color: 'rgba(156,163,175,0.0)',
-            origin: 'auto',
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' },
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{
+              seriesName: string
+              value: number | null
+              axisValueLabel: string
+              color: string
+              seriesType: string
+            }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            for (const p of items) {
+              if (p.seriesName === 'Baseline ±1 SD' || p.value == null) continue
+              html += `<div style="display:flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${p.value.toFixed(1)} ms</strong>
+              </div>`
+            }
+            return html
           },
-          stack: 'baseline-band',
-          z: 0,
         },
-        // Lower band: fills between lower and upper
-        {
-          name: '_baseline-lower',
-          type: 'line',
-          data: lowerBand,
-          showSymbol: false,
-          lineStyle: { opacity: 0 },
-          areaStyle: {
-            color: 'rgba(156,163,175,0.2)',
-            origin: 'auto',
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            formatter: (v: number) => `${v}ms`,
           },
-          stack: 'baseline-band',
-          z: 0,
-          tooltip: { show: false },
-          legendHoverLink: false,
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
         },
-        // RMSSD scatter points
-        {
-          name: 'RMSSD',
-          type: 'scatter',
-          data: rmssdValues,
-          symbolSize: 5,
-          itemStyle: { color: '#6366f1' },
-          z: 3,
-          markPoint: {
-            data: markPointData,
-            z: 5,
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+        series: [
+          {
+            name: 'Baseline ±1 SD',
+            type: 'line',
+            data: upperBand,
+            showSymbol: false,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: 'rgba(156,163,175,0.0)', origin: 'auto' },
+            stack: 'baseline-band',
+            z: 0,
           },
-          markLine: changepoints.length > 0 ? {
-            silent: true,
-            data: changepointsToMarkLines(changepoints),
-          } : undefined,
-        },
-        // RMSSD trend line (same data, no symbol)
-        {
-          name: '_rmssd-line',
-          type: 'line',
-          data: rmssdValues,
-          showSymbol: false,
-          lineStyle: { width: 1.5, color: '#6366f1', opacity: 0.5 },
-          itemStyle: { color: '#6366f1' },
-          z: 2,
-          tooltip: { show: false },
-          legendHoverLink: false,
-        },
-        // Baseline mean line
-        {
-          name: '_baseline-mean',
-          type: 'line',
-          data: dates.map(() => mean),
-          showSymbol: false,
-          lineStyle: { width: 1, color: '#9ca3af', type: 'dashed' },
-          z: 1,
-          tooltip: { show: false },
-          legendHoverLink: false,
-        },
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+          {
+            name: '_baseline-lower',
+            type: 'line',
+            data: lowerBand,
+            showSymbol: false,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: 'rgba(156,163,175,0.2)', origin: 'auto' },
+            stack: 'baseline-band',
+            z: 0,
+            tooltip: { show: false },
+            legendHoverLink: false,
+          },
+          {
+            name: 'RMSSD',
+            type: 'scatter',
+            data: rmssdValues,
+            symbolSize: 5,
+            itemStyle: { color: '#6366f1' },
+            z: 3,
+            markPoint: { data: markPointData, z: 5 },
+            markLine: changepoints.length > 0 ? {
+              silent: true,
+              data: changepointsToMarkLines(changepoints),
+            } : undefined,
+          },
+          {
+            name: '_rmssd-line',
+            type: 'line',
+            data: rmssdValues,
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#6366f1', opacity: 0.5 },
+            itemStyle: { color: '#6366f1' },
+            z: 2,
+            tooltip: { show: false },
+            legendHoverLink: false,
+          },
+          {
+            name: '_baseline-mean',
+            type: 'line',
+            data: dates.map(() => mean),
+            showSymbol: false,
+            lineStyle: { width: 1, color: '#9ca3af', type: 'dashed' },
+            z: 1,
+            tooltip: { show: false },
+            legendHoverLink: false,
+          },
+        ],
+      }
+    },
+    [data, changepoints],
+  )
 
   const anomalyCount = data?.anomalies?.length ?? 0
 

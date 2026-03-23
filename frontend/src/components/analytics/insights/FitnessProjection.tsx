@@ -1,7 +1,5 @@
-import { useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -12,6 +10,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchInsightsProjection } from '@/api/analytics'
 import type { Projection } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -83,9 +82,6 @@ function ProjectionCard({ projection }: { projection: Projection }) {
 export default function FitnessProjection() {
   const { toQueryString } = useAnalyticsFilters()
   const queryParams = toQueryString()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'insights', 'projection', queryParams],
     queryFn: async () => {
@@ -99,76 +95,63 @@ export default function FitnessProjection() {
     retry: 1,
   })
 
-  // Build a simple bar chart showing current vs target for each projection
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+  const containerRef = useECharts(
+    () => {
+      if (!data || !Array.isArray(data) || data.length === 0) return { series: [] }
 
-  useEffect(() => {
-    if (!chartRef.current || !data || !Array.isArray(data) || data.length === 0) return
+      const labels = data.map(p => metricLabel(p.metric))
+      const current = data.map(p => p.current)
+      const target = data.map(p => p.target)
 
-    const labels = data.map(p => metricLabel(p.metric))
-    const current = data.map(p => p.current)
-    const target = data.map(p => p.target)
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 80, right: 20, top: 36, bottom: 30 },
-      legend: {
-        data: ['Aktuell', 'Ziel'],
-        top: 4,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemHeight: 8,
-        itemWidth: 12,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-      },
-      xAxis: {
-        type: 'value',
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      yAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { fontSize: 10, color: '#9ca3af' },
-        splitLine: { show: false },
-      },
-      series: [
-        {
-          name: 'Aktuell',
-          type: 'bar',
-          data: current,
-          itemStyle: { color: '#3b82f6', borderRadius: [0, 3, 3, 0] },
-          barMaxWidth: 20,
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 80, right: 20, top: 36, bottom: 30 },
+        legend: {
+          data: ['Aktuell', 'Ziel'],
+          top: 4,
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemHeight: 8,
+          itemWidth: 12,
         },
-        {
-          name: 'Ziel',
-          type: 'bar',
-          data: target,
-          itemStyle: { color: '#1f2937', borderRadius: [0, 3, 3, 0] },
-          barMaxWidth: 20,
-          barGap: '10%',
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
         },
-      ],
-    }
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        xAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        yAxis: {
+          type: 'category',
+          data: labels,
+          axisLabel: { fontSize: 10, color: '#9ca3af' },
+          splitLine: { show: false },
+        },
+        series: [
+          {
+            name: 'Aktuell',
+            type: 'bar',
+            data: current,
+            itemStyle: { color: '#3b82f6', borderRadius: [0, 3, 3, 0] },
+            barMaxWidth: 20,
+          },
+          {
+            name: 'Ziel',
+            type: 'bar',
+            data: target,
+            itemStyle: { color: '#1f2937', borderRadius: [0, 3, 3, 0] },
+            barMaxWidth: 20,
+            barGap: '10%',
+          },
+        ],
+      }
+    },
+    [data],
+  )
 
   if (isLoading) {
     return (

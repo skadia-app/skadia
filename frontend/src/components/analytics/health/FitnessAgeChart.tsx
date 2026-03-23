@@ -1,7 +1,6 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -11,14 +10,11 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthFitnessAge } from '@/api/analytics'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export default function FitnessAgeChart() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
-  // Fetch all available data
   const { from, to } = useMemo(() => {
     const to = new Date()
     return {
@@ -34,7 +30,6 @@ export default function FitnessAgeChart() {
     retry: 1,
   })
 
-  // Filter entries with valid fitness_age
   const validEntries = useMemo(() => {
     if (!data) return []
     return data.filter(e => e.fitness_age != null)
@@ -42,81 +37,62 @@ export default function FitnessAgeChart() {
 
   const latestAge = validEntries.length > 0 ? validEntries[validEntries.length - 1].fitness_age : null
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (validEntries.length === 0) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
+      const dates = validEntries.map(e => e.calendar_date)
+      const values = validEntries.map(e => e.fitness_age!)
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [validEntries])
-
-  useEffect(() => {
-    if (!chartRef.current || validEntries.length === 0) return
-
-    const dates = validEntries.map(e => e.calendar_date)
-    const values = validEntries.map(e => e.fitness_age!)
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 20, bottom: 40 },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ value: number; axisValueLabel: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
-            <div><strong style="color:#f9fafb">${items[0].value}</strong> <span style="color:#9ca3af">Jahre</span></div>`
-        },
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => `${v}J`,
-        },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
-      series: [
-        {
-          type: 'line',
-          data: values,
-          showSymbol: true,
-          symbolSize: 6,
-          smooth: 0.3,
-          lineStyle: { width: 2, color: '#22c55e' },
-          itemStyle: { color: '#22c55e' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(34,197,94,0.25)' },
-              { offset: 1, color: 'rgba(34,197,94,0.02)' },
-            ]),
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 20, bottom: 40 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ value: number; axisValueLabel: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
+              <div><strong style="color:#f9fafb">${items[0].value}</strong> <span style="color:#9ca3af">Jahre</span></div>`
           },
         },
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [validEntries])
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => `${v}J` },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+        series: [
+          {
+            type: 'line',
+            data: values,
+            showSymbol: true,
+            symbolSize: 6,
+            smooth: 0.3,
+            lineStyle: { width: 2, color: '#22c55e' },
+            itemStyle: { color: '#22c55e' },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(34,197,94,0.25)' },
+                { offset: 1, color: 'rgba(34,197,94,0.02)' },
+              ]),
+            },
+          },
+        ],
+      }
+    },
+    [validEntries],
+  )
 
   return (
     <div className="space-y-3">

@@ -1,7 +1,5 @@
-import { useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { PieChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -10,6 +8,7 @@ import type { ActivityCluster } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { getCapabilities } from '@/api/routes'
 import { fmtDist } from '@/lib/format'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -39,9 +38,6 @@ function ClusterInterpretation({ clusters }: { clusters: ActivityCluster[] }) {
 export default function TrainingClusters() {
   const { toQueryString } = useAnalyticsFilters()
   const queryParams = toQueryString()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const { data: capabilities } = useQuery({
     queryKey: ['capabilities'],
     queryFn: getCapabilities,
@@ -63,62 +59,50 @@ export default function TrainingClusters() {
     enabled: mlAvailable,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+  const containerRef = useECharts(
+    () => {
+      if (!data || !Array.isArray(data) || data.length === 0) return { series: [] }
 
-  useEffect(() => {
-    if (!chartRef.current || !data || !Array.isArray(data) || data.length === 0) return
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const p = params as { name: string; value: number; percent: number }
-          return `<div style="font-size:12px;font-weight:600;margin-bottom:2px">${p.name}</div>
-                  <div>${p.value} Aktivitäten (${p.percent.toFixed(1)}%)</div>`
-        },
-      },
-      legend: { show: false },
-      series: [
-        {
-          type: 'pie',
-          radius: ['40%', '72%'],
-          center: ['50%', '50%'],
-          data: data.map((c, i) => ({
-            name: c.label ?? `Cluster ${i + 1}`,
-            value: c.size ?? (c as unknown as Record<string, number>).count ?? 0,
-            itemStyle: { color: CLUSTER_COLORS[i % CLUSTER_COLORS.length] },
-          })),
-          label: {
-            show: true,
-            fontSize: 10,
-            color: '#9ca3af',
-            formatter: '{b}: {d}%',
-          },
-          labelLine: { lineStyle: { color: '#4b5563' } },
-          emphasis: {
-            itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' },
+      return {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const p = params as { name: string; value: number; percent: number }
+            return `<div style="font-size:12px;font-weight:600;margin-bottom:2px">${p.name}</div>
+                    <div>${p.value} Aktivitäten (${p.percent.toFixed(1)}%)</div>`
           },
         },
-      ],
-    }
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        legend: { show: false },
+        series: [
+          {
+            type: 'pie',
+            radius: ['40%', '72%'],
+            center: ['50%', '50%'],
+            data: data.map((c, i) => ({
+              name: c.label ?? `Cluster ${i + 1}`,
+              value: c.size ?? (c as unknown as Record<string, number>).count ?? 0,
+              itemStyle: { color: CLUSTER_COLORS[i % CLUSTER_COLORS.length] },
+            })),
+            label: {
+              show: true,
+              fontSize: 10,
+              color: '#9ca3af',
+              formatter: '{b}: {d}%',
+            },
+            labelLine: { lineStyle: { color: '#4b5563' } },
+            emphasis: {
+              itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' },
+            },
+          },
+        ],
+      }
+    },
+    [data],
+  )
 
   if (!mlAvailable) {
     return (
