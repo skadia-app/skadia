@@ -112,7 +112,44 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			original_filename, original_file_format,
 			source, source_device,
 			visibility,
-			sport_conflict_pending
+			sport_conflict_pending,
+			-- FIT SDK new fields below
+			workout_id,
+			total_cycles, total_work_j, total_fat_calories, metabolic_calories, total_moving_time_s,
+			swim_stroke, pool_length_m, pool_length_unit,
+			num_lengths, num_active_lengths, avg_stroke_count, avg_stroke_distance_m,
+			stroke_count, zone_count,
+			avg_fractional_cadence, max_fractional_cadence, total_fractional_cycles,
+			avg_vertical_oscillation_mm, avg_stance_time_ms, avg_stance_time_pct,
+			avg_stance_time_balance_pct, avg_step_length_mm, avg_vertical_ratio_pct,
+			avg_grade_pct, avg_pos_grade_pct, avg_neg_grade_pct, max_pos_grade_pct, max_neg_grade_pct,
+			avg_pos_vertical_speed_ms, avg_neg_vertical_speed_ms,
+			max_pos_vertical_speed_ms, max_neg_vertical_speed_ms, avg_vam_ms,
+			avg_altitude_m, total_fractional_ascent_m, total_fractional_descent_m,
+			avg_left_torque_effectiveness_pct, avg_right_torque_effectiveness_pct,
+			avg_left_pedal_smoothness_pct, avg_right_pedal_smoothness_pct,
+			avg_combined_pedal_smoothness_pct,
+			avg_left_pco_mm, avg_right_pco_mm,
+			avg_left_power_phase_start_deg, avg_left_power_phase_end_deg,
+			avg_left_power_phase_peak_start_deg, avg_left_power_phase_peak_end_deg,
+			avg_right_power_phase_start_deg, avg_right_power_phase_end_deg,
+			avg_right_power_phase_peak_start_deg, avg_right_power_phase_peak_end_deg,
+			avg_power_position_w, max_power_position_w,
+			avg_cadence_position, max_cadence_position,
+			time_standing_s, stand_count,
+			avg_lev_motor_power_w, max_lev_motor_power_w, lev_battery_consumption_pct,
+			total_grit, total_flow, avg_grit, avg_flow,
+			jump_count,
+			max_ball_speed_ms, avg_ball_speed_ms, player_score, opponent_score, opponent_name,
+			avg_total_hemoglobin_conc, min_total_hemoglobin_conc, max_total_hemoglobin_conc,
+			avg_saturated_hemoglobin_pct, min_saturated_hemoglobin_pct, max_saturated_hemoglobin_pct,
+			avg_depth_m, max_depth_m, surface_interval_s, dive_number,
+			start_cns_pct, end_cns_pct, start_n2_pct, end_n2_pct, o2_toxicity_otu,
+			max_respiration_rate, min_respiration_rate, sdrr_hrv_ms,
+			min_core_temperature_c, max_core_temperature_c,
+			avg_lap_time_s, best_lap_index, num_laps, first_lap_index,
+			intensity_factor, left_right_balance, sport_profile_name, sport_index,
+			nec_lat, nec_lng, swc_lat, swc_lng
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -130,25 +167,98 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			$34, $35,
 			$36, $37,
 			$38,
-			$39
+			$39,
+			$40,
+			$41, $42, $43, $44, $45,
+			$46, $47, $48,
+			$49, $50, $51, $52,
+			$53, $54,
+			$55, $56, $57,
+			$58, $59, $60,
+			$61, $62, $63,
+			$64, $65, $66, $67, $68,
+			$69, $70,
+			$71, $72, $73,
+			$74, $75, $76,
+			$77, $78,
+			$79, $80,
+			$81,
+			$82, $83,
+			$84, $85,
+			$86, $87,
+			$88, $89,
+			$90, $91,
+			$92, $93,
+			$94, $95,
+			$96, $97,
+			$98, $99, $100,
+			$101, $102, $103, $104,
+			$105,
+			$106, $107, $108, $109, $110,
+			$111, $112, $113,
+			$114, $115, $116,
+			$117, $118, $119, $120,
+			$121, $122, $123, $124, $125,
+			$126, $127, $128,
+			$129, $130,
+			$131, $132, $133, $134,
+			$135, $136, $137, $138,
+			$139, $140, $141, $142
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
-		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
-		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID),
-		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS),
-		nilIfZeroF64(data.DistanceM), nilIfZeroF64(data.ElevationGainM), nilIfZeroF64(data.ElevationLossM),
-		nilIfZeroF64(data.MaxElevationM), nilIfZeroF64(data.MinElevationM),
-		nilIfZeroF64(data.AvgSpeedMS), nilIfZeroF64(data.MaxSpeedMS),
-		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate),
-		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW),
-		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC),
-		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS,
-		data.StartLat, data.StartLng,
-		data.EndLat, data.EndLng,
-		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),
-		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
-		visibilityOrDefault(data.Visibility),
-		data.SportConflictPending,
+		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
+		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID), // $5-$6
+		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS), // $7-$10
+		nilIfZeroF64(data.DistanceM), nilIfZeroF64(data.ElevationGainM), nilIfZeroF64(data.ElevationLossM), // $11-$13
+		nilIfZeroF64(data.MaxElevationM), nilIfZeroF64(data.MinElevationM), // $14-$15
+		nilIfZeroF64(data.AvgSpeedMS), nilIfZeroF64(data.MaxSpeedMS), // $16-$17
+		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate), // $18-$19
+		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
+		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
+		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS, // $25-$29
+		data.StartLat, data.StartLng, // $30-$31
+		data.EndLat, data.EndLng, // $32-$33
+		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
+		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $36-$37
+		visibilityOrDefault(data.Visibility), // $38
+		data.SportConflictPending, // $39
+		// FIT SDK new fields
+		data.WorkoutID,                                                                                          // $40
+		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $41-$45
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $46-$48
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $49-$52
+		data.StrokeCount, data.ZoneCount,                                                                        // $53-$54
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $55-$57
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $58-$60
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $61-$63
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $64-$68
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $69-$70
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $71-$73
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $74-$76
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $77-$78
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $79-$80
+		data.AvgCombinedPedalSmoothnessPct,                                                                      // $81
+		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $82-$83
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $84-$85
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $86-$87
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $88-$89
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $90-$91
+		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $92-$93
+		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $94-$95
+		data.TimeStandingS, data.StandCount,                                                                     // $96-$97
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $98-$100
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $101-$104
+		data.JumpCount,                                                                                          // $105
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $106-$110
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $111-$113
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $114-$116
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $117-$120
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $121-$125
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $126-$128
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $129-$130
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $131-$134
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $135-$138
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $139-$142
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -181,19 +291,95 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 	}
 
 	columns := []string{
+		// Existing 15 columns (do not reorder)
 		"time", "activity_id",
 		"lat", "lng", "altitude_m", "speed_ms", "distance_m",
 		"heart_rate", "power_w", "cadence", "temperature_c",
 		"ground_contact_time_ms", "vertical_oscillation_mm", "stance_time_percent", "left_right_balance",
+		// FIT SDK — Terrain & Movement (12)
+		"respiration_rate", "stress_level",
+		"grade_pct", "vertical_speed_ms", "gps_accuracy_m",
+		"calories", "resistance", "total_cycles", "accumulated_power_w",
+		"absolute_pressure_pa", "ascent_rate_ms", "time_from_course_s",
+		"activity_type", "device_index",
+		// FIT SDK — Running Dynamics extended (5)
+		"step_length_mm", "vertical_ratio_pct", "stance_time_balance_pct",
+		"cycle_length_m", "fractional_cadence",
+		// FIT SDK — Pedal Analytics (7)
+		"left_torque_effectiveness_pct", "right_torque_effectiveness_pct",
+		"left_pedal_smoothness_pct", "right_pedal_smoothness_pct",
+		"combined_pedal_smoothness_pct",
+		"left_pco_mm", "right_pco_mm",
+		// FIT SDK — Power Phase (8)
+		"left_power_phase_start_deg", "left_power_phase_end_deg",
+		"left_power_phase_peak_start_deg", "left_power_phase_peak_end_deg",
+		"right_power_phase_start_deg", "right_power_phase_end_deg",
+		"right_power_phase_peak_start_deg", "right_power_phase_peak_end_deg",
+		// FIT SDK — Hemoglobin / Muscle Oxygen (6)
+		"total_hemoglobin_conc", "total_hemoglobin_conc_min", "total_hemoglobin_conc_max",
+		"saturated_hemoglobin_pct", "saturated_hemoglobin_pct_min", "saturated_hemoglobin_pct_max",
+		// FIT SDK — E-Bike (5)
+		"motor_power_w", "ebike_travel_range_km", "ebike_battery_level_pct",
+		"ebike_assist_mode", "ebike_assist_level_pct",
+		// FIT SDK — Health / Stress (4)
+		"core_temperature_c", "enhanced_respiration_rate", "current_stress", "battery_soc_pct",
+		// FIT SDK — MTB Metrics (2)
+		"grit", "flow",
+		// FIT SDK — Racket / Ball Sports (3)
+		"stroke_type", "zone", "ball_speed_ms",
+		// FIT SDK — Diving (12)
+		"depth_m", "next_stop_depth_m", "next_stop_time_s", "time_to_surface_s",
+		"ndl_time_s", "cns_load_pct", "n2_load_pct", "air_time_remaining_s",
+		"pressure_sac", "volume_sac", "rmv", "po2",
+		// FIT SDK — Developer Fields (1)
+		"developer_fields",
 	}
 
 	rows := make([][]any, len(streams))
 	for i, s := range streams {
 		rows[i] = []any{
+			// Existing 15 columns (do not reorder)
 			s.Time, activityID,
 			s.Lat, s.Lng, s.AltitudeM, s.SpeedMS, s.DistanceM,
 			s.HeartRate, s.PowerW, s.Cadence, s.TemperatureC,
 			s.GroundContactTimeMs, s.VerticalOscillationMm, s.StanceTimePercent, s.LeftRightBalance,
+			// FIT SDK — Terrain & Movement (12)
+			s.RespirationRate, s.StressLevel,
+			s.GradePct, s.VerticalSpeedMs, s.GpsAccuracyM,
+			s.Calories, s.Resistance, s.TotalCycles, s.AccumulatedPowerW,
+			s.AbsolutePressurePa, s.AscentRateMs, s.TimeFromCourseS,
+			s.ActivityType, s.DeviceIndex,
+			// FIT SDK — Running Dynamics extended (5)
+			s.StepLengthMm, s.VerticalRatioPct, s.StanceTimeBalancePct,
+			s.CycleLengthM, s.FractionalCadence,
+			// FIT SDK — Pedal Analytics (7)
+			s.LeftTorqueEffectivenessPct, s.RightTorqueEffectivenessPct,
+			s.LeftPedalSmoothnessPct, s.RightPedalSmoothnessPct,
+			s.CombinedPedalSmoothnessPct,
+			s.LeftPcoMm, s.RightPcoMm,
+			// FIT SDK — Power Phase (8)
+			s.LeftPowerPhaseStartDeg, s.LeftPowerPhaseEndDeg,
+			s.LeftPowerPhasePeakStartDeg, s.LeftPowerPhasePeakEndDeg,
+			s.RightPowerPhaseStartDeg, s.RightPowerPhaseEndDeg,
+			s.RightPowerPhasePeakStartDeg, s.RightPowerPhasePeakEndDeg,
+			// FIT SDK — Hemoglobin / Muscle Oxygen (6)
+			s.TotalHemoglobinConc, s.TotalHemoglobinConcMin, s.TotalHemoglobinConcMax,
+			s.SaturatedHemoglobinPct, s.SaturatedHemoglobinPctMin, s.SaturatedHemoglobinPctMax,
+			// FIT SDK — E-Bike (5)
+			s.MotorPowerW, s.EbikeTravelRangeKm, s.EbikeBatteryLevelPct,
+			s.EbikeAssistMode, s.EbikeAssistLevelPct,
+			// FIT SDK — Health / Stress (4)
+			s.CoreTemperatureC, s.EnhancedRespirationRate, s.CurrentStress, s.BatterySocPct,
+			// FIT SDK — MTB Metrics (2)
+			s.Grit, s.Flow,
+			// FIT SDK — Racket / Ball Sports (3)
+			s.StrokeType, s.Zone, s.BallSpeedMs,
+			// FIT SDK — Diving (12)
+			s.DepthM, s.NextStopDepthM, s.NextStopTimeS, s.TimeToSurfaceS,
+			s.NdlTimeS, s.CnsLoadPct, s.N2LoadPct, s.AirTimeRemainingS,
+			s.PressureSac, s.VolumeSac, s.Rmv, s.Po2,
+			// FIT SDK — Developer Fields (1)
+			s.DeveloperFields,
 		}
 	}
 
@@ -1350,6 +1536,252 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfEmpty(data.Source))
 	sets = append(sets, fmt.Sprintf("source_device = %s", idx()))
 	args = append(args, nilIfEmpty(data.SourceDevice))
+
+	// FIT SDK — Workout
+	sets = append(sets, fmt.Sprintf("workout_id = %s", idx()))
+	args = append(args, data.WorkoutID)
+
+	// FIT SDK — Movement / Cycles
+	sets = append(sets, fmt.Sprintf("total_cycles = %s", idx()))
+	args = append(args, data.TotalCycles)
+	sets = append(sets, fmt.Sprintf("total_work_j = %s", idx()))
+	args = append(args, data.TotalWorkJ)
+	sets = append(sets, fmt.Sprintf("total_fat_calories = %s", idx()))
+	args = append(args, data.TotalFatCalories)
+	sets = append(sets, fmt.Sprintf("metabolic_calories = %s", idx()))
+	args = append(args, data.MetabolicCalories)
+	sets = append(sets, fmt.Sprintf("total_moving_time_s = %s", idx()))
+	args = append(args, data.TotalMovingTimeS)
+
+	// FIT SDK — Swimming
+	sets = append(sets, fmt.Sprintf("swim_stroke = %s", idx()))
+	args = append(args, data.SwimStroke)
+	sets = append(sets, fmt.Sprintf("pool_length_m = %s", idx()))
+	args = append(args, data.PoolLengthM)
+	sets = append(sets, fmt.Sprintf("pool_length_unit = %s", idx()))
+	args = append(args, data.PoolLengthUnit)
+	sets = append(sets, fmt.Sprintf("num_lengths = %s", idx()))
+	args = append(args, data.NumLengths)
+	sets = append(sets, fmt.Sprintf("num_active_lengths = %s", idx()))
+	args = append(args, data.NumActiveLengths)
+	sets = append(sets, fmt.Sprintf("avg_stroke_count = %s", idx()))
+	args = append(args, data.AvgStrokeCount)
+	sets = append(sets, fmt.Sprintf("avg_stroke_distance_m = %s", idx()))
+	args = append(args, data.AvgStrokeDistanceM)
+	sets = append(sets, fmt.Sprintf("stroke_count = %s", idx()))
+	args = append(args, data.StrokeCount)
+	sets = append(sets, fmt.Sprintf("zone_count = %s", idx()))
+	args = append(args, data.ZoneCount)
+
+	// FIT SDK — Cadence Extended
+	sets = append(sets, fmt.Sprintf("avg_fractional_cadence = %s", idx()))
+	args = append(args, data.AvgFractionalCadence)
+	sets = append(sets, fmt.Sprintf("max_fractional_cadence = %s", idx()))
+	args = append(args, data.MaxFractionalCadence)
+	sets = append(sets, fmt.Sprintf("total_fractional_cycles = %s", idx()))
+	args = append(args, data.TotalFractionalCycles)
+
+	// FIT SDK — Running Dynamics
+	sets = append(sets, fmt.Sprintf("avg_vertical_oscillation_mm = %s", idx()))
+	args = append(args, data.AvgVerticalOscillationMm)
+	sets = append(sets, fmt.Sprintf("avg_stance_time_ms = %s", idx()))
+	args = append(args, data.AvgStanceTimeMs)
+	sets = append(sets, fmt.Sprintf("avg_stance_time_pct = %s", idx()))
+	args = append(args, data.AvgStanceTimePct)
+	sets = append(sets, fmt.Sprintf("avg_stance_time_balance_pct = %s", idx()))
+	args = append(args, data.AvgStanceTimeBalancePct)
+	sets = append(sets, fmt.Sprintf("avg_step_length_mm = %s", idx()))
+	args = append(args, data.AvgStepLengthMm)
+	sets = append(sets, fmt.Sprintf("avg_vertical_ratio_pct = %s", idx()))
+	args = append(args, data.AvgVerticalRatioPct)
+
+	// FIT SDK — Grade
+	sets = append(sets, fmt.Sprintf("avg_grade_pct = %s", idx()))
+	args = append(args, data.AvgGradePct)
+	sets = append(sets, fmt.Sprintf("avg_pos_grade_pct = %s", idx()))
+	args = append(args, data.AvgPosGradePct)
+	sets = append(sets, fmt.Sprintf("avg_neg_grade_pct = %s", idx()))
+	args = append(args, data.AvgNegGradePct)
+	sets = append(sets, fmt.Sprintf("max_pos_grade_pct = %s", idx()))
+	args = append(args, data.MaxPosGradePct)
+	sets = append(sets, fmt.Sprintf("max_neg_grade_pct = %s", idx()))
+	args = append(args, data.MaxNegGradePct)
+
+	// FIT SDK — Vertical Speed
+	sets = append(sets, fmt.Sprintf("avg_pos_vertical_speed_ms = %s", idx()))
+	args = append(args, data.AvgPosVerticalSpeedMs)
+	sets = append(sets, fmt.Sprintf("avg_neg_vertical_speed_ms = %s", idx()))
+	args = append(args, data.AvgNegVerticalSpeedMs)
+	sets = append(sets, fmt.Sprintf("max_pos_vertical_speed_ms = %s", idx()))
+	args = append(args, data.MaxPosVerticalSpeedMs)
+	sets = append(sets, fmt.Sprintf("max_neg_vertical_speed_ms = %s", idx()))
+	args = append(args, data.MaxNegVerticalSpeedMs)
+	sets = append(sets, fmt.Sprintf("avg_vam_ms = %s", idx()))
+	args = append(args, data.AvgVamMs)
+
+	// FIT SDK — Altitude Extended
+	sets = append(sets, fmt.Sprintf("avg_altitude_m = %s", idx()))
+	args = append(args, data.AvgAltitudeM)
+	sets = append(sets, fmt.Sprintf("total_fractional_ascent_m = %s", idx()))
+	args = append(args, data.TotalFractionalAscentM)
+	sets = append(sets, fmt.Sprintf("total_fractional_descent_m = %s", idx()))
+	args = append(args, data.TotalFractionalDescentM)
+
+	// FIT SDK — Pedal Analytics
+	sets = append(sets, fmt.Sprintf("avg_left_torque_effectiveness_pct = %s", idx()))
+	args = append(args, data.AvgLeftTorqueEffectivenessPct)
+	sets = append(sets, fmt.Sprintf("avg_right_torque_effectiveness_pct = %s", idx()))
+	args = append(args, data.AvgRightTorqueEffectivenessPct)
+	sets = append(sets, fmt.Sprintf("avg_left_pedal_smoothness_pct = %s", idx()))
+	args = append(args, data.AvgLeftPedalSmoothnessPct)
+	sets = append(sets, fmt.Sprintf("avg_right_pedal_smoothness_pct = %s", idx()))
+	args = append(args, data.AvgRightPedalSmoothnessPct)
+	sets = append(sets, fmt.Sprintf("avg_combined_pedal_smoothness_pct = %s", idx()))
+	args = append(args, data.AvgCombinedPedalSmoothnessPct)
+	sets = append(sets, fmt.Sprintf("avg_left_pco_mm = %s", idx()))
+	args = append(args, data.AvgLeftPcoMm)
+	sets = append(sets, fmt.Sprintf("avg_right_pco_mm = %s", idx()))
+	args = append(args, data.AvgRightPcoMm)
+	sets = append(sets, fmt.Sprintf("avg_left_power_phase_start_deg = %s", idx()))
+	args = append(args, data.AvgLeftPowerPhaseStartDeg)
+	sets = append(sets, fmt.Sprintf("avg_left_power_phase_end_deg = %s", idx()))
+	args = append(args, data.AvgLeftPowerPhaseEndDeg)
+	sets = append(sets, fmt.Sprintf("avg_left_power_phase_peak_start_deg = %s", idx()))
+	args = append(args, data.AvgLeftPowerPhasePeakStartDeg)
+	sets = append(sets, fmt.Sprintf("avg_left_power_phase_peak_end_deg = %s", idx()))
+	args = append(args, data.AvgLeftPowerPhasePeakEndDeg)
+	sets = append(sets, fmt.Sprintf("avg_right_power_phase_start_deg = %s", idx()))
+	args = append(args, data.AvgRightPowerPhaseStartDeg)
+	sets = append(sets, fmt.Sprintf("avg_right_power_phase_end_deg = %s", idx()))
+	args = append(args, data.AvgRightPowerPhaseEndDeg)
+	sets = append(sets, fmt.Sprintf("avg_right_power_phase_peak_start_deg = %s", idx()))
+	args = append(args, data.AvgRightPowerPhasePeakStartDeg)
+	sets = append(sets, fmt.Sprintf("avg_right_power_phase_peak_end_deg = %s", idx()))
+	args = append(args, data.AvgRightPowerPhasePeakEndDeg)
+
+	// FIT SDK — Power/Cadence by Position
+	sets = append(sets, fmt.Sprintf("avg_power_position_w = %s", idx()))
+	args = append(args, data.AvgPowerPositionW)
+	sets = append(sets, fmt.Sprintf("max_power_position_w = %s", idx()))
+	args = append(args, data.MaxPowerPositionW)
+	sets = append(sets, fmt.Sprintf("avg_cadence_position = %s", idx()))
+	args = append(args, data.AvgCadencePosition)
+	sets = append(sets, fmt.Sprintf("max_cadence_position = %s", idx()))
+	args = append(args, data.MaxCadencePosition)
+
+	// FIT SDK — Standing/Sitting
+	sets = append(sets, fmt.Sprintf("time_standing_s = %s", idx()))
+	args = append(args, data.TimeStandingS)
+	sets = append(sets, fmt.Sprintf("stand_count = %s", idx()))
+	args = append(args, data.StandCount)
+
+	// FIT SDK — E-Bike
+	sets = append(sets, fmt.Sprintf("avg_lev_motor_power_w = %s", idx()))
+	args = append(args, data.AvgLevMotorPowerW)
+	sets = append(sets, fmt.Sprintf("max_lev_motor_power_w = %s", idx()))
+	args = append(args, data.MaxLevMotorPowerW)
+	sets = append(sets, fmt.Sprintf("lev_battery_consumption_pct = %s", idx()))
+	args = append(args, data.LevBatteryConsumptionPct)
+
+	// FIT SDK — MTB Grit/Flow
+	sets = append(sets, fmt.Sprintf("total_grit = %s", idx()))
+	args = append(args, data.TotalGrit)
+	sets = append(sets, fmt.Sprintf("total_flow = %s", idx()))
+	args = append(args, data.TotalFlow)
+	sets = append(sets, fmt.Sprintf("avg_grit = %s", idx()))
+	args = append(args, data.AvgGrit)
+	sets = append(sets, fmt.Sprintf("avg_flow = %s", idx()))
+	args = append(args, data.AvgFlow)
+
+	// FIT SDK — Jumps
+	sets = append(sets, fmt.Sprintf("jump_count = %s", idx()))
+	args = append(args, data.JumpCount)
+
+	// FIT SDK — Ball Sports
+	sets = append(sets, fmt.Sprintf("max_ball_speed_ms = %s", idx()))
+	args = append(args, data.MaxBallSpeedMs)
+	sets = append(sets, fmt.Sprintf("avg_ball_speed_ms = %s", idx()))
+	args = append(args, data.AvgBallSpeedMs)
+	sets = append(sets, fmt.Sprintf("player_score = %s", idx()))
+	args = append(args, data.PlayerScore)
+	sets = append(sets, fmt.Sprintf("opponent_score = %s", idx()))
+	args = append(args, data.OpponentScore)
+	sets = append(sets, fmt.Sprintf("opponent_name = %s", idx()))
+	args = append(args, data.OpponentName)
+
+	// FIT SDK — Hemoglobin
+	sets = append(sets, fmt.Sprintf("avg_total_hemoglobin_conc = %s", idx()))
+	args = append(args, data.AvgTotalHemoglobinConc)
+	sets = append(sets, fmt.Sprintf("min_total_hemoglobin_conc = %s", idx()))
+	args = append(args, data.MinTotalHemoglobinConc)
+	sets = append(sets, fmt.Sprintf("max_total_hemoglobin_conc = %s", idx()))
+	args = append(args, data.MaxTotalHemoglobinConc)
+	sets = append(sets, fmt.Sprintf("avg_saturated_hemoglobin_pct = %s", idx()))
+	args = append(args, data.AvgSaturatedHemoglobinPct)
+	sets = append(sets, fmt.Sprintf("min_saturated_hemoglobin_pct = %s", idx()))
+	args = append(args, data.MinSaturatedHemoglobinPct)
+	sets = append(sets, fmt.Sprintf("max_saturated_hemoglobin_pct = %s", idx()))
+	args = append(args, data.MaxSaturatedHemoglobinPct)
+
+	// FIT SDK — Diving
+	sets = append(sets, fmt.Sprintf("avg_depth_m = %s", idx()))
+	args = append(args, data.AvgDepthM)
+	sets = append(sets, fmt.Sprintf("max_depth_m = %s", idx()))
+	args = append(args, data.MaxDepthM)
+	sets = append(sets, fmt.Sprintf("surface_interval_s = %s", idx()))
+	args = append(args, data.SurfaceIntervalS)
+	sets = append(sets, fmt.Sprintf("dive_number = %s", idx()))
+	args = append(args, data.DiveNumber)
+	sets = append(sets, fmt.Sprintf("start_cns_pct = %s", idx()))
+	args = append(args, data.StartCnsPct)
+	sets = append(sets, fmt.Sprintf("end_cns_pct = %s", idx()))
+	args = append(args, data.EndCnsPct)
+	sets = append(sets, fmt.Sprintf("start_n2_pct = %s", idx()))
+	args = append(args, data.StartN2Pct)
+	sets = append(sets, fmt.Sprintf("end_n2_pct = %s", idx()))
+	args = append(args, data.EndN2Pct)
+	sets = append(sets, fmt.Sprintf("o2_toxicity_otu = %s", idx()))
+	args = append(args, data.O2ToxicityOtu)
+
+	// FIT SDK — Respiration / HRV Extended
+	sets = append(sets, fmt.Sprintf("max_respiration_rate = %s", idx()))
+	args = append(args, data.MaxRespirationRate)
+	sets = append(sets, fmt.Sprintf("min_respiration_rate = %s", idx()))
+	args = append(args, data.MinRespirationRate)
+	sets = append(sets, fmt.Sprintf("sdrr_hrv_ms = %s", idx()))
+	args = append(args, data.SdrrHrvMs)
+
+	// FIT SDK — Temperature Extended
+	sets = append(sets, fmt.Sprintf("min_core_temperature_c = %s", idx()))
+	args = append(args, data.MinCoreTemperatureC)
+	sets = append(sets, fmt.Sprintf("max_core_temperature_c = %s", idx()))
+	args = append(args, data.MaxCoreTemperatureC)
+
+	// FIT SDK — Misc
+	sets = append(sets, fmt.Sprintf("avg_lap_time_s = %s", idx()))
+	args = append(args, data.AvgLapTimeS)
+	sets = append(sets, fmt.Sprintf("best_lap_index = %s", idx()))
+	args = append(args, data.BestLapIndex)
+	sets = append(sets, fmt.Sprintf("num_laps = %s", idx()))
+	args = append(args, data.NumLaps)
+	sets = append(sets, fmt.Sprintf("first_lap_index = %s", idx()))
+	args = append(args, data.FirstLapIndex)
+	sets = append(sets, fmt.Sprintf("intensity_factor = %s", idx()))
+	args = append(args, data.IntensityFactor)
+	sets = append(sets, fmt.Sprintf("left_right_balance = %s", idx()))
+	args = append(args, data.LeftRightBalance)
+	sets = append(sets, fmt.Sprintf("sport_profile_name = %s", idx()))
+	args = append(args, data.SportProfileName)
+	sets = append(sets, fmt.Sprintf("sport_index = %s", idx()))
+	args = append(args, data.SportIndex)
+	sets = append(sets, fmt.Sprintf("nec_lat = %s", idx()))
+	args = append(args, data.NecLat)
+	sets = append(sets, fmt.Sprintf("nec_lng = %s", idx()))
+	args = append(args, data.NecLng)
+	sets = append(sets, fmt.Sprintf("swc_lat = %s", idx()))
+	args = append(args, data.SwcLat)
+	sets = append(sets, fmt.Sprintf("swc_lng = %s", idx()))
+	args = append(args, data.SwcLng)
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")

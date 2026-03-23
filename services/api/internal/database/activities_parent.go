@@ -60,7 +60,44 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			source, source_device,
 			parent_id,
 			visibility,
-			sport_conflict_pending
+			sport_conflict_pending,
+			-- FIT SDK new fields below
+			workout_id,
+			total_cycles, total_work_j, total_fat_calories, metabolic_calories, total_moving_time_s,
+			swim_stroke, pool_length_m, pool_length_unit,
+			num_lengths, num_active_lengths, avg_stroke_count, avg_stroke_distance_m,
+			stroke_count, zone_count,
+			avg_fractional_cadence, max_fractional_cadence, total_fractional_cycles,
+			avg_vertical_oscillation_mm, avg_stance_time_ms, avg_stance_time_pct,
+			avg_stance_time_balance_pct, avg_step_length_mm, avg_vertical_ratio_pct,
+			avg_grade_pct, avg_pos_grade_pct, avg_neg_grade_pct, max_pos_grade_pct, max_neg_grade_pct,
+			avg_pos_vertical_speed_ms, avg_neg_vertical_speed_ms,
+			max_pos_vertical_speed_ms, max_neg_vertical_speed_ms, avg_vam_ms,
+			avg_altitude_m, total_fractional_ascent_m, total_fractional_descent_m,
+			avg_left_torque_effectiveness_pct, avg_right_torque_effectiveness_pct,
+			avg_left_pedal_smoothness_pct, avg_right_pedal_smoothness_pct,
+			avg_combined_pedal_smoothness_pct,
+			avg_left_pco_mm, avg_right_pco_mm,
+			avg_left_power_phase_start_deg, avg_left_power_phase_end_deg,
+			avg_left_power_phase_peak_start_deg, avg_left_power_phase_peak_end_deg,
+			avg_right_power_phase_start_deg, avg_right_power_phase_end_deg,
+			avg_right_power_phase_peak_start_deg, avg_right_power_phase_peak_end_deg,
+			avg_power_position_w, max_power_position_w,
+			avg_cadence_position, max_cadence_position,
+			time_standing_s, stand_count,
+			avg_lev_motor_power_w, max_lev_motor_power_w, lev_battery_consumption_pct,
+			total_grit, total_flow, avg_grit, avg_flow,
+			jump_count,
+			max_ball_speed_ms, avg_ball_speed_ms, player_score, opponent_score, opponent_name,
+			avg_total_hemoglobin_conc, min_total_hemoglobin_conc, max_total_hemoglobin_conc,
+			avg_saturated_hemoglobin_pct, min_saturated_hemoglobin_pct, max_saturated_hemoglobin_pct,
+			avg_depth_m, max_depth_m, surface_interval_s, dive_number,
+			start_cns_pct, end_cns_pct, start_n2_pct, end_n2_pct, o2_toxicity_otu,
+			max_respiration_rate, min_respiration_rate, sdrr_hrv_ms,
+			min_core_temperature_c, max_core_temperature_c,
+			avg_lap_time_s, best_lap_index, num_laps, first_lap_index,
+			intensity_factor, left_right_balance, sport_profile_name, sport_index,
+			nec_lat, nec_lng, swc_lat, swc_lng
 		) VALUES (
 			$1, $2, $3, $4,
 			$3, $4,
@@ -79,26 +116,99 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			$36, $37,
 			$38,
 			$39,
-			$40
+			$40,
+			$41,
+			$42, $43, $44, $45, $46,
+			$47, $48, $49,
+			$50, $51, $52, $53,
+			$54, $55,
+			$56, $57, $58,
+			$59, $60, $61,
+			$62, $63, $64,
+			$65, $66, $67, $68, $69,
+			$70, $71,
+			$72, $73, $74,
+			$75, $76, $77,
+			$78, $79,
+			$80, $81,
+			$82,
+			$83, $84,
+			$85, $86,
+			$87, $88,
+			$89, $90,
+			$91, $92,
+			$93, $94,
+			$95, $96,
+			$97, $98,
+			$99, $100, $101,
+			$102, $103, $104, $105,
+			$106,
+			$107, $108, $109, $110, $111,
+			$112, $113, $114,
+			$115, $116, $117,
+			$118, $119, $120, $121,
+			$122, $123, $124, $125, $126,
+			$127, $128, $129,
+			$130, $131,
+			$132, $133, $134, $135,
+			$136, $137, $138, $139,
+			$140, $141, $142, $143
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
-		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType),
-		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID),
-		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS),
-		nilIfZeroF64(data.DistanceM), nilIfZeroF64(data.ElevationGainM), nilIfZeroF64(data.ElevationLossM),
-		nilIfZeroF64(data.MaxElevationM), nilIfZeroF64(data.MinElevationM),
-		nilIfZeroF64(data.AvgSpeedMS), nilIfZeroF64(data.MaxSpeedMS),
-		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate),
-		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW),
-		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC),
-		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS,
-		data.StartLat, data.StartLng,
-		data.EndLat, data.EndLng,
-		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat),
-		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice),
-		parentID,
-		visibilityOrDefault(data.Visibility),
-		data.SportConflictPending,
+		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
+		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID), // $5-$6
+		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS), // $7-$10
+		nilIfZeroF64(data.DistanceM), nilIfZeroF64(data.ElevationGainM), nilIfZeroF64(data.ElevationLossM), // $11-$13
+		nilIfZeroF64(data.MaxElevationM), nilIfZeroF64(data.MinElevationM), // $14-$15
+		nilIfZeroF64(data.AvgSpeedMS), nilIfZeroF64(data.MaxSpeedMS), // $16-$17
+		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate), // $18-$19
+		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
+		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
+		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS, // $25-$29
+		data.StartLat, data.StartLng, // $30-$31
+		data.EndLat, data.EndLng, // $32-$33
+		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
+		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $36-$37
+		parentID, // $38
+		visibilityOrDefault(data.Visibility), // $39
+		data.SportConflictPending, // $40
+		// FIT SDK new fields
+		data.WorkoutID,                                                                                          // $41
+		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $42-$46
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $47-$49
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $50-$53
+		data.StrokeCount, data.ZoneCount,                                                                        // $54-$55
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $56-$58
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $59-$61
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $62-$64
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $65-$69
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $70-$71
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $72-$74
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $75-$77
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $78-$79
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $80-$81
+		data.AvgCombinedPedalSmoothnessPct,                                                                      // $82
+		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $83-$84
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $85-$86
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $87-$88
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $89-$90
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $91-$92
+		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $93-$94
+		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $95-$96
+		data.TimeStandingS, data.StandCount,                                                                     // $97-$98
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $99-$101
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $102-$105
+		data.JumpCount,                                                                                          // $106
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $107-$111
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $112-$114
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $115-$117
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $118-$121
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $122-$126
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $127-$129
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $130-$131
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $132-$135
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $136-$139
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $140-$143
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
