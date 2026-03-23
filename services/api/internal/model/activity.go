@@ -86,6 +86,157 @@ type ActivityData struct {
 	SplitSummaries []SplitSummaryRecord
 	Lengths        []LengthRecord
 	ClimbProEvents []ClimbProEventRecord
+
+	// FIT SDK — New record collections (write-path only, not serialized directly)
+	Events             []EventRecord       `json:"-"`
+	Sets               []SetRecord         `json:"-"`
+	Jumps              []JumpRecord        `json:"-"`
+	HrData             []HrDataRecord      `json:"-"`
+	SegmentLaps        []SegmentLapRecord  `json:"-"`
+	Workout            *WorkoutRecord      `json:"-"`
+	WorkoutSteps       []WorkoutStepRecord `json:"-"`
+	DeveloperFieldDefs []DeveloperFieldDef `json:"-"`
+	WorkoutID          *string             `json:"workout_id,omitempty"`
+
+	// FIT SDK — Movement / Cycles
+	TotalCycles       *int32   `json:"-"`
+	TotalWorkJ        *int32   `json:"-"`
+	TotalFatCalories  *int32   `json:"-"`
+	MetabolicCalories *int32   `json:"-"`
+	TotalMovingTimeS  *float64 `json:"-"`
+
+	// FIT SDK — Swimming
+	SwimStroke        *string  `json:"-"`
+	PoolLengthM       *float64 `json:"-"`
+	PoolLengthUnit    *string  `json:"-"`
+	NumLengths        *int32   `json:"-"`
+	NumActiveLengths  *int32   `json:"-"`
+	AvgStrokeCount    *float64 `json:"-"`
+	AvgStrokeDistanceM *float64 `json:"-"`
+	StrokeCount       []int32  `json:"-"`
+	ZoneCount         []int32  `json:"-"`
+
+	// FIT SDK — Cadence Extended
+	AvgFractionalCadence   *float64 `json:"-"`
+	MaxFractionalCadence   *float64 `json:"-"`
+	TotalFractionalCycles  *float64 `json:"-"`
+
+	// FIT SDK — Running Dynamics
+	AvgVerticalOscillationMm *float64 `json:"-"`
+	AvgStanceTimeMs          *float64 `json:"-"`
+	AvgStanceTimePct         *float64 `json:"-"`
+	AvgStanceTimeBalancePct  *float64 `json:"-"`
+	AvgStepLengthMm          *float64 `json:"-"`
+	AvgVerticalRatioPct      *float64 `json:"-"`
+
+	// FIT SDK — Grade
+	AvgGradePct    *float64 `json:"-"`
+	AvgPosGradePct *float64 `json:"-"`
+	AvgNegGradePct *float64 `json:"-"`
+	MaxPosGradePct *float64 `json:"-"`
+	MaxNegGradePct *float64 `json:"-"`
+
+	// FIT SDK — Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"-"`
+	AvgNegVerticalSpeedMs *float64 `json:"-"`
+	MaxPosVerticalSpeedMs *float64 `json:"-"`
+	MaxNegVerticalSpeedMs *float64 `json:"-"`
+	AvgVamMs              *float64 `json:"-"`
+
+	// FIT SDK — Altitude Extended
+	AvgAltitudeM            *float64 `json:"-"`
+	TotalFractionalAscentM  *float64 `json:"-"`
+	TotalFractionalDescentM *float64 `json:"-"`
+
+	// FIT SDK — Pedal Analytics (15)
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"-"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"-"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"-"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"-"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"-"`
+	AvgLeftPcoMm                   *int16   `json:"-"`
+	AvgRightPcoMm                  *int16   `json:"-"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"-"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"-"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"-"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"-"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"-"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"-"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"-"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"-"`
+
+	// FIT SDK — Power/Cadence by Position
+	AvgPowerPositionW  []int32  `json:"-"`
+	MaxPowerPositionW  []int32  `json:"-"`
+	AvgCadencePosition []int16  `json:"-"`
+	MaxCadencePosition []int16  `json:"-"`
+
+	// FIT SDK — Standing/Sitting
+	TimeStandingS *float64 `json:"-"`
+	StandCount    *int32   `json:"-"`
+
+	// FIT SDK — E-Bike
+	AvgLevMotorPowerW      *int32   `json:"-"`
+	MaxLevMotorPowerW      *int32   `json:"-"`
+	LevBatteryConsumptionPct *float64 `json:"-"`
+
+	// FIT SDK — MTB Grit/Flow
+	TotalGrit *float64 `json:"-"`
+	TotalFlow *float64 `json:"-"`
+	AvgGrit   *float64 `json:"-"`
+	AvgFlow   *float64 `json:"-"`
+
+	// FIT SDK — Jumps
+	JumpCount *int32 `json:"-"`
+
+	// FIT SDK — Ball Sports
+	MaxBallSpeedMs *float64 `json:"-"`
+	AvgBallSpeedMs *float64 `json:"-"`
+	PlayerScore    *int32   `json:"-"`
+	OpponentScore  *int32   `json:"-"`
+	OpponentName   *string  `json:"-"`
+
+	// FIT SDK — Hemoglobin (arrays for multi-sensor)
+	AvgTotalHemoglobinConc    []float64 `json:"-"`
+	MinTotalHemoglobinConc    []float64 `json:"-"`
+	MaxTotalHemoglobinConc    []float64 `json:"-"`
+	AvgSaturatedHemoglobinPct []float64 `json:"-"`
+	MinSaturatedHemoglobinPct []float64 `json:"-"`
+	MaxSaturatedHemoglobinPct []float64 `json:"-"`
+
+	// FIT SDK — Diving
+	AvgDepthM        *float64 `json:"-"`
+	MaxDepthM        *float64 `json:"-"`
+	SurfaceIntervalS *int32   `json:"-"`
+	DiveNumber       *int32   `json:"-"`
+	StartCnsPct      *int16   `json:"-"`
+	EndCnsPct        *int16   `json:"-"`
+	StartN2Pct       *int32   `json:"-"`
+	EndN2Pct         *int32   `json:"-"`
+	O2ToxicityOtu    *int32   `json:"-"`
+
+	// FIT SDK — Respiration / HRV Extended
+	MaxRespirationRate *float64 `json:"-"`
+	MinRespirationRate *float64 `json:"-"`
+	SdrrHrvMs          *int16   `json:"-"`
+
+	// FIT SDK — Temperature Extended
+	MinCoreTemperatureC *float64 `json:"-"`
+	MaxCoreTemperatureC *float64 `json:"-"`
+
+	// FIT SDK — Misc
+	AvgLapTimeS      *float64 `json:"-"`
+	BestLapIndex     *int16   `json:"-"`
+	NumLaps          *int32   `json:"-"`
+	FirstLapIndex    *int32   `json:"-"`
+	IntensityFactor  *float64 `json:"-"`
+	LeftRightBalance *float64 `json:"-"`
+	SportProfileName *string  `json:"-"`
+	SportIndex       *int16   `json:"-"`
+	NecLat           *float64 `json:"-"`
+	NecLng           *float64 `json:"-"`
+	SwcLat           *float64 `json:"-"`
+	SwcLng           *float64 `json:"-"`
 }
 
 // StreamPoint is a single time-series data point.
@@ -108,6 +259,82 @@ type StreamPoint struct {
 	VerticalOscillationMm *int16   // vertical_oscillation, Scale: 10 → mm
 	StanceTimePercent     *float32 // stance_time_percent, Scale: 100 → %
 	LeftRightBalance      *int16   // left_right_balance masked value (0–100)
+	// FIT SDK — Terrain & Movement
+	GradePct            *float64 `json:"grade_pct,omitempty"`
+	VerticalSpeedMs     *float64 `json:"vertical_speed_ms,omitempty"`
+	GpsAccuracyM        *int16   `json:"gps_accuracy_m,omitempty"`
+	Calories            *int32   `json:"calories,omitempty"`
+	Resistance          *int16   `json:"resistance,omitempty"`
+	TotalCycles         *int32   `json:"total_cycles,omitempty"`
+	AccumulatedPowerW   *int32   `json:"accumulated_power_w,omitempty"`
+	AbsolutePressurePa  *int32   `json:"absolute_pressure_pa,omitempty"`
+	AscentRateMs        *float64 `json:"ascent_rate_ms,omitempty"`
+	TimeFromCourseS     *float64 `json:"time_from_course_s,omitempty"`
+	ActivityType        *int16   `json:"activity_type,omitempty"`
+	DeviceIndex         *int16   `json:"device_index,omitempty"`
+	// FIT SDK — Running Dynamics (extended)
+	StepLengthMm            *float64 `json:"step_length_mm,omitempty"`
+	VerticalRatioPct        *float64 `json:"vertical_ratio_pct,omitempty"`
+	StanceTimeBalancePct    *float64 `json:"stance_time_balance_pct,omitempty"`
+	CycleLengthM            *float64 `json:"cycle_length_m,omitempty"`
+	FractionalCadence       *float64 `json:"fractional_cadence,omitempty"`
+	// FIT SDK — Pedal Analytics
+	LeftTorqueEffectivenessPct  *float64 `json:"left_torque_effectiveness_pct,omitempty"`
+	RightTorqueEffectivenessPct *float64 `json:"right_torque_effectiveness_pct,omitempty"`
+	LeftPedalSmoothnessPct      *float64 `json:"left_pedal_smoothness_pct,omitempty"`
+	RightPedalSmoothnessPct     *float64 `json:"right_pedal_smoothness_pct,omitempty"`
+	CombinedPedalSmoothnessPct  *float64 `json:"combined_pedal_smoothness_pct,omitempty"`
+	LeftPcoMm                   *int16   `json:"left_pco_mm,omitempty"`
+	RightPcoMm                  *int16   `json:"right_pco_mm,omitempty"`
+	// FIT SDK — Power Phase
+	LeftPowerPhaseStartDeg     *float64 `json:"left_power_phase_start_deg,omitempty"`
+	LeftPowerPhaseEndDeg       *float64 `json:"left_power_phase_end_deg,omitempty"`
+	LeftPowerPhasePeakStartDeg *float64 `json:"left_power_phase_peak_start_deg,omitempty"`
+	LeftPowerPhasePeakEndDeg   *float64 `json:"left_power_phase_peak_end_deg,omitempty"`
+	RightPowerPhaseStartDeg     *float64 `json:"right_power_phase_start_deg,omitempty"`
+	RightPowerPhaseEndDeg       *float64 `json:"right_power_phase_end_deg,omitempty"`
+	RightPowerPhasePeakStartDeg *float64 `json:"right_power_phase_peak_start_deg,omitempty"`
+	RightPowerPhasePeakEndDeg   *float64 `json:"right_power_phase_peak_end_deg,omitempty"`
+	// FIT SDK — Hemoglobin / Muscle Oxygen
+	TotalHemoglobinConc    *float64 `json:"total_hemoglobin_conc,omitempty"`
+	TotalHemoglobinConcMin *float64 `json:"total_hemoglobin_conc_min,omitempty"`
+	TotalHemoglobinConcMax *float64 `json:"total_hemoglobin_conc_max,omitempty"`
+	SaturatedHemoglobinPct    *float64 `json:"saturated_hemoglobin_pct,omitempty"`
+	SaturatedHemoglobinPctMin *float64 `json:"saturated_hemoglobin_pct_min,omitempty"`
+	SaturatedHemoglobinPctMax *float64 `json:"saturated_hemoglobin_pct_max,omitempty"`
+	// FIT SDK — E-Bike
+	MotorPowerW          *int32 `json:"motor_power_w,omitempty"`
+	EbikeTravelRangeKm   *int32 `json:"ebike_travel_range_km,omitempty"`
+	EbikeBatteryLevelPct *int16 `json:"ebike_battery_level_pct,omitempty"`
+	EbikeAssistMode      *int16 `json:"ebike_assist_mode,omitempty"`
+	EbikeAssistLevelPct  *int16 `json:"ebike_assist_level_pct,omitempty"`
+	// FIT SDK — Health / Stress
+	CoreTemperatureC       *float64 `json:"core_temperature_c,omitempty"`
+	EnhancedRespirationRate *float64 `json:"enhanced_respiration_rate,omitempty"`
+	CurrentStress          *float64 `json:"current_stress,omitempty"`
+	BatterySocPct          *float64 `json:"battery_soc_pct,omitempty"`
+	// FIT SDK — MTB Metrics
+	Grit *float64 `json:"grit,omitempty"`
+	Flow *float64 `json:"flow,omitempty"`
+	// FIT SDK — Racket / Ball Sports
+	StrokeType  *int16   `json:"stroke_type,omitempty"`
+	Zone        *int16   `json:"zone,omitempty"`
+	BallSpeedMs *float64 `json:"ball_speed_ms,omitempty"`
+	// FIT SDK — Diving
+	DepthM             *float64 `json:"depth_m,omitempty"`
+	NextStopDepthM     *float64 `json:"next_stop_depth_m,omitempty"`
+	NextStopTimeS      *int32   `json:"next_stop_time_s,omitempty"`
+	TimeToSurfaceS     *int32   `json:"time_to_surface_s,omitempty"`
+	NdlTimeS           *int32   `json:"ndl_time_s,omitempty"`
+	CnsLoadPct         *int16   `json:"cns_load_pct,omitempty"`
+	N2LoadPct          *int32   `json:"n2_load_pct,omitempty"`
+	AirTimeRemainingS  *int32   `json:"air_time_remaining_s,omitempty"`
+	PressureSac        *float64 `json:"pressure_sac,omitempty"`
+	VolumeSac          *float64 `json:"volume_sac,omitempty"`
+	Rmv                *float64 `json:"rmv,omitempty"`
+	Po2                *float64 `json:"po2,omitempty"`
+	// FIT SDK — Developer Fields
+	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.
@@ -236,6 +463,149 @@ type Activity struct {
 	// Device registry link
 	RecordingDeviceID   *string `json:"recording_device_id,omitempty"`
 	RecordingDeviceName *string `json:"recording_device_name,omitempty"`
+
+	// FIT SDK — Workout FK
+	WorkoutID *string `json:"workout_id,omitempty"`
+
+	// FIT SDK — Movement / Cycles
+	TotalCycles       *int32   `json:"total_cycles,omitempty"`
+	TotalWorkJ        *int32   `json:"total_work_j,omitempty"`
+	TotalFatCalories  *int32   `json:"total_fat_calories,omitempty"`
+	MetabolicCalories *int32   `json:"metabolic_calories,omitempty"`
+	TotalMovingTimeS  *float64 `json:"total_moving_time_s,omitempty"`
+
+	// FIT SDK — Swimming
+	SwimStroke         *string  `json:"swim_stroke,omitempty"`
+	PoolLengthM        *float64 `json:"pool_length_m,omitempty"`
+	PoolLengthUnit     *string  `json:"pool_length_unit,omitempty"`
+	NumLengths         *int32   `json:"num_lengths,omitempty"`
+	NumActiveLengths   *int32   `json:"num_active_lengths,omitempty"`
+	AvgStrokeCount     *float64 `json:"avg_stroke_count,omitempty"`
+	AvgStrokeDistanceM *float64 `json:"avg_stroke_distance_m,omitempty"`
+	StrokeCount        []int32  `json:"stroke_count,omitempty"`
+	ZoneCount          []int32  `json:"zone_count,omitempty"`
+
+	// FIT SDK — Cadence Extended
+	AvgFractionalCadence  *float64 `json:"avg_fractional_cadence,omitempty"`
+	MaxFractionalCadence  *float64 `json:"max_fractional_cadence,omitempty"`
+	TotalFractionalCycles *float64 `json:"total_fractional_cycles,omitempty"`
+
+	// FIT SDK — Running Dynamics
+	AvgVerticalOscillationMm *float64 `json:"avg_vertical_oscillation_mm,omitempty"`
+	AvgStanceTimeMs          *float64 `json:"avg_stance_time_ms,omitempty"`
+	AvgStanceTimePct         *float64 `json:"avg_stance_time_pct,omitempty"`
+	AvgStanceTimeBalancePct  *float64 `json:"avg_stance_time_balance_pct,omitempty"`
+	AvgStepLengthMm          *float64 `json:"avg_step_length_mm,omitempty"`
+	AvgVerticalRatioPct      *float64 `json:"avg_vertical_ratio_pct,omitempty"`
+
+	// FIT SDK — Grade
+	AvgGradePct    *float64 `json:"avg_grade_pct,omitempty"`
+	AvgPosGradePct *float64 `json:"avg_pos_grade_pct,omitempty"`
+	AvgNegGradePct *float64 `json:"avg_neg_grade_pct,omitempty"`
+	MaxPosGradePct *float64 `json:"max_pos_grade_pct,omitempty"`
+	MaxNegGradePct *float64 `json:"max_neg_grade_pct,omitempty"`
+
+	// FIT SDK — Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"avg_pos_vertical_speed_ms,omitempty"`
+	AvgNegVerticalSpeedMs *float64 `json:"avg_neg_vertical_speed_ms,omitempty"`
+	MaxPosVerticalSpeedMs *float64 `json:"max_pos_vertical_speed_ms,omitempty"`
+	MaxNegVerticalSpeedMs *float64 `json:"max_neg_vertical_speed_ms,omitempty"`
+	AvgVamMs              *float64 `json:"avg_vam_ms,omitempty"`
+
+	// FIT SDK — Altitude Extended
+	AvgAltitudeM            *float64 `json:"avg_altitude_m,omitempty"`
+	TotalFractionalAscentM  *float64 `json:"total_fractional_ascent_m,omitempty"`
+	TotalFractionalDescentM *float64 `json:"total_fractional_descent_m,omitempty"`
+
+	// FIT SDK — Pedal Analytics (15)
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"avg_left_torque_effectiveness_pct,omitempty"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"avg_right_torque_effectiveness_pct,omitempty"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"avg_left_pedal_smoothness_pct,omitempty"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"avg_right_pedal_smoothness_pct,omitempty"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"avg_combined_pedal_smoothness_pct,omitempty"`
+	AvgLeftPcoMm                   *int16   `json:"avg_left_pco_mm,omitempty"`
+	AvgRightPcoMm                  *int16   `json:"avg_right_pco_mm,omitempty"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"avg_left_power_phase_start_deg,omitempty"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"avg_left_power_phase_end_deg,omitempty"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"avg_left_power_phase_peak_start_deg,omitempty"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"avg_left_power_phase_peak_end_deg,omitempty"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"avg_right_power_phase_start_deg,omitempty"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"avg_right_power_phase_end_deg,omitempty"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"avg_right_power_phase_peak_start_deg,omitempty"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"avg_right_power_phase_peak_end_deg,omitempty"`
+
+	// FIT SDK — Power/Cadence by Position
+	AvgPowerPositionW  []int32 `json:"avg_power_position_w,omitempty"`
+	MaxPowerPositionW  []int32 `json:"max_power_position_w,omitempty"`
+	AvgCadencePosition []int16 `json:"avg_cadence_position,omitempty"`
+	MaxCadencePosition []int16 `json:"max_cadence_position,omitempty"`
+
+	// FIT SDK — Standing/Sitting
+	TimeStandingS *float64 `json:"time_standing_s,omitempty"`
+	StandCount    *int32   `json:"stand_count,omitempty"`
+
+	// FIT SDK — E-Bike
+	AvgLevMotorPowerW        *int32   `json:"avg_lev_motor_power_w,omitempty"`
+	MaxLevMotorPowerW        *int32   `json:"max_lev_motor_power_w,omitempty"`
+	LevBatteryConsumptionPct *float64 `json:"lev_battery_consumption_pct,omitempty"`
+
+	// FIT SDK — MTB Grit/Flow
+	TotalGrit *float64 `json:"total_grit,omitempty"`
+	TotalFlow *float64 `json:"total_flow,omitempty"`
+	AvgGrit   *float64 `json:"avg_grit,omitempty"`
+	AvgFlow   *float64 `json:"avg_flow,omitempty"`
+
+	// FIT SDK — Jumps
+	JumpCount *int32 `json:"jump_count,omitempty"`
+
+	// FIT SDK — Ball Sports
+	MaxBallSpeedMs *float64 `json:"max_ball_speed_ms,omitempty"`
+	AvgBallSpeedMs *float64 `json:"avg_ball_speed_ms,omitempty"`
+	PlayerScore    *int32   `json:"player_score,omitempty"`
+	OpponentScore  *int32   `json:"opponent_score,omitempty"`
+	OpponentName   *string  `json:"opponent_name,omitempty"`
+
+	// FIT SDK — Hemoglobin (arrays for multi-sensor)
+	AvgTotalHemoglobinConc    []float64 `json:"avg_total_hemoglobin_conc,omitempty"`
+	MinTotalHemoglobinConc    []float64 `json:"min_total_hemoglobin_conc,omitempty"`
+	MaxTotalHemoglobinConc    []float64 `json:"max_total_hemoglobin_conc,omitempty"`
+	AvgSaturatedHemoglobinPct []float64 `json:"avg_saturated_hemoglobin_pct,omitempty"`
+	MinSaturatedHemoglobinPct []float64 `json:"min_saturated_hemoglobin_pct,omitempty"`
+	MaxSaturatedHemoglobinPct []float64 `json:"max_saturated_hemoglobin_pct,omitempty"`
+
+	// FIT SDK — Diving
+	AvgDepthM        *float64 `json:"avg_depth_m,omitempty"`
+	MaxDepthM        *float64 `json:"max_depth_m,omitempty"`
+	SurfaceIntervalS *int32   `json:"surface_interval_s,omitempty"`
+	DiveNumber       *int32   `json:"dive_number,omitempty"`
+	StartCnsPct      *int16   `json:"start_cns_pct,omitempty"`
+	EndCnsPct        *int16   `json:"end_cns_pct,omitempty"`
+	StartN2Pct       *int32   `json:"start_n2_pct,omitempty"`
+	EndN2Pct         *int32   `json:"end_n2_pct,omitempty"`
+	O2ToxicityOtu    *int32   `json:"o2_toxicity_otu,omitempty"`
+
+	// FIT SDK — Respiration / HRV Extended
+	MaxRespirationRate *float64 `json:"max_respiration_rate,omitempty"`
+	MinRespirationRate *float64 `json:"min_respiration_rate,omitempty"`
+	SdrrHrvMs          *int16   `json:"sdrr_hrv_ms,omitempty"`
+
+	// FIT SDK — Temperature Extended
+	MinCoreTemperatureC *float64 `json:"min_core_temperature_c,omitempty"`
+	MaxCoreTemperatureC *float64 `json:"max_core_temperature_c,omitempty"`
+
+	// FIT SDK — Misc
+	AvgLapTimeS      *float64 `json:"avg_lap_time_s,omitempty"`
+	BestLapIndex     *int16   `json:"best_lap_index,omitempty"`
+	NumLaps          *int32   `json:"num_laps,omitempty"`
+	FirstLapIndex    *int32   `json:"first_lap_index,omitempty"`
+	IntensityFactor  *float64 `json:"intensity_factor,omitempty"`
+	LeftRightBalance *float64 `json:"left_right_balance,omitempty"`
+	SportProfileName *string  `json:"sport_profile_name,omitempty"`
+	SportIndex       *int16   `json:"sport_index,omitempty"`
+	NecLat           *float64 `json:"nec_lat,omitempty"`
+	NecLng           *float64 `json:"nec_lng,omitempty"`
+	SwcLat           *float64 `json:"swc_lat,omitempty"`
+	SwcLng           *float64 `json:"swc_lng,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
@@ -308,6 +678,82 @@ type StreamResponse struct {
 	VerticalOscillationMm *int16   `json:"vertical_oscillation_mm,omitempty"`
 	StanceTimePercent     *float32 `json:"stance_time_percent,omitempty"`
 	LeftRightBalance      *int16   `json:"left_right_balance,omitempty"`
+	// FIT SDK — Terrain & Movement
+	GradePct            *float64 `json:"grade_pct,omitempty"`
+	VerticalSpeedMs     *float64 `json:"vertical_speed_ms,omitempty"`
+	GpsAccuracyM        *int16   `json:"gps_accuracy_m,omitempty"`
+	Calories            *int32   `json:"calories,omitempty"`
+	Resistance          *int16   `json:"resistance,omitempty"`
+	TotalCycles         *int32   `json:"total_cycles,omitempty"`
+	AccumulatedPowerW   *int32   `json:"accumulated_power_w,omitempty"`
+	AbsolutePressurePa  *int32   `json:"absolute_pressure_pa,omitempty"`
+	AscentRateMs        *float64 `json:"ascent_rate_ms,omitempty"`
+	TimeFromCourseS     *float64 `json:"time_from_course_s,omitempty"`
+	ActivityType        *int16   `json:"activity_type,omitempty"`
+	DeviceIndex         *int16   `json:"device_index,omitempty"`
+	// FIT SDK — Running Dynamics (extended)
+	StepLengthMm            *float64 `json:"step_length_mm,omitempty"`
+	VerticalRatioPct        *float64 `json:"vertical_ratio_pct,omitempty"`
+	StanceTimeBalancePct    *float64 `json:"stance_time_balance_pct,omitempty"`
+	CycleLengthM            *float64 `json:"cycle_length_m,omitempty"`
+	FractionalCadence       *float64 `json:"fractional_cadence,omitempty"`
+	// FIT SDK — Pedal Analytics
+	LeftTorqueEffectivenessPct  *float64 `json:"left_torque_effectiveness_pct,omitempty"`
+	RightTorqueEffectivenessPct *float64 `json:"right_torque_effectiveness_pct,omitempty"`
+	LeftPedalSmoothnessPct      *float64 `json:"left_pedal_smoothness_pct,omitempty"`
+	RightPedalSmoothnessPct     *float64 `json:"right_pedal_smoothness_pct,omitempty"`
+	CombinedPedalSmoothnessPct  *float64 `json:"combined_pedal_smoothness_pct,omitempty"`
+	LeftPcoMm                   *int16   `json:"left_pco_mm,omitempty"`
+	RightPcoMm                  *int16   `json:"right_pco_mm,omitempty"`
+	// FIT SDK — Power Phase
+	LeftPowerPhaseStartDeg     *float64 `json:"left_power_phase_start_deg,omitempty"`
+	LeftPowerPhaseEndDeg       *float64 `json:"left_power_phase_end_deg,omitempty"`
+	LeftPowerPhasePeakStartDeg *float64 `json:"left_power_phase_peak_start_deg,omitempty"`
+	LeftPowerPhasePeakEndDeg   *float64 `json:"left_power_phase_peak_end_deg,omitempty"`
+	RightPowerPhaseStartDeg     *float64 `json:"right_power_phase_start_deg,omitempty"`
+	RightPowerPhaseEndDeg       *float64 `json:"right_power_phase_end_deg,omitempty"`
+	RightPowerPhasePeakStartDeg *float64 `json:"right_power_phase_peak_start_deg,omitempty"`
+	RightPowerPhasePeakEndDeg   *float64 `json:"right_power_phase_peak_end_deg,omitempty"`
+	// FIT SDK — Hemoglobin / Muscle Oxygen
+	TotalHemoglobinConc    *float64 `json:"total_hemoglobin_conc,omitempty"`
+	TotalHemoglobinConcMin *float64 `json:"total_hemoglobin_conc_min,omitempty"`
+	TotalHemoglobinConcMax *float64 `json:"total_hemoglobin_conc_max,omitempty"`
+	SaturatedHemoglobinPct    *float64 `json:"saturated_hemoglobin_pct,omitempty"`
+	SaturatedHemoglobinPctMin *float64 `json:"saturated_hemoglobin_pct_min,omitempty"`
+	SaturatedHemoglobinPctMax *float64 `json:"saturated_hemoglobin_pct_max,omitempty"`
+	// FIT SDK — E-Bike
+	MotorPowerW          *int32 `json:"motor_power_w,omitempty"`
+	EbikeTravelRangeKm   *int32 `json:"ebike_travel_range_km,omitempty"`
+	EbikeBatteryLevelPct *int16 `json:"ebike_battery_level_pct,omitempty"`
+	EbikeAssistMode      *int16 `json:"ebike_assist_mode,omitempty"`
+	EbikeAssistLevelPct  *int16 `json:"ebike_assist_level_pct,omitempty"`
+	// FIT SDK — Health / Stress
+	CoreTemperatureC       *float64 `json:"core_temperature_c,omitempty"`
+	EnhancedRespirationRate *float64 `json:"enhanced_respiration_rate,omitempty"`
+	CurrentStress          *float64 `json:"current_stress,omitempty"`
+	BatterySocPct          *float64 `json:"battery_soc_pct,omitempty"`
+	// FIT SDK — MTB Metrics
+	Grit *float64 `json:"grit,omitempty"`
+	Flow *float64 `json:"flow,omitempty"`
+	// FIT SDK — Racket / Ball Sports
+	StrokeType  *int16   `json:"stroke_type,omitempty"`
+	Zone        *int16   `json:"zone,omitempty"`
+	BallSpeedMs *float64 `json:"ball_speed_ms,omitempty"`
+	// FIT SDK — Diving
+	DepthM             *float64 `json:"depth_m,omitempty"`
+	NextStopDepthM     *float64 `json:"next_stop_depth_m,omitempty"`
+	NextStopTimeS      *int32   `json:"next_stop_time_s,omitempty"`
+	TimeToSurfaceS     *int32   `json:"time_to_surface_s,omitempty"`
+	NdlTimeS           *int32   `json:"ndl_time_s,omitempty"`
+	CnsLoadPct         *int16   `json:"cns_load_pct,omitempty"`
+	N2LoadPct          *int32   `json:"n2_load_pct,omitempty"`
+	AirTimeRemainingS  *int32   `json:"air_time_remaining_s,omitempty"`
+	PressureSac        *float64 `json:"pressure_sac,omitempty"`
+	VolumeSac          *float64 `json:"volume_sac,omitempty"`
+	Rmv                *float64 `json:"rmv,omitempty"`
+	Po2                *float64 `json:"po2,omitempty"`
+	// FIT SDK — Developer Fields
+	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
 
 // SensorResponse is the API response for the sensors endpoint.
@@ -329,6 +775,7 @@ type SensorResponse struct {
 
 // LapRecord holds extracted lap data from FIT lap messages.
 type LapRecord struct {
+	ID                string // client-side UUID, generated before INSERT
 	MessageIndex      int
 	StartTime         time.Time
 	EndTime           time.Time
@@ -365,6 +812,102 @@ type LapRecord struct {
 	AvgAltitudeM      float64
 	MaxAltitudeM      float64
 	MinAltitudeM      float64
+	// FIT SDK — Cycles/Strokes
+	TotalCycles           *int32   `json:"-"`
+	TotalFatCalories      *int32   `json:"-"`
+	AvgStrokeDistanceM    *float64 `json:"-"`
+	FirstLengthIndex      *int32   `json:"-"`
+	AvgFractionalCadence  *float64 `json:"-"`
+	MaxFractionalCadence  *float64 `json:"-"`
+	TotalFractionalCycles *float64 `json:"-"`
+	StrokeCount           []int32  `json:"-"`
+	ZoneCount             []int32  `json:"-"`
+	// FIT SDK — Running Dynamics
+	AvgVerticalOscillationMm *float64 `json:"-"`
+	AvgStanceTimeMs          *float64 `json:"-"`
+	AvgStanceTimePct         *float64 `json:"-"`
+	AvgStanceTimeBalancePct  *float64 `json:"-"`
+	AvgStepLengthMm          *float64 `json:"-"`
+	AvgVerticalRatioPct      *float64 `json:"-"`
+	// FIT SDK — Grade
+	AvgGradePct    *float64 `json:"-"`
+	AvgPosGradePct *float64 `json:"-"`
+	AvgNegGradePct *float64 `json:"-"`
+	MaxPosGradePct *float64 `json:"-"`
+	MaxNegGradePct *float64 `json:"-"`
+	// FIT SDK — Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"-"`
+	AvgNegVerticalSpeedMs *float64 `json:"-"`
+	MaxPosVerticalSpeedMs *float64 `json:"-"`
+	MaxNegVerticalSpeedMs *float64 `json:"-"`
+	AvgVamMs              *float64 `json:"-"`
+	// FIT SDK — Temperature Extended
+	MaxTemperatureC     *int16   `json:"-"`
+	MinTemperatureC     *int16   `json:"-"`
+	AvgCoreTemperatureC *float64 `json:"-"`
+	MinCoreTemperatureC *float64 `json:"-"`
+	MaxCoreTemperatureC *float64 `json:"-"`
+	// FIT SDK — Pedal Analytics (15)
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"-"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"-"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"-"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"-"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"-"`
+	AvgLeftPcoMm                   *int16   `json:"-"`
+	AvgRightPcoMm                  *int16   `json:"-"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"-"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"-"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"-"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"-"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"-"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"-"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"-"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"-"`
+	// FIT SDK — Power/Cadence by Position
+	AvgPowerPositionW  []int32 `json:"-"`
+	MaxPowerPositionW  []int32 `json:"-"`
+	AvgCadencePosition []int16 `json:"-"`
+	MaxCadencePosition []int16 `json:"-"`
+	// FIT SDK — Standing/Sitting
+	TimeStandingS *float64 `json:"-"`
+	StandCount    *int32   `json:"-"`
+	// FIT SDK — L/R Balance
+	LeftRightBalance *float64 `json:"-"`
+	// FIT SDK — E-Bike
+	AvgLevMotorPowerW        *int32   `json:"-"`
+	MaxLevMotorPowerW        *int32   `json:"-"`
+	LevBatteryConsumptionPct *float64 `json:"-"`
+	// FIT SDK — Grit/Flow
+	TotalGrit *float64 `json:"-"`
+	TotalFlow *float64 `json:"-"`
+	AvgGrit   *float64 `json:"-"`
+	AvgFlow   *float64 `json:"-"`
+	// FIT SDK — Jumps
+	JumpCount *int32 `json:"-"`
+	// FIT SDK — Scores
+	PlayerScore   *int32 `json:"-"`
+	OpponentScore *int32 `json:"-"`
+	// FIT SDK — Hemoglobin (arrays for multi-sensor)
+	AvgTotalHemoglobinConc    []float64 `json:"-"`
+	MinTotalHemoglobinConc    []float64 `json:"-"`
+	MaxTotalHemoglobinConc    []float64 `json:"-"`
+	AvgSaturatedHemoglobinPct []float64 `json:"-"`
+	MinSaturatedHemoglobinPct []float64 `json:"-"`
+	MaxSaturatedHemoglobinPct []float64 `json:"-"`
+	// FIT SDK — Diving
+	AvgDepthM *float64 `json:"-"`
+	MaxDepthM *float64 `json:"-"`
+	// FIT SDK — Respiration
+	AvgRespirationRate *float64 `json:"-"`
+	MaxRespirationRate *float64 `json:"-"`
+	// FIT SDK — Altitude Extended
+	TotalFractionalAscentM  *float64 `json:"-"`
+	TotalFractionalDescentM *float64 `json:"-"`
+	// FIT SDK — Misc
+	RepetitionNum *int32 `json:"-"`
+	WktStepIndex  *int16 `json:"-"`
+	EventGroup    *int16 `json:"-"`
+	GpsAccuracyM  *int16 `json:"-"`
 }
 
 // LapResponse is the API response for a single lap.
@@ -406,6 +949,102 @@ type LapResponse struct {
 	AvgAltitudeM      *float64   `json:"avg_altitude_m,omitempty"`
 	MaxAltitudeM      *float64   `json:"max_altitude_m,omitempty"`
 	MinAltitudeM      *float64   `json:"min_altitude_m,omitempty"`
+	// FIT SDK — Cycles/Strokes
+	TotalCycles           *int32   `json:"total_cycles,omitempty"`
+	TotalFatCalories      *int32   `json:"total_fat_calories,omitempty"`
+	AvgStrokeDistanceM    *float64 `json:"avg_stroke_distance_m,omitempty"`
+	FirstLengthIndex      *int32   `json:"first_length_index,omitempty"`
+	AvgFractionalCadence  *float64 `json:"avg_fractional_cadence,omitempty"`
+	MaxFractionalCadence  *float64 `json:"max_fractional_cadence,omitempty"`
+	TotalFractionalCycles *float64 `json:"total_fractional_cycles,omitempty"`
+	StrokeCount           []int32  `json:"stroke_count,omitempty"`
+	ZoneCount             []int32  `json:"zone_count,omitempty"`
+	// FIT SDK — Running Dynamics
+	AvgVerticalOscillationMm *float64 `json:"avg_vertical_oscillation_mm,omitempty"`
+	AvgStanceTimeMs          *float64 `json:"avg_stance_time_ms,omitempty"`
+	AvgStanceTimePct         *float64 `json:"avg_stance_time_pct,omitempty"`
+	AvgStanceTimeBalancePct  *float64 `json:"avg_stance_time_balance_pct,omitempty"`
+	AvgStepLengthMm          *float64 `json:"avg_step_length_mm,omitempty"`
+	AvgVerticalRatioPct      *float64 `json:"avg_vertical_ratio_pct,omitempty"`
+	// FIT SDK — Grade
+	AvgGradePct    *float64 `json:"avg_grade_pct,omitempty"`
+	AvgPosGradePct *float64 `json:"avg_pos_grade_pct,omitempty"`
+	AvgNegGradePct *float64 `json:"avg_neg_grade_pct,omitempty"`
+	MaxPosGradePct *float64 `json:"max_pos_grade_pct,omitempty"`
+	MaxNegGradePct *float64 `json:"max_neg_grade_pct,omitempty"`
+	// FIT SDK — Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"avg_pos_vertical_speed_ms,omitempty"`
+	AvgNegVerticalSpeedMs *float64 `json:"avg_neg_vertical_speed_ms,omitempty"`
+	MaxPosVerticalSpeedMs *float64 `json:"max_pos_vertical_speed_ms,omitempty"`
+	MaxNegVerticalSpeedMs *float64 `json:"max_neg_vertical_speed_ms,omitempty"`
+	AvgVamMs              *float64 `json:"avg_vam_ms,omitempty"`
+	// FIT SDK — Temperature Extended
+	MaxTemperatureC     *int16   `json:"max_temperature_c,omitempty"`
+	MinTemperatureC     *int16   `json:"min_temperature_c,omitempty"`
+	AvgCoreTemperatureC *float64 `json:"avg_core_temperature_c,omitempty"`
+	MinCoreTemperatureC *float64 `json:"min_core_temperature_c,omitempty"`
+	MaxCoreTemperatureC *float64 `json:"max_core_temperature_c,omitempty"`
+	// FIT SDK — Pedal Analytics (15)
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"avg_left_torque_effectiveness_pct,omitempty"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"avg_right_torque_effectiveness_pct,omitempty"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"avg_left_pedal_smoothness_pct,omitempty"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"avg_right_pedal_smoothness_pct,omitempty"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"avg_combined_pedal_smoothness_pct,omitempty"`
+	AvgLeftPcoMm                   *int16   `json:"avg_left_pco_mm,omitempty"`
+	AvgRightPcoMm                  *int16   `json:"avg_right_pco_mm,omitempty"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"avg_left_power_phase_start_deg,omitempty"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"avg_left_power_phase_end_deg,omitempty"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"avg_left_power_phase_peak_start_deg,omitempty"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"avg_left_power_phase_peak_end_deg,omitempty"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"avg_right_power_phase_start_deg,omitempty"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"avg_right_power_phase_end_deg,omitempty"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"avg_right_power_phase_peak_start_deg,omitempty"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"avg_right_power_phase_peak_end_deg,omitempty"`
+	// FIT SDK — Power/Cadence by Position
+	AvgPowerPositionW  []int32 `json:"avg_power_position_w,omitempty"`
+	MaxPowerPositionW  []int32 `json:"max_power_position_w,omitempty"`
+	AvgCadencePosition []int16 `json:"avg_cadence_position,omitempty"`
+	MaxCadencePosition []int16 `json:"max_cadence_position,omitempty"`
+	// FIT SDK — Standing/Sitting
+	TimeStandingS *float64 `json:"time_standing_s,omitempty"`
+	StandCount    *int32   `json:"stand_count,omitempty"`
+	// FIT SDK — L/R Balance
+	LeftRightBalance *float64 `json:"left_right_balance,omitempty"`
+	// FIT SDK — E-Bike
+	AvgLevMotorPowerW        *int32   `json:"avg_lev_motor_power_w,omitempty"`
+	MaxLevMotorPowerW        *int32   `json:"max_lev_motor_power_w,omitempty"`
+	LevBatteryConsumptionPct *float64 `json:"lev_battery_consumption_pct,omitempty"`
+	// FIT SDK — Grit/Flow
+	TotalGrit *float64 `json:"total_grit,omitempty"`
+	TotalFlow *float64 `json:"total_flow,omitempty"`
+	AvgGrit   *float64 `json:"avg_grit,omitempty"`
+	AvgFlow   *float64 `json:"avg_flow,omitempty"`
+	// FIT SDK — Jumps
+	JumpCount *int32 `json:"jump_count,omitempty"`
+	// FIT SDK — Scores
+	PlayerScore   *int32 `json:"player_score,omitempty"`
+	OpponentScore *int32 `json:"opponent_score,omitempty"`
+	// FIT SDK — Hemoglobin (arrays for multi-sensor)
+	AvgTotalHemoglobinConc    []float64 `json:"avg_total_hemoglobin_conc,omitempty"`
+	MinTotalHemoglobinConc    []float64 `json:"min_total_hemoglobin_conc,omitempty"`
+	MaxTotalHemoglobinConc    []float64 `json:"max_total_hemoglobin_conc,omitempty"`
+	AvgSaturatedHemoglobinPct []float64 `json:"avg_saturated_hemoglobin_pct,omitempty"`
+	MinSaturatedHemoglobinPct []float64 `json:"min_saturated_hemoglobin_pct,omitempty"`
+	MaxSaturatedHemoglobinPct []float64 `json:"max_saturated_hemoglobin_pct,omitempty"`
+	// FIT SDK — Diving
+	AvgDepthM *float64 `json:"avg_depth_m,omitempty"`
+	MaxDepthM *float64 `json:"max_depth_m,omitempty"`
+	// FIT SDK — Respiration
+	AvgRespirationRate *float64 `json:"avg_respiration_rate,omitempty"`
+	MaxRespirationRate *float64 `json:"max_respiration_rate,omitempty"`
+	// FIT SDK — Altitude Extended
+	TotalFractionalAscentM  *float64 `json:"total_fractional_ascent_m,omitempty"`
+	TotalFractionalDescentM *float64 `json:"total_fractional_descent_m,omitempty"`
+	// FIT SDK — Misc
+	RepetitionNum *int32 `json:"repetition_num,omitempty"`
+	WktStepIndex  *int16 `json:"wkt_step_index,omitempty"`
+	EventGroup    *int16 `json:"event_group,omitempty"`
+	GpsAccuracyM  *int16 `json:"gps_accuracy_m,omitempty"`
 }
 
 // SplitRecord holds extracted split data from FIT split messages.
@@ -515,6 +1154,8 @@ type LengthRecord struct {
 	AvgSwimmingCadence int
 	SwimStroke         string
 	LengthType         string
+	// FIT SDK — Stroke Count per stroke type
+	StrokeCount []int16 `json:"-"`
 }
 
 // LengthResponse is the API response for a single swim length.
@@ -1137,10 +1778,12 @@ type TagActivity struct {
 
 // TimeInZoneData represents time spent in a specific training zone.
 type TimeInZoneData struct {
-	ZoneType  string // "hr", "power", "speed", "cadence"
-	ZoneIndex int
-	ZoneHigh  float64 // zone upper boundary (bpm / watts / m/s / rpm)
-	Seconds   int
+	ZoneType     string  // "hr", "power", "speed", "cadence"
+	ZoneIndex    int
+	ZoneHigh     float64 // zone upper boundary (bpm / watts / m/s / rpm)
+	Seconds      int
+	LapID        *string `json:"lap_id,omitempty"`
+	SegmentLapID *string `json:"segment_lap_id,omitempty"`
 }
 
 // UserProfileImport holds data extracted from FIT user_profile + zones_target messages.
@@ -1240,4 +1883,234 @@ func DefaultWeatherPrefs() WeatherPrefs {
 			"wind_speed_ms", "humidity", "condition",
 		},
 	}
+}
+
+// EventRecord holds extracted event data from FIT event messages.
+// Maps to activity_events table (Spec 4.1).
+type EventRecord struct {
+	Timestamp                       time.Time  `json:"timestamp"`
+	Event                           int16      `json:"event"`
+	EventType                       int16      `json:"event_type"`
+	EventGroup                      *int16     `json:"event_group,omitempty"`
+	Data                            *int64     `json:"data,omitempty"`
+	FrontGearNum                    *int16     `json:"front_gear_num,omitempty"`
+	FrontGear                       *int16     `json:"front_gear,omitempty"`
+	RearGearNum                     *int16     `json:"rear_gear_num,omitempty"`
+	RearGear                        *int16     `json:"rear_gear,omitempty"`
+	RadarThreatLevelMax             *int16     `json:"radar_threat_level_max,omitempty"`
+	RadarThreatCount                *int16     `json:"radar_threat_count,omitempty"`
+	RadarThreatAvgApproachSpeedMs   *float64   `json:"radar_threat_avg_approach_speed_ms,omitempty"`
+	RadarThreatMaxApproachSpeedMs   *float64   `json:"radar_threat_max_approach_speed_ms,omitempty"`
+	Score                           *int32     `json:"score,omitempty"`
+	OpponentScore                   *int32     `json:"opponent_score,omitempty"`
+	DeviceIndex                     *int16     `json:"device_index,omitempty"`
+	ActivityType                    *int16     `json:"activity_type,omitempty"`
+	StartTimestamp                  *time.Time `json:"start_timestamp,omitempty"`
+}
+
+// SetRecord holds extracted set data from FIT set messages.
+// Maps to activity_sets table (Spec 4.2).
+type SetRecord struct {
+	MessageIndex       int16      `json:"message_index"`
+	Timestamp          *time.Time `json:"timestamp,omitempty"`
+	StartTime          *time.Time `json:"start_time,omitempty"`
+	DurationS          *float64   `json:"duration_s,omitempty"`
+	SetType            *int16     `json:"set_type,omitempty"`
+	Repetitions        *int32     `json:"repetitions,omitempty"`
+	WeightKg           *float64   `json:"weight_kg,omitempty"`
+	WeightDisplayUnit  *int16     `json:"weight_display_unit,omitempty"`
+	ExerciseCategories []int16    `json:"exercise_categories,omitempty"`
+	ExerciseSubtypes   []int16    `json:"exercise_subtypes,omitempty"`
+	WktStepIndex       *int16     `json:"wkt_step_index,omitempty"`
+}
+
+// JumpRecord holds extracted jump data from FIT jump messages.
+// Maps to activity_jumps table (Spec 4.3).
+type JumpRecord struct {
+	Timestamp  time.Time `json:"timestamp"`
+	DistanceM  *float64  `json:"distance_m,omitempty"`
+	HeightM    *float64  `json:"height_m,omitempty"`
+	HangTimeS  *float64  `json:"hang_time_s,omitempty"`
+	Score      *float64  `json:"score,omitempty"`
+	Rotations  *int16    `json:"rotations,omitempty"`
+	SpeedMs    *float64  `json:"speed_ms,omitempty"`
+	Lat        *float64  `json:"lat,omitempty"`
+	Lng        *float64  `json:"lng,omitempty"`
+}
+
+// HrDataRecord holds extracted high-resolution HR data from FIT hr messages.
+// Maps to activity_hr_data table (Spec 4.4).
+type HrDataRecord struct {
+	Timestamp            time.Time `json:"timestamp"`
+	FractionalTimestamp  *float64  `json:"fractional_timestamp,omitempty"`
+	FilteredBpm          []int16   `json:"filtered_bpm,omitempty"`
+	EventTimestamp       []float64 `json:"event_timestamp,omitempty"`
+}
+
+// SegmentLapRecord holds extracted segment lap data from FIT segment_lap messages.
+// Maps to activity_segment_laps table (Spec 4.6, ~90 fields).
+type SegmentLapRecord struct {
+	ID           string // client-side UUID, generated before INSERT
+	MessageIndex int16
+	Timestamp    *time.Time `json:"-"`
+	StartTime    *time.Time `json:"-"`
+	Name         *string    `json:"-"`
+	UUID         *string    `json:"-"`
+	Status       *int16     `json:"-"`
+	Manufacturer *int16     `json:"-"`
+	Sport        *int16     `json:"-"`
+	SubSport     *int16     `json:"-"`
+	Event        *int16     `json:"-"`
+	EventType    *int16     `json:"-"`
+	EventGroup   *int16     `json:"-"`
+	SportEvent   *int16     `json:"-"`
+	// GPS
+	StartLat *float64 `json:"-"`
+	StartLng *float64 `json:"-"`
+	EndLat   *float64 `json:"-"`
+	EndLng   *float64 `json:"-"`
+	NecLat   *float64 `json:"-"`
+	NecLng   *float64 `json:"-"`
+	SwcLat   *float64 `json:"-"`
+	SwcLng   *float64 `json:"-"`
+	// Time
+	TotalElapsedTimeS *float64 `json:"-"`
+	TotalTimerTimeS   *float64 `json:"-"`
+	TotalMovingTimeS  *float64 `json:"-"`
+	ActiveTimeS       *float64 `json:"-"`
+	// Distance / Elevation
+	TotalDistanceM          *float64 `json:"-"`
+	TotalAscentM            *int32   `json:"-"`
+	TotalDescentM           *int32   `json:"-"`
+	TotalCycles             *int32   `json:"-"`
+	TotalWorkJ              *int32   `json:"-"`
+	AvgAltitudeM            *float64 `json:"-"`
+	MaxAltitudeM            *float64 `json:"-"`
+	MinAltitudeM            *float64 `json:"-"`
+	TotalFractionalAscentM  *float64 `json:"-"`
+	TotalFractionalDescentM *float64 `json:"-"`
+	// Speed
+	AvgSpeedMs *float64 `json:"-"`
+	MaxSpeedMs *float64 `json:"-"`
+	// Heart Rate
+	AvgHeartRate *int16 `json:"-"`
+	MaxHeartRate *int16 `json:"-"`
+	MinHeartRate *int16 `json:"-"`
+	// Cadence
+	AvgCadence            *int16   `json:"-"`
+	MaxCadence            *int16   `json:"-"`
+	AvgFractionalCadence  *float64 `json:"-"`
+	MaxFractionalCadence  *float64 `json:"-"`
+	TotalFractionalCycles *float64 `json:"-"`
+	// Power
+	AvgPowerW        *int16   `json:"-"`
+	MaxPowerW        *int16   `json:"-"`
+	NormalizedPowerW *int16   `json:"-"`
+	LeftRightBalance *float64 `json:"-"`
+	// Grade
+	AvgGradePct    *float64 `json:"-"`
+	AvgPosGradePct *float64 `json:"-"`
+	AvgNegGradePct *float64 `json:"-"`
+	MaxPosGradePct *float64 `json:"-"`
+	MaxNegGradePct *float64 `json:"-"`
+	// Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"-"`
+	AvgNegVerticalSpeedMs *float64 `json:"-"`
+	MaxPosVerticalSpeedMs *float64 `json:"-"`
+	MaxNegVerticalSpeedMs *float64 `json:"-"`
+	// Temperature
+	AvgTemperatureC *int16 `json:"-"`
+	MaxTemperatureC *int16 `json:"-"`
+	GpsAccuracyM    *int16 `json:"-"`
+	// Calories
+	TotalCalories    *int32 `json:"-"`
+	TotalFatCalories *int32 `json:"-"`
+	// Pedal Analytics
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"-"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"-"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"-"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"-"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"-"`
+	AvgLeftPcoMm                   *int16   `json:"-"`
+	AvgRightPcoMm                  *int16   `json:"-"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"-"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"-"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"-"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"-"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"-"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"-"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"-"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"-"`
+	// Power/Cadence by Position
+	AvgPowerPositionW  []int32 `json:"-"`
+	MaxPowerPositionW  []int32 `json:"-"`
+	AvgCadencePosition []int16 `json:"-"`
+	MaxCadencePosition []int16 `json:"-"`
+	// Standing / Sitting
+	TimeStandingS *float64 `json:"-"`
+	StandCount    *int32   `json:"-"`
+	// Gear Shifts
+	FrontGearShiftCount *int32 `json:"-"`
+	RearGearShiftCount  *int32 `json:"-"`
+	// Grit / Flow
+	TotalGrit *float64 `json:"-"`
+	TotalFlow *float64 `json:"-"`
+	AvgGrit   *float64 `json:"-"`
+	AvgFlow   *float64 `json:"-"`
+	// Misc
+	RepetitionNum *int32 `json:"-"`
+	WktStepIndex  *int16 `json:"-"`
+}
+
+// WorkoutRecord holds structured workout data from FIT workout messages.
+// Maps to workouts table (Spec 4.5).
+type WorkoutRecord struct {
+	Name           *string  `json:"name,omitempty"`
+	Description    *string  `json:"description,omitempty"`
+	Sport          *int16   `json:"sport,omitempty"`
+	SubSport       *int16   `json:"sub_sport,omitempty"`
+	Capabilities   *int64   `json:"capabilities,omitempty"`
+	NumValidSteps  *int16   `json:"num_valid_steps,omitempty"`
+	PoolLengthM    *float64 `json:"pool_length_m,omitempty"`
+	PoolLengthUnit *string  `json:"pool_length_unit,omitempty"`
+	SourceHash     string   `json:"source_hash"`
+}
+
+// WorkoutStepRecord holds structured workout step data from FIT workout_step messages.
+// Maps to workout_steps table (Spec 4.5).
+type WorkoutStepRecord struct {
+	MessageIndex             int16    `json:"message_index"`
+	StepName                 *string  `json:"step_name,omitempty"`
+	Notes                    *string  `json:"notes,omitempty"`
+	DurationType             *int16   `json:"duration_type,omitempty"`
+	DurationValue            *int32   `json:"duration_value,omitempty"`
+	TargetType               *int16   `json:"target_type,omitempty"`
+	TargetValue              *int32   `json:"target_value,omitempty"`
+	CustomTargetLow          *int32   `json:"custom_target_low,omitempty"`
+	CustomTargetHigh         *int32   `json:"custom_target_high,omitempty"`
+	Intensity                *int16   `json:"intensity,omitempty"`
+	ExerciseCategory         *int16   `json:"exercise_category,omitempty"`
+	ExerciseName             *int16   `json:"exercise_name,omitempty"`
+	ExerciseWeightKg         *float64 `json:"exercise_weight_kg,omitempty"`
+	WeightDisplayUnit        *int16   `json:"weight_display_unit,omitempty"`
+	Equipment                *int16   `json:"equipment,omitempty"`
+	SecondaryTargetType      *int16   `json:"secondary_target_type,omitempty"`
+	SecondaryTargetValue     *int32   `json:"secondary_target_value,omitempty"`
+	SecondaryCustomTargetLow  *int32  `json:"secondary_custom_target_low,omitempty"`
+	SecondaryCustomTargetHigh *int32  `json:"secondary_custom_target_high,omitempty"`
+}
+
+// DeveloperFieldDef holds Connect IQ developer field definitions.
+// Maps to developer_field_definitions table (Spec 4.7).
+type DeveloperFieldDef struct {
+	ApplicationID         []byte  `json:"application_id,omitempty"`
+	DeveloperDataIndex    int16   `json:"developer_data_index"`
+	FieldDefinitionNumber int16   `json:"field_definition_number"`
+	FieldName             string  `json:"field_name"`
+	Units                 *string `json:"units,omitempty"`
+	NativeMesgNum         *int16  `json:"native_mesg_num,omitempty"`
+	NativeFieldNum        *int16  `json:"native_field_num,omitempty"`
+	FitBaseType           *int16  `json:"fit_base_type,omitempty"`
+	Scale                 *int16  `json:"scale,omitempty"`
+	Offset                *int16  `json:"offset,omitempty"`
 }
