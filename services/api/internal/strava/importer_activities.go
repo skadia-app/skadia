@@ -21,6 +21,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
@@ -402,6 +403,39 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
+		// CSV-only activity (no file in Strava export, e.g. manually created in Strava).
+		// Store the CSV row as a JSON source file so every activity has an S3 original.
+		if len(fileBytes) == 0 && params.Storage != nil {
+			csvJSON := &sidecar.ManualActivityFile{
+				SchemaVersion:  3,
+				FileFormat:     "strava_csv",
+				SportType:      data.SportType,
+				SubType:        data.SubType,
+				Title:          activityName,
+				StartedAt:      data.StartedAt,
+				ElapsedTimeS:   float64(data.ElapsedTimeS),
+				DistanceM:      data.DistanceM,
+				ElevationGainM: data.ElevationGainM,
+				Source:         "Strava",
+				SourceFields:   csvRowToMap(row, hdr),
+				CreatedAt:      time.Now().UTC(),
+			}
+			// Deterministic hash (not from JSON bytes which contain CreatedAt)
+			detHash := sha256.Sum256([]byte(fmt.Sprintf("strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType)))
+			hashStr = hex.EncodeToString(detHash[:])
+			jsonBytes, jsonErr := csvJSON.Marshal()
+			if jsonErr == nil {
+				data.FileHash = hashStr
+				data.FileFormat = "strava_csv"
+				format = "strava_csv"
+				s3Key = fmt.Sprintf("%s/%s.json", params.UserID, hashStr)
+				if err := params.Storage.Upload(ctx, s3Key, jsonBytes, "application/json"); err != nil {
+					slog.Warn("strava activities: S3 upload for CSV-only failed", "error", err)
+					s3Key = ""
+				}
+			}
+		}
+
 		// --- ImportService pipeline ---
 		importMeta := importer.ImportMetadata{
 			StravaActivityID: stravaID,
@@ -470,6 +504,16 @@ func buildStravaEnrichFields(activityName string, row []string, hdr map[string]i
 	}
 	maps.Copy(fields, extractWeatherFields(row, hdr))
 	return fields
+}
+
+func csvRowToMap(row []string, hdr map[string]int) map[string]string {
+	m := make(map[string]string, len(hdr))
+	for key, idx := range hdr {
+		if idx < len(row) && row[idx] != "" {
+			m[key] = row[idx]
+		}
+	}
+	return m
 }
 
 // readStravaActivityFile reads and optionally decompresses an activity file.
