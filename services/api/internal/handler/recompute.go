@@ -616,6 +616,18 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				slog.Warn("reprocess: save time-in-zone failed", "id", activityID, "error", err)
 			}
 		}
+		for lapID, zones := range data.LapTimeInZones {
+			id := lapID
+			if err := h.DB.SaveTimeInZones(ctx, activityID, &id, nil, zones); err != nil {
+				slog.Warn("reprocess: save lap time-in-zone", "err", err, "lap_id", id)
+			}
+		}
+		for slID, zones := range data.SegmentLapTimeInZones {
+			id := slID
+			if err := h.DB.SaveTimeInZones(ctx, activityID, nil, &id, zones); err != nil {
+				slog.Warn("reprocess: save segment-lap time-in-zone", "err", err, "segment_lap_id", id)
+			}
+		}
 
 		// Developer field definitions (idempotent upsert)
 		if len(data.DeveloperFieldDefs) > 0 {

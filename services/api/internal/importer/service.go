@@ -236,6 +236,18 @@ func (s *Service) PostProcess(
 				slog.Error("save time in zones failed", "error", err)
 			}
 		}
+		for lapID, zones := range data.LapTimeInZones {
+			id := lapID
+			if err := s.DB.SaveTimeInZones(gCtx, activityID, &id, nil, zones); err != nil {
+				slog.Warn("save lap time-in-zone", "err", err, "lap_id", id)
+			}
+		}
+		for slID, zones := range data.SegmentLapTimeInZones {
+			id := slID
+			if err := s.DB.SaveTimeInZones(gCtx, activityID, nil, &id, zones); err != nil {
+				slog.Warn("save segment-lap time-in-zone", "err", err, "segment_lap_id", id)
+			}
+		}
 		return nil
 	})
 
