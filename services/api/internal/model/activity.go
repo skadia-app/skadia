@@ -86,6 +86,157 @@ type ActivityData struct {
 	SplitSummaries []SplitSummaryRecord
 	Lengths        []LengthRecord
 	ClimbProEvents []ClimbProEventRecord
+
+	// FIT SDK — New record collections (write-path only, not serialized directly)
+	Events             []EventRecord       `json:"-"`
+	Sets               []SetRecord         `json:"-"`
+	Jumps              []JumpRecord        `json:"-"`
+	HrData             []HrDataRecord      `json:"-"`
+	SegmentLaps        []SegmentLapRecord  `json:"-"`
+	Workout            *WorkoutRecord      `json:"-"`
+	WorkoutSteps       []WorkoutStepRecord `json:"-"`
+	DeveloperFieldDefs []DeveloperFieldDef `json:"-"`
+	WorkoutID          *string             `json:"workout_id,omitempty"`
+
+	// FIT SDK — Movement / Cycles
+	TotalCycles       *int32   `json:"-"`
+	TotalWorkJ        *int32   `json:"-"`
+	TotalFatCalories  *int32   `json:"-"`
+	MetabolicCalories *int32   `json:"-"`
+	TotalMovingTimeS  *float64 `json:"-"`
+
+	// FIT SDK — Swimming
+	SwimStroke        *string  `json:"-"`
+	PoolLengthM       *float64 `json:"-"`
+	PoolLengthUnit    *string  `json:"-"`
+	NumLengths        *int32   `json:"-"`
+	NumActiveLengths  *int32   `json:"-"`
+	AvgStrokeCount    *float64 `json:"-"`
+	AvgStrokeDistanceM *float64 `json:"-"`
+	StrokeCount       []int32  `json:"-"`
+	ZoneCount         []int32  `json:"-"`
+
+	// FIT SDK — Cadence Extended
+	AvgFractionalCadence   *float64 `json:"-"`
+	MaxFractionalCadence   *float64 `json:"-"`
+	TotalFractionalCycles  *float64 `json:"-"`
+
+	// FIT SDK — Running Dynamics
+	AvgVerticalOscillationMm *float64 `json:"-"`
+	AvgStanceTimeMs          *float64 `json:"-"`
+	AvgStanceTimePct         *float64 `json:"-"`
+	AvgStanceTimeBalancePct  *float64 `json:"-"`
+	AvgStepLengthMm          *float64 `json:"-"`
+	AvgVerticalRatioPct      *float64 `json:"-"`
+
+	// FIT SDK — Grade
+	AvgGradePct    *float64 `json:"-"`
+	AvgPosGradePct *float64 `json:"-"`
+	AvgNegGradePct *float64 `json:"-"`
+	MaxPosGradePct *float64 `json:"-"`
+	MaxNegGradePct *float64 `json:"-"`
+
+	// FIT SDK — Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"-"`
+	AvgNegVerticalSpeedMs *float64 `json:"-"`
+	MaxPosVerticalSpeedMs *float64 `json:"-"`
+	MaxNegVerticalSpeedMs *float64 `json:"-"`
+	AvgVamMs              *float64 `json:"-"`
+
+	// FIT SDK — Altitude Extended
+	AvgAltitudeM            *float64 `json:"-"`
+	TotalFractionalAscentM  *float64 `json:"-"`
+	TotalFractionalDescentM *float64 `json:"-"`
+
+	// FIT SDK — Pedal Analytics (15)
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"-"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"-"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"-"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"-"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"-"`
+	AvgLeftPcoMm                   *int16   `json:"-"`
+	AvgRightPcoMm                  *int16   `json:"-"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"-"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"-"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"-"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"-"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"-"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"-"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"-"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"-"`
+
+	// FIT SDK — Power/Cadence by Position
+	AvgPowerPositionW  []int32  `json:"-"`
+	MaxPowerPositionW  []int32  `json:"-"`
+	AvgCadencePosition []int16  `json:"-"`
+	MaxCadencePosition []int16  `json:"-"`
+
+	// FIT SDK — Standing/Sitting
+	TimeStandingS *float64 `json:"-"`
+	StandCount    *int32   `json:"-"`
+
+	// FIT SDK — E-Bike
+	AvgLevMotorPowerW      *int32   `json:"-"`
+	MaxLevMotorPowerW      *int32   `json:"-"`
+	LevBatteryConsumptionPct *float64 `json:"-"`
+
+	// FIT SDK — MTB Grit/Flow
+	TotalGrit *float64 `json:"-"`
+	TotalFlow *float64 `json:"-"`
+	AvgGrit   *float64 `json:"-"`
+	AvgFlow   *float64 `json:"-"`
+
+	// FIT SDK — Jumps
+	JumpCount *int32 `json:"-"`
+
+	// FIT SDK — Ball Sports
+	MaxBallSpeedMs *float64 `json:"-"`
+	AvgBallSpeedMs *float64 `json:"-"`
+	PlayerScore    *int32   `json:"-"`
+	OpponentScore  *int32   `json:"-"`
+	OpponentName   *string  `json:"-"`
+
+	// FIT SDK — Hemoglobin (arrays for multi-sensor)
+	AvgTotalHemoglobinConc    []float64 `json:"-"`
+	MinTotalHemoglobinConc    []float64 `json:"-"`
+	MaxTotalHemoglobinConc    []float64 `json:"-"`
+	AvgSaturatedHemoglobinPct []float64 `json:"-"`
+	MinSaturatedHemoglobinPct []float64 `json:"-"`
+	MaxSaturatedHemoglobinPct []float64 `json:"-"`
+
+	// FIT SDK — Diving
+	AvgDepthM        *float64 `json:"-"`
+	MaxDepthM        *float64 `json:"-"`
+	SurfaceIntervalS *int32   `json:"-"`
+	DiveNumber       *int32   `json:"-"`
+	StartCnsPct      *int16   `json:"-"`
+	EndCnsPct        *int16   `json:"-"`
+	StartN2Pct       *int32   `json:"-"`
+	EndN2Pct         *int32   `json:"-"`
+	O2ToxicityOtu    *int32   `json:"-"`
+
+	// FIT SDK — Respiration / HRV Extended
+	MaxRespirationRate *float64 `json:"-"`
+	MinRespirationRate *float64 `json:"-"`
+	SdrrHrvMs          *int16   `json:"-"`
+
+	// FIT SDK — Temperature Extended
+	MinCoreTemperatureC *float64 `json:"-"`
+	MaxCoreTemperatureC *float64 `json:"-"`
+
+	// FIT SDK — Misc
+	AvgLapTimeS      *float64 `json:"-"`
+	BestLapIndex     *int16   `json:"-"`
+	NumLaps          *int32   `json:"-"`
+	FirstLapIndex    *int32   `json:"-"`
+	IntensityFactor  *float64 `json:"-"`
+	LeftRightBalance *float64 `json:"-"`
+	SportProfileName *string  `json:"-"`
+	SportIndex       *int16   `json:"-"`
+	NecLat           *float64 `json:"-"`
+	NecLng           *float64 `json:"-"`
+	SwcLat           *float64 `json:"-"`
+	SwcLng           *float64 `json:"-"`
 }
 
 // StreamPoint is a single time-series data point.
@@ -1393,3 +1544,27 @@ func DefaultWeatherPrefs() WeatherPrefs {
 		},
 	}
 }
+
+// EventRecord holds extracted event data from FIT event messages.
+type EventRecord struct{}
+
+// SetRecord holds extracted set data from FIT set messages.
+type SetRecord struct{}
+
+// JumpRecord holds extracted jump data from FIT jump messages.
+type JumpRecord struct{}
+
+// HrDataRecord holds extracted high-resolution HR data from FIT hr messages.
+type HrDataRecord struct{}
+
+// SegmentLapRecord holds extracted segment lap data from FIT segment_lap messages.
+type SegmentLapRecord struct{}
+
+// WorkoutRecord holds structured workout data from FIT workout messages.
+type WorkoutRecord struct{}
+
+// WorkoutStepRecord holds structured workout step data from FIT workout_step messages.
+type WorkoutStepRecord struct{}
+
+// DeveloperFieldDef holds Connect IQ developer field definitions.
+type DeveloperFieldDef struct{}
