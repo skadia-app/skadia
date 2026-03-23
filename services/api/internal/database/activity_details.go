@@ -20,7 +20,7 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 	for _, l := range laps {
 		batch.Queue(`
 			INSERT INTO activity_laps (
-				activity_id, message_index, start_time, end_time,
+				id, activity_id, message_index, start_time, end_time,
 				lap_trigger, sport, sub_sport,
 				total_elapsed_time_s, total_timer_time_s, total_moving_time_s,
 				total_distance_m, total_ascent_m, total_descent_m, total_calories,
@@ -32,23 +32,107 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 				start_lat, start_lng, end_lat, end_lng,
 				total_work_j, intensity, swim_stroke,
 				num_lengths, num_active_lengths,
-				avg_altitude_m, max_altitude_m, min_altitude_m
+				avg_altitude_m, max_altitude_m, min_altitude_m,
+				-- Cycles/Strokes
+				total_cycles, total_fat_calories, avg_stroke_distance_m,
+				first_length_index, avg_fractional_cadence, max_fractional_cadence,
+				total_fractional_cycles, stroke_count, zone_count,
+				-- Running Dynamics
+				avg_vertical_oscillation_mm, avg_stance_time_ms, avg_stance_time_pct,
+				avg_stance_time_balance_pct, avg_step_length_mm, avg_vertical_ratio_pct,
+				-- Grade
+				avg_grade_pct, avg_pos_grade_pct, avg_neg_grade_pct,
+				max_pos_grade_pct, max_neg_grade_pct,
+				-- Vertical Speed
+				avg_pos_vertical_speed_ms, avg_neg_vertical_speed_ms,
+				max_pos_vertical_speed_ms, max_neg_vertical_speed_ms, avg_vam_ms,
+				-- Temperature Extended
+				max_temperature_c, min_temperature_c,
+				avg_core_temperature_c, min_core_temperature_c, max_core_temperature_c,
+				-- Pedal Analytics
+				avg_left_torque_effectiveness_pct, avg_right_torque_effectiveness_pct,
+				avg_left_pedal_smoothness_pct, avg_right_pedal_smoothness_pct,
+				avg_combined_pedal_smoothness_pct,
+				avg_left_pco_mm, avg_right_pco_mm,
+				avg_left_power_phase_start_deg, avg_left_power_phase_end_deg,
+				avg_left_power_phase_peak_start_deg, avg_left_power_phase_peak_end_deg,
+				avg_right_power_phase_start_deg, avg_right_power_phase_end_deg,
+				avg_right_power_phase_peak_start_deg, avg_right_power_phase_peak_end_deg,
+				-- Power/Cadence by Position
+				avg_power_position_w, max_power_position_w,
+				avg_cadence_position, max_cadence_position,
+				-- Standing/Sitting
+				time_standing_s, stand_count,
+				-- L/R Balance
+				left_right_balance,
+				-- E-Bike
+				avg_lev_motor_power_w, max_lev_motor_power_w, lev_battery_consumption_pct,
+				-- Grit/Flow
+				total_grit, total_flow, avg_grit, avg_flow,
+				-- Jumps
+				jump_count,
+				-- Scores
+				player_score, opponent_score,
+				-- Hemoglobin
+				avg_total_hemoglobin_conc, min_total_hemoglobin_conc, max_total_hemoglobin_conc,
+				avg_saturated_hemoglobin_pct, min_saturated_hemoglobin_pct, max_saturated_hemoglobin_pct,
+				-- Diving
+				avg_depth_m, max_depth_m,
+				-- Respiration
+				avg_respiration_rate, max_respiration_rate,
+				-- Altitude Extended
+				total_fractional_ascent_m, total_fractional_descent_m,
+				-- Misc
+				repetition_num, wkt_step_index, event_group, gps_accuracy_m
 			) VALUES (
-				$1, $2, $3, $4,
-				$5, $6, $7,
-				$8, $9, $10,
-				$11, $12, $13, $14,
-				$15, $16,
-				$17, $18, $19,
-				$20, $21,
-				$22, $23, $24,
-				$25,
-				$26, $27, $28, $29,
-				$30, $31, $32,
-				$33, $34,
-				$35, $36, $37
+				$1, $2, $3, $4, $5,
+				$6, $7, $8,
+				$9, $10, $11,
+				$12, $13, $14, $15,
+				$16, $17,
+				$18, $19, $20,
+				$21, $22,
+				$23, $24, $25,
+				$26,
+				$27, $28, $29, $30,
+				$31, $32, $33,
+				$34, $35,
+				$36, $37, $38,
+				$39, $40, $41,
+				$42, $43, $44,
+				$45, $46, $47,
+				$48, $49, $50,
+				$51, $52, $53,
+				$54, $55, $56,
+				$57, $58,
+				$59, $60,
+				$61, $62, $63,
+				$64, $65,
+				$66, $67,
+				$68, $69, $70,
+				$71, $72,
+				$73, $74,
+				$75, $76, $77,
+				$78, $79,
+				$80, $81,
+				$82, $83, $84, $85, $86,
+				$87, $88, $89, $90,
+				$91, $92, $93, $94,
+				$95,
+				$96, $97,
+				$98,
+				$99, $100, $101,
+				$102, $103, $104, $105,
+				$106,
+				$107, $108,
+				$109, $110, $111,
+				$112, $113, $114,
+				$115, $116,
+				$117, $118,
+				$119, $120,
+				$121, $122, $123, $124
 			)`,
-			activityID, l.MessageIndex, nilIfZeroTime(l.StartTime), nilIfZeroTime(l.EndTime),
+			l.ID, activityID, l.MessageIndex, nilIfZeroTime(l.StartTime), nilIfZeroTime(l.EndTime),
 			nilIfEmpty(l.LapTrigger), nilIfEmpty(l.Sport), nilIfEmpty(l.SubSport),
 			nilIfZeroF64(l.TotalElapsedTimeS), nilIfZeroF64(l.TotalTimerTimeS), nilIfZeroF64(l.TotalMovingTimeS),
 			nilIfZeroF64(l.TotalDistanceM), nilIfZeroInt(l.TotalAscentM), nilIfZeroInt(l.TotalDescentM), nilIfZeroInt(l.TotalCalories),
@@ -61,6 +145,57 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 			nilIfZeroInt(l.TotalWorkJ), nilIfEmpty(l.Intensity), nilIfEmpty(l.SwimStroke),
 			nilIfZeroInt(l.NumLengths), nilIfZeroInt(l.NumActiveLengths),
 			nilIfZeroF64(l.AvgAltitudeM), nilIfZeroF64(l.MaxAltitudeM), nilIfZeroF64(l.MinAltitudeM),
+			// Cycles/Strokes
+			l.TotalCycles, l.TotalFatCalories, l.AvgStrokeDistanceM,
+			l.FirstLengthIndex, l.AvgFractionalCadence, l.MaxFractionalCadence,
+			l.TotalFractionalCycles, l.StrokeCount, l.ZoneCount,
+			// Running Dynamics
+			l.AvgVerticalOscillationMm, l.AvgStanceTimeMs, l.AvgStanceTimePct,
+			l.AvgStanceTimeBalancePct, l.AvgStepLengthMm, l.AvgVerticalRatioPct,
+			// Grade
+			l.AvgGradePct, l.AvgPosGradePct, l.AvgNegGradePct,
+			l.MaxPosGradePct, l.MaxNegGradePct,
+			// Vertical Speed
+			l.AvgPosVerticalSpeedMs, l.AvgNegVerticalSpeedMs,
+			l.MaxPosVerticalSpeedMs, l.MaxNegVerticalSpeedMs, l.AvgVamMs,
+			// Temperature Extended
+			l.MaxTemperatureC, l.MinTemperatureC,
+			l.AvgCoreTemperatureC, l.MinCoreTemperatureC, l.MaxCoreTemperatureC,
+			// Pedal Analytics
+			l.AvgLeftTorqueEffectivenessPct, l.AvgRightTorqueEffectivenessPct,
+			l.AvgLeftPedalSmoothnessPct, l.AvgRightPedalSmoothnessPct,
+			l.AvgCombinedPedalSmoothnessPct,
+			l.AvgLeftPcoMm, l.AvgRightPcoMm,
+			l.AvgLeftPowerPhaseStartDeg, l.AvgLeftPowerPhaseEndDeg,
+			l.AvgLeftPowerPhasePeakStartDeg, l.AvgLeftPowerPhasePeakEndDeg,
+			l.AvgRightPowerPhaseStartDeg, l.AvgRightPowerPhaseEndDeg,
+			l.AvgRightPowerPhasePeakStartDeg, l.AvgRightPowerPhasePeakEndDeg,
+			// Power/Cadence by Position
+			l.AvgPowerPositionW, l.MaxPowerPositionW,
+			l.AvgCadencePosition, l.MaxCadencePosition,
+			// Standing/Sitting
+			l.TimeStandingS, l.StandCount,
+			// L/R Balance
+			l.LeftRightBalance,
+			// E-Bike
+			l.AvgLevMotorPowerW, l.MaxLevMotorPowerW, l.LevBatteryConsumptionPct,
+			// Grit/Flow
+			l.TotalGrit, l.TotalFlow, l.AvgGrit, l.AvgFlow,
+			// Jumps
+			l.JumpCount,
+			// Scores
+			l.PlayerScore, l.OpponentScore,
+			// Hemoglobin
+			l.AvgTotalHemoglobinConc, l.MinTotalHemoglobinConc, l.MaxTotalHemoglobinConc,
+			l.AvgSaturatedHemoglobinPct, l.MinSaturatedHemoglobinPct, l.MaxSaturatedHemoglobinPct,
+			// Diving
+			l.AvgDepthM, l.MaxDepthM,
+			// Respiration
+			l.AvgRespirationRate, l.MaxRespirationRate,
+			// Altitude Extended
+			l.TotalFractionalAscentM, l.TotalFractionalDescentM,
+			// Misc
+			l.RepetitionNum, l.WktStepIndex, l.EventGroup, l.GpsAccuracyM,
 		)
 	}
 
@@ -383,19 +518,22 @@ func (db *DB) InsertLengths(ctx context.Context, activityID string, lengths []mo
 				total_elapsed_time_s, total_timer_time_s,
 				total_strokes, total_calories,
 				avg_speed_ms, avg_swimming_cadence,
-				swim_stroke, length_type
+				swim_stroke, length_type,
+				stroke_count
 			) VALUES (
 				$1, $2, $3, $4,
 				$5, $6,
 				$7, $8,
 				$9, $10,
-				$11, $12
+				$11, $12,
+				$13
 			)`,
 			activityID, l.MessageIndex, nilIfZeroTime(l.StartTime), nilIfZeroTime(l.EndTime),
 			nilIfZeroF64(l.TotalElapsedTimeS), nilIfZeroF64(l.TotalTimerTimeS),
 			nilIfZeroInt(l.TotalStrokes), nilIfZeroInt(l.TotalCalories),
 			nilIfZeroF64(l.AvgSpeedMS), nilIfZeroInt(l.AvgSwimmingCadence),
 			nilIfEmpty(l.SwimStroke), nilIfEmpty(l.LengthType),
+			l.StrokeCount,
 		)
 	}
 
