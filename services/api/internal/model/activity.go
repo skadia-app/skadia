@@ -1635,10 +1635,12 @@ type TagActivity struct {
 
 // TimeInZoneData represents time spent in a specific training zone.
 type TimeInZoneData struct {
-	ZoneType  string // "hr", "power", "speed", "cadence"
-	ZoneIndex int
-	ZoneHigh  float64 // zone upper boundary (bpm / watts / m/s / rpm)
-	Seconds   int
+	ZoneType     string  // "hr", "power", "speed", "cadence"
+	ZoneIndex    int
+	ZoneHigh     float64 // zone upper boundary (bpm / watts / m/s / rpm)
+	Seconds      int
+	LapID        *string `json:"lap_id,omitempty"`
+	SegmentLapID *string `json:"segment_lap_id,omitempty"`
 }
 
 // UserProfileImport holds data extracted from FIT user_profile + zones_target messages.
@@ -1741,25 +1743,231 @@ func DefaultWeatherPrefs() WeatherPrefs {
 }
 
 // EventRecord holds extracted event data from FIT event messages.
-type EventRecord struct{}
+// Maps to activity_events table (Spec 4.1).
+type EventRecord struct {
+	Timestamp                       time.Time  `json:"timestamp"`
+	Event                           int16      `json:"event"`
+	EventType                       int16      `json:"event_type"`
+	EventGroup                      *int16     `json:"event_group,omitempty"`
+	Data                            *int64     `json:"data,omitempty"`
+	FrontGearNum                    *int16     `json:"front_gear_num,omitempty"`
+	FrontGear                       *int16     `json:"front_gear,omitempty"`
+	RearGearNum                     *int16     `json:"rear_gear_num,omitempty"`
+	RearGear                        *int16     `json:"rear_gear,omitempty"`
+	RadarThreatLevelMax             *int16     `json:"radar_threat_level_max,omitempty"`
+	RadarThreatCount                *int16     `json:"radar_threat_count,omitempty"`
+	RadarThreatAvgApproachSpeedMs   *float64   `json:"radar_threat_avg_approach_speed_ms,omitempty"`
+	RadarThreatMaxApproachSpeedMs   *float64   `json:"radar_threat_max_approach_speed_ms,omitempty"`
+	Score                           *int32     `json:"score,omitempty"`
+	OpponentScore                   *int32     `json:"opponent_score,omitempty"`
+	DeviceIndex                     *int16     `json:"device_index,omitempty"`
+	ActivityType                    *int16     `json:"activity_type,omitempty"`
+	StartTimestamp                  *time.Time `json:"start_timestamp,omitempty"`
+}
 
 // SetRecord holds extracted set data from FIT set messages.
-type SetRecord struct{}
+// Maps to activity_sets table (Spec 4.2).
+type SetRecord struct {
+	MessageIndex       int16      `json:"message_index"`
+	Timestamp          *time.Time `json:"timestamp,omitempty"`
+	StartTime          *time.Time `json:"start_time,omitempty"`
+	DurationS          *float64   `json:"duration_s,omitempty"`
+	SetType            *int16     `json:"set_type,omitempty"`
+	Repetitions        *int32     `json:"repetitions,omitempty"`
+	WeightKg           *float64   `json:"weight_kg,omitempty"`
+	WeightDisplayUnit  *int16     `json:"weight_display_unit,omitempty"`
+	ExerciseCategories []int16    `json:"exercise_categories,omitempty"`
+	ExerciseSubtypes   []int16    `json:"exercise_subtypes,omitempty"`
+	WktStepIndex       *int16     `json:"wkt_step_index,omitempty"`
+}
 
 // JumpRecord holds extracted jump data from FIT jump messages.
-type JumpRecord struct{}
+// Maps to activity_jumps table (Spec 4.3).
+type JumpRecord struct {
+	Timestamp  time.Time `json:"timestamp"`
+	DistanceM  *float64  `json:"distance_m,omitempty"`
+	HeightM    *float64  `json:"height_m,omitempty"`
+	HangTimeS  *float64  `json:"hang_time_s,omitempty"`
+	Score      *float64  `json:"score,omitempty"`
+	Rotations  *int16    `json:"rotations,omitempty"`
+	SpeedMs    *float64  `json:"speed_ms,omitempty"`
+	Lat        *float64  `json:"lat,omitempty"`
+	Lng        *float64  `json:"lng,omitempty"`
+}
 
 // HrDataRecord holds extracted high-resolution HR data from FIT hr messages.
-type HrDataRecord struct{}
+// Maps to activity_hr_data table (Spec 4.4).
+type HrDataRecord struct {
+	Timestamp            time.Time `json:"timestamp"`
+	FractionalTimestamp  *float64  `json:"fractional_timestamp,omitempty"`
+	FilteredBpm          []int16   `json:"filtered_bpm,omitempty"`
+	EventTimestamp       []float64 `json:"event_timestamp,omitempty"`
+}
 
 // SegmentLapRecord holds extracted segment lap data from FIT segment_lap messages.
-type SegmentLapRecord struct{}
+// Maps to activity_segment_laps table (Spec 4.6, ~90 fields).
+type SegmentLapRecord struct {
+	ID           string // client-side UUID, generated before INSERT
+	MessageIndex int16
+	Timestamp    *time.Time `json:"-"`
+	StartTime    *time.Time `json:"-"`
+	Name         *string    `json:"-"`
+	UUID         *string    `json:"-"`
+	Status       *int16     `json:"-"`
+	Manufacturer *int16     `json:"-"`
+	Sport        *int16     `json:"-"`
+	SubSport     *int16     `json:"-"`
+	Event        *int16     `json:"-"`
+	EventType    *int16     `json:"-"`
+	EventGroup   *int16     `json:"-"`
+	SportEvent   *int16     `json:"-"`
+	// GPS
+	StartLat *float64 `json:"-"`
+	StartLng *float64 `json:"-"`
+	EndLat   *float64 `json:"-"`
+	EndLng   *float64 `json:"-"`
+	NecLat   *float64 `json:"-"`
+	NecLng   *float64 `json:"-"`
+	SwcLat   *float64 `json:"-"`
+	SwcLng   *float64 `json:"-"`
+	// Time
+	TotalElapsedTimeS *float64 `json:"-"`
+	TotalTimerTimeS   *float64 `json:"-"`
+	TotalMovingTimeS  *float64 `json:"-"`
+	ActiveTimeS       *float64 `json:"-"`
+	// Distance / Elevation
+	TotalDistanceM          *float64 `json:"-"`
+	TotalAscentM            *int32   `json:"-"`
+	TotalDescentM           *int32   `json:"-"`
+	TotalCycles             *int32   `json:"-"`
+	TotalWorkJ              *int32   `json:"-"`
+	AvgAltitudeM            *float64 `json:"-"`
+	MaxAltitudeM            *float64 `json:"-"`
+	MinAltitudeM            *float64 `json:"-"`
+	TotalFractionalAscentM  *float64 `json:"-"`
+	TotalFractionalDescentM *float64 `json:"-"`
+	// Speed
+	AvgSpeedMs *float64 `json:"-"`
+	MaxSpeedMs *float64 `json:"-"`
+	// Heart Rate
+	AvgHeartRate *int16 `json:"-"`
+	MaxHeartRate *int16 `json:"-"`
+	MinHeartRate *int16 `json:"-"`
+	// Cadence
+	AvgCadence            *int16   `json:"-"`
+	MaxCadence            *int16   `json:"-"`
+	AvgFractionalCadence  *float64 `json:"-"`
+	MaxFractionalCadence  *float64 `json:"-"`
+	TotalFractionalCycles *float64 `json:"-"`
+	// Power
+	AvgPowerW        *int16   `json:"-"`
+	MaxPowerW        *int16   `json:"-"`
+	NormalizedPowerW *int16   `json:"-"`
+	LeftRightBalance *float64 `json:"-"`
+	// Grade
+	AvgGradePct    *float64 `json:"-"`
+	AvgPosGradePct *float64 `json:"-"`
+	AvgNegGradePct *float64 `json:"-"`
+	MaxPosGradePct *float64 `json:"-"`
+	MaxNegGradePct *float64 `json:"-"`
+	// Vertical Speed
+	AvgPosVerticalSpeedMs *float64 `json:"-"`
+	AvgNegVerticalSpeedMs *float64 `json:"-"`
+	MaxPosVerticalSpeedMs *float64 `json:"-"`
+	MaxNegVerticalSpeedMs *float64 `json:"-"`
+	// Temperature
+	AvgTemperatureC *int16 `json:"-"`
+	MaxTemperatureC *int16 `json:"-"`
+	GpsAccuracyM    *int16 `json:"-"`
+	// Calories
+	TotalCalories    *int32 `json:"-"`
+	TotalFatCalories *int32 `json:"-"`
+	// Pedal Analytics
+	AvgLeftTorqueEffectivenessPct  *float64 `json:"-"`
+	AvgRightTorqueEffectivenessPct *float64 `json:"-"`
+	AvgLeftPedalSmoothnessPct      *float64 `json:"-"`
+	AvgRightPedalSmoothnessPct     *float64 `json:"-"`
+	AvgCombinedPedalSmoothnessPct  *float64 `json:"-"`
+	AvgLeftPcoMm                   *int16   `json:"-"`
+	AvgRightPcoMm                  *int16   `json:"-"`
+	AvgLeftPowerPhaseStartDeg      *float64 `json:"-"`
+	AvgLeftPowerPhaseEndDeg        *float64 `json:"-"`
+	AvgLeftPowerPhasePeakStartDeg  *float64 `json:"-"`
+	AvgLeftPowerPhasePeakEndDeg    *float64 `json:"-"`
+	AvgRightPowerPhaseStartDeg     *float64 `json:"-"`
+	AvgRightPowerPhaseEndDeg       *float64 `json:"-"`
+	AvgRightPowerPhasePeakStartDeg *float64 `json:"-"`
+	AvgRightPowerPhasePeakEndDeg   *float64 `json:"-"`
+	// Power/Cadence by Position
+	AvgPowerPositionW  []int32 `json:"-"`
+	MaxPowerPositionW  []int32 `json:"-"`
+	AvgCadencePosition []int16 `json:"-"`
+	MaxCadencePosition []int16 `json:"-"`
+	// Standing / Sitting
+	TimeStandingS *float64 `json:"-"`
+	StandCount    *int32   `json:"-"`
+	// Gear Shifts
+	FrontGearShiftCount *int32 `json:"-"`
+	RearGearShiftCount  *int32 `json:"-"`
+	// Grit / Flow
+	TotalGrit *float64 `json:"-"`
+	TotalFlow *float64 `json:"-"`
+	AvgGrit   *float64 `json:"-"`
+	AvgFlow   *float64 `json:"-"`
+	// Misc
+	RepetitionNum *int32 `json:"-"`
+	WktStepIndex  *int16 `json:"-"`
+}
 
 // WorkoutRecord holds structured workout data from FIT workout messages.
-type WorkoutRecord struct{}
+// Maps to workouts table (Spec 4.5).
+type WorkoutRecord struct {
+	Name           *string  `json:"name,omitempty"`
+	Description    *string  `json:"description,omitempty"`
+	Sport          *int16   `json:"sport,omitempty"`
+	SubSport       *int16   `json:"sub_sport,omitempty"`
+	Capabilities   *int64   `json:"capabilities,omitempty"`
+	NumValidSteps  *int16   `json:"num_valid_steps,omitempty"`
+	PoolLengthM    *float64 `json:"pool_length_m,omitempty"`
+	PoolLengthUnit *string  `json:"pool_length_unit,omitempty"`
+	SourceHash     string   `json:"source_hash"`
+}
 
 // WorkoutStepRecord holds structured workout step data from FIT workout_step messages.
-type WorkoutStepRecord struct{}
+// Maps to workout_steps table (Spec 4.5).
+type WorkoutStepRecord struct {
+	MessageIndex             int16    `json:"message_index"`
+	StepName                 *string  `json:"step_name,omitempty"`
+	Notes                    *string  `json:"notes,omitempty"`
+	DurationType             *int16   `json:"duration_type,omitempty"`
+	DurationValue            *int32   `json:"duration_value,omitempty"`
+	TargetType               *int16   `json:"target_type,omitempty"`
+	TargetValue              *int32   `json:"target_value,omitempty"`
+	CustomTargetLow          *int32   `json:"custom_target_low,omitempty"`
+	CustomTargetHigh         *int32   `json:"custom_target_high,omitempty"`
+	Intensity                *int16   `json:"intensity,omitempty"`
+	ExerciseCategory         *int16   `json:"exercise_category,omitempty"`
+	ExerciseName             *int16   `json:"exercise_name,omitempty"`
+	ExerciseWeightKg         *float64 `json:"exercise_weight_kg,omitempty"`
+	WeightDisplayUnit        *int16   `json:"weight_display_unit,omitempty"`
+	Equipment                *int16   `json:"equipment,omitempty"`
+	SecondaryTargetType      *int16   `json:"secondary_target_type,omitempty"`
+	SecondaryTargetValue     *int32   `json:"secondary_target_value,omitempty"`
+	SecondaryCustomTargetLow  *int32  `json:"secondary_custom_target_low,omitempty"`
+	SecondaryCustomTargetHigh *int32  `json:"secondary_custom_target_high,omitempty"`
+}
 
 // DeveloperFieldDef holds Connect IQ developer field definitions.
-type DeveloperFieldDef struct{}
+// Maps to developer_field_definitions table (Spec 4.7).
+type DeveloperFieldDef struct {
+	ApplicationID         []byte  `json:"application_id,omitempty"`
+	DeveloperDataIndex    int16   `json:"developer_data_index"`
+	FieldDefinitionNumber int16   `json:"field_definition_number"`
+	FieldName             string  `json:"field_name"`
+	Units                 *string `json:"units,omitempty"`
+	NativeMesgNum         *int16  `json:"native_mesg_num,omitempty"`
+	NativeFieldNum        *int16  `json:"native_field_num,omitempty"`
+	FitBaseType           *int16  `json:"fit_base_type,omitempty"`
+	Scale                 *int16  `json:"scale,omitempty"`
+	Offset                *int16  `json:"offset,omitempty"`
+}
