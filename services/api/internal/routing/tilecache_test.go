@@ -50,3 +50,40 @@ func TestTileCache_LargeEvictsMultiple(t *testing.T) {
 		t.Errorf("after large insert: len = %d, want 1", cache.Len())
 	}
 }
+
+func TestSetCacheBudgetEvictsLRU(t *testing.T) {
+	tc := newTiledCache(1_000_000)
+	tc.mu.Lock()
+	e1 := &tiledCacheEntry{tileID: 1, g: &graph.Graph{NodeCount: 10, EdgeCount: 5}, sizeBytes: 400_000}
+	e2 := &tiledCacheEntry{tileID: 2, g: &graph.Graph{NodeCount: 10, EdgeCount: 5}, sizeBytes: 400_000}
+	elem1 := tc.order.PushFront(e1)
+	tc.items[1] = elem1
+	elem2 := tc.order.PushBack(e2)
+	tc.items[2] = elem2
+	tc.usedBytes = 800_000
+	tc.mu.Unlock()
+
+	tc.SetCacheBudget(500_000)
+
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if tc.maxBytes != 500_000 {
+		t.Errorf("maxBytes = %d, want 500000", tc.maxBytes)
+	}
+	if _, ok := tc.items[2]; ok {
+		t.Error("tileID 2 should have been evicted")
+	}
+	if _, ok := tc.items[1]; !ok {
+		t.Error("tileID 1 should still be cached")
+	}
+}
+
+func TestSetCacheBudgetIncrease(t *testing.T) {
+	tc := newTiledCache(500_000)
+	tc.SetCacheBudget(2_000_000)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if tc.maxBytes != 2_000_000 {
+		t.Errorf("maxBytes = %d, want 2000000", tc.maxBytes)
+	}
+}
