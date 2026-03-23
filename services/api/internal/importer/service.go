@@ -584,6 +584,13 @@ func (s *Service) ProcessMultisport(
 		// Parent already exists (re-import of same file)
 		result.ParentID = parentID
 		result.ParentCreated = false
+		// Set S3 file info on multisport parent (same file backs all children)
+		if s3Key != "" {
+			metaKey := s3Key + ".meta"
+			if err := s.DB.UpdateActivityFileInfo(ctx, result.ParentID, "skadia-originals", s3Key, format, filename, metaKey); err != nil {
+				slog.Warn("multisport: update parent file info failed", "parent", result.ParentID, "err", err)
+			}
+		}
 	} else {
 		// Create new parent
 		parent := &model.Activity{
@@ -599,6 +606,13 @@ func (s *Service) ProcessMultisport(
 		}
 		result.ParentID = parent.ID
 		result.ParentCreated = true
+		// Set S3 file info on multisport parent (same file backs all children)
+		if s3Key != "" {
+			metaKey := s3Key + ".meta"
+			if err := s.DB.UpdateActivityFileInfo(ctx, result.ParentID, "skadia-originals", s3Key, format, filename, metaKey); err != nil {
+				slog.Warn("multisport: update parent file info failed", "parent", result.ParentID, "err", err)
+			}
+		}
 	}
 
 	// 2. Process each child session
