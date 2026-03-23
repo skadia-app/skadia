@@ -156,6 +156,8 @@ func cleanupCheckpoints(tileDir string) {
 func RunUnifiedLandmarkPreprocessing(
 	ctx context.Context,
 	tileDir string,
+	osmPassCandidates []graph.LandmarkCandidate,
+	osmPeakCandidates []graph.LandmarkCandidate,
 	progressFn func(step string, current, total int),
 ) (*graph.LandmarkMetaData, error) {
 	if progressFn == nil {
@@ -210,7 +212,7 @@ func RunUnifiedLandmarkPreprocessing(
 		return best, nil
 	}
 
-	meta, err := graph.SelectLandmarks(tiles, farthestDijkstra)
+	meta, err := graph.SelectLandmarks(tiles, farthestDijkstra, osmPassCandidates, osmPeakCandidates)
 	if err != nil {
 		return nil, fmt.Errorf("select landmarks: %w", err)
 	}

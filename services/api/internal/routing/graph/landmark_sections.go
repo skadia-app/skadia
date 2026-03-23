@@ -191,41 +191,34 @@ type LandmarkCandidate struct {
 }
 
 // SelectLandmarks selects up to 16 landmarks from the given tiles using a combination of:
-//   - Lowest-elevation nodes (4)
-//   - Highest-elevation nodes (4)
-//   - BBox corner-nearest nodes (4)
-//   - Farthest-by-Dijkstra nodes (remaining slots, optional)
+//   - BBox corner-nearest nodes (slots 0-3)
+//   - OSM pass/saddle landmarks (slots 4-7, optional)
+//   - OSM peak landmarks (slots 8-11, optional)
+//   - Farthest-by-Dijkstra nodes (slots 12-15, optional)
 //   - Elevation-spread fill (fallback for incomplete sets)
 //
 // farthestDijkstra may be nil to skip graph-distance-based selection.
+// osmPassCandidates and osmPeakCandidates may be nil to skip OSM-based selection.
 func SelectLandmarks(
 	tiles []TileScanResult,
 	farthestDijkstra func(src uint64) (LandmarkCandidate, error),
+	osmPassCandidates []LandmarkCandidate,
+	osmPeakCandidates []LandmarkCandidate,
 ) (*LandmarkMetaData, error) {
 	if len(tiles) == 0 {
 		return nil, fmt.Errorf("no tiles to select landmarks from")
-	}
-
-	type nodeRef struct {
-		globalID uint64
-		lat, lon int32
-		ele      int32
 	}
 
 	var minLat, maxLat, minLon, maxLon int32
 	minLat, minLon = math.MaxInt32, math.MaxInt32
 	maxLat, maxLon = math.MinInt32, math.MinInt32
 
-	var highest [4]nodeRef
-	var lowest [4]nodeRef
-	highCount, lowCount := 0, 0
 	var totalNodes int
 
 	for _, t := range tiles {
 		totalNodes += int(t.NodeCount)
 		for i := range t.NodeCount {
-			lat, lon, ele := t.NodeLats[i], t.NodeLons[i], t.NodeEles[i]
-			gid := MakeGlobalNodeID(t.TileID, i)
+			lat, lon := t.NodeLats[i], t.NodeLons[i]
 
 			if lat < minLat {
 				minLat = lat
@@ -238,32 +231,6 @@ func SelectLandmarks(
 			}
 			if lon > maxLon {
 				maxLon = lon
-			}
-
-			nr := nodeRef{globalID: gid, lat: lat, lon: lon, ele: ele}
-
-			// Track 4 highest elevations (sorted ascending by ele; [0] is minimum of the top-4).
-			if highCount < 4 {
-				highest[highCount] = nr
-				highCount++
-				if highCount == 4 {
-					slices.SortFunc(highest[:], func(a, b nodeRef) int { return int(a.ele - b.ele) })
-				}
-			} else if ele > highest[0].ele {
-				highest[0] = nr
-				slices.SortFunc(highest[:], func(a, b nodeRef) int { return int(a.ele - b.ele) })
-			}
-
-			// Track 4 lowest elevations (sorted descending by ele; [0] is maximum of the bottom-4).
-			if lowCount < 4 {
-				lowest[lowCount] = nr
-				lowCount++
-				if lowCount == 4 {
-					slices.SortFunc(lowest[:], func(a, b nodeRef) int { return int(b.ele - a.ele) })
-				}
-			} else if ele < lowest[0].ele {
-				lowest[0] = nr
-				slices.SortFunc(lowest[:], func(a, b nodeRef) int { return int(b.ele - a.ele) })
 			}
 		}
 	}
@@ -285,21 +252,7 @@ func SelectLandmarks(
 		return true
 	}
 
-	toCandidate := func(nr nodeRef) LandmarkCandidate {
-		return LandmarkCandidate{GlobalNodeID: nr.globalID, Lat: nr.lat, Lon: nr.lon, Ele: nr.ele}
-	}
-
-	// Pick 4 lowest-elevation nodes.
-	for i := range min(4, lowCount) {
-		pick(toCandidate(lowest[i]))
-	}
-
-	// Pick 4 highest-elevation nodes (highest first: iterate descending).
-	for i := min(4, highCount) - 1; i >= 0; i-- {
-		pick(toCandidate(highest[i]))
-	}
-
-	// BBox corners with cosLat correction for longitude distances.
+	// Slot 0-3: BBox corners with cosLat correction for longitude distances.
 	midLatRad := float64(minLat+maxLat) / 2.0 * 1.745329252e-9 // ×1e-7 × π/180
 	cosLat := math.Cos(midLatRad)
 
@@ -314,7 +267,23 @@ func SelectLandmarks(
 		}
 	}
 
-	// Farthest-point iteration via Dijkstra (optional).
+	// Slot 4-7: OSM Pass/Saddle landmarks.
+	for _, c := range osmPassCandidates {
+		if pickIdx >= 8 {
+			break
+		}
+		pick(c)
+	}
+
+	// Slot 8-11: OSM Peak landmarks.
+	for _, c := range osmPeakCandidates {
+		if pickIdx >= 12 {
+			break
+		}
+		pick(c)
+	}
+
+	// Slot 12-15: Farthest-point iteration via Dijkstra (optional).
 	if farthestDijkstra != nil && pickIdx > 0 {
 		src := landmarks[0].GlobalNodeID
 		for pickIdx < 16 {

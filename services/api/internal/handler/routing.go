@@ -18,6 +18,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -331,7 +332,20 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shutdown.Go(jobID, func(ctx context.Context) {
+		tiles, scanErr := graph.ScanTilesForLandmarks(tileDir)
+		if scanErr != nil {
+			slog.Error("landmark scan failed", "error", scanErr, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, scanErr.Error())
+			return
+		}
+		south, west, north, east := routing.BBoxFromTiles(tiles)
+		osmPass, _ := routing.QueryOSMPassLandmarks(ctx, h.DB.Pool, west, south, east, north, 4)
+		osmPassC := routing.SnapOSMLandmarksToGraph(osmPass, tiles)
+		osmPeaks, _ := routing.QueryOSMPeakLandmarks(ctx, h.DB.Pool, west, south, east, north, 4)
+		osmPeakC := routing.SnapOSMLandmarksToGraph(osmPeaks, tiles)
+
 		meta, landmarkErr := routing.RunUnifiedLandmarkPreprocessing(ctx, tileDir,
+			osmPassC, osmPeakC,
 			func(step string, current, total int) {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, step)
 			})
