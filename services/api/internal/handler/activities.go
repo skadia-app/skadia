@@ -24,6 +24,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
 // GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
@@ -208,6 +209,20 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	if activity == nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
+	}
+
+	// Refresh sidecar metadata in S3 (best-effort, non-blocking).
+	if existing.SidecarMetaKey != "" {
+		go func() {
+			meta := sidecar.GenerateMetaV3(id, nil, activity)
+			metaBytes, mErr := meta.Marshal()
+			if mErr != nil {
+				return
+			}
+			if err := h.Storage.Upload(context.Background(), existing.SidecarMetaKey, metaBytes, "application/json"); err != nil {
+				slog.Error("update activity: sidecar upload failed", "id", id, "error", err)
+			}
+		}()
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
