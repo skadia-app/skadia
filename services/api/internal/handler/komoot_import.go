@@ -2,14 +2,12 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -393,12 +391,7 @@ func (h *Handler) GetKomootImportJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
 	job, err := h.DB.GetKomootImportJob(r.Context(), userID, jobID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "job not found", r.URL.Path)
-		return
-	}
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get job", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "job not found") {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, job)

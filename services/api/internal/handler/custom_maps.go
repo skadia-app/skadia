@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -239,13 +238,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	imageURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
 	updateReq := model.UpdateMarkerRequest{ImageURL: &imageURL}
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
-			return
-		}
-		slog.Error("update marker image_url failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "marker not found") {
 		return
 	}
 
