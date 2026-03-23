@@ -623,6 +623,11 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
+	_, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
 	gearType := r.URL.Query().Get("gear_type")
 
 	presets, err := h.DB.ListComponentPresets(r.Context(), gearType)
