@@ -2,18 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchLifetimeStats } from '@/api/analytics'
 import type { LifetimeStats } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { fmtDuration } from '@/lib/format'
 
 function fmtNum(n: number): string {
   return new Intl.NumberFormat('de-DE').format(Math.round(n))
-}
-
-function fmtDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  if (h >= 24 * 10) {
-    const days = (seconds / 86400).toFixed(1)
-    return `${days} Tage`
-  }
-  return `${fmtNum(h)} h`
 }
 
 interface StatCardProps {
@@ -129,7 +121,7 @@ export default function LifetimeStats() {
         />
         <StatCard
           label="Bewegungszeit"
-          value={fmtDuration(data.total_moving_time_s)}
+          value={fmtDuration(data.total_moving_time_s, 'lifetime')}
         />
         <StatCard
           label="Aktive Tage"

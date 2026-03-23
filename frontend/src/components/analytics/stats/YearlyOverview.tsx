@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchYearlyOverview } from '@/api/analytics'
 import type { YearlyOverviewRow } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { fmtDuration } from '@/lib/format'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
 
@@ -12,13 +13,6 @@ function fmtNum(n: number): string {
 
 function fmtDist(m: number): string {
   return `${(m / 1000).toFixed(0)} km`
-}
-
-function fmtDuration(s: number): string {
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h === 0) return `${m} min`
-  return m > 0 ? `${h}h ${m}m` : `${h} h`
 }
 
 interface YearGroup {
@@ -146,7 +140,7 @@ export default function YearlyOverview() {
                   <span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count} Aktivitaten</span>
                   <span>{fmtDist(group.totals.distance_m)}</span>
                   <span>{fmtNum(group.totals.elevation_m)} m</span>
-                  <span>{fmtDuration(group.totals.duration_s)}</span>
+                  <span>{fmtDuration(group.totals.duration_s, 'compact')}</span>
                 </div>
               </div>
               <span className={`text-neutral-400 text-sm transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
@@ -193,7 +187,7 @@ export default function YearlyOverview() {
                         {fmtNum(row.elevation_m)} m
                       </span>
                       <span className="flex-1 text-right text-neutral-500 dark:text-neutral-500 tabular-nums text-xs hidden sm:block">
-                        {fmtDuration(row.duration_s)}
+                        {fmtDuration(row.duration_s, 'compact')}
                       </span>
                     </div>
                   )
@@ -208,7 +202,7 @@ export default function YearlyOverview() {
                   <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count}</span> Aktivitaten</span>
                   <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDist(group.totals.distance_m)}</span> Distanz</span>
                   <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNum(group.totals.elevation_m)} m</span> Hohenmeter</span>
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDuration(group.totals.duration_s)}</span> Dauer</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDuration(group.totals.duration_s, 'compact')}</span> Dauer</span>
                 </div>
               </div>
             )}

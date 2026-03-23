@@ -2,12 +2,8 @@ import { useState, useCallback } from 'react'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import type { ProfileConfig } from '@/lib/routingProfiles'
+import { fmtDist } from '@/lib/format'
 import ProfileEditor from './ProfileEditor'
-
-function formatDistance(m: number): string {
-  if (m < 1000) return `${Math.round(m)} m`
-  return `${(m / 1000).toFixed(1)} km`
-}
 
 function formatElevation(m: number): string {
   return `${Math.round(m)} m`
@@ -123,7 +119,7 @@ function WaypointItem({
         {/* Segment info between waypoints */}
         {segmentAfter && (
           <div className="flex items-center gap-2 mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
-            <span>{formatDistance(segmentAfter.distance_m)}</span>
+            <span>{fmtDist(segmentAfter.distance_m)}</span>
             {segmentAfter.elevation_gain > 0 && (
               <span className="text-green-600 dark:text-green-500">↑{formatElevation(segmentAfter.elevation_gain)}</span>
             )}
@@ -357,7 +353,7 @@ export default function RoutePlannerPanel({
                 <div>
                   <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">Distanz</div>
                   <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-                    {formatDistance(totalDistanceM)}
+                    {fmtDist(totalDistanceM)}
                   </div>
                 </div>
                 <div>

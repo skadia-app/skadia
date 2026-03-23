@@ -8,13 +8,7 @@ import AuthenticatedImage from '@/components/AuthenticatedImage'
 import AuthenticatedMedia from '@/components/AuthenticatedMedia'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
-
-/** Format seconds as m:ss (e.g. 83 → "1:23") */
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+import { fmtDuration } from '@/lib/format'
 
 interface Props {
   activityId: string
@@ -173,7 +167,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                     {/* Duration badge for videos */}
                     {isVid && photo.duration_s != null && (
                       <div className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[9px] text-white leading-none pointer-events-none">
-                        {formatDuration(photo.duration_s)}
+                        {fmtDuration(photo.duration_s)}
                       </div>
                     )}
                     <button

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { type FusionQueueEntry } from '@/api/importWizard'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { fmtDist } from '@/lib/format'
 
 interface DuplicateReviewPanelProps {
   entries: FusionQueueEntry[]
@@ -20,9 +21,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
     return [a, b].sort().join(':')
   }
 
-  function formatDist(m: number) {
-    return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`
-  }
+
 
   function formatTimeDiff(sec: number) {
     if (sec < 60) return `${Math.round(sec)}s`
@@ -91,7 +90,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                     {new Date(side.startedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
                   </div>
                   <div className="text-neutral-500 dark:text-neutral-400">
-                    {formatDist(side.dist)} · {side.richness} Felder
+                    {fmtDist(side.dist)} · {side.richness} Felder
                   </div>
                 </div>
               ))}

@@ -1,23 +1,10 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { sportLabel as taxonomySportLabel, sportColor as taxonomySportColor } from '@/lib/sportTaxonomy'
+export { fmtDuration as formatDuration, fmtDist as formatDistance } from '@/lib/format'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
-}
-
-export function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '—'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}min`
-  return `${m}min`
-}
-
-export function formatDistance(meters: number | null): string {
-  if (meters === null || isNaN(meters) || meters < 0) return '—'
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`
-  return `${Math.round(meters)} m`
 }
 
 // Gibt null zurueck wenn kein sinnvoller Wert vorhanden (null, undefined, NaN, <= 0)
