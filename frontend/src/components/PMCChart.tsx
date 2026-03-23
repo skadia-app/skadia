@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -15,6 +15,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchPMC } from '@/api/stats'
 import { toLocalISO } from '@/lib/dateUtils'
 import type { PMCDataPoint } from '@/api/stats'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, BrushComponent, ToolboxComponent, CanvasRenderer])
 
@@ -65,8 +66,7 @@ export default function PMCChart() {
   const [dateFrom, setDateFrom] = useState(threeMonthsAgo)
   const [dateTo, setDateTo] = useState(today)
   const [isZoomed, setIsZoomed] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
   // When a preset range is selected, update the date fields to match
   const handleRangeClick = (r: TimeRange) => {
@@ -102,179 +102,175 @@ export default function PMCChart() {
 
   const data: PMCDataPoint[] = pmcData ?? []
 
-  useEffect(() => {
-    if (!containerRef.current || data.length === 0) return
+  const containerRef = useECharts(
+    () => {
+      if (data.length === 0) return {}
 
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+      const dates = data.map(d => d.date)
+      const ctl = data.map(d => d.ctl)
+      const atl = data.map(d => d.atl)
+      const tsb = data.map(d => d.tsb)
 
-    const dates = data.map(d => d.date)
-    const ctl = data.map(d => d.ctl)
-    const atl = data.map(d => d.atl)
-    const tsb = data.map(d => d.tsb)
-
-    const option: EChartsCoreOption = {
-      grid: {
-        left: 50,
-        right: 16,
-        top: 40,
-        bottom: 60,
-      },
-      legend: {
-        data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)'],
-        top: 8,
-        textStyle: { fontSize: 11, color: '#999' },
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'cross' },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:12px;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          for (const p of items) {
-            html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>${p.seriesName}: <strong>${p.value.toFixed(1)}</strong></div>`
-          }
-          return html
+      return {
+        grid: {
+          left: 50,
+          right: 16,
+          top: 40,
+          bottom: 60,
         },
-      },
-      brush: {
-        toolbox: [],
-        brushType: 'lineX',
-        brushStyle: {
-          borderWidth: 1,
-          color: 'rgba(249,115,22,0.12)',
-          borderColor: '#f97316',
+        legend: {
+          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)'],
+          top: 8,
+          textStyle: { fontSize: 11, color: '#999' },
         },
-        throttleType: 'debounce',
-        throttleDelay: 100,
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { fontSize: 10, color: '#999', rotate: 0 },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { fontSize: 11, color: '#999' },
-        splitLine: { lineStyle: { color: '#e5e5e5', type: 'dashed' } },
-      },
-      series: [
-        {
-          name: 'TSB (Form)',
-          type: 'bar',
-          data: tsb.map(v => ({
-            value: v,
-            itemStyle: { color: v >= 0 ? '#22c55e80' : '#ef444480' },
-          })),
-          barWidth: '60%',
-          z: 0,
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:12px;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            for (const p of items) {
+              html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>${p.seriesName}: <strong>${p.value.toFixed(1)}</strong></div>`
+            }
+            return html
+          },
         },
-        {
-          name: 'CTL (Fitness)',
-          type: 'line',
-          data: ctl,
-          showSymbol: false,
-          lineStyle: { width: 2, color: '#3b82f6' },
-          itemStyle: { color: '#3b82f6' },
-          z: 2,
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
         },
-        {
-          name: 'ATL (Ermüdung)',
-          type: 'line',
-          data: atl,
-          showSymbol: false,
-          lineStyle: { width: 2, color: '#f97316' },
-          itemStyle: { color: '#f97316' },
-          z: 2,
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLabel: { fontSize: 10, color: '#999', rotate: 0 },
+          splitLine: { show: false },
         },
-      ],
-      dataZoom: [
-        {
-          type: 'inside',
-          xAxisIndex: 0,
-          filterMode: 'none',
+        yAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 11, color: '#999' },
+          splitLine: { lineStyle: { color: '#e5e5e5', type: 'dashed' } },
         },
-      ],
-    }
+        series: [
+          {
+            name: 'TSB (Form)',
+            type: 'bar',
+            data: tsb.map(v => ({
+              value: v,
+              itemStyle: { color: v >= 0 ? '#22c55e80' : '#ef444480' },
+            })),
+            barWidth: '60%',
+            z: 0,
+          },
+          {
+            name: 'CTL (Fitness)',
+            type: 'line',
+            data: ctl,
+            showSymbol: false,
+            lineStyle: { width: 2, color: '#3b82f6' },
+            itemStyle: { color: '#3b82f6' },
+            z: 2,
+          },
+          {
+            name: 'ATL (Ermüdung)',
+            type: 'line',
+            data: atl,
+            showSymbol: false,
+            lineStyle: { width: 2, color: '#f97316' },
+            itemStyle: { color: '#f97316' },
+            z: 2,
+          },
+        ],
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+          },
+        ],
+      } as EChartsCoreOption
+    },
+    [data],
+    (chart) => {
+      chartInstanceRef.current = chart
 
-    chart.setOption(option)
-
-    // Activate brush cursor so click-drag draws a range selection
-    chart.dispatchAction({
-      type: 'takeGlobalCursor',
-      key: 'brush',
-      brushOption: { brushType: 'lineX', brushMode: 'single' },
-    })
-
-    // Brush areas type
-    type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    // Re-entry guard: dataZoom dispatch triggers cascading brushEnd events
-    let brushZoomLock = false
-
-    chart.on('brushEnd', (params: unknown) => {
-      if (brushZoomLock) return
-      brushZoomLock = true
-
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const areas = p.areas ?? p.batch?.[0]?.areas
-      if (!areas || areas.length === 0) { brushZoomLock = false; return }
-
-      const area = areas[0]
-      let startIdx: number
-      let endIdx: number
-
-      if (area.coordRange) {
-        [startIdx, endIdx] = area.coordRange
-      } else if (area.range) {
-        const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-        const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) { brushZoomLock = false; return }
-        startIdx = Math.round(s as number)
-        endIdx = Math.round(e as number)
-      } else {
-        brushZoomLock = false; return
-      }
-
-      if (endIdx <= startIdx) { brushZoomLock = false; return }
-      startIdx = Math.max(0, startIdx)
-      endIdx = Math.min(dates.length - 1, endIdx)
-
-      chart.dispatchAction({
-        type: 'dataZoom',
-        dataZoomIndex: 0,
-        startValue: startIdx,
-        endValue: endIdx,
-      })
-
-      chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+      // Activate brush cursor so click-drag draws a range selection
       chart.dispatchAction({
         type: 'takeGlobalCursor',
         key: 'brush',
-        brushOption: { brushType: false },
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
       })
 
-      setIsZoomed(true)
-      requestAnimationFrame(() => { brushZoomLock = false })
-    })
+      // Brush areas type
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+      // Re-entry guard: dataZoom dispatch triggers cascading brushEnd events
+      let brushZoomLock = false
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
+      const dates = data.map(d => d.date)
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLock) return
+        brushZoomLock = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) { brushZoomLock = false; return }
+
+        const area = areas[0]
+        let startIdx: number
+        let endIdx: number
+
+        if (area.coordRange) {
+          [startIdx, endIdx] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLock = false; return }
+          startIdx = Math.round(s as number)
+          endIdx = Math.round(e as number)
+        } else {
+          brushZoomLock = false; return
+        }
+
+        if (endIdx <= startIdx) { brushZoomLock = false; return }
+        startIdx = Math.max(0, startIdx)
+        endIdx = Math.min(dates.length - 1, endIdx)
+
+        chart.dispatchAction({
+          type: 'dataZoom',
+          dataZoomIndex: 0,
+          startValue: startIdx,
+          endValue: endIdx,
+        })
+
+        chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+        chart.dispatchAction({
+          type: 'takeGlobalCursor',
+          key: 'brush',
+          brushOption: { brushType: false },
+        })
+
+        setIsZoomed(true)
+        requestAnimationFrame(() => { brushZoomLock = false })
+      })
+
+      return () => { chartInstanceRef.current = null }
+    },
+  )
 
   // Reset zoom: restore full view, reactivate brush
   const handleResetZoom = () => {
-    const chart = chartRef.current
+    const chart = chartInstanceRef.current
     if (!chart) return
 
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })

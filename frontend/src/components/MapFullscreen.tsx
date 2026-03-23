@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import { apiDownload } from '@/api/client'
 import * as echarts from 'echarts/core'
+import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -144,10 +145,9 @@ function findClosestIdx(arr: number[], target: number): number {
 
 export default function MapFullscreen({ streams, sportColor, onClose, activityId }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const chartContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const photoMarkersRef = useRef<maplibregl.Marker[]>([])
   const photoBlobUrlsRef = useRef<string[]>([])
 
@@ -475,299 +475,282 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
   }, [coordinates, sportColor])
 
   // ── Initialize + update ECharts ───────────────────────────────────────────
-  useEffect(() => {
-    if (!chartContainerRef.current) return
+  const chartContainerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-    const chart = echarts.init(chartContainerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+      const yAxes: echarts.EChartsCoreOption[] = []
+      const series: echarts.EChartsCoreOption[] = []
+      const legendData: { name: string; itemStyle: { color: string } }[] = []
 
-    const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-    const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const enabledList = availableStreams.filter(s => enabledStreams.has(s.key))
 
-    // Build y-axes and series for enabled streams
-    const yAxes: echarts.EChartsCoreOption[] = []
-    const series: echarts.EChartsCoreOption[] = []
-    const legendData: { name: string; itemStyle: { color: string } }[] = []
+      availableStreams.forEach((stream, idx) => {
+        const isEnabled = enabledStreams.has(stream.key)
+        const enabledIdx = enabledList.indexOf(stream)
 
-    // We create a y-axis per available stream to keep scales independent
-    // Axes alternate left/right positioning
-    const enabledList = availableStreams.filter(s => enabledStreams.has(s.key))
+        legendData.push({ name: stream.label, itemStyle: { color: stream.color } })
 
-    availableStreams.forEach((stream, idx) => {
-      const isEnabled = enabledStreams.has(stream.key)
-      const enabledIdx = enabledList.indexOf(stream)
+        const showAxis = isEnabled && enabledIdx >= 0
+        const isRight = enabledIdx > 0
 
-      legendData.push({ name: stream.label, itemStyle: { color: stream.color } })
+        yAxes.push({
+          type: 'value',
+          show: showAxis,
+          position: isRight ? 'right' : 'left',
+          offset: isRight ? Math.max(0, (enabledIdx - 1) * 55) : 0,
+          axisLabel: {
+            fontSize: 10,
+            color: stream.color,
+            formatter: (v: number) => `${Math.round(v)}`,
+          },
+          splitLine: { show: !isRight, lineStyle: { color: 'rgba(200,200,200,0.3)', type: 'dashed' } },
+          axisLine: { show: showAxis, lineStyle: { color: stream.color } },
+          axisTick: { show: false },
+        })
 
-      // Only show y-axis if this stream is enabled
-      const showAxis = isEnabled && enabledIdx >= 0
-      // Position: first axis left, rest right (to keep chart area clean)
-      const isRight = enabledIdx > 0
-
-      yAxes.push({
-        type: 'value',
-        show: showAxis,
-        position: isRight ? 'right' : 'left',
-        offset: isRight ? Math.max(0, (enabledIdx - 1) * 55) : 0,
-        axisLabel: {
-          fontSize: 10,
-          color: stream.color,
-          formatter: (v: number) => `${Math.round(v)}`,
-        },
-        splitLine: { show: !isRight, lineStyle: { color: 'rgba(200,200,200,0.3)', type: 'dashed' } },
-        axisLine: { show: showAxis, lineStyle: { color: stream.color } },
-        axisTick: { show: false },
-      })
-
-      series.push({
-        name: stream.label,
-        type: 'line',
-        yAxisIndex: idx,
-        data: xData.map((x, i) => [x, data[stream.key][i]]),
-        showSymbol: false,
-        lineStyle: { width: 1.5, color: stream.color },
-        itemStyle: { color: stream.color },
-        areaStyle: stream.key === 'altitude' && isEnabled ? { color: `${stream.color}18` } : undefined,
-        connectNulls: false,
-        // Visibility controlled through legend selection
-      })
-    })
-
-    // Build legend selected state from enabledStreams
-    const legendSelected: Record<string, boolean> = {}
-    availableStreams.forEach(s => {
-      legendSelected[s.label] = enabledStreams.has(s.key)
-    })
-
-    // Right margin grows with number of right-side axes
-    const rightAxes = Math.max(0, enabledList.length - 1)
-    const rightMargin = 12 + rightAxes * 55
-
-    const option: echarts.EChartsCoreOption = {
-      animation: false,
-
-      legend: {
-        show: true,
-        top: 4,
-        left: 'center',
-        itemWidth: 26,
-        itemHeight: 16,
-        itemGap: 20,
-        textStyle: { fontSize: 13, color: '#888' },
-        data: legendData,
-        selected: legendSelected,
-      },
-
-      grid: { left: 50, right: rightMargin, top: 30, bottom: 8 },
-
-      brush: {
-        toolbox: [],
-        brushType: 'lineX',
-        brushStyle: {
-          borderWidth: 1,
-          color: 'rgba(249,115,22,0.12)',
-          borderColor: '#f97316',
-        },
-        throttleType: 'debounce',
-        throttleDelay: 100,
-      },
-
-      tooltip: {
-        trigger: 'axis',
-        transitionDuration: 0,
-        confine: true,
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#e5e5e5',
-        borderWidth: 1,
-        padding: [6, 10],
-        textStyle: { fontSize: 11, color: '#333' },
-        axisPointer: {
+        series.push({
+          name: stream.label,
           type: 'line',
-          lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
-          animation: false,
-        },
-        formatter: (params: unknown) => {
-          const arr = Array.isArray(params) ? params : [params]
-          if (arr.length === 0) return ''
-          const first = arr[0] as { dataIndex?: number }
-          if (first?.dataIndex == null) return ''
-          const idx = first.dataIndex
-
-          const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-          const elapsed = data.elapsedMin[idx] ?? 0
-          const timeStr = formatElapsed(elapsed, data.maxElapsed)
-          const posLine = xMode === 'distance'
-            ? `${kmStr}\u202fkm`
-            : `${timeStr}\u2009\u00b7\u2009${kmStr}\u202fkm`
-
-          let html = `<div style="line-height:1.6;min-width:110px">`
-          html += `<div style="color:#888;font-size:10px;margin-bottom:1px">${posLine}</div>`
-
-          for (const item of arr as Array<{ seriesName?: string; value?: [number, number]; color?: string }>) {
-            if (!item.value || isNaN(item.value[1])) continue
-            const stream = availableStreams.find(s => s.label === item.seriesName)
-            if (!stream) continue
-            const decimals = stream.key === 'altitude' || stream.key === 'temperature' ? 0 : 1
-            html += `<div style="font-size:12px">`
-            html += `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${stream.color};margin-right:4px;vertical-align:middle"></span>`
-            html += `<strong>${item.value[1].toFixed(decimals)}</strong>\u2009${stream.unit}`
-            html += `</div>`
-          }
-
-          return html + '</div>'
-        },
-      },
-
-      xAxis: {
-        type: 'value',
-        min: 0,
-        max: xMax,
-        axisLabel: { show: false },
-        splitLine: { show: false },
-        axisLine: { show: false },
-        axisTick: { show: false },
-      },
-
-      yAxis: yAxes,
-      series,
-
-      dataZoom: [
-        {
-          type: 'inside',
-          xAxisIndex: 0,
-          filterMode: 'none',
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-          moveOnMouseWheel: false,
-        },
-      ],
-    }
-
-    chart.setOption(option)
-
-    // Activate brush cursor
-    chart.dispatchAction({
-      type: 'takeGlobalCursor',
-      key: 'brush',
-      brushOption: { brushType: 'lineX', brushMode: 'single' },
-    })
-
-    // Hover -> map marker
-    chart.on('showTip', (params: unknown) => {
-      const typed = params as { dataIndex?: number }
-      if (typed.dataIndex != null) moveMarker(typed.dataIndex)
-    })
-    chart.on('hideTip', () => moveMarker(null))
-
-    // Legend toggle -> update enabledStreams
-    chart.on('legendselectchanged', (params: unknown) => {
-      const typed = params as { selected: Record<string, boolean> }
-      const next = new Set<FieldKey>()
-      availableStreams.forEach(s => {
-        if (typed.selected[s.label]) next.add(s.key)
+          yAxisIndex: idx,
+          data: xData.map((x, i) => [x, data[stream.key][i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: stream.color },
+          itemStyle: { color: stream.color },
+          areaStyle: stream.key === 'altitude' && isEnabled ? { color: `${stream.color}18` } : undefined,
+          connectNulls: false,
+        })
       })
-      setEnabledStreams(next)
-    })
 
-    // Brush handling (same pattern as ActivityCharts)
-    type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-    // Re-entry guard: dataZoom dispatch triggers cascading brushEnd events
-    // with the SAME pixel range but different axis scale → exponential zoom-in.
-    let brushZoomLock = false
+      const legendSelected: Record<string, boolean> = {}
+      availableStreams.forEach(s => {
+        legendSelected[s.label] = enabledStreams.has(s.key)
+      })
 
-    chart.on('brushEnd', (params: unknown) => {
-      if (brushZoomLock) return
-      brushZoomLock = true
+      const rightAxes = Math.max(0, enabledList.length - 1)
+      const rightMargin = 12 + rightAxes * 55
 
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const areas = p.areas ?? p.batch?.[0]?.areas
-      if (!areas || areas.length === 0) {
-        brushZoomLock = false
-        return
-      }
+      return {
+        animation: false,
 
-      const area = areas[0]
-      let startData: number
-      let endData: number
+        legend: {
+          show: true,
+          top: 4,
+          left: 'center',
+          itemWidth: 26,
+          itemHeight: 16,
+          itemGap: 20,
+          textStyle: { fontSize: 13, color: '#888' },
+          data: legendData,
+          selected: legendSelected,
+        },
 
-      if (area.coordRange) {
-        [startData, endData] = area.coordRange
-      } else if (area.range) {
-        const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-        const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) { brushZoomLock = false; return }
-        startData = s as number
-        endData = e as number
-      } else {
-        brushZoomLock = false
-        return
-      }
+        grid: { left: 50, right: rightMargin, top: 30, bottom: 8 },
 
-      if (endData <= startData) { brushZoomLock = false; return }
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
 
-      const sv = Math.max(0, startData)
-      const ev = Math.min(xMax, endData)
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [6, 10],
+          textStyle: { fontSize: 11, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            if (arr.length === 0) return ''
+            const first = arr[0] as { dataIndex?: number }
+            if (first?.dataIndex == null) return ''
+            const idx = first.dataIndex
 
-      // Use percentage-based zoom (reliable with filterMode:'none')
-      const startPct = Math.max(0, (sv / xMax) * 100)
-      const endPct = Math.min(100, (ev / xMax) * 100)
-      if (endPct - startPct < 0.5) { brushZoomLock = false; return }
+            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const elapsed = data.elapsedMin[idx] ?? 0
+            const timeStr = formatElapsed(elapsed, data.maxElapsed)
+            const posLine = xMode === 'distance'
+              ? `${kmStr}\u202fkm`
+              : `${timeStr}\u2009\u00b7\u2009${kmStr}\u202fkm`
 
-      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: startPct, end: endPct })
-      chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+            let html = `<div style="line-height:1.6;min-width:110px">`
+            html += `<div style="color:#888;font-size:10px;margin-bottom:1px">${posLine}</div>`
+
+            for (const item of arr as Array<{ seriesName?: string; value?: [number, number]; color?: string }>) {
+              if (!item.value || isNaN(item.value[1])) continue
+              const stream = availableStreams.find(s => s.label === item.seriesName)
+              if (!stream) continue
+              const decimals = stream.key === 'altitude' || stream.key === 'temperature' ? 0 : 1
+              html += `<div style="font-size:12px">`
+              html += `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${stream.color};margin-right:4px;vertical-align:middle"></span>`
+              html += `<strong>${item.value[1].toFixed(decimals)}</strong>\u2009${stream.unit}`
+              html += `</div>`
+            }
+
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { show: false },
+          splitLine: { show: false },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        yAxis: yAxes,
+        series,
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, enabledStreams, availableStreams], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      chartInstanceRef.current = chart
+
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      // Activate brush cursor
       chart.dispatchAction({
         type: 'takeGlobalCursor',
         key: 'brush',
-        brushOption: { brushType: false },
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
       })
 
-      setIsZoomed(true)
+      // Hover -> map marker
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) moveMarker(typed.dataIndex)
+      })
+      chart.on('hideTip', () => moveMarker(null))
 
-      // Highlight segment on map using stream indices
-      const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      highlightMapSegment(findClosestIdx(xArr, sv), findClosestIdx(xArr, ev))
+      // Legend toggle -> update enabledStreams
+      chart.on('legendselectchanged', (params: unknown) => {
+        const typed = params as { selected: Record<string, boolean> }
+        const next = new Set<FieldKey>()
+        availableStreams.forEach(s => {
+          if (typed.selected[s.label]) next.add(s.key)
+        })
+        setEnabledStreams(next)
+      })
 
-      requestAnimationFrame(() => { brushZoomLock = false })
-    })
+      // Brush handling (same pattern as ActivityCharts)
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+      let brushZoomLock = false
 
-    // Mouse-wheel / pan zoom
-    chart.on('dataZoom', (params: unknown) => {
-      const p = params as {
-        batch?: Array<{ start: number; end: number }>
-        start?: number
-        end?: number
-      }
-      const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-      if (z == null) return
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLock) return
+        brushZoomLock = true
 
-      const zoomed = z.start > 0.5 || z.end < 99.5
-      setIsZoomed(zoomed)
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLock = false
+          return
+        }
 
-      if (zoomed) {
-        const startVal = (z.start / 100) * xMax
-        const endVal = (z.end / 100) * xMax
-        highlightMapSegment(findClosestIdx(xData, startVal), findClosestIdx(xData, endVal))
-      } else {
-        clearMapHighlight()
-      }
-    })
+        const area = areas[0]
+        let startData: number
+        let endData: number
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(chartContainerRef.current)
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLock = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLock = false
+          return
+        }
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data, xMode, enabledStreams, availableStreams]) // eslint-disable-line react-hooks/exhaustive-deps
+        if (endData <= startData) { brushZoomLock = false; return }
+
+        const sv = Math.max(0, startData)
+        const ev = Math.min(xMax, endData)
+
+        const startPct = Math.max(0, (sv / xMax) * 100)
+        const endPct = Math.min(100, (ev / xMax) * 100)
+        if (endPct - startPct < 0.5) { brushZoomLock = false; return }
+
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: startPct, end: endPct })
+        chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+        chart.dispatchAction({
+          type: 'takeGlobalCursor',
+          key: 'brush',
+          brushOption: { brushType: false },
+        })
+
+        setIsZoomed(true)
+
+        const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+        highlightMapSegment(findClosestIdx(xArr, sv), findClosestIdx(xArr, ev))
+
+        requestAnimationFrame(() => { brushZoomLock = false })
+      })
+
+      // Mouse-wheel / pan zoom
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z == null) return
+
+        const zoomed = z.start > 0.5 || z.end < 99.5
+        setIsZoomed(zoomed)
+
+        if (zoomed) {
+          const startVal = (z.start / 100) * xMax
+          const endVal = (z.end / 100) * xMax
+          highlightMapSegment(findClosestIdx(xData, startVal), findClosestIdx(xData, endVal))
+        } else {
+          clearMapHighlight()
+        }
+      })
+
+      return () => { chartInstanceRef.current = null }
+    },
+  )
 
   // ── Reset zoom handler ──────────────────────────────────────────────────
   const handleResetZoom = useCallback(() => {
-    const chart = chartRef.current
+    const chart = chartInstanceRef.current
     if (!chart) return
 
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })

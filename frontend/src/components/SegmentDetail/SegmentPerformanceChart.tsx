@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { apiClient } from '@/api/client'
 import { fmtDuration } from '@/lib/format'
+import { useECharts } from '@/hooks/useECharts'
 
 interface SegmentPerformanceChartProps {
   segmentId: string
@@ -14,8 +15,6 @@ interface SegmentPerformanceChartProps {
 
 export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: SegmentPerformanceChartProps) {
   const navigate = useNavigate()
-  const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   const { data } = useQuery({
     queryKey: ['segment-performances', segmentId],
@@ -55,105 +54,92 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
       ? sorted.reduce((s, p) => s + p.elapsed_time_s, 0) / sorted.length
       : 0
 
-  useEffect(() => {
-    if (!chartRef.current || sorted.length === 0) return
+  const containerRef = useECharts(
+    () => {
+      if (sorted.length === 0) return {}
 
-    if (!chartInstance.current) {
-      chartInstance.current = echarts.init(chartRef.current, null, { renderer: 'canvas' })
-    }
+      const timeData = sorted.map((p: any) => {
+        const isBest = p.elapsed_time_s === bestTime
+        return {
+          value: [new Date(p.started_at).getTime(), p.elapsed_time_s],
+          symbolSize: isBest ? 12 : 10,
+          itemStyle: { color: isBest ? '#FFD700' : '#888', borderWidth: 0 },
+          emphasis: {
+            symbolSize: isBest ? 15 : 13,
+            itemStyle: {
+              color: isBest ? '#FFD700' : '#ef4444',
+              borderWidth: isBest ? 1.5 : 0,
+              borderColor: isBest ? '#d97706' : 'transparent',
+            },
+          },
+        }
+      })
+      const minTime = timeData.length > 0 ? Math.min(...timeData.map(d => (d.value as number[])[0])) : 0
+      const maxTime = timeData.length > 0 ? Math.max(...timeData.map(d => (d.value as number[])[0])) : 0
 
-    const timeData = sorted.map((p: any) => {
-      const isBest = p.elapsed_time_s === bestTime
       return {
-        value: [new Date(p.started_at).getTime(), p.elapsed_time_s],
-        symbolSize: isBest ? 12 : 10,
-        itemStyle: { color: isBest ? '#FFD700' : '#888', borderWidth: 0 },
-        emphasis: {
-          symbolSize: isBest ? 15 : 13,
-          itemStyle: {
-            color: isBest ? '#FFD700' : '#ef4444',
-            borderWidth: isBest ? 1.5 : 0,
-            borderColor: isBest ? '#d97706' : 'transparent',
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            if (params.seriesIndex !== 0) return ''
+            const [ts, time] = params.data.value ?? params.data
+            const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
+            const dateStr = new Date(ts).toLocaleDateString('de-DE')
+            return `${dateStr}<br/><b>${fmtDuration(time)}</b>${perf ? '<br/>' + perf.title : ''}`
           },
         },
-      }
-    })
-    const minTime = timeData.length > 0 ? Math.min(...timeData.map(d => (d.value as number[])[0])) : 0
-    const maxTime = timeData.length > 0 ? Math.max(...timeData.map(d => (d.value as number[])[0])) : 0
-
-    const option: echarts.EChartsOption = {
-      tooltip: {
-        trigger: 'item',
-        formatter: (params: any) => {
-          if (params.seriesIndex !== 0) return ''
-          const [ts, time] = params.data.value ?? params.data
+        grid: { left: 60, right: 20, top: 20, bottom: 50 },
+        xAxis: {
+          type: 'time',
+          min: minTime,
+          max: maxTime,
+          axisLabel: {
+            formatter: (v: number) => new Date(v).toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
+            fontSize: 10,
+            rotate: 30,
+          },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Zeit',
+          axisLabel: { formatter: (v: number) => fmtDuration(v) },
+        },
+        series: [
+          {
+            type: 'scatter',
+            data: timeData,
+            symbolSize: 10,
+            emphasis: { scale: false },
+          },
+          {
+            type: 'line',
+            data: [[minTime, Math.round(avgTime)], [maxTime, Math.round(avgTime)]],
+            lineStyle: {
+              type: 'dashed',
+              color: getComputedStyle(document.documentElement)
+                .getPropertyValue('--color-accent-DEFAULT')
+                .trim() || '#f97316',
+              width: 1.5,
+            },
+            symbol: 'none',
+            tooltip: { show: false },
+          },
+        ],
+      } as echarts.EChartsOption
+    },
+    [sorted, bestTime, avgTime],
+    (chart) => {
+      const handler = (params: any) => {
+        if (params.seriesIndex === 0) {
+          const [ts] = params.data.value ?? params.data
           const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
-          const dateStr = new Date(ts).toLocaleDateString('de-DE')
-          return `${dateStr}<br/><b>${fmtDuration(time)}</b>${perf ? '<br/>' + perf.title : ''}`
-        },
-      },
-      grid: { left: 60, right: 20, top: 20, bottom: 50 },
-      xAxis: {
-        type: 'time',
-        min: minTime,
-        max: maxTime,
-        axisLabel: {
-          formatter: (v: number) => new Date(v).toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
-          fontSize: 10,
-          rotate: 30,
-        },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Zeit',
-        axisLabel: { formatter: (v: number) => fmtDuration(v) },
-      },
-      series: [
-        {
-          type: 'scatter',
-          data: timeData,
-          symbolSize: 10,
-          emphasis: { scale: false },
-        },
-        {
-          type: 'line',
-          data: [[minTime, Math.round(avgTime)], [maxTime, Math.round(avgTime)]],
-          lineStyle: {
-            type: 'dashed',
-            color: getComputedStyle(document.documentElement)
-              .getPropertyValue('--color-accent-DEFAULT')
-              .trim() || '#f97316',
-            width: 1.5,
-          },
-          symbol: 'none',
-          tooltip: { show: false },
-        },
-      ],
-    }
-
-    chartInstance.current.setOption(option)
-
-    chartInstance.current.off('click')
-    chartInstance.current.on('click', (params: any) => {
-      if (params.seriesIndex === 0) {
-        const [ts] = params.data.value ?? params.data
-        const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
-        if (perf) navigate(`/activities/${perf.activity_id}`)
+          if (perf) navigate(`/activities/${perf.activity_id}`)
+        }
       }
-    })
-
-    const handleResize = () => chartInstance.current?.resize()
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [sorted, bestTime, avgTime, navigate])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      chartInstance.current?.dispose()
-      chartInstance.current = null
-    }
-  }, [])
+      chart.on('click', handler)
+      return () => chart.off('click', handler)
+    },
+  )
 
   if (performances.length === 0) return null
 
@@ -177,7 +163,7 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
           <span>&#216; {fmtDuration(Math.round(avgTime))}</span>
         </div>
       </div>
-      <div ref={chartRef} style={{ height: '320px', width: '100%' }} />
+      <div ref={containerRef} style={{ height: '320px', width: '100%' }} />
     </div>
   )
 }
