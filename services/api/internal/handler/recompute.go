@@ -485,6 +485,37 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), info.OriginalFilename)
 	case "tcx":
 		data, err = tcximport.ParseTCX(bytes.NewReader(fileBytes), info.OriginalFilename)
+	case "manual", "strava_csv":
+		mf, parseErr := sidecar.ParseManualActivityFile(fileBytes)
+		if parseErr != nil {
+			return fmt.Errorf("parse %s JSON: %w", info.FileFormat, parseErr)
+		}
+		data = &model.ActivityData{
+			FileFormat:     info.FileFormat,
+			Source:         mf.Source,
+			SportType:      mf.SportType,
+			SubType:        mf.SubType,
+			StartedAt:      mf.StartedAt,
+			ElapsedTimeS:   int(mf.ElapsedTimeS),
+			MovingTimeS:    int(mf.MovingTimeS),
+			DistanceM:      mf.DistanceM,
+			ElevationGainM: mf.ElevationGainM,
+			ElevationLossM: mf.ElevationLossM,
+			IsEbike:        mf.IsEbike,
+		}
+		// Persist title + description via enrichment fields (not in ActivityData).
+		enrichFields := make(map[string]any)
+		if mf.Title != "" {
+			enrichFields["title"] = mf.Title
+		}
+		if mf.Description != "" {
+			enrichFields["description"] = mf.Description
+		}
+		if len(enrichFields) > 0 {
+			if eErr := h.DB.UpdateEnrichmentFields(ctx, activityID, enrichFields); eErr != nil {
+				slog.Error("reprocess: update title/description failed", "id", activityID, "error", eErr)
+			}
+		}
 	default:
 		return fmt.Errorf("unknown format %q for activity %s", info.FileFormat, activityID)
 	}
