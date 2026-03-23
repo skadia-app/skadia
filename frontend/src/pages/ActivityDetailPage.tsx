@@ -1880,22 +1880,27 @@ function TagsBadges({ tags, activityId }: { tags: string[]; activityId: string }
         )}
       </div>
 
-      {tags.map((tag, i) => (
-        <span
-          key={tag}
-          className="group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-          style={getTagStyle(tag, i)}
-        >
-          {tag}
-          <button
-            onClick={() => removeMut.mutate(tag)}
-            className="text-xs ml-1.5 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
-            title={`Tag "${tag}" entfernen`}
+      {tags.map((tag, i) => {
+        const isHardcoded = tag === 'virtuell' && activity.is_virtual
+        return (
+          <span
+            key={tag}
+            className="group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+            style={getTagStyle(tag, i)}
           >
-            &times;
-          </button>
-        </span>
-      ))}
+            {tag}
+            {!isHardcoded && (
+              <button
+                onClick={() => removeMut.mutate(tag)}
+                className="text-xs ml-1.5 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+                title={`Tag "${tag}" entfernen`}
+              >
+                &times;
+              </button>
+            )}
+          </span>
+        )
+      })}
     </>
   )
 }

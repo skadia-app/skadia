@@ -1,3 +1,5 @@
+DROP TRIGGER IF EXISTS trg_prevent_virtual_tag_removal ON activity_tags;
+DROP FUNCTION IF EXISTS prevent_virtual_tag_removal();
 DROP TRIGGER IF EXISTS trg_sync_virtual_tag_insert_junction ON activities;
 DROP FUNCTION IF EXISTS sync_virtual_tag_insert_junction();
 DROP TRIGGER IF EXISTS trg_sync_virtual_tag_insert ON activities;

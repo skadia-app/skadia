@@ -99,3 +99,25 @@ CREATE TRIGGER trg_sync_virtual_tag_insert_junction
     AFTER INSERT ON activities
     FOR EACH ROW
     EXECUTE FUNCTION sync_virtual_tag_insert_junction();
+
+-- 7. Löschschutz: "virtuell"-Tag darf nicht von virtuellen Aktivitäten entfernt werden
+CREATE OR REPLACE FUNCTION prevent_virtual_tag_removal() RETURNS TRIGGER AS $$
+DECLARE
+    v_tag_name TEXT;
+    v_is_virtual BOOLEAN;
+BEGIN
+    SELECT name INTO v_tag_name FROM tags WHERE id = OLD.tag_id;
+    IF v_tag_name = 'virtuell' THEN
+        SELECT is_virtual INTO v_is_virtual FROM activities WHERE id = OLD.activity_id;
+        IF v_is_virtual THEN
+            RAISE EXCEPTION 'Tag "virtuell" kann nicht von virtuellen Aktivitäten entfernt werden';
+        END IF;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_virtual_tag_removal
+    BEFORE DELETE ON activity_tags
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_virtual_tag_removal();
