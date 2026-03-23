@@ -17,7 +17,7 @@ export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
       if (h > 0) return `${h}h ${m}m`
       return `${m} min`
     case 'short':
-      if (h > 0) return `${h}h ${m}m ${sec}s`
+      if (h > 0) return sec > 0 ? `${h}h ${m}m ${sec}s` : m > 0 ? `${h}h ${m}m` : `${h}h`
       if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m} min`
       return `${sec}s`
     case 'abbr':
