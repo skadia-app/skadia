@@ -80,6 +80,15 @@ function ChevronRightIcon({ className }: { className?: string }) {
   )
 }
 
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
+}
+
 function SpinnerIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24">
@@ -610,6 +619,26 @@ export default function ImportHub() {
                   </button>
                 </div>
               )}
+            </div>
+
+            {/* Divider */}
+            <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
+
+            {/* Section: Manual activity */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                <PencilIcon className="w-3.5 h-3.5" />
+                Manuelle Aktivität
+              </div>
+
+              <button
+                onClick={() => { setOpen(false); navigate('/activities/manual') }}
+                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+              >
+                <PencilIcon className="w-5 h-5 shrink-0 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
+                <span className="flex-1 font-medium">Aktivität manuell erstellen</span>
+                <ChevronRightIcon className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
+              </button>
             </div>
 
             {/* Divider */}
