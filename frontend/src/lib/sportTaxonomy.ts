@@ -98,7 +98,6 @@ export const SPORT_DEFS: SportDef[] = [
     sub('recumbent', 'Liegerad'),
     sub('unicycling', 'Einrad'),
   ]),
-  def('virtual_ride', 'bike', 'Virtuelles Radfahren', false),
   def('inline_skating', 'outdoor', 'Inline-Skaten', true),
 
   // ── winter ──
