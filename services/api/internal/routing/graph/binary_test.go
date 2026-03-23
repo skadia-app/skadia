@@ -492,3 +492,98 @@ func TestDeserializeV3Rejected(t *testing.T) {
 		t.Errorf("expected 'unsupported' in error, got: %v", err)
 	}
 }
+
+// TestSectionAlignmentUint8Last verifies that uint8 sections (NodeTags, IsBorder)
+// appear AFTER all multi-byte data sections and BEFORE landmark sections in the
+// serialized file. This ordering is required for correct mmap alignment: odd-byte
+// uint8 sections must not precede int32/uint32/uint64 sections.
+func TestSectionAlignmentUint8Last(t *testing.T) {
+	g := &Graph{
+		NodeCount: 5, EdgeCount: 4,
+		Offsets:         []uint32{0, 1, 2, 3, 4, 4},
+		Targets:         []uint32{1, 2, 3, 4},
+		EdgeDist:        []uint32{100, 200, 300, 400},
+		EdgeTags1:       []uint64{0, 0, 0, 0},
+		EdgeTags2:       []uint64{0, 0, 0, 0},
+		EdgeOSMIdx:      []uint32{0, 0, 0, 0},
+		OSMIDPool:       []int64{1, 2},
+		NodeLat:         []int32{470000000, 470010000, 470020000, 470030000, 470040000},
+		NodeLon:         []int32{80000000, 80000000, 80000000, 80000000, 80000000},
+		NodeEle:         []int32{5000, 5100, 5200, 5300, 5400},
+		NodeTags:        []uint8{0, 1, 0, 1, 0}, // 5 bytes — odd length to stress alignment
+		EdgeGeomOff:     []uint32{0, 0, 0, 0, 0},
+		EdgeGeomLat:     []int32{},
+		EdgeGeomLon:     []int32{},
+		EdgeElevOff:     []uint32{0, 0, 0, 0, 0},
+		EdgeElevProf:    []int32{},
+		EdgeElevSegDist: []uint16{},
+		IsBorder:        []bool{false, true, false, false, true},
+	}
+	g.Grid = BuildSpatialIndex(g, 0.01)
+
+	f, err := os.CreateTemp("", "uint8last_test_*.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.Close()
+
+	if err := Serialize(g, f.Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sectionCnt := le.Uint16(data[60:62])
+	dirStart := HeaderSize
+
+	// Collect section types in file order.
+	types := make([]uint16, sectionCnt)
+	for i := range int(sectionCnt) {
+		off := dirStart + i*12
+		types[i] = le.Uint16(data[off : off+2])
+	}
+
+	uint8Sections := map[uint16]bool{SectionNodeTags: true, SectionIsBorder: true}
+	landmarkBase := SectionLandmarkDistA
+
+	// Find index ranges.
+	firstUint8 := -1
+	lastUint8 := -1
+	firstLandmark := -1
+	lastMultiByte := -1
+
+	for i, typ := range types {
+		if uint8Sections[typ] {
+			if firstUint8 == -1 {
+				firstUint8 = i
+			}
+			lastUint8 = i
+		} else if typ >= landmarkBase {
+			if firstLandmark == -1 {
+				firstLandmark = i
+			}
+		} else {
+			// non-uint8 data section
+			lastMultiByte = i
+		}
+	}
+
+	// uint8 sections must exist.
+	if firstUint8 == -1 {
+		t.Fatal("NodeTags section not found in serialized file")
+	}
+
+	// uint8 sections must come AFTER all multi-byte data sections.
+	if lastMultiByte != -1 && firstUint8 <= lastMultiByte {
+		t.Errorf("uint8 section appears at index %d but multi-byte section appears at index %d — uint8 must be last among data sections", firstUint8, lastMultiByte)
+	}
+
+	// Landmark sections (if present) must come AFTER uint8 sections.
+	if firstLandmark != -1 && firstLandmark <= lastUint8 {
+		t.Errorf("landmark section appears at index %d but uint8 section appears at index %d — landmarks must follow uint8 sections", firstLandmark, lastUint8)
+	}
+}
