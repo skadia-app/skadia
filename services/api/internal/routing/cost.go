@@ -28,6 +28,22 @@ type EdgeCostFactors struct {
 	WayClass uint8   // 0=normal, 1=ferry, 2=mainroad — for initialcost tracking
 }
 
+// CostMin returns the minimum of Flat, Up, Down — the most optimistic
+// cost factor for backward search. Zero Up/Down are treated as Flat.
+// Defined on routing.EdgeCostFactors (returned by cfg.EdgeCost()),
+// NOT on graph.EdgeCostFactors (used in UnifiedCSR).
+func (ecf EdgeCostFactors) CostMin() float32 {
+	up := ecf.Up
+	if up == 0 {
+		up = ecf.Flat
+	}
+	down := ecf.Down
+	if down == 0 {
+		down = ecf.Flat
+	}
+	return min(ecf.Flat, up, down)
+}
+
 // CostConfig holds the routing cost configuration.
 // EdgeCost is a closure — Phase 4 creates it from SportProfile.
 type CostConfig struct {
