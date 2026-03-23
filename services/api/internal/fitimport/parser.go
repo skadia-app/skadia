@@ -756,41 +756,41 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// Power Phase arrays: []uint8, Scale: 0.7111111, fixed 2-element [start, end]
 	if len(session.AvgLeftPowerPhase) >= 2 {
 		if session.AvgLeftPowerPhase[0] != basetype.Uint8Invalid {
-			v := float64(session.AvgLeftPowerPhase[0]) * 0.7111111
+			v := float64(session.AvgLeftPowerPhase[0]) / 0.7111111
 			data.AvgLeftPowerPhaseStartDeg = &v
 		}
 		if session.AvgLeftPowerPhase[1] != basetype.Uint8Invalid {
-			v := float64(session.AvgLeftPowerPhase[1]) * 0.7111111
+			v := float64(session.AvgLeftPowerPhase[1]) / 0.7111111
 			data.AvgLeftPowerPhaseEndDeg = &v
 		}
 	}
 	if len(session.AvgLeftPowerPhasePeak) >= 2 {
 		if session.AvgLeftPowerPhasePeak[0] != basetype.Uint8Invalid {
-			v := float64(session.AvgLeftPowerPhasePeak[0]) * 0.7111111
+			v := float64(session.AvgLeftPowerPhasePeak[0]) / 0.7111111
 			data.AvgLeftPowerPhasePeakStartDeg = &v
 		}
 		if session.AvgLeftPowerPhasePeak[1] != basetype.Uint8Invalid {
-			v := float64(session.AvgLeftPowerPhasePeak[1]) * 0.7111111
+			v := float64(session.AvgLeftPowerPhasePeak[1]) / 0.7111111
 			data.AvgLeftPowerPhasePeakEndDeg = &v
 		}
 	}
 	if len(session.AvgRightPowerPhase) >= 2 {
 		if session.AvgRightPowerPhase[0] != basetype.Uint8Invalid {
-			v := float64(session.AvgRightPowerPhase[0]) * 0.7111111
+			v := float64(session.AvgRightPowerPhase[0]) / 0.7111111
 			data.AvgRightPowerPhaseStartDeg = &v
 		}
 		if session.AvgRightPowerPhase[1] != basetype.Uint8Invalid {
-			v := float64(session.AvgRightPowerPhase[1]) * 0.7111111
+			v := float64(session.AvgRightPowerPhase[1]) / 0.7111111
 			data.AvgRightPowerPhaseEndDeg = &v
 		}
 	}
 	if len(session.AvgRightPowerPhasePeak) >= 2 {
 		if session.AvgRightPowerPhasePeak[0] != basetype.Uint8Invalid {
-			v := float64(session.AvgRightPowerPhasePeak[0]) * 0.7111111
+			v := float64(session.AvgRightPowerPhasePeak[0]) / 0.7111111
 			data.AvgRightPowerPhasePeakStartDeg = &v
 		}
 		if session.AvgRightPowerPhasePeak[1] != basetype.Uint8Invalid {
-			v := float64(session.AvgRightPowerPhasePeak[1]) * 0.7111111
+			v := float64(session.AvgRightPowerPhasePeak[1]) / 0.7111111
 			data.AvgRightPowerPhasePeakEndDeg = &v
 		}
 	}
