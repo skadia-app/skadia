@@ -7,6 +7,7 @@ import {
 } from '@/api/gear'
 import { useToast } from '@/lib/toast'
 import type { GearDocument } from '@/api/types'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface Props {
   gearId: string
@@ -333,11 +334,7 @@ function UploadDialog({
   }, [])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div
-        className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell onClose={onClose} maxWidth="max-w-lg" className="p-0 overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Dokument hinzufügen</h3>
           <button
@@ -492,8 +489,7 @@ function UploadDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -679,11 +675,7 @@ function DeleteConfirmDialog({
   isPending: boolean
 }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={onCancel}>
-      <div
-        className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-sm w-full mx-4 p-6"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell onClose={onCancel} maxWidth="max-w-sm">
         <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
           Dokument löschen?
         </h3>
@@ -705,7 +697,6 @@ function DeleteConfirmDialog({
             {isPending ? 'Wird gelöscht...' : 'Löschen'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

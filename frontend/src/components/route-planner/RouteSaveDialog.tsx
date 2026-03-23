@@ -5,6 +5,7 @@ import type { PlannedRoute, RouteWaypoint, RouteSegment } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import RouteMetadataForm from './RouteMetadataForm'
 import type { RouteMetadataValues } from './RouteMetadataForm'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,16 +123,10 @@ export default function RouteSaveDialog({
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={!isPending ? onClose : undefined}
-      />
+  const handleClose = isPending ? () => {} : onClose
 
-      {/* Dialog panel */}
-      <div className="relative bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-lg flex flex-col max-h-[90vh]">
+  return (
+    <ModalShell onClose={handleClose} maxWidth="max-w-lg" className="p-0 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800 flex-shrink-0">
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
@@ -203,8 +198,7 @@ export default function RouteSaveDialog({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
 

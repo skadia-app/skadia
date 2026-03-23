@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useMutation } from '@tanstack/react-query'
 import { suggestRoute, type RouteSuggestionParams, type RouteSuggestion } from '@/api/routes'
 import { useAccentColor } from '@/lib/accentColor'
 import { useToast } from '@/lib/toast'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 // Sport options relevant for route planning (GPS-tracked outdoor sports)
 const ROUTE_SPORT_OPTIONS = [
@@ -125,8 +125,6 @@ export default function RouteSuggestionDialog({
     if (!isNaN(n) && n >= 100 && n <= 3000) setElevationHm(n)
   }
 
-  useEscapeKey(onClose)
-
   const mutation = useMutation({
     mutationFn: () => {
       const effectiveLandscape = preferUnknown
@@ -165,20 +163,7 @@ export default function RouteSuggestionDialog({
   })
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-
-      <div
-        className="relative bg-white dark:bg-neutral-950 rounded-xl shadow-xl w-[92vw] max-w-md max-h-[90vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="route-suggestion-title"
-      >
+    <ModalShell onClose={onClose} maxWidth="max-w-md" className="p-0 w-[92vw] max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
           <div>
@@ -427,7 +412,6 @@ export default function RouteSuggestionDialog({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
