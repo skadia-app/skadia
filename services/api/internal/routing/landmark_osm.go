@@ -94,15 +94,12 @@ func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SelectCrossingSeedsSQL selects up to 4 crossing seeds via median-split quadrant
-// selection. Returns the highest crossing per quadrant (NW, NE, SW, SE).
-// Uses percentile_cont for robust median computation even with asymmetric distributions.
-//
-// NOTE: ORDER BY ele DESC within each quadrant is used as a proxy for topological
-// prominence (Spec Section 3.3). This is NOT the same as the rejected "ORDER BY
-// ele DESC for landmark selection" — that selected the globally highest passes
-// which cluster geographically. Here, the median split ensures geographic spread
-// FIRST, then ele DESC picks the most prominent crossing within each quadrant.
+// SelectCrossingSeedsSQL selects up to 12 crossing seeds (top-3 per quadrant)
+// via median-split. Returns seeds ordered by quadrant then elevation.
+// Uses ele BETWEEN 500 AND 3000 to exclude glacial saddles (>3000m) which are
+// poorly connected in the trail graph and produce useless ALT landmarks.
+// Returns top-3 per quadrant so the pipeline can skip disconnected seeds
+// and try the next candidate.
 func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64) ([]OSMLandmark, error) {
 	rows, err := pool.Query(ctx, `
@@ -110,7 +107,7 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 			SELECT osm_id, COALESCE(name, '') AS name,
 			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
 			FROM osm_pois
-			WHERE ele IS NOT NULL AND ele > 500
+			WHERE ele IS NOT NULL AND ele > 500 AND ele < 3000
 			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
 			  AND (
 			    category = 'pass'
@@ -143,8 +140,8 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 			FROM crossings c, medians m
 		)
 		SELECT osm_id, name, lat, lon, ele
-		FROM ranked WHERE rn = 1
-		ORDER BY lat_bin, lon_bin
+		FROM ranked WHERE rn <= 3
+		ORDER BY lat_bin, lon_bin, rn
 	`, west, south, east, north)
 	if err != nil {
 		return nil, err
