@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/muktihari/fit/profile/basetype"
+	"github.com/muktihari/fit/profile/mesgdef"
+
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -134,6 +137,142 @@ func TestFixDistanceResets_ThreeSegments(t *testing.T) {
 	}
 }
 
+
+// TestExtractStreams_BatterySocScale tests BatterySoc Scale: /2
+func TestExtractStreams_BatterySocScale(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:  now,
+			BatterySoc: 200, // /2 = 100.0%
+			// Set other fields to invalid to avoid noise
+			PositionLat:  invalidSint32,
+			PositionLong: invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+
+	if result[0].BatterySocPct == nil {
+		t.Fatal("BatterySocPct: expected non-nil")
+	}
+	if math.Abs(*result[0].BatterySocPct-100.0) > 0.01 {
+		t.Errorf("BatterySocPct: got %f, want 100.0", *result[0].BatterySocPct)
+	}
+}
+
+// TestExtractStreams_Po2Scale tests Po2 Scale: /100
+func TestExtractStreams_Po2Scale(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:    now,
+			Po2:          21, // /100 = 0.21
+			PositionLat:  invalidSint32,
+			PositionLong: invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+
+	if result[0].Po2 == nil {
+		t.Fatal("Po2: expected non-nil")
+	}
+	if math.Abs(*result[0].Po2-0.21) > 0.001 {
+		t.Errorf("Po2: got %f, want 0.21", *result[0].Po2)
+	}
+}
+
+// TestExtractStreams_LeftPowerPhase tests Power Phase: raw / 0.7111111 = degrees
+func TestExtractStreams_LeftPowerPhase(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:      now,
+			LeftPowerPhase: []uint8{0, 128}, // [0/0.7111111, 128/0.7111111] = [0.0, ~180.0]
+			PositionLat:    invalidSint32,
+			PositionLong:   invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+
+	if result[0].LeftPowerPhaseStartDeg == nil {
+		t.Fatal("LeftPowerPhaseStartDeg: expected non-nil")
+	}
+	if math.Abs(*result[0].LeftPowerPhaseStartDeg-0.0) > 0.01 {
+		t.Errorf("LeftPowerPhaseStartDeg: got %f, want 0.0", *result[0].LeftPowerPhaseStartDeg)
+	}
+
+	if result[0].LeftPowerPhaseEndDeg == nil {
+		t.Fatal("LeftPowerPhaseEndDeg: expected non-nil")
+	}
+	// 128 / 0.7111111 = ~180.0
+	if math.Abs(*result[0].LeftPowerPhaseEndDeg-180.0) > 0.1 {
+		t.Errorf("LeftPowerPhaseEndDeg: got %f, want ~180.0", *result[0].LeftPowerPhaseEndDeg)
+	}
+}
+
+// TestExtractStreams_CycleLength16Priority tests CycleLength16 > CycleLength
+func TestExtractStreams_CycleLength16Priority(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:      now,
+			CycleLength16:  250,  // /100 = 2.5 m (preferred)
+			CycleLength:    150,  // /100 = 1.5 m (should be ignored)
+			PositionLat:    invalidSint32,
+			PositionLong:   invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+
+	if result[0].CycleLengthM == nil {
+		t.Fatal("CycleLengthM: expected non-nil")
+	}
+	if math.Abs(*result[0].CycleLengthM-2.5) > 0.01 {
+		t.Errorf("CycleLengthM: got %f, want 2.5 (CycleLength16 preferred)", *result[0].CycleLengthM)
+	}
+}
+
+// TestExtractStreams_CycleLengthFallback tests fallback to CycleLength when CycleLength16 is invalid
+func TestExtractStreams_CycleLengthFallback(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:      now,
+			CycleLength16:  basetype.Uint16Invalid, // invalid → fallback
+			CycleLength:    150,                     // /100 = 1.5 m
+			PositionLat:    invalidSint32,
+			PositionLong:   invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+
+	if result[0].CycleLengthM == nil {
+		t.Fatal("CycleLengthM: expected non-nil")
+	}
+	if math.Abs(*result[0].CycleLengthM-1.5) > 0.01 {
+		t.Errorf("CycleLengthM: got %f, want 1.5 (CycleLength fallback)", *result[0].CycleLengthM)
+	}
+}
 
 // TestDeriveGPSMetrics_MeringScenario — 82 points, 0 with distance,
 // 3 clusters separated by multi-hour gaps. Should derive distance for all GPS points.
