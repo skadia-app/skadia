@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateSegment, type Segment } from '@/api/segments'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface Props {
   segment: Segment
@@ -67,11 +68,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="bg-neutral-900 rounded-xl border border-neutral-800 p-6 w-full max-w-md space-y-4"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell onClose={onClose} maxWidth="max-w-md" className="bg-neutral-900 rounded-xl border border-neutral-800 space-y-4">
         <h2 className="text-lg font-semibold text-neutral-100">Segment bearbeiten</h2>
 
         <input
@@ -195,7 +192,6 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
             {mutation.isPending ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

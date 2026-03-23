@@ -9,6 +9,7 @@ import { useAccentColor } from '@/lib/accentColor'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { MergeComparisonTable } from '@/components/MergeComparisonTable'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface MergeDialogProps {
   activity: Activity
@@ -123,19 +124,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
   const isValid = selectedSourceId !== null && selectedFields.length > 0
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-      <div
-        className="relative bg-white dark:bg-neutral-950 rounded-lg shadow-lg p-6 max-w-4xl w-[90vw] max-h-[90vh] overflow-auto"
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="merge-dialog-title"
-      >
+    <ModalShell onClose={onClose} maxWidth="max-w-4xl" className="bg-white dark:bg-neutral-950 rounded-lg shadow-lg w-[90vw] max-h-[90vh] overflow-auto">
         <h2 id="merge-dialog-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
           Aktivitäten fusionieren
         </h2>
@@ -244,7 +233,6 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
             {mutation.isPending ? 'Wird fusioniert…' : 'Fusionieren'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
