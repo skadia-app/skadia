@@ -67,6 +67,7 @@ type ActivityData struct {
 
 	IsIndoor             bool
 	IsEbike              bool
+	IsVirtual            bool
 	IsManualEntry        bool
 	SportConflictPending bool
 	HasGPS               bool
@@ -379,6 +380,9 @@ type Activity struct {
 	FitSportID              *int16     `json:"fit_sport_id,omitempty"`
 	FitSubSportID           *int16     `json:"fit_sub_sport_id,omitempty"`
 	IsEbike                 bool       `json:"is_ebike"`
+	IsVirtual               bool       `json:"is_virtual"`
+	ExcludeFromHeatmap      bool       `json:"exclude_from_heatmap"`
+	ExcludeFromStats        bool       `json:"exclude_from_stats"`
 	IsManualEntry           bool       `json:"is_manual_entry"`
 	StartedAt               time.Time  `json:"started_at"`
 	EndedAt                 *time.Time `json:"ended_at,omitempty"`
@@ -640,6 +644,8 @@ type ActivityUpdate struct {
 	ExcludeLiftSubtraction *bool    `json:"exclude_lift_subtraction,omitempty"`
 	WorkoutFeel            *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe             *int     `json:"workout_rpe,omitempty"`
+	ExcludeFromHeatmap *bool `json:"exclude_from_heatmap,omitempty"`
+	ExcludeFromStats   *bool `json:"exclude_from_stats,omitempty"`
 }
 
 // ActivityList is the paginated list response.
@@ -657,6 +663,7 @@ type ActivityFilters struct {
 	DateTo      string
 	IsIndoor    *bool
 	IsEbike     *bool
+	IsVirtual   *bool
 	HasGPS      *bool
 	GearID      string
 	Search      string
