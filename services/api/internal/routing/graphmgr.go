@@ -173,7 +173,21 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 
 	// === Landmark Preprocessing (Unified CSR, best-effort) ===
 	slog.Info("starting landmark preprocessing (unified CSR)")
+
+	// Scan tiles for node coordinates (needed for OSM snapping and BBox).
+	var osmPassC, osmPeakC []graph.LandmarkCandidate
+	if scannedTiles, scanErr := graph.ScanTilesForLandmarks(tileDir); scanErr == nil {
+		south, west, north, east := BBoxFromTiles(scannedTiles)
+		osmPass, _ := QueryOSMPassLandmarks(ctx, pool, west, south, east, north, 4)
+		osmPassC = SnapOSMLandmarksToGraph(osmPass, scannedTiles)
+		osmPeaks, _ := QueryOSMPeakLandmarks(ctx, pool, west, south, east, north, 4)
+		osmPeakC = SnapOSMLandmarksToGraph(osmPeaks, scannedTiles)
+	} else {
+		slog.Warn("OSM landmark scan failed, skipping OSM pass/peak landmarks", "error", scanErr)
+	}
+
 	meta, landmarkErr := RunUnifiedLandmarkPreprocessing(ctx, tileDir,
+		osmPassC, osmPeakC,
 		func(step string, current, total int) {
 			if progressFn != nil {
 				progressFn(math.MaxUint32, fmt.Sprintf("landmarks: %s", step), 0)
