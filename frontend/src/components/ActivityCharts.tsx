@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
+import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -501,303 +502,282 @@ function ChartPanel({
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradient, xMode,
   sunMarkLines, splitMarkers,
 }: ChartPanelProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useECharts(
+    () => {
+      const values = data[field]
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    onRegister(chartId, chart)
-
-    const values = data[field]
-    const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-    const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-    // ── Y-axis smart scaling ─────────────────────────────────────────────────
-    const yAxisExtra: Record<string, unknown> = {}
-    if (altitudeSmartY) {
-      const range = calcAltitudeYRange(values)
-      if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
-    }
-
-    // Extra top padding for sunrise/sunset icons or split marker labels above the chart
-    const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
-
-    // ── Mark lines ──────────────────────────────────────────────────────────
-    const mlData: Record<string, unknown>[] = []
-    if (markLines === 'max' || markLines === 'minmax') {
-      mlData.push({ type: 'max', name: 'Max', label: { position: 'insideMiddleBottom' } })
-    }
-    if (markLines === 'minmax') {
-      mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
-    }
-
-    // Sun event mark lines (sunrise/sunset) — icons shown via markPoint
-    if (sunMarkLines && sunMarkLines.length > 0) {
-      for (const sm of sunMarkLines) {
-        mlData.push({
-          xAxis: sm.xAxis,
-          name: sm.label,
-          label: { show: false },
-          lineStyle: { type: 'dashed', color: sm.color, width: 1.5 },
-        })
+      // ── Y-axis smart scaling ─────────────────────────────────────────────────
+      const yAxisExtra: Record<string, unknown> = {}
+      if (altitudeSmartY) {
+        const range = calcAltitudeYRange(values)
+        if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
       }
-    }
 
-    // Split marker lines for multisport transitions
-    if (splitMarkers && splitMarkers.length > 0) {
-      for (const marker of splitMarkers) {
-        mlData.push({
-          xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
-          lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
-          label: {
-            show: true,
-            position: 'insideStartTop',
-            formatter: marker.label,
-            fontSize: 10,
-            color: '#94a3b8',
-          },
-        })
+      // Extra top padding for sunrise/sunset icons or split marker labels above the chart
+      const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+
+      // ── Mark lines ──────────────────────────────────────────────────────────
+      const mlData: Record<string, unknown>[] = []
+      if (markLines === 'max' || markLines === 'minmax') {
+        mlData.push({ type: 'max', name: 'Max', label: { position: 'insideMiddleBottom' } })
       }
-    }
+      if (markLines === 'minmax') {
+        mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
+      }
 
-    // ── Tooltip builder ─────────────────────────────────────────────────────
-    const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1
-
-    const buildTooltip = (idx: number): string => {
-      const v = values[idx]
-      if (isNaN(v)) return ''
-      const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-      const elapsed = data.elapsedMin[idx] ?? 0
-      const timeStr = formatElapsed(elapsed, data.maxElapsed)
-      const posLine = xMode === 'distance'
-        ? `${kmStr}\u202fkm`
-        : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
-
-      let html = `<div style="line-height:1.75;min-width:130px">`
-      html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-      html += `<div style="font-size:13px"><strong>${v.toFixed(decimals)}</strong>\u2009${unit}</div>`
-
-      if (showGradient && idx > 0 && idx < values.length - 1) {
-        const prevAlt = values[idx - 1]
-        const nextAlt = values[idx + 1]
-        const dDist = ((data.distanceKm[idx + 1] ?? 0) - (data.distanceKm[idx - 1] ?? 0)) * 1000
-        if (dDist > 0 && !isNaN(prevAlt) && !isNaN(nextAlt)) {
-          const pct = ((nextAlt - prevAlt) / dDist) * 100
-          const sign = pct >= 0 ? '+' : ''
-          const gc = Math.abs(pct) > 10 ? '#dc2626' : Math.abs(pct) > 4 ? '#ea580c' : '#16a34a'
-          html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${pct.toFixed(1)}\u202f%</div>`
+      if (sunMarkLines && sunMarkLines.length > 0) {
+        for (const sm of sunMarkLines) {
+          mlData.push({
+            xAxis: sm.xAxis,
+            name: sm.label,
+            label: { show: false },
+            lineStyle: { type: 'dashed', color: sm.color, width: 1.5 },
+          })
         }
       }
-      return html + '</div>'
-    }
 
-    // ── X-axis formatter ────────────────────────────────────────────────────
-    const xFormatter = xMode === 'distance'
-      ? (v: number) => v.toFixed(1)
-      : (v: number) => formatElapsed(v, data.maxElapsed)
+      if (splitMarkers && splitMarkers.length > 0) {
+        for (const marker of splitMarkers) {
+          mlData.push({
+            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+            label: {
+              show: true,
+              position: 'insideStartTop',
+              formatter: marker.label,
+              fontSize: 10,
+              color: '#94a3b8',
+            },
+          })
+        }
+      }
 
-    // ── ECharts option ───────────────────────────────────────────────────────
-    const option: echarts.EChartsCoreOption = {
-      animation: false,
-      grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+      // ── Tooltip builder ─────────────────────────────────────────────────────
+      const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1
 
-      brush: {
-        toolbox: [],
-        brushType: 'lineX',
-        brushStyle: {
+      const buildTooltip = (idx: number): string => {
+        const v = values[idx]
+        if (isNaN(v)) return ''
+        const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+        const elapsed = data.elapsedMin[idx] ?? 0
+        const timeStr = formatElapsed(elapsed, data.maxElapsed)
+        const posLine = xMode === 'distance'
+          ? `${kmStr}\u202fkm`
+          : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+
+        let html = `<div style="line-height:1.75;min-width:130px">`
+        html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+        html += `<div style="font-size:13px"><strong>${v.toFixed(decimals)}</strong>\u2009${unit}</div>`
+
+        if (showGradient && idx > 0 && idx < values.length - 1) {
+          const prevAlt = values[idx - 1]
+          const nextAlt = values[idx + 1]
+          const dDist = ((data.distanceKm[idx + 1] ?? 0) - (data.distanceKm[idx - 1] ?? 0)) * 1000
+          if (dDist > 0 && !isNaN(prevAlt) && !isNaN(nextAlt)) {
+            const pct = ((nextAlt - prevAlt) / dDist) * 100
+            const sign = pct >= 0 ? '+' : ''
+            const gc = Math.abs(pct) > 10 ? '#dc2626' : Math.abs(pct) > 4 ? '#ea580c' : '#16a34a'
+            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${pct.toFixed(1)}\u202f%</div>`
+          }
+        }
+        return html + '</div>'
+      }
+
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
           borderWidth: 1,
-          color: 'rgba(249,115,22,0.12)',
-          borderColor: '#f97316',
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            return buildTooltip(p.dataIndex)
+          },
         },
-        throttleType: 'debounce',
-        throttleDelay: 100,
-      },
 
-      tooltip: {
-        trigger: 'axis',
-        transitionDuration: 0,
-        confine: true,
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#e5e5e5',
-        borderWidth: 1,
-        padding: [8, 10],
-        textStyle: { fontSize: 12, color: '#333' },
-        axisPointer: {
-          type: 'line',
-          lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
-          animation: false,
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
         },
-        formatter: (params: unknown) => {
-          const arr = Array.isArray(params) ? params : [params]
-          const p = arr[0] as { dataIndex?: number }
-          if (p?.dataIndex == null) return ''
-          return buildTooltip(p.dataIndex)
+
+        yAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 11, color: '#666', margin: 8 },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          ...yAxisExtra,
         },
-      },
 
-      xAxis: {
-        type: 'value',
-        min: 0,
-        max: xMax,
-        axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#ddd' } },
-        axisTick: { lineStyle: { color: '#ddd' } },
-      },
-
-      yAxis: {
-        type: 'value',
-        axisLabel: { fontSize: 11, color: '#666', margin: 8 },
-        splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        ...yAxisExtra,
-      },
-
-      series: [
-        {
-          type: 'line',
-          data: xData.map((x, i) => [x, values[i]]),
-          showSymbol: false,
-          lineStyle: { width: 1.5, color },
-          itemStyle: { color },
-          areaStyle: area ? { color: `${color}20` } : undefined,
-          connectNulls: true,
-          // No 'sampling' — all data points are rendered directly.
-          // Typical activity files have 3K–36K points, well within
-          // canvas performance limits.
-          // No 'large' — it breaks programmatic dataZoom dispatch.
-          ...(mlData.length > 0 ? {
-            markLine: {
-              silent: true,
-              symbol: ['none', 'none'],
-              label: {
-                show: true,
-                backgroundColor: 'rgba(255,255,255,0.88)',
-                padding: [2, 5],
-                borderRadius: 3,
-                formatter: (p: { value: number; name: string }) =>
-                  `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
-                color: '#444',
-                fontSize: 11,
+        series: [
+          {
+            type: 'line',
+            data: xData.map((x, i) => [x, values[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color },
+            itemStyle: { color },
+            areaStyle: area ? { color: `${color}20` } : undefined,
+            connectNulls: true,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                label: {
+                  show: true,
+                  backgroundColor: 'rgba(255,255,255,0.88)',
+                  padding: [2, 5],
+                  borderRadius: 3,
+                  formatter: (p: { value: number; name: string }) =>
+                    `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
+                  color: '#444',
+                  fontSize: 11,
+                },
+                lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
+                data: mlData,
               },
-              lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
-              data: mlData,
-            },
-          } : {}),
-          ...(sunMarkLines && sunMarkLines.length > 0 ? {
-            markPoint: {
-              data: sunMarkLines.map(sm => ({
-                coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
-                symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
-                symbolSize: 24,
-                symbolOffset: [0, -14],
-                label: { show: false },
-              })),
-              animation: false,
-            },
-          } : {}),
-        },
-      ],
+            } : {}),
+            ...(sunMarkLines && sunMarkLines.length > 0 ? {
+              markPoint: {
+                data: sunMarkLines.map(sm => ({
+                  coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                  symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                  symbolSize: 24,
+                  symbolOffset: [0, -14],
+                  label: { show: false },
+                })),
+                animation: false,
+              },
+            } : {}),
+          },
+        ],
 
-      dataZoom: [
-        {
-          type: 'inside',
-          xAxisIndex: 0,
-          // 'none': axis range changes, data is never filtered.
-          // All points stay in the series, canvas clips to the visible window.
-          // This is the safest mode and preserves altitude smart-Y scaling.
-          filterMode: 'none',
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-          moveOnMouseWheel: false,
-        },
-      ],
-    }
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, field, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      onRegister(chartId, chart)
 
-    chart.setOption(option)
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-    // Activate brush cursor so click-drag draws a range selection
-    chart.dispatchAction({
-      type: 'takeGlobalCursor',
-      key: 'brush',
-      brushOption: { brushType: 'lineX', brushMode: 'single' },
-    })
+      // Activate brush cursor so click-drag draws a range selection
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
 
-    // Hover → map marker
-    chart.on('showTip', (params: unknown) => {
-      const typed = params as { dataIndex?: number }
-      if (typed.dataIndex != null) onHover(typed.dataIndex)
-    })
-    chart.on('hideTip', () => onHover(null))
+      // Hover → map marker
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) onHover(typed.dataIndex)
+      })
+      chart.on('hideTip', () => onHover(null))
 
-    // Brush areas type
-    type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+      // Brush areas type
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
 
-    // Brush gesture ended → zoom all charts + map
-    // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
-    // triggers brushEnd again on all echarts.connect'd charts with the SAME
-    // pixel range but a DIFFERENT axis scale → exponential zoom-in.
-    chart.on('brushEnd', (params: unknown) => {
-      if (brushZoomLockRef.current) return
-      brushZoomLockRef.current = true
+      // Brush gesture ended → zoom all charts + map
+      // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
+      // triggers brushEnd again on all echarts.connect'd charts with the SAME
+      // pixel range but a DIFFERENT axis scale → exponential zoom-in.
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLockRef.current) return
+        brushZoomLockRef.current = true
 
-      const p = params as {
-        areas?: BrushArea[]
-        batch?: Array<{ areas?: BrushArea[] }>
-      }
-      const areas = p.areas ?? p.batch?.[0]?.areas
-      if (!areas || areas.length === 0) {
-        brushZoomLockRef.current = false
-        return
-      }
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLockRef.current = false
+          return
+        }
 
-      const area = areas[0]
-      let startData: number
-      let endData: number
+        const area = areas[0]
+        let startData: number
+        let endData: number
 
-      if (area.coordRange) {
-        [startData, endData] = area.coordRange
-      } else if (area.range) {
-        const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-        const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-        if (s == null || e == null) { brushZoomLockRef.current = false; return }
-        startData = s as number
-        endData = e as number
-      } else {
-        brushZoomLockRef.current = false
-        return
-      }
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLockRef.current = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLockRef.current = false
+          return
+        }
 
-      if (endData <= startData) { brushZoomLockRef.current = false; return }
-      onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+        if (endData <= startData) { brushZoomLockRef.current = false; return }
+        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
 
-      // Release lock after current event cycle so future brush gestures work
-      requestAnimationFrame(() => { brushZoomLockRef.current = false })
-    })
+        requestAnimationFrame(() => { brushZoomLockRef.current = false })
+      })
 
-    // Mouse-wheel / pan → sync all other charts + update map.
-    chart.on('dataZoom', (params: unknown) => {
-      const p = params as {
-        batch?: Array<{ start: number; end: number }>
-        start?: number
-        end?: number
-      }
-      const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-      if (z != null) onSyncZoom(z.start, z.end, chartId)
-    })
+      // Mouse-wheel / pan → sync all other charts + update map.
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z != null) onSyncZoom(z.start, z.end, chartId)
+      })
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-
-    return () => {
-      observer.disconnect()
-      onUnregister(chartId)
-      chart.dispose()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, field, xMode, splitMarkers])
+      return () => onUnregister(chartId)
+    },
+  )
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">

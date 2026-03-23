@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -9,6 +9,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ElevationPoint, RouteSegment } from '@/api/routes'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([
   LineChart,
@@ -127,9 +128,6 @@ export default function RouteProfileChart({
   onHoverFraction,
   height = 180,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   // Build processed data
   const points = useMemo(
     () => buildProfile(profile, totalDistanceM, segments),
@@ -150,168 +148,144 @@ export default function RouteProfileChart({
     }
   }, [points])
 
-  // ── Init / destroy chart ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
+  const containerRef = useECharts(
+    () => {
+      if (points.length === 0) return {}
 
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+      const xData = points.map(p => p.distanceKm)
+      const yData = points.map(p => p.elevation)
 
-    const obs = new ResizeObserver(() => chart.resize())
-    obs.observe(containerRef.current)
+      // Piece-wise visual mapping: each segment coloured by grade
+      const visualPieces = points.map((p, i) => ({
+        gt: i === 0 ? undefined : xData[i - 1],
+        lte: xData[i],
+        color: p.isOffroad
+          ? 'rgba(139,92,246,0.85)' // violet for offroad
+          : gradeColor(p.grade),
+      }))
 
-    return () => {
-      obs.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, []) // mount/unmount only
-
-  // ── Update chart option when data changes ─────────────────────────────────
-  useEffect(() => {
-    const chart = chartRef.current
-    if (!chart || points.length === 0) return
-
-    const xData = points.map(p => p.distanceKm)
-    const yData = points.map(p => p.elevation)
-
-    // Piece-wise visual mapping: each segment coloured by grade
-    const visualPieces = points.map((p, i) => ({
-      gt: i === 0 ? undefined : xData[i - 1],
-      lte: xData[i],
-      color: p.isOffroad
-        ? 'rgba(139,92,246,0.85)' // violet for offroad
-        : gradeColor(p.grade),
-    }))
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      animation: false,
-      grid: {
-        left: 48,
-        right: 16,
-        top: 12,
-        bottom: 28,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: {
-          type: 'cross',
-          crossStyle: { color: '#6b7280', width: 1 },
-          lineStyle: { color: '#6b7280', width: 1, type: 'dashed' },
+      return {
+        backgroundColor: 'transparent',
+        animation: false,
+        grid: {
+          left: 48,
+          right: 16,
+          top: 12,
+          bottom: 28,
         },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        borderWidth: 1,
-        textStyle: { color: '#f3f4f6', fontSize: 11 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{
-            dataIndex: number
-            axisValue: number
-          }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          const idx = items[0].dataIndex
-          const pt = points[idx]
-          if (!pt) return ''
-
-          const modeLabel = pt.isOffroad
-            ? '<span style="color:#a78bfa">Offroad</span>'
-            : '<span style="color:#6b7280">Straße/Weg</span>'
-
-          return `
-            <div style="font-size:11px;line-height:1.7">
-              <div style="color:#9ca3af;margin-bottom:2px">${pt.distanceKm.toFixed(2)} km</div>
-              <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${Math.round(pt.elevation)} m</strong></div>
-              <div><span style="color:#9ca3af">Steigung:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
-              <div>${modeLabel}</div>
-            </div>
-          `
-        },
-      },
-      xAxis: {
-        type: 'value',
-        min: 0,
-        max: totalDistanceM / 1000,
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => `${v.toFixed(1)} km`,
-        },
-        axisLine: { lineStyle: { color: '#374151' } },
-        splitLine: { show: false },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        min: yRange.min,
-        max: yRange.max,
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => `${v} m`,
-        },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      visualMap: {
-        show: false,
-        type: 'piecewise',
-        dimension: 0,
-        pieces: visualPieces,
-        seriesIndex: 0,
-        outOfRange: { color: 'rgba(34,197,94,0.80)' },
-      },
-      series: [
-        {
-          type: 'line',
-          data: xData.map((x, i) => [x, yData[i]]),
-          symbol: 'none',
-          smooth: 0.2,
-          lineStyle: { width: 2 },
-          areaStyle: {
-            // Gradient fill: green at bottom → near-transparent at top
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(34,197,94,0.35)' },
-              { offset: 0.6, color: 'rgba(34,197,94,0.12)' },
-              { offset: 1, color: 'rgba(34,197,94,0.02)' },
-            ]),
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross',
+            crossStyle: { color: '#6b7280', width: 1 },
+            lineStyle: { color: '#6b7280', width: 1, type: 'dashed' },
           },
-          encode: { x: 0, y: 1 },
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          borderWidth: 1,
+          textStyle: { color: '#f3f4f6', fontSize: 11 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{
+              dataIndex: number
+              axisValue: number
+            }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            const idx = items[0].dataIndex
+            const pt = points[idx]
+            if (!pt) return ''
+
+            const modeLabel = pt.isOffroad
+              ? '<span style="color:#a78bfa">Offroad</span>'
+              : '<span style="color:#6b7280">Straße/Weg</span>'
+
+            return `
+              <div style="font-size:11px;line-height:1.7">
+                <div style="color:#9ca3af;margin-bottom:2px">${pt.distanceKm.toFixed(2)} km</div>
+                <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${Math.round(pt.elevation)} m</strong></div>
+                <div><span style="color:#9ca3af">Steigung:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
+                <div>${modeLabel}</div>
+              </div>
+            `
+          },
         },
-      ],
-    }
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: totalDistanceM / 1000,
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            formatter: (v: number) => `${v.toFixed(1)} km`,
+          },
+          axisLine: { lineStyle: { color: '#374151' } },
+          splitLine: { show: false },
+          axisTick: { show: false },
+        },
+        yAxis: {
+          type: 'value',
+          min: yRange.min,
+          max: yRange.max,
+          axisLabel: {
+            fontSize: 10,
+            color: '#6b7280',
+            formatter: (v: number) => `${v} m`,
+          },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        visualMap: {
+          show: false,
+          type: 'piecewise',
+          dimension: 0,
+          pieces: visualPieces,
+          seriesIndex: 0,
+          outOfRange: { color: 'rgba(34,197,94,0.80)' },
+        },
+        series: [
+          {
+            type: 'line',
+            data: xData.map((x, i) => [x, yData[i]]),
+            symbol: 'none',
+            smooth: 0.2,
+            lineStyle: { width: 2 },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(34,197,94,0.35)' },
+                { offset: 0.6, color: 'rgba(34,197,94,0.12)' },
+                { offset: 1, color: 'rgba(34,197,94,0.02)' },
+              ]),
+            },
+            encode: { x: 0, y: 1 },
+          },
+        ],
+      } as EChartsCoreOption
+    },
+    [points, yRange, totalDistanceM, onHoverFraction],
+    (chart) => {
+      if (!onHoverFraction) return
 
-    chart.setOption(option, { notMerge: true })
-  }, [points, yRange, totalDistanceM])
-
-  // ── Hover → callback ──────────────────────────────────────────────────────
-  useEffect(() => {
-    const chart = chartRef.current
-    if (!chart || !onHoverFraction) return
-
-    const handleMove = (params: { dataIndex?: number }) => {
-      if (params.dataIndex == null || !points[params.dataIndex]) {
-        onHoverFraction(null)
-        return
+      const handleMove = (params: { dataIndex?: number }) => {
+        if (params.dataIndex == null || !points[params.dataIndex]) {
+          onHoverFraction(null)
+          return
+        }
+        const pt = points[params.dataIndex]
+        const fraction = totalDistanceM > 0 ? pt.distanceKm / (totalDistanceM / 1000) : 0
+        onHoverFraction(fraction)
       }
-      const pt = points[params.dataIndex]
-      // fraction = distanceKm / totalKm
-      const fraction = totalDistanceM > 0 ? pt.distanceKm / (totalDistanceM / 1000) : 0
-      onHoverFraction(fraction)
-    }
 
-    const handleOut = () => onHoverFraction(null)
+      const handleOut = () => onHoverFraction(null)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chart.on('mousemove', handleMove as any)
-    chart.on('mouseout', handleOut)
-
-    return () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chart.off('mousemove', handleMove as any)
-      chart.off('mouseout', handleOut)
-    }
-  }, [points, totalDistanceM, onHoverFraction])
+      chart.on('mousemove', handleMove as any)
+      chart.on('mouseout', handleOut)
+
+      return () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chart.off('mousemove', handleMove as any)
+        chart.off('mouseout', handleOut)
+      }
+    },
+  )
 
   // ── Elevation statistics ───────────────────────────────────────────────────
   const stats = useMemo(() => {

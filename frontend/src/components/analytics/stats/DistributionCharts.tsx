@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { PieChart, BarChart } from 'echarts/charts'
 import {
@@ -9,9 +8,11 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import * as echarts from 'echarts/core'
 import { fetchDistributions } from '@/api/analytics'
 import type { Distribution } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -58,8 +59,6 @@ interface DistChartProps {
 
 function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartProps) {
   const [chartType, setChartType] = useState<ChartType>('pie')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
 
@@ -69,56 +68,53 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current || !data || data.length === 0) return
+  const containerRef = useECharts(
+    () => {
+      if (!data || data.length === 0) return {}
 
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+      const topData = data.slice(0, 10)
 
-    const topData = data.slice(0, 10)
-
-    let option: EChartsCoreOption
-
-    if (chartType === 'pie') {
-      option = {
-        tooltip: {
-          trigger: 'item',
-          formatter: (params: unknown) => {
-            const p = params as { name: string; value: number; percent: number }
-            return `<div style="font-size:12px">
-              <div style="font-weight:600">${p.name}</div>
-              <div>${fmtMetricValue(p.value, metric)} (${p.percent?.toFixed(1)}%)</div>
-            </div>`
-          },
-        },
-        legend: {
-          orient: 'vertical',
-          right: 4,
-          top: 'center',
-          textStyle: { fontSize: 10, color: '#9ca3af' },
-          itemWidth: 10,
-          itemHeight: 10,
-          formatter: (name: string) => name.length > 12 ? name.slice(0, 12) + '…' : name,
-        },
-        series: [
-          {
-            type: 'pie',
-            radius: ['40%', '70%'],
-            center: ['38%', '50%'],
-            data: topData.map((d, i) => ({
-              name: d.label,
-              value: d.value,
-              itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
-            })),
-            label: { show: false },
-            emphasis: {
-              itemStyle: { shadowBlur: 8, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+      if (chartType === 'pie') {
+        return {
+          tooltip: {
+            trigger: 'item',
+            formatter: (params: unknown) => {
+              const p = params as { name: string; value: number; percent: number }
+              return `<div style="font-size:12px">
+                <div style="font-weight:600">${p.name}</div>
+                <div>${fmtMetricValue(p.value, metric)} (${p.percent?.toFixed(1)}%)</div>
+              </div>`
             },
           },
-        ],
+          legend: {
+            orient: 'vertical',
+            right: 4,
+            top: 'center',
+            textStyle: { fontSize: 10, color: '#9ca3af' },
+            itemWidth: 10,
+            itemHeight: 10,
+            formatter: (name: string) => name.length > 12 ? name.slice(0, 12) + '…' : name,
+          },
+          series: [
+            {
+              type: 'pie',
+              radius: ['40%', '70%'],
+              center: ['38%', '50%'],
+              data: topData.map((d, i) => ({
+                name: d.label,
+                value: d.value,
+                itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
+              })),
+              label: { show: false },
+              emphasis: {
+                itemStyle: { shadowBlur: 8, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+              },
+            },
+          ],
+        }
       }
-    } else {
-      option = {
+
+      return {
         grid: { left: 80, right: 16, top: 8, bottom: 24 },
         tooltip: {
           trigger: 'axis',
@@ -158,26 +154,17 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
           },
         ],
       }
-    }
-
-    chart.setOption(option)
-
-    chart.on('click', (params: unknown) => {
-      const p = params as { name?: string }
-      if (p.name) {
-        onLabelClick(p.name, type)
+    },
+    [data, chartType, metric],
+    (chart) => {
+      const handler = (params: unknown) => {
+        const p = params as { name?: string }
+        if (p.name) onLabelClick(p.name, type)
       }
-    })
-
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current!)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data, chartType, metric, type, onLabelClick])
+      chart.on('click', handler)
+      return () => chart.off('click', handler)
+    },
+  )
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
