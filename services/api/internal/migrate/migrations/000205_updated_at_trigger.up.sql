@@ -13,8 +13,8 @@ CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users
 CREATE TRIGGER trg_activities_updated_at BEFORE UPDATE ON activities
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TRIGGER trg_gear_updated_at BEFORE UPDATE ON gear
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- gear: hat kein updated_at-Feld, Trigger wuerde crashen
+-- import_sources: Tabelle existiert nicht
 
 CREATE TRIGGER trg_custom_maps_updated_at BEFORE UPDATE ON custom_maps
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -40,8 +40,4 @@ CREATE TRIGGER trg_ml_user_settings_updated_at BEFORE UPDATE ON ml_user_settings
 CREATE TRIGGER trg_planned_routes_updated_at BEFORE UPDATE ON planned_routes
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TRIGGER trg_import_sources_updated_at BEFORE UPDATE ON import_sources
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_import_log_updated_at BEFORE UPDATE ON import_log
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- import_sources und import_log: Tabellen ohne updated_at bzw. nicht existent

@@ -19,7 +19,7 @@ func ValidateImportSourcePath(sourcePath string) (string, error) {
 
 	// Ensure the cleaned path is within the temp directory.
 	// filepath.Clean resolves ".." segments, preventing path traversal.
-	if !strings.HasPrefix(cleaned, tmpDir) {
+	if cleaned != tmpDir && !strings.HasPrefix(cleaned, tmpDir+string(filepath.Separator)) {
 		return "", fmt.Errorf("source_path must be within %s", tmpDir)
 	}
 
