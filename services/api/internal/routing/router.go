@@ -20,6 +20,10 @@ var altDisabled = os.Getenv("SKADIA_ALT_DISABLED") == "true"
 var routingBidirectional = os.Getenv("ROUTING_BIDIRECTIONAL") == "true"
 var routingValleSeg = os.Getenv("ROUTING_VALLE_SEG") == "true"
 
+// landmarkStrategy controls landmark selection. "legacy" = old BBox+pass+peak strategy.
+// Default (empty) = crossing-flanks strategy.
+var _ = os.Getenv("LANDMARK_STRATEGY") // read in landmark_unified.go
+
 // UnifiedRouter is a Router backed by any GraphReader (e.g. TiledGraphReader).
 // Uses a semaphore for concurrency control instead of a pre-allocated pool.
 type UnifiedRouter struct {
