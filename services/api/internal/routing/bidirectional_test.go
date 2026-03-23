@@ -126,6 +126,62 @@ func TestRunBackwardSearchDirectedGraph(t *testing.T) {
 	}
 }
 
+func TestForEachInEdgeDirected(t *testing.T) {
+	// Directed graph: 0→1→2 (no reverse forward edges)
+	const trackTags1 uint64 = 15
+	g := &graph.Graph{
+		NodeCount: 3,
+		EdgeCount: 2,
+		Offsets:   []uint32{0, 1, 2, 2},
+		Targets:   []uint32{1, 2},
+		EdgeDist:  []uint32{1000, 2000},
+		EdgeTags1: []uint64{trackTags1, trackTags1},
+		EdgeTags2: make([]uint64, 2),
+		NodeLat:   []int32{470000000, 470010000, 470020000},
+		NodeLon:   []int32{110000000, 110000000, 110000000},
+		NodeEle:   []int32{1000, 2000, 3000},
+		IsBorder:  make([]bool, 3),
+		NodeTags:  make([]byte, 3),
+	}
+	g.BuildReverseAdj()
+	reader := &SingleGraphReader{G: g}
+
+	// Node 0: no incoming edges
+	var count0 int
+	reader.ForEachInEdge(MakeGlobalNodeID(0, 0), func(ev EdgeView) { count0++ })
+	if count0 != 0 {
+		t.Errorf("node 0 should have 0 incoming edges, got %d", count0)
+	}
+
+	// Node 1: 1 incoming edge (from 0, dist=1000)
+	var count1 int
+	var inDist1 uint32
+	reader.ForEachInEdge(MakeGlobalNodeID(0, 1), func(ev EdgeView) {
+		count1++
+		inDist1 = ev.Dist
+	})
+	if count1 != 1 {
+		t.Errorf("node 1 should have 1 incoming edge, got %d", count1)
+	}
+	if inDist1 != 1000 {
+		t.Errorf("incoming edge dist = %d, want 1000", inDist1)
+	}
+
+	// Node 2: 1 incoming edge (from 1, dist=2000)
+	var count2 int
+	var inDist2 uint32
+	reader.ForEachInEdge(MakeGlobalNodeID(0, 2), func(ev EdgeView) {
+		count2++
+		inDist2 = ev.Dist
+	})
+	if count2 != 1 {
+		t.Errorf("node 2 should have 1 incoming edge, got %d", count2)
+	}
+	if inDist2 != 2000 {
+		t.Errorf("incoming edge dist = %d, want 2000", inDist2)
+	}
+}
+
 func TestShouldPruneStatic(t *testing.T) {
 	br := &BackwardResult{
 		LowerBound: map[uint64]float32{1: 10.0, 2: 20.0},
