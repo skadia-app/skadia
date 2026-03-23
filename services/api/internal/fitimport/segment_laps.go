@@ -354,8 +354,8 @@ func ExtractSegmentLaps(laps []*mesgdef.SegmentLap) []model.SegmentLapRecord {
 			if len(src) < 2 {
 				return
 			}
-			s := float64(src[0]) * 0.7111111
-			e := float64(src[1]) * 0.7111111
+			s := float64(src[0]) / 0.7111111
+			e := float64(src[1]) / 0.7111111
 			start = &s
 			end = &e
 			return

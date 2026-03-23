@@ -330,27 +330,27 @@ func ExtractLaps(laps []*mesgdef.Lap) []model.LapRecord {
 		// Power Phase arrays ([]uint8, Scale: 0.7111111 → degrees)
 		// Each array has [start, end] indexes
 		if len(l.AvgLeftPowerPhase) >= 2 {
-			start := float64(l.AvgLeftPowerPhase[0]) * 0.7111111
+			start := float64(l.AvgLeftPowerPhase[0]) / 0.7111111
 			rec.AvgLeftPowerPhaseStartDeg = &start
-			end := float64(l.AvgLeftPowerPhase[1]) * 0.7111111
+			end := float64(l.AvgLeftPowerPhase[1]) / 0.7111111
 			rec.AvgLeftPowerPhaseEndDeg = &end
 		}
 		if len(l.AvgLeftPowerPhasePeak) >= 2 {
-			start := float64(l.AvgLeftPowerPhasePeak[0]) * 0.7111111
+			start := float64(l.AvgLeftPowerPhasePeak[0]) / 0.7111111
 			rec.AvgLeftPowerPhasePeakStartDeg = &start
-			end := float64(l.AvgLeftPowerPhasePeak[1]) * 0.7111111
+			end := float64(l.AvgLeftPowerPhasePeak[1]) / 0.7111111
 			rec.AvgLeftPowerPhasePeakEndDeg = &end
 		}
 		if len(l.AvgRightPowerPhase) >= 2 {
-			start := float64(l.AvgRightPowerPhase[0]) * 0.7111111
+			start := float64(l.AvgRightPowerPhase[0]) / 0.7111111
 			rec.AvgRightPowerPhaseStartDeg = &start
-			end := float64(l.AvgRightPowerPhase[1]) * 0.7111111
+			end := float64(l.AvgRightPowerPhase[1]) / 0.7111111
 			rec.AvgRightPowerPhaseEndDeg = &end
 		}
 		if len(l.AvgRightPowerPhasePeak) >= 2 {
-			start := float64(l.AvgRightPowerPhasePeak[0]) * 0.7111111
+			start := float64(l.AvgRightPowerPhasePeak[0]) / 0.7111111
 			rec.AvgRightPowerPhasePeakStartDeg = &start
-			end := float64(l.AvgRightPowerPhasePeak[1]) * 0.7111111
+			end := float64(l.AvgRightPowerPhasePeak[1]) / 0.7111111
 			rec.AvgRightPowerPhasePeakEndDeg = &end
 		}
 

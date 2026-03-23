@@ -31,7 +31,7 @@ func TestExtractSegmentLaps_GradeAndPedalAnalytics(t *testing.T) {
 			AvgLeftTorqueEffectiveness:  180,
 			AvgRightTorqueEffectiveness: basetype.Uint8Invalid, // skip
 
-			// Power Phase: [0, 180] * 0.7111111 = [0.0, 128.0]
+			// Power Phase: [0, 180] / 0.7111111 = [0.0, ~253.1]
 			AvgLeftPowerPhase:     []uint8{0, 180},
 			AvgLeftPowerPhasePeak: nil, // skip
 
@@ -140,7 +140,7 @@ func TestExtractSegmentLaps_GradeAndPedalAnalytics(t *testing.T) {
 		t.Errorf("AvgRightTorqueEffectivenessPct: expected nil")
 	}
 
-	// Power Phase: [0, 180] * 0.7111111
+	// Power Phase: [0, 180] / 0.7111111
 	if rec.AvgLeftPowerPhaseStartDeg == nil {
 		t.Fatal("AvgLeftPowerPhaseStartDeg: expected non-nil")
 	}
@@ -150,9 +150,10 @@ func TestExtractSegmentLaps_GradeAndPedalAnalytics(t *testing.T) {
 	if rec.AvgLeftPowerPhaseEndDeg == nil {
 		t.Fatal("AvgLeftPowerPhaseEndDeg: expected non-nil")
 	}
-	// 180 * 0.7111111 = 128.0
-	if math.Abs(*rec.AvgLeftPowerPhaseEndDeg-128.0) > 0.01 {
-		t.Errorf("AvgLeftPowerPhaseEndDeg: got %f, want 128.0", *rec.AvgLeftPowerPhaseEndDeg)
+	// 180 / 0.7111111 ≈ 253.125
+	want := 180.0 / 0.7111111
+	if math.Abs(*rec.AvgLeftPowerPhaseEndDeg-want) > 0.01 {
+		t.Errorf("AvgLeftPowerPhaseEndDeg: got %f, want %f", *rec.AvgLeftPowerPhaseEndDeg, want)
 	}
 
 	// Peak phase should be nil
