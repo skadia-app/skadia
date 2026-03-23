@@ -28,7 +28,7 @@ const enableDEMEnrichment = false
 // When skipStreamEnrichment is true, RunStreamEnrichment is NOT called — the caller is
 // responsible for calling it separately after streams have been written to the DB
 // (import path: activity_streams is empty until InsertStreams completes in Phase 1).
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader) {
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader, skipGeo bool) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -347,34 +347,37 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 	// Geo enrichment (peaks, settlements, forests, water, borders) — Go SQL, no NATS.
 	// Best-effort: failures are logged but do not block the Stage-2 event.
-	if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
-		slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
-	}
+	// Skipped when caller sets skipGeo (e.g. scoped recompute without geo checkbox).
+	if !skipGeo {
+		if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
+			slog.Warn("stage1: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
 
-	if !skipStreamEnrichment {
-		streamSettings := allStreamEnabled()
-		if enrichSettings != nil {
-			streamSettings = streamSettingsFromModel(enrichSettings)
+		if !skipStreamEnrichment {
+			streamSettings := allStreamEnabled()
+			if enrichSettings != nil {
+				streamSettings = streamSettingsFromModel(enrichSettings)
+			}
+			if err := RunStreamEnrichment(ctx, db, userID, activityID, streamSettings); err != nil {
+				slog.Warn("stage1: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+			}
 		}
-		if err := RunStreamEnrichment(ctx, db, userID, activityID, streamSettings); err != nil {
-			slog.Warn("stage1: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
-		}
-	}
 
-	// Surfaces enrichment — requires GPS track data.
-	if data.HasGPS {
-		surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-		var surfStream []EnrichmentStreamPoint
-		if !skipStreamEnrichment && graphReader != nil {
-			surfStream, _ = getEnrichmentStream(ctx, db, activityID)
-		}
-		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
-			slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		// Surfaces enrichment — requires GPS track data.
+		if data.HasGPS {
+			surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+			var surfStream []EnrichmentStreamPoint
+			if !skipStreamEnrichment && graphReader != nil {
+				surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+			}
+			if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+				slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+			}
 		}
 	}
 
 	// Emit stage-2 event (graceful degradation: log on failure, never panic)
-	if pub != nil {
+	if pub != nil && !skipGeo {
 		var enabledModules []string
 		if enrichSettings != nil {
 			enabledModules = enrichSettings.EnabledModules()

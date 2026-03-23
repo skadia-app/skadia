@@ -102,7 +102,7 @@ func (s *Service) PostProcess(
 	if data.HasGPS && data.StartLat != 0 {
 		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
 		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader)
+		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, false)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
