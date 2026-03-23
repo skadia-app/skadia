@@ -15,7 +15,6 @@ export const SPORT_COLORS: Record<string, string> = {
   cross_country_skiing:  '#93c5fd',
   paddling:              '#0ea5e9',
   stand_up_paddleboarding: '#38bdf8',
-  virtual_ride:          '#34d399',
   other:                 '#9ca3af',
 }
 

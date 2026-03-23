@@ -139,7 +139,6 @@ func init() {
 				"unicycling":      {SubType: "unicycling", LabelDE: "Einrad", DetailDE: "Einrad", AutoTitleDE: "Einradfahrt"},
 				"mixed_surface":   {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour"},
 				"bmx":             {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX"},
-				"virtual_activity": {SubType: "virtual_activity", LabelDE: "Virtuell", DetailDE: "Virtuelles Radfahren", AutoTitleDE: "Virtuelle Radfahrt"},
 			},
 		},
 		{
@@ -159,11 +158,6 @@ func init() {
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
 		{
-			SportType: "virtual_ride", CategoryKey: "bike", LabelDE: "Virtuelles Radfahren", AutoTitleDE: "Virtuelle Radfahrt",
-			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.5,
-		},
-
-		// ── Winter ──
 		{
 			SportType: "alpine_skiing", CategoryKey: "winter", LabelDE: "Alpin-Ski", AutoTitleDE: "Skifahrt",
 			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
