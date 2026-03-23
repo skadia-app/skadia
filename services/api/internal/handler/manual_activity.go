@@ -55,6 +55,19 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ElapsedTimeS <= 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "elapsed_time_s must be positive", r.URL.Path)
+		return
+	}
+	if req.WorkoutFeel != nil && (*req.WorkoutFeel < 0 || *req.WorkoutFeel > 4) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "workout_feel must be 0-4", r.URL.Path)
+		return
+	}
+	if req.WorkoutRpe != nil && (*req.WorkoutRpe < 1 || *req.WorkoutRpe > 10) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "workout_rpe must be 1-10", r.URL.Path)
+		return
+	}
+
 	startedAt, err := parseFlexibleTime(req.StartedAt)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid started_at: "+err.Error(), r.URL.Path)
@@ -112,7 +125,6 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		DistanceM:      req.DistanceM,
 		ElevationGainM: req.ElevationGainM,
 		ElevationLossM: req.ElevationLossM,
-		Tags:           req.Tags,
 		IsEbike:        req.IsEbike,
 		IsManualEntry:  true,
 		FileHash:       hashStr,
@@ -164,8 +176,28 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set S3 file info — JSON IS the source file.
-	if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "skadia-originals", s3Key, "manual", "manual.json", s3Key); err != nil {
+	// Resolve tag IDs to names and link via junction table.
+	if len(req.Tags) > 0 {
+		var tagNames []string
+		for _, tagID := range req.Tags {
+			var name string
+			err := h.DB.Pool.QueryRow(r.Context(),
+				"SELECT name FROM tags WHERE id = $1 AND user_id = $2", tagID, userID).Scan(&name)
+			if err == nil {
+				tagNames = append(tagNames, name)
+				_ = h.DB.LinkActivityTag(r.Context(), activity.ID, tagID, "manual")
+			}
+		}
+		if len(tagNames) > 0 {
+			if err := h.DB.UpdateEnrichmentFields(r.Context(), activity.ID, map[string]any{"tags": tagNames}); err != nil {
+				slog.Warn("manual activity: set tag names failed", "id", activity.ID, "error", err)
+			}
+		}
+	}
+
+	// Set S3 file info — separate sidecar key so meta doesn't overwrite the source file.
+	metaKey := s3Key + ".meta"
+	if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "skadia-originals", s3Key, "manual", "manual.json", metaKey); err != nil {
 		slog.Warn("manual activity: update file info failed", "id", activity.ID, "error", err)
 	}
 
