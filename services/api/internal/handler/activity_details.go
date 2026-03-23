@@ -15,15 +15,8 @@ func (h *Handler) GetLaps(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -42,15 +35,8 @@ func (h *Handler) GetSplits(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -79,15 +65,8 @@ func (h *Handler) GetLengths(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -106,15 +85,8 @@ func (h *Handler) GetClimbProEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -135,18 +107,11 @@ func (h *Handler) PatchSplit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
+		return
+	}
 	splitID := chi.URLParam(r, "splitId")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
 
 	update, ok := httputil.DecodeJSON[model.SplitUpdate](w, r)
 	if !ok {

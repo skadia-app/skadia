@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -23,20 +21,8 @@ func (h *Handler) GetGeoTags(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-	if activityID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
-		return
-	}
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		slog.Error("get geo tags: get activity failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -359,20 +345,8 @@ func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-	if activityID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
-		return
-	}
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		slog.Error("get activity climbs: get activity failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -392,16 +366,8 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		slog.Error("get activity stops: get activity failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -422,16 +388,8 @@ func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		slog.Error("get activity surfaces: get activity failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -452,20 +410,8 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-	if activityID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing activity ID", r.URL.Path)
-		return
-	}
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		slog.Error("get enrichment status: get activity failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	activity, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 

@@ -10,7 +10,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) GetStreams(w http.ResponseWriter, r *http.Request) {
@@ -18,15 +17,8 @@ func (h *Handler) GetStreams(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil || activity == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-		return
-	}
-	if activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	_, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
