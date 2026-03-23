@@ -1840,7 +1840,7 @@ func (db *DB) UpdateGearReviewStatus(ctx context.Context, gearID, userID, status
 	var g model.Gear
 	err := db.Pool.QueryRow(ctx,
 		`UPDATE gear SET review_status = $1 WHERE id = $2 AND user_id = $3
-		 RETURNING id, name, type, review_status, updated_at`,
+		 RETURNING id, name, type, review_status, created_at`,
 		status, gearID, userID,
 	).Scan(&g.ID, &g.Name, &g.Type, &g.ReviewStatus, &g.CreatedAt)
 	if err != nil {
