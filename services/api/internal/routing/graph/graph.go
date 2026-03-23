@@ -59,6 +59,14 @@ type Graph struct {
 	// Pending landmark data for serialization (not kept after Serialize)
 	pendingLandmarkSections map[uint16][]float32
 
+	// Reverse adjacency (built at load time, not serialized).
+	// RevOffsets[i] = start index in RevTargets for incoming edges of node i.
+	// RevTargets[j] = source node of the j-th reverse edge.
+	// RevEdgeIdx[j] = original edge index in forward CSR (for Tags/Dist lookup).
+	RevOffsets []uint32
+	RevTargets []uint32
+	RevEdgeIdx []uint32
+
 	// Lazy I/O for cold sections. The backing file is kept open;
 	// cold section data (geometry, elevation profiles, OSM IDs) is read
 	// on demand via ReadAt. No mmap, no page faults, no RSS inflation.

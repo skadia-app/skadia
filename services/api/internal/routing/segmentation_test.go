@@ -19,6 +19,7 @@ func (r *segMockReader) NodeCoord(nodeID uint64) (lat, lon, ele int32) {
 }
 
 func (r *segMockReader) ForEachEdge(_ uint64, _ func(EdgeView))           {}
+func (r *segMockReader) ForEachInEdge(_ uint64, _ func(EdgeView))         {}
 func (r *segMockReader) NearestNode(_, _ float64) (uint64, float64, bool) { return 0, 0, false }
 func (r *segMockReader) EdgeElevProfile(_ uint64) ([]int32, []uint16)     { return nil, nil }
 func (r *segMockReader) EdgeGeometry(_ uint64) ([]int32, []int32)         { return nil, nil }

@@ -31,6 +31,7 @@ func newBidiTestGraph() *SingleGraphReader {
 		IsBorder:  make([]bool, 5),
 		NodeTags:  make([]byte, 5),
 	}
+	g.BuildReverseAdj()
 	return &SingleGraphReader{G: g}
 }
 
@@ -75,12 +76,53 @@ func TestRunBackwardSearchDisconnected(t *testing.T) {
 		IsBorder:  make([]bool, 3),
 		NodeTags:  make([]byte, 3),
 	}
+	g.BuildReverseAdj()
 	reader := &SingleGraphReader{G: g}
 	cfg := DefaultCostConfig()
 	result := RunBackwardSearch(reader, 2, cfg, 100000)
-	// Node 2 has no outgoing edges, so only itself is in LowerBound
+	// Node 2 has incoming edges (0→2 is not present, only 0→1, 1→0), so backward
+	// via reverse edges: node 2 has no incoming edges → only itself in LowerBound
 	if len(result.LowerBound) != 1 {
 		t.Errorf("expected 1 node, got %d", len(result.LowerBound))
+	}
+}
+
+func TestRunBackwardSearchDirectedGraph(t *testing.T) {
+	// Directed graph: 0→1→2→3 (no reverse edges)
+	const trackTags1 uint64 = 15
+	g := &graph.Graph{
+		NodeCount: 4,
+		EdgeCount: 3,
+		Offsets:   []uint32{0, 1, 2, 3, 3},
+		Targets:   []uint32{1, 2, 3},
+		EdgeDist:  []uint32{1000, 1000, 1000},
+		EdgeTags1: []uint64{trackTags1, trackTags1, trackTags1},
+		EdgeTags2: make([]uint64, 3),
+		NodeLat:   []int32{470000000, 470010000, 470020000, 470030000},
+		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000},
+		NodeEle:   []int32{1000, 1000, 1000, 1000},
+		IsBorder:  make([]bool, 4),
+		NodeTags:  make([]byte, 4),
+	}
+	g.BuildReverseAdj()
+	reader := &SingleGraphReader{G: g}
+	cfg := DefaultCostConfig()
+
+	// Backward from node 3: should find 2→3, 1→2, 0→1 (via reverse edges)
+	result := RunBackwardSearch(reader, MakeGlobalNodeID(0, 3), cfg, 100000)
+
+	// All nodes should be reachable via reverse traversal
+	for i := range 4 {
+		nodeID := MakeGlobalNodeID(0, uint32(i))
+		if _, ok := result.LowerBound[nodeID]; !ok {
+			t.Errorf("node %d should be reachable via reverse edges", i)
+		}
+	}
+
+	// Backward from node 0: no incoming edges → only node 0 reachable
+	result0 := RunBackwardSearch(reader, MakeGlobalNodeID(0, 0), cfg, 100000)
+	if len(result0.LowerBound) != 1 {
+		t.Errorf("backward from node 0: expected 1 reachable, got %d", len(result0.LowerBound))
 	}
 }
 

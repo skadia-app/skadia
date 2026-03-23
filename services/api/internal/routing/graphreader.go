@@ -28,6 +28,10 @@ type GraphReader interface {
 	// cross-tile edges from neighbor tiles (transparent for A*).
 	ForEachEdge(nodeID uint64, fn func(EdgeView))
 
+	// ForEachInEdge iterates over incoming edges of nodeID (reverse adjacency).
+	// Used by backward search for correct lower bounds on directed graphs.
+	ForEachInEdge(nodeID uint64, fn func(EdgeView))
+
 	// NodeCoord returns the coordinate and elevation of a node.
 	NodeCoord(nodeID uint64) (lat, lon, ele int32)
 
@@ -99,6 +103,28 @@ type GraphReader interface {
 type SingleGraphReader struct {
 	G      *graph.Graph
 	TileID uint32 // fixed (0 for tests)
+}
+
+func (r *SingleGraphReader) ForEachInEdge(nodeID uint64, fn func(EdgeView)) {
+	_, localID := SplitGlobalNodeID(nodeID)
+	g := r.G
+	if g == nil || g.RevOffsets == nil || localID >= g.NodeCount {
+		return
+	}
+	for ri := g.RevOffsets[localID]; ri < g.RevOffsets[localID+1]; ri++ {
+		srcLocal := g.RevTargets[ri]
+		ei := g.RevEdgeIdx[ri]
+		fn(EdgeView{
+			Target:     MakeGlobalNodeID(r.TileID, srcLocal),
+			TargetLat:  g.NodeLat[srcLocal],
+			TargetLon:  g.NodeLon[srcLocal],
+			Dist:       g.EdgeDist[ei],
+			Tags1:      g.EdgeTags1[ei],
+			Tags2:      g.EdgeTags2[ei],
+			ElevHandle: uint64(r.TileID)<<32 | uint64(ei),
+			DeltaEle:   g.NodeEle[srcLocal] - g.NodeEle[localID],
+		})
+	}
 }
 
 func (r *SingleGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {

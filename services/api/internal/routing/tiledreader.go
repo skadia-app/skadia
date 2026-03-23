@@ -53,6 +53,92 @@ func (r *TiledGraphReader) tile(tileID uint32) *graph.Graph {
 	return g
 }
 
+func (r *TiledGraphReader) ForEachInEdge(nodeID uint64, fn func(EdgeView)) {
+	tileID, localID := SplitGlobalNodeID(nodeID)
+	g := r.tile(tileID)
+	if g == nil || g.RevOffsets == nil {
+		return
+	}
+	if localID >= g.NodeCount {
+		return
+	}
+
+	// Local reverse edges within the tile
+	for ri := g.RevOffsets[localID]; ri < g.RevOffsets[localID+1]; ri++ {
+		srcLocal := g.RevTargets[ri]
+		ei := g.RevEdgeIdx[ri]
+		fn(EdgeView{
+			Target:     MakeGlobalNodeID(tileID, srcLocal),
+			TargetLat:  g.NodeLat[srcLocal],
+			TargetLon:  g.NodeLon[srcLocal],
+			Dist:       g.EdgeDist[ei],
+			Tags1:      g.EdgeTags1[ei],
+			Tags2:      g.EdgeTags2[ei],
+			ElevHandle: uint64(tileID)<<32 | uint64(ei),
+			DeltaEle:   g.NodeEle[srcLocal] - g.NodeEle[localID],
+		})
+	}
+
+	// Border-node expansion: check neighbor tiles' reverse edges
+	if g.IsBorder != nil && localID < uint32(len(g.IsBorder)) && g.IsBorder[localID] {
+		coordKey := graph.CoordKeyToInt64(graph.CoordKey{
+			Lat: g.NodeLat[localID],
+			Lon: g.NodeLon[localID],
+		})
+
+		// expandNeighborRevEdges emits all reverse edges from neighborLocalID in gNeighbor.
+		expandNeighborRevEdges := func(gNeighbor *graph.Graph, neighborTileID, neighborLocalID uint32) {
+			if gNeighbor.RevOffsets == nil {
+				return
+			}
+			for ri := gNeighbor.RevOffsets[neighborLocalID]; ri < gNeighbor.RevOffsets[neighborLocalID+1]; ri++ {
+				srcLocal := gNeighbor.RevTargets[ri]
+				ei := gNeighbor.RevEdgeIdx[ri]
+				fn(EdgeView{
+					Target:     MakeGlobalNodeID(neighborTileID, srcLocal),
+					TargetLat:  gNeighbor.NodeLat[srcLocal],
+					TargetLon:  gNeighbor.NodeLon[srcLocal],
+					Dist:       gNeighbor.EdgeDist[ei],
+					Tags1:      gNeighbor.EdgeTags1[ei],
+					Tags2:      gNeighbor.EdgeTags2[ei],
+					ElevHandle: uint64(neighborTileID)<<32 | uint64(ei),
+					DeltaEle:   gNeighbor.NodeEle[srcLocal] - gNeighbor.NodeEle[neighborLocalID],
+				})
+			}
+		}
+
+		nids, ncount := graph.NeighborTileIDs(tileID)
+		for i := range ncount {
+			neighborTileID := nids[i]
+			cacheKey := borderCacheKey{coordKey: coordKey, neighborTileID: neighborTileID}
+
+			if cached, ok := r.borderCache.Load(cacheKey); ok {
+				entry := cached.(borderCacheEntry)
+				if !entry.found {
+					continue
+				}
+				gNeighbor := r.tile(neighborTileID)
+				if gNeighbor == nil {
+					continue
+				}
+				expandNeighborRevEdges(gNeighbor, neighborTileID, entry.localID)
+			} else {
+				gNeighbor := r.tile(neighborTileID)
+				if gNeighbor == nil || gNeighbor.BorderIndex == nil {
+					r.borderCache.Store(cacheKey, borderCacheEntry{found: false})
+					continue
+				}
+				neighborLocalID, ok := gNeighbor.BorderIndex.Lookup(coordKey)
+				r.borderCache.Store(cacheKey, borderCacheEntry{localID: neighborLocalID, found: ok})
+				if !ok {
+					continue
+				}
+				expandNeighborRevEdges(gNeighbor, neighborTileID, neighborLocalID)
+			}
+		}
+	}
+}
+
 func (r *TiledGraphReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
 	tileID, localID := SplitGlobalNodeID(nodeID)
 	g := r.tile(tileID)
@@ -414,6 +500,7 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 		if err != nil {
 			return nil, err
 		}
+		g.BuildReverseAdj()
 		return g, nil
 	})
 	if val == nil {
@@ -490,7 +577,9 @@ func estimateTileBytes(g *graph.Graph) int64 {
 	if g.Grid != nil {
 		grid = int64(len(g.Grid.CellStart))*4 + int64(len(g.Grid.NodeOrder))*4
 	}
-	return csr + nodes + segDist + osmPool + border + grid
+	// Reverse adjacency (built at load time): RevOffsets (NodeCount+1)*4 + RevTargets EdgeCount*4 + RevEdgeIdx EdgeCount*4
+	revAdj := int64(g.NodeCount+1)*4 + int64(g.EdgeCount)*4 + int64(g.EdgeCount)*4
+	return csr + nodes + segDist + osmPool + border + grid + revAdj
 }
 
 func tileName(tileID uint32) string {
