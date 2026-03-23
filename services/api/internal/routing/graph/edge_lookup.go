@@ -3,6 +3,8 @@ package graph
 import (
 	"math"
 	"slices"
+
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 // EdgeCandidate describes an edge that is close to a query point, with the
@@ -21,7 +23,6 @@ type EdgeCandidate struct {
 const (
 	edgeLookupNodeRadiusM = 75.0
 	edgeLookupMaxDistM    = 25.0
-	degreesToMeters       = 111320.0
 )
 
 // geoPoint is a lat/lng coordinate pair used internally in edge geometry.
@@ -38,7 +39,7 @@ func FindNearEdges(g *Graph, lat, lng float64) []EdgeCandidate {
 
 	grid := g.Grid
 	cosLat := math.Cos(lat * math.Pi / 180)
-	nodeRadiusDeg := edgeLookupNodeRadiusM / degreesToMeters
+	nodeRadiusDeg := edgeLookupNodeRadiusM / geo.MetersPerDegreeLat
 	cellsNeeded := int(math.Ceil(nodeRadiusDeg / grid.CellSize))
 
 	centerRow := int((lat - grid.MinLat) / grid.CellSize)
@@ -161,11 +162,11 @@ func closestPointOnPolyline(lat, lng float64, pts []geoPoint, cosLat float64) (p
 // to the query point (lat,lng) and the Euclidean distance to it, using an
 // equirectangular approximation with the provided cosLat correction factor.
 func perpendicularDist(lat, lng, lat1, lng1, lat2, lng2, cosLat float64) (projLat, projLng, distM float64) {
-	x := (lng - lng1) * cosLat * degreesToMeters
-	y := (lat - lat1) * degreesToMeters
+	x := (lng - lng1) * cosLat * geo.MetersPerDegreeLat
+	y := (lat - lat1) * geo.MetersPerDegreeLat
 
-	dx := (lng2 - lng1) * cosLat * degreesToMeters
-	dy := (lat2 - lat1) * degreesToMeters
+	dx := (lng2 - lng1) * cosLat * geo.MetersPerDegreeLat
+	dy := (lat2 - lat1) * geo.MetersPerDegreeLat
 
 	segLen2 := dx*dx + dy*dy
 	if segLen2 < 1e-10 {
@@ -187,7 +188,7 @@ func perpendicularDist(lat, lng, lat1, lng1, lat2, lng2, cosLat float64) (projLa
 	py := t * dy
 
 	distM = math.Sqrt((x-px)*(x-px) + (y-py)*(y-py))
-	projLat = lat1 + py/degreesToMeters
-	projLng = lng1 + px/(cosLat*degreesToMeters)
+	projLat = lat1 + py/geo.MetersPerDegreeLat
+	projLng = lng1 + px/(cosLat*geo.MetersPerDegreeLat)
 	return projLat, projLng, distM
 }

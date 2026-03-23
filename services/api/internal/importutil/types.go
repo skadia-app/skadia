@@ -3,7 +3,6 @@ package importutil
 import (
 	"context"
 	"slices"
-	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -58,8 +57,8 @@ func NewRegistry[S any]() *ImportRegistry[S] { return &ImportRegistry[S]{} }
 // Register adds an importer and keeps the list sorted by Priority.
 func (r *ImportRegistry[S]) Register(imp DataImporter[S]) {
 	r.importers = append(r.importers, imp)
-	sort.Slice(r.importers, func(i, j int) bool {
-		return r.importers[i].Priority() < r.importers[j].Priority()
+	slices.SortFunc(r.importers, func(a, b DataImporter[S]) int {
+		return a.Priority() - b.Priority()
 	})
 }
 
@@ -67,6 +66,8 @@ func (r *ImportRegistry[S]) Register(imp DataImporter[S]) {
 func (r *ImportRegistry[S]) Detect(src S) []DetectedModule {
 	var modules []DetectedModule
 	for _, imp := range r.importers {
+		// Detect errors are intentionally ignored — a failing detector means
+		// the module is not available for this export, not a fatal error.
 		available, count, _ := imp.Detect(src)
 		modules = append(modules, DetectedModule{
 			Name:        imp.Name(),
@@ -109,5 +110,7 @@ func (r *ImportRegistry[S]) RunModules(ctx context.Context, modules []string, pa
 			params.OnModuleComplete(i+1, total, imp.Name())
 		}
 	}
+	// The error return is always nil: individual module failures are collected
+	// in allErrors so that remaining modules can still run.
 	return allErrors, nil
 }
