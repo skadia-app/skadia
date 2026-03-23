@@ -51,15 +51,16 @@ func (db *DB) DeleteActivityJumps(ctx context.Context, activityID string) error 
 	return nil
 }
 
-func (db *DB) GetActivityJumps(ctx context.Context, activityID string) ([]model.JumpRecord, error) {
+func (db *DB) GetActivityJumps(ctx context.Context, activityID string, limit, offset int) ([]model.JumpRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT timestamp, distance_m, height_m,
 			hang_time_s, score, rotations, speed_ms,
 			lat, lng
 		FROM activity_jumps
 		WHERE activity_id = $1
-		ORDER BY timestamp`,
-		activityID,
+		ORDER BY timestamp
+		LIMIT $2 OFFSET $3`,
+		activityID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get activity jumps: %w", err)

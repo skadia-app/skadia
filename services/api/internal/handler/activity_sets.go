@@ -17,7 +17,8 @@ func (h *Handler) HandleGetActivitySets(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	sets, err := h.DB.GetActivitySets(r.Context(), activityID)
+	limit, offset := httputil.ParsePagination(r, 50, 200)
+	sets, err := h.DB.GetActivitySets(r.Context(), activityID, limit, offset)
 	if httputil.HandleDBErr(w, r, err, "sets not found") {
 		return
 	}

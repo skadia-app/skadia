@@ -17,7 +17,8 @@ func (h *Handler) HandleGetActivityEvents(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	events, err := h.DB.GetActivityEvents(r.Context(), activityID)
+	limit, offset := httputil.ParsePagination(r, 100, 500)
+	events, err := h.DB.GetActivityEvents(r.Context(), activityID, limit, offset)
 	if httputil.HandleDBErr(w, r, err, "events not found") {
 		return
 	}

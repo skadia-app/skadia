@@ -178,7 +178,7 @@ func (db *DB) DeleteActivitySegmentLaps(ctx context.Context, activityID string) 
 	return nil
 }
 
-func (db *DB) GetActivitySegmentLaps(ctx context.Context, activityID string) ([]model.SegmentLapRecord, error) {
+func (db *DB) GetActivitySegmentLaps(ctx context.Context, activityID string, limit, offset int) ([]model.SegmentLapRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, message_index, timestamp, start_time,
 			name, uuid, status, manufacturer, sport, sub_sport,
@@ -217,8 +217,9 @@ func (db *DB) GetActivitySegmentLaps(ctx context.Context, activityID string) ([]
 			repetition_num, wkt_step_index
 		FROM activity_segment_laps
 		WHERE activity_id = $1
-		ORDER BY message_index`,
-		activityID,
+		ORDER BY message_index
+		LIMIT $2 OFFSET $3`,
+		activityID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get activity segment laps: %w", err)

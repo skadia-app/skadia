@@ -17,7 +17,8 @@ func (h *Handler) HandleGetActivityJumps(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	jumps, err := h.DB.GetActivityJumps(r.Context(), activityID)
+	limit, offset := httputil.ParsePagination(r, 50, 200)
+	jumps, err := h.DB.GetActivityJumps(r.Context(), activityID, limit, offset)
 	if httputil.HandleDBErr(w, r, err, "jumps not found") {
 		return
 	}

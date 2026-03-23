@@ -57,7 +57,7 @@ func (db *DB) DeleteActivityEvents(ctx context.Context, activityID string) error
 	return nil
 }
 
-func (db *DB) GetActivityEvents(ctx context.Context, activityID string) ([]model.EventRecord, error) {
+func (db *DB) GetActivityEvents(ctx context.Context, activityID string, limit, offset int) ([]model.EventRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT timestamp, event, event_type, event_group,
 			data, front_gear_num, front_gear, rear_gear_num, rear_gear,
@@ -66,8 +66,9 @@ func (db *DB) GetActivityEvents(ctx context.Context, activityID string) ([]model
 			score, opponent_score, device_index, activity_type, start_timestamp
 		FROM activity_events
 		WHERE activity_id = $1
-		ORDER BY timestamp`,
-		activityID,
+		ORDER BY timestamp
+		LIMIT $2 OFFSET $3`,
+		activityID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get activity events: %w", err)

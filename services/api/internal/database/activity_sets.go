@@ -54,7 +54,7 @@ func (db *DB) DeleteActivitySets(ctx context.Context, activityID string) error {
 	return nil
 }
 
-func (db *DB) GetActivitySets(ctx context.Context, activityID string) ([]model.SetRecord, error) {
+func (db *DB) GetActivitySets(ctx context.Context, activityID string, limit, offset int) ([]model.SetRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT message_index, timestamp, start_time,
 			duration_s, set_type, repetitions, weight_kg,
@@ -62,8 +62,9 @@ func (db *DB) GetActivitySets(ctx context.Context, activityID string) ([]model.S
 			wkt_step_index
 		FROM activity_sets
 		WHERE activity_id = $1
-		ORDER BY message_index`,
-		activityID,
+		ORDER BY message_index
+		LIMIT $2 OFFSET $3`,
+		activityID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get activity sets: %w", err)
