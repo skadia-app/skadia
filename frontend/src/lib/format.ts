@@ -1,4 +1,4 @@
-export type DurationStyle = 'clock' | 'human' | 'compact' | 'short' | 'lifetime' | 'abbr'
+export type DurationStyle = 'clock' | 'human' | 'compact' | 'short' | 'lifetime' | 'abbr' | 'decimal'
 
 /** Format seconds in various styles. Default 'clock' = h:mm:ss / m:ss */
 export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
@@ -27,7 +27,17 @@ export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
     case 'lifetime':
       if (h >= 240) return `${(h / 24).toFixed(1)} Tage`
       return `${h} h`
+    case 'decimal': {
+      const hours = s / 3600
+      if (hours >= 1) return `${hours.toFixed(1)} h`
+      return `${m} min`
+    }
   }
+}
+
+/** Format minutes (not seconds) — wrapper around fmtDuration for router/planner use. */
+export function fmtDurationMin(minutes: number, style: DurationStyle = 'human'): string {
+  return fmtDuration(minutes * 60, style)
 }
 
 /** Format meters as km or m. Returns '--' for null/NaN. */

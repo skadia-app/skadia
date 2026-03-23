@@ -2,21 +2,13 @@ import { useState, useCallback } from 'react'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import type { ProfileConfig } from '@/lib/routingProfiles'
-import { fmtDist } from '@/lib/format'
+import { fmtDist, fmtDurationMin } from '@/lib/format'
 import ProfileEditor from './ProfileEditor'
 
 function formatElevation(m: number): string {
   return `${Math.round(m)} m`
 }
 
-// Takes minutes (not seconds) — not consolidatable with fmtDuration which expects seconds
-function formatTime(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const min = Math.round(minutes % 60)
-  if (h === 0) return `${min} min`
-  if (min === 0) return `${h} h`
-  return `${h} h ${min} min`
-}
 
 function WaypointIcon({ type }: { type: RouteWaypoint['type'] }) {
   if (type === 'start') {
@@ -360,7 +352,7 @@ export default function RoutePlannerPanel({
                 <div>
                   <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">Zeit (est.)</div>
                   <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-                    {estimatedTimeMin != null ? formatTime(estimatedTimeMin) : '—'}
+                    {estimatedTimeMin != null ? fmtDurationMin(estimatedTimeMin) : '—'}
                   </div>
                 </div>
                 <div>
