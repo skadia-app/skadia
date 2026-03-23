@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -180,11 +179,10 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
+	req, ok := httputil.DecodeJSON[struct {
 		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Status != "active" && req.Status != "stored" && req.Status != "retired" {
@@ -255,9 +253,17 @@ func (h *Handler) CreateComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
-	var req struct {
+	type updateComponentReq struct {
 		Name          *string  `json:"name,omitempty"`
 		Type          *string  `json:"type,omitempty"`
 		Brand         *string  `json:"brand,omitempty"`
@@ -269,8 +275,8 @@ func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
 		SerialNumber  *string  `json:"serial_number,omitempty"`
 		WeightG       *int     `json:"weight_g,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[updateComponentReq](w, r)
+	if !ok {
 		return
 	}
 
@@ -289,7 +295,15 @@ func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
 	if err := h.DB.DeleteComponent(r.Context(), id); err != nil {
 		if err.Error() == "component not found" {
@@ -305,17 +319,28 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
-	componentID := chi.URLParam(r, "id")
-
-	var req struct {
-		ToGearID string `json:"to_gear_id"`
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+
+	req, ok := httputil.DecodeJSON[struct {
+		ToGearID string `json:"to_gear_id"`
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.ToGearID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "to_gear_id is required", r.URL.Path)
+		return
+	}
+	if err := h.DB.VerifyGearOwnership(r.Context(), req.ToGearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "target gear not found", r.URL.Path)
 		return
 	}
 
@@ -355,7 +380,15 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetComponentHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
 	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
 	if err != nil {
@@ -368,7 +401,15 @@ func (h *Handler) GetComponentHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetChainRotation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	group, err := h.DB.GetChainRotation(r.Context(), gearID)
 	if err != nil {
@@ -415,7 +456,15 @@ func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	// Find the chain rotation group for this gear
 	group, err := h.DB.GetChainRotation(r.Context(), gearID)
@@ -447,14 +496,21 @@ func (h *Handler) SwapChain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	groupID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyChainRotationOwnership(r.Context(), groupID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
+		return
+	}
 
-	var req struct {
+	req, ok := httputil.DecodeJSON[struct {
 		SwapIntervalKM *float64 `json:"swap_interval_km"`
 		SwapIntervalHM *float64 `json:"swap_interval_hm"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	}](w, r)
+	if !ok {
 		return
 	}
 
@@ -468,7 +524,15 @@ func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteChainRotation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	groupID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyChainRotationOwnership(r.Context(), groupID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
+		return
+	}
 
 	if err := h.DB.DeleteChainRotation(r.Context(), groupID); err != nil {
 		if err.Error() == "chain rotation not found" {
@@ -484,7 +548,15 @@ func (h *Handler) DeleteChainRotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListServiceEvents(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
 	events, err := h.DB.ListServiceEvents(r.Context(), componentID)
 	if err != nil {
@@ -497,7 +569,15 @@ func (h *Handler) ListServiceEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
 
 	create, ok := httputil.DecodeJSON[database.ServiceEventCreate](w, r)
 	if !ok {
@@ -519,7 +599,15 @@ func (h *Handler) CreateServiceEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	eventID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyServiceEventOwnership(r.Context(), eventID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
+		return
+	}
 
 	if err := h.DB.DeleteServiceEvent(r.Context(), eventID); err != nil {
 		if err.Error() == "service event not found" {
@@ -550,7 +638,15 @@ func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
 // --- Bike Setups ---
 
 func (h *Handler) ListBikeSetups(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	setups, err := h.DB.ListBikeSetups(r.Context(), gearID)
 	if err != nil {
@@ -563,7 +659,15 @@ func (h *Handler) ListBikeSetups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	create, ok := httputil.DecodeJSON[model.BikeSetupCreate](w, r)
 	if !ok {
@@ -585,7 +689,15 @@ func (h *Handler) CreateBikeSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyBikeSetupOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		return
+	}
 
 	update, ok := httputil.DecodeJSON[model.BikeSetupUpdate](w, r)
 	if !ok {
@@ -607,7 +719,15 @@ func (h *Handler) UpdateBikeSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyBikeSetupOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		return
+	}
 
 	if err := h.DB.DeleteBikeSetup(r.Context(), id); err != nil {
 		if err.Error() == "bike setup not found" {
@@ -623,7 +743,15 @@ func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ActivateBikeSetup(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyBikeSetupOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
+		return
+	}
 
 	setup, err := h.DB.ActivateBikeSetup(r.Context(), id)
 	if err != nil {
@@ -936,7 +1064,16 @@ func extractPDFText(pdfData []byte) string {
 }
 
 func (h *Handler) ListGearDocuments(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+
 	docs, err := h.DB.ListGearDocuments(r.Context(), gearID)
 	if err != nil {
 		slog.Error("list gear documents failed", "error", err)
@@ -1075,7 +1212,16 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 // ListComponentDocuments returns all documents for a gear component.
 func (h *Handler) ListComponentDocuments(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+
 	docs, err := h.DB.ListComponentDocuments(r.Context(), componentID)
 	if err != nil {
 		slog.Error("list component documents failed", "error", err)
@@ -1086,7 +1232,16 @@ func (h *Handler) ListComponentDocuments(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	docID := chi.URLParam(r, "docId")
+	if err := h.DB.VerifyGearDocumentOwnership(r.Context(), docID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		return
+	}
+
 	bucket, key, err := h.DB.DeleteGearDocument(r.Context(), docID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
@@ -1107,7 +1262,16 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	docID := chi.URLParam(r, "docId")
+	if err := h.DB.VerifyGearDocumentOwnership(r.Context(), docID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
+		return
+	}
+
 	doc, err := h.DB.GetGearDocument(r.Context(), docID)
 	if err != nil {
 		slog.Error("get gear document failed", "error", err)
@@ -1182,7 +1346,16 @@ func (h *Handler) ListPendingReviewGear(w http.ResponseWriter, r *http.Request) 
 
 // GetGearCosts returns the cost summary for a gear item.
 func (h *Handler) GetGearCosts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+
 	summary, err := h.DB.GetGearCostSummary(r.Context(), id)
 	if err != nil {
 		slog.Error("get gear costs failed", "error", err)

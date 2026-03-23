@@ -1932,6 +1932,60 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 	return tx.Commit(ctx)
 }
 
+// VerifyGearOwnership returns nil if the gear belongs to the user, pgx.ErrNoRows otherwise.
+func (db *DB) VerifyGearOwnership(ctx context.Context, gearID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT id FROM gear WHERE id = $1 AND user_id = $2`, gearID, userID,
+	).Scan(&id)
+}
+
+// VerifyComponentOwnership returns nil if the component's gear belongs to the user.
+func (db *DB) VerifyComponentOwnership(ctx context.Context, componentID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT gc.id FROM gear_components gc JOIN gear g ON gc.gear_id = g.id
+		 WHERE gc.id = $1 AND g.user_id = $2`, componentID, userID,
+	).Scan(&id)
+}
+
+// VerifyChainRotationOwnership returns nil if the chain rotation group's gear belongs to the user.
+func (db *DB) VerifyChainRotationOwnership(ctx context.Context, groupID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT crg.id FROM chain_rotation_groups crg JOIN gear g ON crg.gear_id = g.id
+		 WHERE crg.id = $1 AND g.user_id = $2`, groupID, userID,
+	).Scan(&id)
+}
+
+// VerifyServiceEventOwnership returns nil if the service event's component's gear belongs to the user.
+func (db *DB) VerifyServiceEventOwnership(ctx context.Context, eventID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT gse.id FROM gear_service_events gse
+		 JOIN gear_components gc ON gse.component_id = gc.id
+		 JOIN gear g ON gc.gear_id = g.id
+		 WHERE gse.id = $1 AND g.user_id = $2`, eventID, userID,
+	).Scan(&id)
+}
+
+// VerifyGearDocumentOwnership returns nil if the gear document belongs to the user.
+func (db *DB) VerifyGearDocumentOwnership(ctx context.Context, docID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT id FROM gear_documents WHERE id = $1 AND user_id = $2`, docID, userID,
+	).Scan(&id)
+}
+
+// VerifyBikeSetupOwnership returns nil if the bike setup's gear belongs to the user.
+func (db *DB) VerifyBikeSetupOwnership(ctx context.Context, setupID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT bs.id FROM bike_setups bs JOIN gear g ON bs.gear_id = g.id
+		 WHERE bs.id = $1 AND g.user_id = $2`, setupID, userID,
+	).Scan(&id)
+}
+
 // FindGearDuplicates returns pairs of gear items that are potential duplicates.
 // Criteria: same type and Levenshtein distance <= 3 between names (requires fuzzystrmatch extension).
 // Returns nil (no error) when fuzzystrmatch is not available.
