@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchActivityIntervals } from '@/api/enrichment'
 import type { ActivityInterval } from '@/api/types'
+import { fmtDuration } from '@/lib/format'
 
 interface Props {
   activityId: string
@@ -24,12 +25,6 @@ function IntensityBadge({ intensity }: { intensity: ActivityInterval['intensity'
   )
 }
 
-function formatDuration(s: number): string {
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  const rem = s % 60
-  return rem > 0 ? `${m}m ${rem}s` : `${m}m`
-}
 
 function formatSpeed(ms: number): string {
   const kmh = ms * 3.6
@@ -96,7 +91,7 @@ export default function IntervalSection({ activityId }: Props) {
                     {iv.segment_num}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100 font-medium">
-                    {formatDuration(iv.duration_s)}
+                    {fmtDuration(iv.duration_s, 'abbr')}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                     {iv.avg_power_w != null ? `${Math.round(iv.avg_power_w)} W` : '--'}

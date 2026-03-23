@@ -9,6 +9,7 @@ function formatElevation(m: number): string {
   return `${Math.round(m)} m`
 }
 
+// Takes minutes (not seconds) — not consolidatable with fmtDuration which expects seconds
 function formatTime(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const min = Math.round(minutes % 60)
