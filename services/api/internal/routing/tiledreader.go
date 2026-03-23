@@ -3,6 +3,7 @@ package routing
 
 import (
 	"container/list"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -430,17 +431,42 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 	return g
 }
 
-// R11: Conservative estimate — 48 bytes/edge accounts for all parallel arrays.
+var tileEstimateLegacy = os.Getenv("TILE_ESTIMATE_LEGACY") == "true"
+
+// estimateTileBytes returns the heap memory footprint of a loaded tile graph.
+// mmap sections (EdgeGeomLat/Lon, EdgeElevOff, EdgeElevProf, EdgeOSMIdx) are
+// excluded because they are zero-copy mapped from disk and do not consume heap.
+// Set TILE_ESTIMATE_LEGACY=true to revert to the old formula (overestimates ~2.27x).
 func estimateTileBytes(g *graph.Graph) int64 {
 	if g == nil {
 		return 0
 	}
-	edgeBytes := int64(g.EdgeCount) * 48
-	nodeBytes := int64(g.NodeCount) * 13
-	geomBytes := int64(len(g.EdgeGeomLat)) * 8
-	elevBytes := int64(len(g.EdgeElevProf)) * 4
-	segDistBytes := int64(len(g.EdgeElevSegDist)) * 2
-	return edgeBytes + nodeBytes + geomBytes + elevBytes + segDistBytes
+	if tileEstimateLegacy {
+		// Old formula: conservative, overestimates ~2.27x but safe as upper bound.
+		edgeBytes := int64(g.EdgeCount) * 48
+		nodeBytes := int64(g.NodeCount) * 13
+		geomBytes := int64(len(g.EdgeGeomLat)) * 8
+		elevBytes := int64(len(g.EdgeElevProf)) * 4
+		segDistBytes := int64(len(g.EdgeElevSegDist)) * 2
+		return edgeBytes + nodeBytes + geomBytes + elevBytes + segDistBytes
+	}
+	// Only heap sections:
+	// CSR: Offsets (NodeCount+1)*4, Targets EdgeCount*4, EdgeDist EdgeCount*4,
+	//      EdgeTags1 EdgeCount*8, EdgeTags2 EdgeCount*8, EdgeGeomOff EdgeCount*4 (not mmap)
+	csr := int64(g.NodeCount+1)*4 + int64(g.EdgeCount)*(4+4+8+8) + int64(g.EdgeCount+1)*4
+	// Nodes: NodeLat*4 + NodeLon*4 + NodeEle*4 + NodeTags*1 + IsBorder*1
+	nodes := int64(g.NodeCount) * (4 + 4 + 4 + 1 + 1)
+	segDist := int64(len(g.EdgeElevSegDist)) * 2
+	osmPool := int64(len(g.OSMIDPool)) * 8
+	var border int64
+	if g.BorderIndex != nil {
+		border = int64(len(g.BorderIndex.Entries)) * 12
+	}
+	var grid int64
+	if g.Grid != nil {
+		grid = int64(len(g.Grid.CellStart))*4 + int64(len(g.Grid.NodeOrder))*4
+	}
+	return csr + nodes + segDist + osmPool + border + grid
 }
 
 func tileName(tileID uint32) string {

@@ -73,6 +73,71 @@ func TestTiledCacheSingleflight(t *testing.T) {
 	}
 }
 
+// TestEstimateTileBytesExcludesMmap verifies that estimateTileBytes counts only
+// heap-allocated sections and skips mmap zero-copy sections (EdgeGeomLat/Lon,
+// EdgeElevOff, EdgeElevProf, EdgeOSMIdx).
+func TestEstimateTileBytesExcludesMmap(t *testing.T) {
+	const nodeCount = 1000
+	const edgeCount = 2000
+
+	g := &graph.Graph{
+		NodeCount:   nodeCount,
+		EdgeCount:   edgeCount,
+		Offsets:     make([]uint32, nodeCount+1),
+		Targets:     make([]uint32, edgeCount),
+		EdgeDist:    make([]uint32, edgeCount),
+		EdgeTags1:   make([]uint64, edgeCount),
+		EdgeTags2:   make([]uint64, edgeCount),
+		NodeLat:     make([]int32, nodeCount),
+		NodeLon:     make([]int32, nodeCount),
+		NodeEle:     make([]int32, nodeCount),
+		NodeTags:    make([]uint8, nodeCount),
+		OSMIDPool:   make([]int64, 500),
+		// mmap sections — must NOT be counted
+		EdgeGeomLat:  make([]int32, 5000),
+		EdgeGeomLon:  make([]int32, 5000),
+		EdgeElevOff:  make([]uint32, edgeCount+1),
+		EdgeElevProf: make([]int32, 3000),
+		EdgeOSMIdx:   make([]uint32, edgeCount),
+		// heap section
+		EdgeElevSegDist: make([]uint16, edgeCount),
+		// SpatialGrid: 100 cells, 1000 nodes → 100*4 + 1000*4 = 4400 bytes
+		Grid: &graph.SpatialGrid{
+			CellStart: make([]uint32, 100),
+			NodeOrder: make([]uint32, 1000),
+		},
+	}
+
+	got := estimateTileBytes(g)
+
+	// Expected:
+	// csr = (1000+1)*4 + 2000*(4+4+8+8) + (2000+1)*4 = 4004 + 48000 + 8004 = 60008
+	// nodes = 1000 * (4+4+4+1+1) = 14000
+	// segDist = 2000 * 2 = 4000
+	// osmPool = 500 * 8 = 4000
+	// border = 0
+	// grid = 100*4 + 1000*4 = 4400
+	// total = 60008 + 14000 + 4000 + 4000 + 0 + 4400 = 86408
+	want := int64(60008 + 14000 + 4000 + 4000 + 0 + 4400)
+	if got != want {
+		t.Errorf("estimateTileBytes = %d, want %d", got, want)
+	}
+
+	// Sanity: mmap sections alone would add much more if counted.
+	// EdgeGeomLat+Lon = 5000*4*2 = 40000, EdgeElevOff = 2001*4 = 8004,
+	// EdgeElevProf = 3000*4 = 12000, EdgeOSMIdx = 2000*4 = 8000 → 68004 extra.
+	// Old formula would yield (2000*48 + 1000*13 + 5000*8 + 3000*4 + 2000*2) = 96000+13000+40000+12000+4000 = 165000.
+	if got >= 165_000 {
+		t.Errorf("estimateTileBytes %d looks like it is counting mmap sections (old formula threshold ~165000)", got)
+	}
+
+	// Grid must be counted correctly.
+	wantGrid := int64(100*4 + 1000*4)
+	if wantGrid != 4400 {
+		t.Fatalf("grid constant sanity check failed")
+	}
+}
+
 // makeTiledTestGraph creates a small graph suitable for Serialize round-trip.
 // Uses coordinates within the 47N/8E tile.
 func makeTiledTestGraph() *graph.Graph {
