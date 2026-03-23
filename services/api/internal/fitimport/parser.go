@@ -414,6 +414,28 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		isEbike = true
 	}
 
+	// Virtual activity detection
+	isVirtual := false
+
+	// Path 1: SubSport 58 (VirtualActivity)
+	if fitSubSportID == int16(typedef.SubSportVirtualActivity) {
+		isVirtual = true
+		if subType == "virtual_activity" {
+			subType = "generic"
+		}
+	}
+
+	// Path 2: Known virtual platform manufacturers
+	if fileId != nil {
+		switch fileId.Manufacturer {
+		case typedef.ManufacturerZwift, typedef.ManufacturerZwiftByte,
+			typedef.ManufacturerBkool, typedef.ManufacturerMywhoosh,
+			typedef.ManufacturerVirtualtraining, typedef.ManufacturerIctrainer,
+			typedef.ManufacturerVirtugo:
+			isVirtual = true
+		}
+	}
+
 	data := &model.ActivityData{
 		FileFormat:    "fit",
 		OriginalName:  filename,
@@ -422,6 +444,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		FitSportID:    fitSportID,
 		FitSubSportID: fitSubSportID,
 		IsEbike:       isEbike,
+		IsVirtual:     isVirtual,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,
 	}

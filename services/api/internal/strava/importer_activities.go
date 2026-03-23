@@ -144,6 +144,19 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			isEbike = true
 		}
 
+		isVirtual := false
+		switch sportType {
+		case "virtual_ride":
+			sportType = "cycling"
+			isVirtual = true
+		case "virtual_run":
+			sportType = "running"
+			isVirtual = true
+		case "virtual_row":
+			sportType = "rowing"
+			isVirtual = true
+		}
+
 		// Moving time (seconds)
 		movingTimeS, _ := parseGermanInt(colVal(row, hdr["Bewegungszeit"]))
 		// Elapsed time (seconds) — first column named "Verstrichene Zeit"
@@ -211,6 +224,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			SportType: sportType,
 			SubType:   subType,
 			IsEbike:   isEbike,
+			IsVirtual: isVirtual,
 			StartedAt: startedAt,
 			EndedAt:   endedAt,
 		}
@@ -699,8 +713,12 @@ func mapStravaSportType(stravaSport string) string {
 		return "mountain_biking"
 	case "Gravelbike", "Gravel-Radfahrt":
 		return "gravel_cycling"
-	case "Virtuelles Radfahren":
+	case "Virtuelles Radfahren", "VirtualRide":
 		return "virtual_ride"
+	case "Virtuelles Laufen", "VirtualRun":
+		return "virtual_run"
+	case "Virtuelles Rudern", "VirtualRow":
+		return "virtual_row"
 	case "Indoor-Radfahren", "Spinning":
 		return "indoor_cycling"
 	// Running
@@ -828,7 +846,6 @@ var sportRefinements = map[string]map[string]bool{
 		"mountain_biking": true,
 		"gravel_cycling":  true,
 		"indoor_cycling":  true,
-		"virtual_ride":    true,
 	},
 	"running": {
 		"trail_running":     true,
