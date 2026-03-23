@@ -15,6 +15,7 @@ import {
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import ColorPicker from '@/components/ColorPicker'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface Props {
   onAddMarkerMode: (mapID: string | null) => void
@@ -299,15 +300,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
 
       {/* Marker Edit Modal */}
       {editingMarker && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
-          onClick={() => setEditingMarker(null)}
-        >
-          <div
-            className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-72 overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-4 space-y-3">
+        <ModalShell onClose={() => setEditingMarker(null)} maxWidth="w-72" className="p-4 space-y-3">
               <div className="text-xs text-neutral-400 font-mono">
                 {editingMarker.lat.toFixed(5)}, {editingMarker.lng.toFixed(5)}
               </div>
@@ -413,9 +406,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                   </svg>
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   )

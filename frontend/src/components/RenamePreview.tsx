@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { previewRename, executeRename } from '@/api/settings'
 import type { RenameResult } from '@/api/settings'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface RenamePreviewProps {
   open: boolean
@@ -37,13 +38,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
-
-      {/* Dialog */}
-      <div className="relative bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800
-                      shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col mx-4">
+    <ModalShell onClose={handleClose} maxWidth="max-w-2xl" className="p-0 max-h-[80vh] flex flex-col mx-4">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -193,7 +188,6 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
             </>
           )}
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
