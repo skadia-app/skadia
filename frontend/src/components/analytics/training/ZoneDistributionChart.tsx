@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -13,6 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchZoneDistributionSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, CanvasRenderer])
 
@@ -43,8 +43,6 @@ export default function ZoneDistributionChart() {
   const [zoneType, setZoneType] = useState<ZoneType>('hr')
   const [granularity, setGranularity] = useState<Granularity>('month')
   const [chartView, setChartView] = useState<ChartView>('bar')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const queryParams = useMemo(() => {
     const base = toQueryString()
@@ -61,85 +59,69 @@ export default function ZoneDistributionChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const obs = new ResizeObserver(() => chart.resize())
-    obs.observe(containerRef.current)
-    return () => {
-      obs.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+  const containerRef = useECharts(
+    () => {
+      if (!data || data.length === 0) return { series: [] }
 
-  useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
+      const periodsSet = new Set<string>()
+      const zoneIndicesSet = new Set<number>()
+      for (const point of data) {
+        periodsSet.add(point.period)
+        zoneIndicesSet.add(point.zone_index)
+      }
+      const periods = Array.from(periodsSet).sort()
+      const zoneIndices = Array.from(zoneIndicesSet).sort((a, b) => a - b)
 
-    // Group by period and zone
-    const periodsSet = new Set<string>()
-    const zoneIndicesSet = new Set<number>()
-    for (const point of data) {
-      periodsSet.add(point.period)
-      zoneIndicesSet.add(point.zone_index)
-    }
-    const periods = Array.from(periodsSet).sort()
-    const zoneIndices = Array.from(zoneIndicesSet).sort((a, b) => a - b)
+      const zoneTotals = new Map<number, number>()
+      for (const point of data) {
+        zoneTotals.set(point.zone_index, (zoneTotals.get(point.zone_index) ?? 0) + point.total_seconds)
+      }
 
-    // Aggregate totals per zone (for pie view)
-    const zoneTotals = new Map<number, number>()
-    for (const point of data) {
-      zoneTotals.set(point.zone_index, (zoneTotals.get(point.zone_index) ?? 0) + point.total_seconds)
-    }
+      if (chartView === 'pie') {
+        const pieData = zoneIndices.map(zoneIdx => ({
+          name: ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`,
+          value: zoneTotals.get(zoneIdx) ?? 0,
+          itemStyle: { color: ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af' },
+        })).filter(d => d.value > 0)
 
-    let option: EChartsCoreOption
-
-    if (chartView === 'pie') {
-      const pieData = zoneIndices.map(zoneIdx => ({
-        name: ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`,
-        value: zoneTotals.get(zoneIdx) ?? 0,
-        itemStyle: { color: ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af' },
-      })).filter(d => d.value > 0)
-
-      option = {
-        backgroundColor: 'transparent',
-        tooltip: {
-          trigger: 'item',
-          backgroundColor: 'rgba(17,24,39,0.92)',
-          borderColor: '#374151',
-          textStyle: { color: '#f3f4f6', fontSize: 12 },
-          formatter: (params: unknown) => {
-            const p = params as { name: string; value: number; percent: number }
-            return `<div style="font-size:12px">
-              <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
-              <div>${formatSeconds(p.value)} (${p.percent?.toFixed(1)}%)</div>
-            </div>`
-          },
-        },
-        legend: {
-          orient: 'vertical',
-          right: 8,
-          top: 'center',
-          textStyle: { fontSize: 10, color: '#9ca3af' },
-          itemWidth: 10,
-          itemHeight: 10,
-        },
-        series: [
-          {
-            type: 'pie',
-            radius: ['40%', '70%'],
-            center: ['40%', '50%'],
-            data: pieData,
-            label: { show: false },
-            emphasis: {
-              itemStyle: { shadowBlur: 8, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+        return {
+          backgroundColor: 'transparent',
+          tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(17,24,39,0.92)',
+            borderColor: '#374151',
+            textStyle: { color: '#f3f4f6', fontSize: 12 },
+            formatter: (params: unknown) => {
+              const p = params as { name: string; value: number; percent: number }
+              return `<div style="font-size:12px">
+                <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
+                <div>${formatSeconds(p.value)} (${p.percent?.toFixed(1)}%)</div>
+              </div>`
             },
           },
-        ],
+          legend: {
+            orient: 'vertical',
+            right: 8,
+            top: 'center',
+            textStyle: { fontSize: 10, color: '#9ca3af' },
+            itemWidth: 10,
+            itemHeight: 10,
+          },
+          series: [
+            {
+              type: 'pie',
+              radius: ['40%', '70%'],
+              center: ['40%', '50%'],
+              data: pieData,
+              label: { show: false },
+              emphasis: {
+                itemStyle: { shadowBlur: 8, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+              },
+            },
+          ],
+        }
       }
-    } else {
+
       const series = zoneIndices.map(zoneIdx => {
         const values = periods.map(period => {
           const match = data.find(d => d.period === period && d.zone_index === zoneIdx)
@@ -157,7 +139,7 @@ export default function ZoneDistributionChart() {
         }
       })
 
-      option = {
+      return {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 36, bottom: 40 },
         toolbox: {
@@ -238,10 +220,9 @@ export default function ZoneDistributionChart() {
         },
         series,
       }
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data, chartView])
+    },
+    [data, chartView],
+  )
 
   const hasData = data && data.length > 0
 

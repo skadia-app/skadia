@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -12,6 +11,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthBloodPressure } from '@/api/analytics'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
@@ -41,8 +41,6 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
 
 export default function BloodPressureChart() {
   const [preset, setPreset] = useState<TimePreset>('90d')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const { from, to } = useMemo(() => getDateRange(preset), [preset])
 
@@ -53,145 +51,129 @@ export default function BloodPressureChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (!data || data.length === 0) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
-
-  useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
-
-    // Group by date, take averages
-    const byDate = new Map<string, { sysSum: number; diaSum: number; pulseSum: number; count: number; pulseCount: number }>()
-    for (const entry of data) {
-      if (entry.systolic == null && entry.diastolic == null) continue
-      const date = entry.measured_at_utc.split('T')[0]
-      const existing = byDate.get(date)
-      if (existing) {
-        if (entry.systolic != null) { existing.sysSum += entry.systolic; existing.count++ }
-        if (entry.diastolic != null) existing.diaSum += entry.diastolic
-        if (entry.pulse != null) { existing.pulseSum += entry.pulse; existing.pulseCount++ }
-      } else {
-        byDate.set(date, {
-          sysSum: entry.systolic ?? 0,
-          diaSum: entry.diastolic ?? 0,
-          pulseSum: entry.pulse ?? 0,
-          count: entry.systolic != null ? 1 : 0,
-          pulseCount: entry.pulse != null ? 1 : 0,
-        })
+      const byDate = new Map<string, { sysSum: number; diaSum: number; pulseSum: number; count: number; pulseCount: number }>()
+      for (const entry of data) {
+        if (entry.systolic == null && entry.diastolic == null) continue
+        const date = entry.measured_at_utc.split('T')[0]
+        const existing = byDate.get(date)
+        if (existing) {
+          if (entry.systolic != null) { existing.sysSum += entry.systolic; existing.count++ }
+          if (entry.diastolic != null) existing.diaSum += entry.diastolic
+          if (entry.pulse != null) { existing.pulseSum += entry.pulse; existing.pulseCount++ }
+        } else {
+          byDate.set(date, {
+            sysSum: entry.systolic ?? 0,
+            diaSum: entry.diastolic ?? 0,
+            pulseSum: entry.pulse ?? 0,
+            count: entry.systolic != null ? 1 : 0,
+            pulseCount: entry.pulse != null ? 1 : 0,
+          })
+        }
       }
-    }
 
-    const dates = Array.from(byDate.keys()).sort()
-    const systolicValues = dates.map(d => {
-      const e = byDate.get(d)!
-      return e.count > 0 ? Math.round(e.sysSum / e.count) : null
-    })
-    const diastolicValues = dates.map(d => {
-      const e = byDate.get(d)!
-      return e.count > 0 ? Math.round(e.diaSum / e.count) : null
-    })
-    const pulseValues = dates.map(d => {
-      const e = byDate.get(d)!
-      return e.pulseCount > 0 ? Math.round(e.pulseSum / e.pulseCount) : null
-    })
+      const dates = Array.from(byDate.keys()).sort()
+      const systolicValues = dates.map(d => {
+        const e = byDate.get(d)!
+        return e.count > 0 ? Math.round(e.sysSum / e.count) : null
+      })
+      const diastolicValues = dates.map(d => {
+        const e = byDate.get(d)!
+        return e.count > 0 ? Math.round(e.diaSum / e.count) : null
+      })
+      const pulseValues = dates.map(d => {
+        const e = byDate.get(d)!
+        return e.pulseCount > 0 ? Math.round(e.pulseSum / e.pulseCount) : null
+      })
 
-    const hasPulse = pulseValues.some(v => v != null)
+      const hasPulse = pulseValues.some(v => v != null)
 
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 44, bottom: 40 },
-      legend: {
-        data: hasPulse ? ['Systolisch', 'Diastolisch', 'Puls'] : ['Systolisch', 'Diastolisch'],
-        top: 8,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemHeight: 8,
-        itemWidth: 14,
-      },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          for (const p of items) {
-            if (p.value == null) continue
-            const unit = p.seriesName === 'Puls' ? ' bpm' : ' mmHg'
-            html += `<div style="display:flex;align-items:center;gap:6px">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${p.value}${unit}</strong>
-            </div>`
-          }
-          return html
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 44, bottom: 40 },
+        legend: {
+          data: hasPulse ? ['Systolisch', 'Diastolisch', 'Puls'] : ['Systolisch', 'Diastolisch'],
+          top: 8,
+          textStyle: { fontSize: 10, color: '#9ca3af' },
+          itemHeight: 8,
+          itemWidth: 14,
         },
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
-      series: [
-        {
-          name: 'Systolisch',
-          type: 'line',
-          data: systolicValues,
-          showSymbol: true,
-          symbolSize: 6,
-          smooth: 0.3,
-          lineStyle: { width: 2, color: '#ef4444' },
-          itemStyle: { color: '#ef4444' },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            for (const p of items) {
+              if (p.value == null) continue
+              const unit = p.seriesName === 'Puls' ? ' bpm' : ' mmHg'
+              html += `<div style="display:flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${p.value}${unit}</strong>
+              </div>`
+            }
+            return html
+          },
         },
-        {
-          name: 'Diastolisch',
-          type: 'line',
-          data: diastolicValues,
-          showSymbol: true,
-          symbolSize: 6,
-          smooth: 0.3,
-          lineStyle: { width: 2, color: '#3b82f6' },
-          itemStyle: { color: '#3b82f6' },
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#374151' } },
         },
-        ...(hasPulse
-          ? [
-              {
-                name: 'Puls',
-                type: 'line' as const,
-                data: pulseValues,
-                showSymbol: false,
-                smooth: 0.3,
-                lineStyle: { width: 1.5, color: '#a855f7', type: 'dashed' as const },
-                itemStyle: { color: '#a855f7' },
-              },
-            ]
-          : []),
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        yAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+        series: [
+          {
+            name: 'Systolisch',
+            type: 'line',
+            data: systolicValues,
+            showSymbol: true,
+            symbolSize: 6,
+            smooth: 0.3,
+            lineStyle: { width: 2, color: '#ef4444' },
+            itemStyle: { color: '#ef4444' },
+          },
+          {
+            name: 'Diastolisch',
+            type: 'line',
+            data: diastolicValues,
+            showSymbol: true,
+            symbolSize: 6,
+            smooth: 0.3,
+            lineStyle: { width: 2, color: '#3b82f6' },
+            itemStyle: { color: '#3b82f6' },
+          },
+          ...(hasPulse
+            ? [
+                {
+                  name: 'Puls',
+                  type: 'line' as const,
+                  data: pulseValues,
+                  showSymbol: false,
+                  smooth: 0.3,
+                  lineStyle: { width: 1.5, color: '#a855f7', type: 'dashed' as const },
+                  itemStyle: { color: '#a855f7' },
+                },
+              ]
+            : []),
+        ],
+      }
+    },
+    [data],
+  )
 
   return (
     <div className="space-y-3">

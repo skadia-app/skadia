@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -13,6 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchTrainingVolumeSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([
   BarChart,
@@ -58,9 +58,6 @@ export default function TrainingVolumeChart() {
   const [granularity, setGranularity] = useState<Granularity>('month')
   const [volumeMetric, setVolumeMetric] = useState<VolumeMetric>('distance')
   const [chartType, setChartType] = useState<ChartType>('bar')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const queryParams = useMemo(() => {
     const base = toQueryString()
     const params = new URLSearchParams(base)
@@ -76,152 +73,109 @@ export default function TrainingVolumeChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
-    const obs = new ResizeObserver(() => chart.resize())
-    obs.observe(containerRef.current)
-    return () => {
-      obs.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+  const containerRef = useECharts(
+    () => {
+      if (!data || data.length === 0) return { series: [] }
 
-  useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
+      const periodsSet = new Set<string>()
+      const sportsSet = new Set<string>()
+      for (const point of data) {
+        periodsSet.add(point.period)
+        sportsSet.add(point.sport_type)
+      }
+      const periods = Array.from(periodsSet).sort()
+      const sports = Array.from(sportsSet).sort()
 
-    // Collect unique periods and sport types
-    const periodsSet = new Set<string>()
-    const sportsSet = new Set<string>()
-    for (const point of data) {
-      periodsSet.add(point.period)
-      sportsSet.add(point.sport_type)
-    }
-    const periods = Array.from(periodsSet).sort()
-    const sports = Array.from(sportsSet).sort()
-
-    // Build stacked series
-    const series = sports.map(sport => {
-      const values = periods.map(period => {
-        const match = data.find(d => d.period === period && d.sport_type === sport)
-        return match ? (match.value > 0 ? match.value : null) : null
-      })
-      const color = sportColor(sport)
-      if (chartType === 'line') {
-        return {
-          name: sport,
-          type: 'line' as const,
-          data: values,
-          showSymbol: false,
-          lineStyle: { width: 2, color },
-          itemStyle: { color },
-          emphasis: { focus: 'series' as const },
-          connectNulls: false,
+      const series = sports.map(sport => {
+        const values = periods.map(period => {
+          const match = data.find(d => d.period === period && d.sport_type === sport)
+          return match ? (match.value > 0 ? match.value : null) : null
+        })
+        const color = sportColor(sport)
+        if (chartType === 'line') {
+          return {
+            name: sport, type: 'line' as const, data: values, showSymbol: false,
+            lineStyle: { width: 2, color }, itemStyle: { color },
+            emphasis: { focus: 'series' as const }, connectNulls: false,
+          }
         }
-      }
+        return {
+          name: sport, type: 'bar' as const, stack: 'volume', data: values,
+          itemStyle: { color }, emphasis: { focus: 'series' as const },
+        }
+      })
+
+      const metricLabel = volumeMetric === 'distance' ? 'km' : volumeMetric === 'duration' ? 'h' : 'TSS'
+      const metricFactor = volumeMetric === 'distance' ? 0.001 : volumeMetric === 'duration' ? 1 / 3600 : 1
+      const metricDecimals = volumeMetric === 'tss' ? 0 : 1
+
       return {
-        name: sport,
-        type: 'bar' as const,
-        stack: 'volume',
-        data: values,
-        itemStyle: { color },
-        emphasis: { focus: 'series' as const },
-      }
-    })
-
-    const metricLabel = volumeMetric === 'distance' ? 'km' : volumeMetric === 'duration' ? 'h' : 'TSS'
-    const metricFactor = volumeMetric === 'distance' ? 0.001 : volumeMetric === 'duration' ? 1 / 3600 : 1
-    const metricDecimals = volumeMetric === 'tss' ? 0 : 1
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 36, bottom: 50 },
-      toolbox: {
-        right: 8,
-        top: 2,
-        feature: {
-          dataZoom: {
-            yAxisIndex: 'none',
-            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
-            brushStyle: {
-              borderWidth: 1,
-              color: 'rgba(59,130,246,0.1)',
-              borderColor: 'rgba(59,130,246,0.6)',
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 36, bottom: 50 },
+        toolbox: {
+          right: 8, top: 2,
+          feature: {
+            dataZoom: {
+              yAxisIndex: 'none',
+              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+              brushStyle: { borderWidth: 1, color: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.6)' },
+            },
+            restore: { title: 'Zurücksetzen' },
+          },
+          iconStyle: { borderColor: '#6b7280' },
+          emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+        },
+        legend: { data: sports, top: 4, textStyle: { fontSize: 10, color: '#9ca3af' }, itemWidth: 12, itemHeight: 8 },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            let total = 0
+            for (const p of items) {
+              if (p.value <= 0) continue
+              const v = (p.value * metricFactor).toFixed(metricDecimals)
+              html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${v} ${metricLabel}</strong>
+              </div>`
+              total += p.value
+            }
+            const totalFormatted = (total * metricFactor).toFixed(metricDecimals)
+            html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
+              Gesamt: <strong style="color:#f9fafb">${totalFormatted} ${metricLabel}</strong>
+            </div>`
+            return html
+          },
+        },
+        xAxis: {
+          type: 'category', data: periods,
+          axisLabel: { fontSize: 10, color: '#6b7280', rotate: periods.length > 12 ? 30 : 0 },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            fontSize: 10, color: '#6b7280',
+            formatter: (v: number) => {
+              const converted = v * metricFactor
+              return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
             },
           },
-          restore: { title: 'Zurücksetzen' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
         },
-        iconStyle: { borderColor: '#6b7280' },
-        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
-      },
-      legend: {
-        data: sports,
-        top: 4,
-        textStyle: { fontSize: 10, color: '#9ca3af' },
-        itemWidth: 12,
-        itemHeight: 8,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          let total = 0
-          for (const p of items) {
-            if (p.value <= 0) continue
-            const v = (p.value * metricFactor).toFixed(metricDecimals)
-            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-              <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${v} ${metricLabel}</strong>
-            </div>`
-            total += p.value
-          }
-          const totalFormatted = (total * metricFactor).toFixed(metricDecimals)
-          html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
-            Gesamt: <strong style="color:#f9fafb">${totalFormatted} ${metricLabel}</strong>
-          </div>`
-          return html
-        },
-      },
-      xAxis: {
-        type: 'category',
-        data: periods,
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          rotate: periods.length > 12 ? 30 : 0,
-        },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          fontSize: 10,
-          color: '#6b7280',
-          formatter: (v: number) => {
-            const converted = v * metricFactor
-            return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
-          },
-        },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [
-        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
-      ],
-      series,
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data, volumeMetric, chartType])
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+        series,
+      }
+    },
+    [data, volumeMetric, chartType],
+  )
 
   const hasData = data && data.length > 0
 

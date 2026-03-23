@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -11,6 +10,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthStress } from '@/api/analytics'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
@@ -42,8 +42,6 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
 
 export default function StressChart() {
   const [preset, setPreset] = useState<TimePreset>('30d')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
 
   const { from, to } = useMemo(() => getDateRange(preset), [preset])
 
@@ -54,100 +52,84 @@ export default function StressChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (!data || data.length === 0) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
-
-  useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) return
-
-    // Aggregate by date (take daily average)
-    const byDate = new Map<string, { sum: number; count: number }>()
-    for (const entry of data) {
-      if (entry.stress_level == null) continue
-      const date = entry.measured_at_utc.split('T')[0]
-      const existing = byDate.get(date)
-      if (existing) {
-        existing.sum += entry.stress_level
-        existing.count++
-      } else {
-        byDate.set(date, { sum: entry.stress_level, count: 1 })
+      const byDate = new Map<string, { sum: number; count: number }>()
+      for (const entry of data) {
+        if (entry.stress_level == null) continue
+        const date = entry.measured_at_utc.split('T')[0]
+        const existing = byDate.get(date)
+        if (existing) {
+          existing.sum += entry.stress_level
+          existing.count++
+        } else {
+          byDate.set(date, { sum: entry.stress_level, count: 1 })
+        }
       }
-    }
 
-    const dates = Array.from(byDate.keys()).sort()
-    const values = dates.map(d => {
-      const e = byDate.get(d)!
-      return Math.round(e.sum / e.count)
-    })
+      const dates = Array.from(byDate.keys()).sort()
+      const values = dates.map(d => {
+        const e = byDate.get(d)!
+        return Math.round(e.sum / e.count)
+      })
 
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 20, bottom: 40 },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ value: number; axisValueLabel: string }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          const val = items[0].value
-          let level = 'Niedrig'
-          if (val >= 75) level = 'Sehr hoch'
-          else if (val >= 50) level = 'Hoch'
-          else if (val >= 25) level = 'Mittel'
-          return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
-            <div><strong style="color:#f9fafb">${val}</strong> <span style="color:#9ca3af">(${level})</span></div>`
-        },
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        min: 0,
-        max: 100,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
-      series: [
-        {
-          type: 'line',
-          data: values,
-          showSymbol: false,
-          smooth: 0.3,
-          lineStyle: { width: 2, color: '#f97316' },
-          itemStyle: { color: '#f97316' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(249,115,22,0.25)' },
-              { offset: 1, color: 'rgba(249,115,22,0.02)' },
-            ]),
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 20, bottom: 40 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderColor: '#374151',
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ value: number; axisValueLabel: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            const val = items[0].value
+            let level = 'Niedrig'
+            if (val >= 75) level = 'Sehr hoch'
+            else if (val >= 50) level = 'Hoch'
+            else if (val >= 25) level = 'Mittel'
+            return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
+              <div><strong style="color:#f9fafb">${val}</strong> <span style="color:#9ca3af">(${level})</span></div>`
           },
         },
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#374151' } },
+        },
+        yAxis: {
+          type: 'value',
+          min: 0,
+          max: 100,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        },
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+        series: [
+          {
+            type: 'line',
+            data: values,
+            showSymbol: false,
+            smooth: 0.3,
+            lineStyle: { width: 2, color: '#f97316' },
+            itemStyle: { color: '#f97316' },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(249,115,22,0.25)' },
+                { offset: 1, color: 'rgba(249,115,22,0.02)' },
+              ]),
+            },
+          },
+        ],
+      }
+    },
+    [data],
+  )
 
   return (
     <div className="space-y-3">

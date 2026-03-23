@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -17,6 +16,7 @@ import { fetchAnalyticsPMC } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([
   LineChart,
@@ -87,9 +87,6 @@ export default function PMCChartExtended() {
   const [localFrom, setLocalFrom] = useState<string>('')
   const [localTo, setLocalTo] = useState<string>('')
   const [isCustomRange, setIsCustomRange] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const today = toLocalISO(new Date())
 
   const { from, to } = useMemo(() => {
@@ -130,207 +127,155 @@ export default function PMCChartExtended() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => {
+      if (!data) return { series: [] }
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
+      const days = data.days ?? []
+      const projection = data.projection ?? []
 
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data])
+      const dates = days.map(d => d.date)
+      const ctlData = days.map(d => d.ctl)
+      const atlData = days.map(d => d.atl)
+      const tsbData = days.map(d => d.tsb)
 
-  useEffect(() => {
-    if (!chartRef.current || !data) return
+      const projDates = projection.map(d => d.date)
+      const projCTL = projection.map(d => d.ctl)
 
-    const days = data.days ?? []
-    const projection = data.projection ?? []
+      const allDates = [...dates, ...projDates]
 
-    const dates = days.map(d => d.date)
-    const ctlData = days.map(d => d.ctl)
-    const atlData = days.map(d => d.atl)
-    const tsbData = days.map(d => d.tsb)
+      const ctlFull = [...ctlData, ...Array(projDates.length).fill(null)]
+      const atlFull = [...atlData, ...Array(projDates.length).fill(null)]
+      const tsbFull = [...tsbData, ...Array(projDates.length).fill(null)]
+      const ctlProjFull = [...Array(dates.length).fill(null), ...projCTL]
 
-    // Projection: append after last real date
-    const projDates = projection.map(d => d.date)
-    const projCTL = projection.map(d => d.ctl)
-
-    // All dates for x-axis
-    const allDates = [...dates, ...projDates]
-
-    // Pad real series with nulls for the projection period
-    const ctlFull = [...ctlData, ...Array(projDates.length).fill(null)]
-    const atlFull = [...atlData, ...Array(projDates.length).fill(null)]
-    const tsbFull = [...tsbData, ...Array(projDates.length).fill(null)]
-
-    // Projection series: null for real period, then values
-    const ctlProjFull = [...Array(dates.length).fill(null), ...projCTL]
-
-    const option: EChartsCoreOption = {
-      backgroundColor: 'transparent',
-      grid: { left: 52, right: 20, top: 40, bottom: 80 },
-      toolbox: {
-        right: 8,
-        top: 2,
-        feature: {
-          dataZoom: {
-            yAxisIndex: 'none',
-            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
-            brushStyle: {
-              borderWidth: 1,
-              color: 'rgba(59,130,246,0.1)',
-              borderColor: 'rgba(59,130,246,0.6)',
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 52, right: 20, top: 40, bottom: 80 },
+        toolbox: {
+          right: 8,
+          top: 2,
+          feature: {
+            dataZoom: {
+              yAxisIndex: 'none',
+              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+              brushStyle: { borderWidth: 1, color: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.6)' },
             },
+            restore: { title: 'Zurücksetzen' },
           },
-          restore: { title: 'Zurücksetzen' },
+          iconStyle: { borderColor: '#6b7280' },
+          emphasis: { iconStyle: { borderColor: '#d1d5db' } },
         },
-        iconStyle: { borderColor: '#6b7280' },
-        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
-      },
-      legend: {
-        data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose'],
-        top: 6,
-        right: 80,
-        textStyle: { fontSize: 11, color: '#9ca3af' },
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(17,24,39,0.92)',
-        borderColor: '#374151',
-        textStyle: { color: '#f3f4f6', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{
-            seriesName: string
-            value: number | null
-            axisValueLabel: string
-            color: string
-          }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
-          for (const p of items) {
-            if (p.value == null) continue
-            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
-              <span style="color:#d1d5db">${p.seriesName}:</span>
-              <strong style="color:#f9fafb">${p.value.toFixed(1)}</strong>
-            </div>`
-          }
-          return html
+        legend: {
+          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose'],
+          top: 6,
+          right: 80,
+          textStyle: { fontSize: 11, color: '#9ca3af' },
         },
-      },
-      xAxis: {
-        type: 'category',
-        data: allDates,
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#374151' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { fontSize: 10, color: '#6b7280' },
-        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
-      },
-      dataZoom: [
-        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
-        {
-          type: 'slider',
-          xAxisIndex: 0,
-          bottom: 8,
-          height: 24,
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' },
+          backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',
-          fillerColor: 'rgba(59,130,246,0.1)',
-          handleStyle: { color: '#3b82f6' },
-          textStyle: { color: '#6b7280', fontSize: 10 },
-        },
-      ],
-      series: [
-        {
-          name: 'TSB (Form)',
-          type: 'bar',
-          data: tsbFull.map(v => ({
-            value: v,
-            itemStyle: {
-              color: v == null
-                ? 'transparent'
-                : v >= 15
-                ? 'rgba(59,130,246,0.35)'
-                : v >= -10
-                ? 'rgba(34,197,94,0.35)'
-                : v >= -30
-                ? 'rgba(234,179,8,0.35)'
-                : 'rgba(239,68,68,0.35)',
-            },
-          })),
-          barWidth: '80%',
-          z: 0,
-          markArea: {
-            silent: true,
-            data: [
-              [
-                { yAxis: 15, itemStyle: { color: 'rgba(59,130,246,0.06)' } },
-                { yAxis: 999 },
-              ],
-              [
-                { yAxis: -10, itemStyle: { color: 'rgba(34,197,94,0.06)' } },
-                { yAxis: 15 },
-              ],
-              [
-                { yAxis: -30, itemStyle: { color: 'rgba(234,179,8,0.06)' } },
-                { yAxis: -10 },
-              ],
-              [
-                { yAxis: -999, itemStyle: { color: 'rgba(239,68,68,0.06)' } },
-                { yAxis: -30 },
-              ],
-            ],
+          textStyle: { color: '#f3f4f6', fontSize: 12 },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
+            for (const p of items) {
+              if (p.value == null) continue
+              html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
+                <span style="color:#d1d5db">${p.seriesName}:</span>
+                <strong style="color:#f9fafb">${p.value.toFixed(1)}</strong>
+              </div>`
+            }
+            return html
           },
         },
-        {
-          name: 'CTL (Fitness)',
-          type: 'line',
-          data: ctlFull,
-          showSymbol: false,
-          lineStyle: { width: 2.5, color: '#3b82f6' },
-          itemStyle: { color: '#3b82f6' },
-          z: 2,
-          connectNulls: false,
-          markLine: changepoints.length > 0 ? {
-            silent: true,
-            data: changepointsToMarkLines(changepoints),
-          } : undefined,
+        xAxis: {
+          type: 'category',
+          data: allDates,
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#374151' } },
         },
-        {
-          name: 'ATL (Ermüdung)',
-          type: 'line',
-          data: atlFull,
-          showSymbol: false,
-          lineStyle: { width: 2, color: '#f97316' },
-          itemStyle: { color: '#f97316' },
-          z: 2,
-          connectNulls: false,
+        yAxis: {
+          type: 'value',
+          axisLabel: { fontSize: 10, color: '#6b7280' },
+          splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
         },
-        {
-          name: 'CTL Prognose',
-          type: 'line',
-          data: ctlProjFull,
-          showSymbol: false,
-          lineStyle: { width: 1.5, color: '#3b82f6', type: 'dashed', opacity: 0.5 },
-          itemStyle: { color: '#3b82f6', opacity: 0.5 },
-          z: 1,
-          connectNulls: false,
-        },
-      ],
-    }
-
-    chartRef.current.setOption(option, { notMerge: true })
-  }, [data])
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+          {
+            type: 'slider',
+            xAxisIndex: 0,
+            bottom: 8,
+            height: 24,
+            borderColor: '#374151',
+            fillerColor: 'rgba(59,130,246,0.1)',
+            handleStyle: { color: '#3b82f6' },
+            textStyle: { color: '#6b7280', fontSize: 10 },
+          },
+        ],
+        series: [
+          {
+            name: 'TSB (Form)',
+            type: 'bar',
+            data: tsbFull.map(v => ({
+              value: v,
+              itemStyle: {
+                color: v == null ? 'transparent' : v >= 15 ? 'rgba(59,130,246,0.35)' : v >= -10 ? 'rgba(34,197,94,0.35)' : v >= -30 ? 'rgba(234,179,8,0.35)' : 'rgba(239,68,68,0.35)',
+              },
+            })),
+            barWidth: '80%',
+            z: 0,
+            markArea: {
+              silent: true,
+              data: [
+                [{ yAxis: 15, itemStyle: { color: 'rgba(59,130,246,0.06)' } }, { yAxis: 999 }],
+                [{ yAxis: -10, itemStyle: { color: 'rgba(34,197,94,0.06)' } }, { yAxis: 15 }],
+                [{ yAxis: -30, itemStyle: { color: 'rgba(234,179,8,0.06)' } }, { yAxis: -10 }],
+                [{ yAxis: -999, itemStyle: { color: 'rgba(239,68,68,0.06)' } }, { yAxis: -30 }],
+              ],
+            },
+          },
+          {
+            name: 'CTL (Fitness)',
+            type: 'line',
+            data: ctlFull,
+            showSymbol: false,
+            lineStyle: { width: 2.5, color: '#3b82f6' },
+            itemStyle: { color: '#3b82f6' },
+            z: 2,
+            connectNulls: false,
+            markLine: changepoints.length > 0 ? { silent: true, data: changepointsToMarkLines(changepoints) } : undefined,
+          },
+          {
+            name: 'ATL (Ermüdung)',
+            type: 'line',
+            data: atlFull,
+            showSymbol: false,
+            lineStyle: { width: 2, color: '#f97316' },
+            itemStyle: { color: '#f97316' },
+            z: 2,
+            connectNulls: false,
+          },
+          {
+            name: 'CTL Prognose',
+            type: 'line',
+            data: ctlProjFull,
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#3b82f6', type: 'dashed', opacity: 0.5 },
+            itemStyle: { color: '#3b82f6', opacity: 0.5 },
+            z: 1,
+            connectNulls: false,
+          },
+        ],
+      }
+    },
+    [data],
+  )
 
   const latest = data?.days && data.days.length > 0 ? data.days[data.days.length - 1] : null
 

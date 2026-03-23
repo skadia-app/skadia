@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -12,6 +11,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchEddington } from '@/api/analytics'
 import type { EddingtonResult } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer])
 
@@ -25,9 +25,6 @@ const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string; unit:
 export default function EddingtonChart() {
   const { toQueryString } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('distance_km')
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-
   const params = toQueryString()
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
 
@@ -37,95 +34,77 @@ export default function EddingtonChart() {
     retry: 1,
   })
 
-  useEffect(() => {
-    if (!containerRef.current || !data) return
+  const containerRef = useECharts(
+    () => {
+      if (!data) return { series: [] }
 
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+      const values = (data.top_values ?? []).slice(0, 50)
+      const labels = values.map((_, i) => `#${i + 1}`)
+      const eddNum = data.number
 
-    // top_values: sorted descending - take top 50
-    const values = (data.top_values ?? []).slice(0, 50)
-    // x-axis: rank 1, 2, 3... (day rank)
-    const labels = values.map((_, i) => `#${i + 1}`)
-    const eddNum = data.number
+      const barColors = values.map((_v, i) =>
+        i < eddNum ? '#F97316' : '#d1d5db'
+      )
 
-    const barColors = values.map((_v, i) =>
-      i < eddNum ? '#F97316' : '#d1d5db'
-    )
-
-    const option: EChartsCoreOption = {
-      grid: {
-        left: 50,
-        right: 16,
-        top: 16,
-        bottom: 40,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ name: string; value: number; dataIndex: number }>
-          if (!Array.isArray(items) || items.length === 0) return ''
-          const item = items[0]
-          const rank = item.dataIndex + 1
-          return `<div style="font-size:12px">
-            <div style="font-weight:600;margin-bottom:4px">Rang ${rank}</div>
-            <div>${item.value.toFixed(1)} ${metricOption.unit}</div>
-            ${rank <= eddNum ? '<div style="color:#F97316;font-size:11px">Zählt zur Eddington-Zahl</div>' : ''}
-          </div>`
+      return {
+        grid: { left: 50, right: 16, top: 16, bottom: 40 },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          formatter: (params: unknown) => {
+            const items = params as Array<{ name: string; value: number; dataIndex: number }>
+            if (!Array.isArray(items) || items.length === 0) return ''
+            const item = items[0]
+            const rank = item.dataIndex + 1
+            return `<div style="font-size:12px">
+              <div style="font-weight:600;margin-bottom:4px">Rang ${rank}</div>
+              <div>${item.value.toFixed(1)} ${metricOption.unit}</div>
+              ${rank <= eddNum ? '<div style="color:#F97316;font-size:11px">Zählt zur Eddington-Zahl</div>' : ''}
+            </div>`
+          },
         },
-      },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: {
-          fontSize: 10,
-          color: '#9ca3af',
-          interval: Math.floor(values.length / 10),
+        xAxis: {
+          type: 'category',
+          data: labels,
+          axisLabel: {
+            fontSize: 10,
+            color: '#9ca3af',
+            interval: Math.floor(values.length / 10),
+          },
         },
-      },
-      yAxis: {
-        type: 'value',
-        name: metricOption.unit,
-        nameTextStyle: { color: '#9ca3af', fontSize: 10 },
-        axisLabel: { fontSize: 10, color: '#9ca3af' },
-        splitLine: { lineStyle: { color: '#e5e7eb', type: 'dashed' } },
-      },
-      series: [
-        {
-          type: 'bar',
-          data: values.map((v, i) => ({
-            value: v,
-            itemStyle: { color: barColors[i] },
-          })),
-          barCategoryGap: '20%',
-          markLine: eddNum > 0 && eddNum <= values.length ? {
-            silent: true,
-            symbol: 'none',
-            lineStyle: { color: '#ef4444', width: 2, type: 'dashed' },
-            label: {
-              formatter: `E${eddNum}`,
-              fontSize: 11,
-              color: '#ef4444',
-              position: 'end',
-            },
-            data: [{ xAxis: eddNum - 0.5 }],
-          } : undefined,
+        yAxis: {
+          type: 'value',
+          name: metricOption.unit,
+          nameTextStyle: { color: '#9ca3af', fontSize: 10 },
+          axisLabel: { fontSize: 10, color: '#9ca3af' },
+          splitLine: { lineStyle: { color: '#e5e7eb', type: 'dashed' } },
         },
-      ],
-    }
-
-    chart.setOption(option)
-
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current!)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  }, [data, metricOption.unit])
+        series: [
+          {
+            type: 'bar',
+            data: values.map((v, i) => ({
+              value: v,
+              itemStyle: { color: barColors[i] },
+            })),
+            barCategoryGap: '20%',
+            markLine: eddNum > 0 && eddNum <= values.length ? {
+              silent: true,
+              symbol: 'none',
+              lineStyle: { color: '#ef4444', width: 2, type: 'dashed' },
+              label: {
+                formatter: `E${eddNum}`,
+                fontSize: 11,
+                color: '#ef4444',
+                position: 'end',
+              },
+              data: [{ xAxis: eddNum - 0.5 }],
+            } : undefined,
+          },
+        ],
+      }
+    },
+    [data, metricOption.unit],
+  )
 
   const nextLevel = data?.next_levels?.[0]
 

@@ -1,13 +1,12 @@
-import { useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
-import type { EChartsCoreOption } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchStreaks } from '@/api/analytics'
 import type { StreaksResponse } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -71,16 +70,10 @@ interface MiniBarChartProps {
 }
 
 function StreakHistoryChart({ data }: MiniBarChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
 
-  useEffect(() => {
-    if (!containerRef.current || data.length === 0) return
-
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-
-    const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
-
-    const option: EChartsCoreOption = {
+  const containerRef = useECharts(
+    () => ({
       grid: { left: 8, right: 8, top: 8, bottom: 24 },
       tooltip: {
         trigger: 'axis',
@@ -126,18 +119,9 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
           },
         },
       ],
-    }
-
-    chart.setOption(option)
-
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current!)
-
-    return () => {
-      observer.disconnect()
-      chart.dispose()
-    }
-  }, [data])
+    }),
+    [data],
+  )
 
   return <div ref={containerRef} className="h-24 w-full" />
 }
