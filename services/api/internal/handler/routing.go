@@ -219,12 +219,6 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if userID == "" {
-		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
-			"error": "unauthorized",
-		})
-		return
-	}
 
 	var req struct {
 		Regions []string `json:"regions"`
@@ -322,10 +316,6 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if userID == "" {
-		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
 
 	graphPath := h.Config.RoutingGraphPath
 	if graphPath == "" {
@@ -363,12 +353,6 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
-		return
-	}
-	if userID == "" {
-		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
-			"error": "unauthorized",
-		})
 		return
 	}
 
@@ -473,10 +457,6 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
-		return
-	}
-	if userID == "" {
-		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
 	}
 

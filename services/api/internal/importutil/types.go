@@ -97,6 +97,9 @@ func (r *ImportRegistry[S]) RunModules(ctx context.Context, modules []string, pa
 	var allErrors []string
 
 	for i, imp := range toRun {
+		if ctx.Err() != nil {
+			return allErrors, ctx.Err()
+		}
 		result, err := imp.Import(ctx, params)
 		if err != nil {
 			allErrors = append(allErrors, imp.Name()+": "+err.Error())
