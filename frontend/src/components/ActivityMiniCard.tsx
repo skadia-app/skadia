@@ -2,19 +2,7 @@ import { Link } from 'react-router-dom'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import StaticTrackMap from '@/components/StaticTrackMap'
 import type { PhotoFeedActivitySummary } from '@/api/photos'
-
-// --- Format helpers ---
-function formatDistance(m?: number): string {
-  if (!m) return ''
-  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`
-}
-
-function formatDuration(s?: number): string {
-  if (!s) return ''
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
+import { fmtDuration, fmtDist } from '@/lib/format'
 
 function formatDate(iso?: string): string {
   if (!iso) return ''
@@ -76,8 +64,8 @@ export default function ActivityMiniCard({ activity, photoCount }: Props) {
         <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-0.5">
           {activity.started_at && <div>{formatDate(activity.started_at)}</div>}
           <div className="flex flex-wrap gap-x-2">
-            {activity.distance_m && <span>{formatDistance(activity.distance_m)}</span>}
-            {activity.moving_time_s && <span>{formatDuration(activity.moving_time_s)}</span>}
+            {activity.distance_m && <span>{fmtDist(activity.distance_m)}</span>}
+            {activity.moving_time_s && <span>{fmtDuration(activity.moving_time_s, 'compact')}</span>}
             {activity.elevation_gain_m && activity.elevation_gain_m > 5 && (
               <span>↑{Math.round(activity.elevation_gain_m)} m</span>
             )}

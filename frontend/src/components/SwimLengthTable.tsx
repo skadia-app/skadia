@@ -1,14 +1,8 @@
 import type { SwimLength } from '@/api/types'
+import { fmtDuration } from '@/lib/format'
 
 interface Props {
   lengths: SwimLength[]
-}
-
-function fmtDuration(s?: number): string {
-  if (s == null || isNaN(s)) return '--'
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
-  return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
 function swimStrokeLabel(stroke?: string): string {

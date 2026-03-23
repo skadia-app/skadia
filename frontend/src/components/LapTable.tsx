@@ -1,23 +1,10 @@
 import type { Lap } from '@/api/types'
+import { fmtDuration, fmtDist } from '@/lib/format'
 
 interface Props {
   laps: Lap[]
   sportType: string
 }
-
-function fmtDuration(s?: number): string {
-  if (s == null || isNaN(s)) return '--'
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = Math.floor(s % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-  return `${m}:${sec.toString().padStart(2, '0')}`
-}
-
-function fmtDist(m?: number): string {
-  if (m == null || isNaN(m)) return '--'
-  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
-  return `${Math.round(m)} m`
 }
 
 function fmtPace(speedMs?: number): string {

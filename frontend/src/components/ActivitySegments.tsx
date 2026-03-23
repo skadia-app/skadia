@@ -5,6 +5,7 @@ import { fetchActivitySegments } from '@/api/segments'
 import type { StreamPoint } from '@/api/types'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
+import { fmtDuration } from '@/lib/format'
 
 interface Props {
   activityId: string
@@ -12,14 +13,6 @@ interface Props {
   streams?: StreamPoint[]
   /** Sport type of the activity — pre-fills the sport group in the creation panel. */
   activitySportType?: string
-}
-
-function fmtDuration(s: number): string {
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = Math.floor(s % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-  return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
 /** Map a Garmin sport_type to the nearest segment sport_group. */

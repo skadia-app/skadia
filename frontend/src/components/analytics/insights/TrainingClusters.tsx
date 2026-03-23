@@ -9,6 +9,7 @@ import { fetchInsightsClusters } from '@/api/analytics'
 import type { ActivityCluster } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { getCapabilities } from '@/api/routes'
+import { fmtDist } from '@/lib/format'
 
 echarts.use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -16,11 +17,6 @@ const CLUSTER_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
   '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6b7280',
 ]
-
-function formatDistance(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`
-  return `${meters.toFixed(0)} m`
-}
 
 function ClusterInterpretation({ clusters }: { clusters: ActivityCluster[] }) {
   if (clusters.length === 0) return null
@@ -200,7 +196,7 @@ export default function TrainingClusters() {
                 </div>
                 <div className="flex items-center gap-3 text-neutral-400 mt-0.5 flex-wrap">
                   <span>{cluster.size} Aktivitäten</span>
-                  <span>&#8960; {formatDistance(cluster.avg_distance_m)}</span>
+                  <span>&#8960; {fmtDist(cluster.avg_distance_m)}</span>
                   {cluster.avg_hr && <span>&#8960; {cluster.avg_hr.toFixed(0)} bpm</span>}
                   {cluster.sport_types.length > 0 && (
                     <span className="truncate">{cluster.sport_types.slice(0, 2).join(', ')}</span>

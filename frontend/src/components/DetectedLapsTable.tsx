@@ -1,24 +1,10 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDetectedLaps } from '@/api/segments'
+import { fmtDuration, fmtDist } from '@/lib/format'
 
 interface Props {
   activityId: string
-}
-
-function fmtDuration(s: number | null | undefined): string {
-  if (s == null || isNaN(s) || s <= 0) return '--'
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = Math.floor(s % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-  return `${m}:${sec.toString().padStart(2, '0')}`
-}
-
-function fmtDistance(m: number | undefined): string {
-  if (m == null) return '--'
-  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
-  return `${Math.round(m)} m`
 }
 
 function fmtPace(speedMs: number | undefined): string {
@@ -118,7 +104,7 @@ export default function DetectedLapsTable({ activityId }: Props) {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {fmtDistance(lap.distance_m)}
+                      {fmtDist(lap.distance_m)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                       {fmtPace(lap.avg_speed_ms)}
