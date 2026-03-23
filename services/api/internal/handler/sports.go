@@ -1,9 +1,9 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -70,6 +70,5 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 		resp.Categories = append(resp.Categories, cr)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }

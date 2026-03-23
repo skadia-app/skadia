@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -161,10 +160,7 @@ func (h *Handler) straightLineFallback(w http.ResponseWriter, waypoints [][2]flo
 			},
 		},
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		slog.Warn("straightLineFallback: failed to encode response", "error", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // isValidProfileParam validates BRouter profile parameter keys and values.

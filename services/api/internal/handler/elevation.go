@@ -109,13 +109,10 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"elevations": elevations,
 		"source":     source,
-	}); err != nil {
-		slog.Error("elevation query: encode response", "error", err)
-	}
+	})
 }
 
 // ElevationProfile returns a sampled elevation profile along a GeoJSON geometry.
@@ -161,12 +158,9 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"profile": profile,
-	}); err != nil {
-		slog.Error("elevation profile: encode response", "error", err)
-	}
+	})
 }
 
 // ImportDEM startet einen Background-Job der nach einem manuellen raster2pgsql-Import
@@ -214,9 +208,7 @@ func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
 
 	go h.runDEMImportJob(jobID, req.Source)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"job_id": jobID}) //nolint:errcheck
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 func (h *Handler) runDEMImportJob(jobID, source string) {
@@ -307,9 +299,7 @@ func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Reques
 
 	go h.runElevationCorrectionJob(jobID, activityID)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{
 		"job_id": jobID,
 		"status": "started",
 	})

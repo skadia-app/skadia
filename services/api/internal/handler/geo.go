@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -34,8 +33,7 @@ func (h *Handler) GetVisitedPOIs(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"type":     "FeatureCollection",
 		"features": features,
 	})

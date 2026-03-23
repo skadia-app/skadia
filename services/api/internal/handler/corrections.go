@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -48,9 +47,7 @@ func (h *Handler) CorrectActivityDistance(w http.ResponseWriter, r *http.Request
 
 	go h.runDistanceCorrectionJob(jobID, activityID)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{
 		"job_id": jobID,
 		"status": "started",
 	})
