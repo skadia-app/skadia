@@ -178,10 +178,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-		// Power
-		avgPower, _ := parseGermanFloat(colVal(row, hdr["Durchschnittliche Watt"]))
-		maxPower, _ := parseGermanInt(colVal(row, hdr["Max. Watt"]))
-		normalizedPower, _ := parseGermanFloat(colVal(row, hdr["Gewichtete durchschnittliche Leistung"]))
+		// Power: intentionally not read from CSV — Strava often estimates power
+		// even without a power meter. Values are taken from the activity file only.
 
 		// Cadence
 		avgCadence, _ := parseGermanFloat(colVal(row, hdr["Durchschnittliche Trittfrequenz"]))
@@ -252,15 +250,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 		if maxHR > 0 {
 			data.MaxHeartRate = maxHR
-		}
-		if avgPower > 0 {
-			data.AvgPowerW = avgPower
-		}
-		if maxPower > 0 {
-			data.MaxPowerW = maxPower
-		}
-		if normalizedPower > 0 {
-			data.NormalizedPowerW = normalizedPower
 		}
 		if avgCadence > 0 {
 			data.AvgCadence = avgCadence
@@ -599,6 +588,9 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 	}
 	if base.MaxPowerW == 0 && parsed.MaxPowerW != 0 {
 		base.MaxPowerW = parsed.MaxPowerW
+	}
+	if base.NormalizedPowerW == 0 && parsed.NormalizedPowerW != 0 {
+		base.NormalizedPowerW = parsed.NormalizedPowerW
 	}
 
 	// Sport type merge strategy:
