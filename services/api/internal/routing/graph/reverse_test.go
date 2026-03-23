@@ -9,7 +9,7 @@ func TestBuildReverseAdj(t *testing.T) {
 		Offsets:   []uint32{0, 2, 3, 3}, // Node 0→1, 0→2, 1→2
 		Targets:   []uint32{1, 2, 2},
 	}
-	g.BuildReverseAdj()
+	g.EnsureReverseAdj()
 
 	// Node 0: no incoming edges
 	if g.RevOffsets[1]-g.RevOffsets[0] != 0 {
@@ -30,7 +30,7 @@ func TestBuildReverseAdj(t *testing.T) {
 
 func TestBuildReverseAdjEmpty(t *testing.T) {
 	g := &Graph{NodeCount: 0, EdgeCount: 0}
-	g.BuildReverseAdj()
+	g.EnsureReverseAdj()
 	if g.RevOffsets != nil {
 		t.Error("empty graph should have nil RevOffsets")
 	}
@@ -44,7 +44,7 @@ func TestBuildReverseAdjBidirectional(t *testing.T) {
 		Offsets:   []uint32{0, 1, 3, 4},
 		Targets:   []uint32{1, 0, 2, 1},
 	}
-	g.BuildReverseAdj()
+	g.EnsureReverseAdj()
 
 	// Each node should have the expected incoming count
 	for i, want := range []uint32{1, 2, 1} {

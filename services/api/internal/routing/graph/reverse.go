@@ -1,8 +1,16 @@
 package graph
 
-// BuildReverseAdj constructs the reverse adjacency lists from the forward CSR.
-// O(E) time and O(E) space. Call after deserialization.
-func (g *Graph) BuildReverseAdj() {
+// EnsureReverseAdj lazily builds the reverse adjacency lists on first call.
+// Thread-safe via sync.Once. Subsequent calls are no-ops.
+// Only consumers that need reverse traversal (ForEachInEdge) pay the cost.
+// Tile-Build, Enrichment, and Landmark-Preprocessing never call this.
+func (g *Graph) EnsureReverseAdj() {
+	g.revOnce.Do(g.buildReverseAdj)
+}
+
+// buildReverseAdj constructs the reverse CSR from the forward CSR.
+// O(E) time and O(E+N) space.
+func (g *Graph) buildReverseAdj() {
 	if g.NodeCount == 0 || g.EdgeCount == 0 {
 		return
 	}

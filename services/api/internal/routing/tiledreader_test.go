@@ -110,16 +110,16 @@ func TestEstimateTileBytesExcludesMmap(t *testing.T) {
 
 	got := estimateTileBytes(g)
 
-	// Expected:
+	// Expected (no RevAdj — lazy-built only on ForEachInEdge):
 	// csr = (1000+1)*4 + 2000*(4+4+8+8) + (2000+1)*4 = 4004 + 48000 + 8004 = 60008
 	// nodes = 1000 * (4+4+4+1+1) = 14000
 	// segDist = 2000 * 2 = 4000
 	// osmPool = 500 * 8 = 4000
 	// border = 0
 	// grid = 100*4 + 1000*4 = 4400
-	// revAdj = (1000+1)*4 + 2000*4 + 2000*4 = 4004 + 8000 + 8000 = 20004
-	// total = 60008 + 14000 + 4000 + 4000 + 0 + 4400 + 20004 = 106412
-	want := int64(60008 + 14000 + 4000 + 4000 + 0 + 4400 + 20004)
+	// revAdj = 0 (not yet built)
+	// total = 60008 + 14000 + 4000 + 4000 + 0 + 4400 = 86408
+	want := int64(60008 + 14000 + 4000 + 4000 + 0 + 4400)
 	if got != want {
 		t.Errorf("estimateTileBytes = %d, want %d", got, want)
 	}

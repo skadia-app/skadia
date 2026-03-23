@@ -56,7 +56,11 @@ func (r *TiledGraphReader) tile(tileID uint32) *graph.Graph {
 func (r *TiledGraphReader) ForEachInEdge(nodeID uint64, fn func(EdgeView)) {
 	tileID, localID := SplitGlobalNodeID(nodeID)
 	g := r.tile(tileID)
-	if g == nil || g.RevOffsets == nil {
+	if g == nil {
+		return
+	}
+	g.EnsureReverseAdj()
+	if g.RevOffsets == nil { // empty graph (0 nodes/edges)
 		return
 	}
 	if localID >= g.NodeCount {
@@ -88,7 +92,8 @@ func (r *TiledGraphReader) ForEachInEdge(nodeID uint64, fn func(EdgeView)) {
 
 		// expandNeighborRevEdges emits all reverse edges from neighborLocalID in gNeighbor.
 		expandNeighborRevEdges := func(gNeighbor *graph.Graph, neighborTileID, neighborLocalID uint32) {
-			if gNeighbor.RevOffsets == nil {
+			gNeighbor.EnsureReverseAdj()
+			if gNeighbor.RevOffsets == nil { // empty graph
 				return
 			}
 			for ri := gNeighbor.RevOffsets[neighborLocalID]; ri < gNeighbor.RevOffsets[neighborLocalID+1]; ri++ {
@@ -500,7 +505,6 @@ func (tc *tiledCache) getOrLoad(tileID uint32, tileDir string) *graph.Graph {
 		if err != nil {
 			return nil, err
 		}
-		g.BuildReverseAdj()
 		return g, nil
 	})
 	if val == nil {
@@ -577,8 +581,12 @@ func estimateTileBytes(g *graph.Graph) int64 {
 	if g.Grid != nil {
 		grid = int64(len(g.Grid.CellStart))*4 + int64(len(g.Grid.NodeOrder))*4
 	}
-	// Reverse adjacency (built at load time): RevOffsets (NodeCount+1)*4 + RevTargets EdgeCount*4 + RevEdgeIdx EdgeCount*4
-	revAdj := int64(g.NodeCount+1)*4 + int64(g.EdgeCount)*4 + int64(g.EdgeCount)*4
+	// Reverse adjacency is lazy-built (EnsureReverseAdj via ForEachInEdge).
+	// Only count it if it has actually been built for this tile.
+	var revAdj int64
+	if g.RevOffsets != nil {
+		revAdj = int64(len(g.RevOffsets))*4 + int64(len(g.RevTargets))*4 + int64(len(g.RevEdgeIdx))*4
+	}
 	return csr + nodes + segDist + osmPool + border + grid + revAdj
 }
 

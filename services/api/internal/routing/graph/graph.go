@@ -3,6 +3,7 @@ package graph
 
 import (
 	"os"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -59,10 +60,11 @@ type Graph struct {
 	// Pending landmark data for serialization (not kept after Serialize)
 	pendingLandmarkSections map[uint16][]float32
 
-	// Reverse adjacency (built at load time, not serialized).
+	// Reverse adjacency (lazy-built on first ForEachInEdge, not serialized).
 	// RevOffsets[i] = start index in RevTargets for incoming edges of node i.
 	// RevTargets[j] = source node of the j-th reverse edge.
 	// RevEdgeIdx[j] = original edge index in forward CSR (for Tags/Dist lookup).
+	revOnce    sync.Once
 	RevOffsets []uint32
 	RevTargets []uint32
 	RevEdgeIdx []uint32
