@@ -10,6 +10,10 @@ import (
 )
 
 func (db *DB) UpsertWorkout(ctx context.Context, userID string, workout model.WorkoutRecord, steps []model.WorkoutStepRecord) (string, error) {
+	if workout.SourceHash == "" {
+		workout.SourceHash = "empty"
+	}
+
 	var workoutID string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO workouts (

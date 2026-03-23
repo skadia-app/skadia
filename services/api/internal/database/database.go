@@ -151,58 +151,93 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
 			nec_lat, nec_lng, swc_lat, swc_lng
 		) VALUES (
+			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
 			$3, $4,
+			-- FIT Sport IDs ($5-$6)
 			$5, $6,
+			-- Time ($7-$10)
 			$7, $8, $9, $10,
+			-- Distance / Elevation ($11-$15)
 			$11, $12, $13,
 			$14, $15,
+			-- Speed ($16-$17)
 			$16, $17,
+			-- Heart Rate ($18-$19)
 			$18, $19,
+			-- Power ($20-$22)
 			$20, $21, $22,
+			-- Cadence / Temperature ($23-$24)
 			$23, $24,
+			-- TSS / TRIMP / Flags ($25-$29)
 			$25, $26, $27, $28, $29,
+			-- Start/End Location ($30-$33)
 			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
 			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
+			-- File / Source ($34-$37)
 			$34, $35,
 			$36, $37,
+			-- Visibility / Conflict ($38-$39)
 			$38,
 			$39,
+			-- FIT SDK: Workout ($40)
 			$40,
+			-- FIT SDK: Cycles/Work/Calories ($41-$45)
 			$41, $42, $43, $44, $45,
+			-- FIT SDK: Swimming ($46-$54)
 			$46, $47, $48,
 			$49, $50, $51, $52,
 			$53, $54,
+			-- FIT SDK: Fractional Cadence ($55-$57)
 			$55, $56, $57,
+			-- FIT SDK: Running Dynamics ($58-$63)
 			$58, $59, $60,
 			$61, $62, $63,
+			-- FIT SDK: Grade ($64-$68)
 			$64, $65, $66, $67, $68,
+			-- FIT SDK: Vertical Speed ($69-$73)
 			$69, $70,
 			$71, $72, $73,
+			-- FIT SDK: Altitude / Fractional ($74-$76)
 			$74, $75, $76,
+			-- FIT SDK: Pedal Torque/Smoothness ($77-$81)
 			$77, $78,
 			$79, $80,
 			$81,
+			-- FIT SDK: PCO ($82-$83)
 			$82, $83,
+			-- FIT SDK: Power Phase Left ($84-$87)
 			$84, $85,
 			$86, $87,
+			-- FIT SDK: Power Phase Right ($88-$91)
 			$88, $89,
 			$90, $91,
+			-- FIT SDK: Power/Cadence Position ($92-$95)
 			$92, $93,
 			$94, $95,
+			-- FIT SDK: Standing ($96-$97)
 			$96, $97,
+			-- FIT SDK: LEV/E-Bike ($98-$100)
 			$98, $99, $100,
+			-- FIT SDK: Grit/Flow ($101-$105)
 			$101, $102, $103, $104,
 			$105,
+			-- FIT SDK: Ball Sports ($106-$110)
 			$106, $107, $108, $109, $110,
+			-- FIT SDK: Hemoglobin ($111-$116)
 			$111, $112, $113,
 			$114, $115, $116,
+			-- FIT SDK: Diving ($117-$125)
 			$117, $118, $119, $120,
 			$121, $122, $123, $124, $125,
+			-- FIT SDK: Respiration/HRV/Core ($126-$130)
 			$126, $127, $128,
 			$129, $130,
+			-- FIT SDK: Lap Stats ($131-$134)
 			$131, $132, $133, $134,
+			-- FIT SDK: Intensity/Balance/Profile ($135-$138)
 			$135, $136, $137, $138,
+			-- Bounding Box ($139-$142)
 			$139, $140, $141, $142
 		)
 		RETURNING id, is_ebike, created_at, updated_at`,
@@ -296,7 +331,7 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		"lat", "lng", "altitude_m", "speed_ms", "distance_m",
 		"heart_rate", "power_w", "cadence", "temperature_c",
 		"ground_contact_time_ms", "vertical_oscillation_mm", "stance_time_percent", "left_right_balance",
-		// FIT SDK — Terrain & Movement (12)
+		// FIT SDK — Terrain & Movement (14)
 		"respiration_rate", "stress_level",
 		"grade_pct", "vertical_speed_ms", "gps_accuracy_m",
 		"calories", "resistance", "total_cycles", "accumulated_power_w",
@@ -343,7 +378,7 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 			s.Lat, s.Lng, s.AltitudeM, s.SpeedMS, s.DistanceM,
 			s.HeartRate, s.PowerW, s.Cadence, s.TemperatureC,
 			s.GroundContactTimeMs, s.VerticalOscillationMm, s.StanceTimePercent, s.LeftRightBalance,
-			// FIT SDK — Terrain & Movement (12)
+			// FIT SDK — Terrain & Movement (14)
 			s.RespirationRate, s.StressLevel,
 			s.GradePct, s.VerticalSpeedMs, s.GpsAccuracyM,
 			s.Calories, s.Resistance, s.TotalCycles, s.AccumulatedPowerW,
