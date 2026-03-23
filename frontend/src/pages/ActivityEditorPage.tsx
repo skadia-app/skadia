@@ -845,7 +845,7 @@ export default function ActivityEditorPage() {
                   onChange={(e) => setGpsMethod(e.target.value as 'interpolate' | 'remove')}
                   className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
                              text-sm text-neutral-700 dark:text-neutral-300 px-3 py-2
-                             focus:outline-none focus:ring-1 focus:ring-blue-500"
+                             focus:outline-none focus:ring-1 focus:ring-orange-500"
                 >
                   <option value="interpolate">Interpolieren</option>
                   <option value="remove">Entfernen</option>
@@ -854,9 +854,9 @@ export default function ActivityEditorPage() {
                   onClick={handleSaveGPSOutliers}
                   disabled={isSavingGPS}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-                             border border-blue-300 dark:border-blue-700
-                             text-blue-700 dark:text-blue-400
-                             hover:bg-blue-50 dark:hover:bg-blue-900/20
+                             border border-orange-300 dark:border-orange-700
+                             text-orange-700 dark:text-orange-400
+                             hover:bg-orange-50 dark:hover:bg-orange-900/20
                              disabled:opacity-50 disabled:cursor-not-allowed
                              transition-colors"
                 >

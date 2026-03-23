@@ -769,7 +769,8 @@ function GeofenceProximityEditor({
             step={50}
             value={value.radius_m}
             onChange={(e) => onChange({ ...value, radius_m: Number(e.target.value) })}
-            className="flex-1 accent-blue-500"
+            className="flex-1"
+            style={{ accentColor: 'var(--color-accent-DEFAULT, #f97316)' }}
           />
           <input
             type="number"
