@@ -419,3 +419,26 @@ func fillLandmarksFromElevSpread(tiles []TileScanResult, landmarks *[16]Landmark
 		}
 	}
 }
+
+// FindNearestInTiles finds the nearest node to (latE7, lonE7) across all tiles.
+func FindNearestInTiles(tiles []TileScanResult, latE7, lonE7 int32) LandmarkCandidate {
+	var best LandmarkCandidate
+	bestDist := int64(math.MaxInt64)
+	for _, t := range tiles {
+		for i := range t.NodeCount {
+			dlat := int64(t.NodeLats[i] - latE7)
+			dlon := int64(t.NodeLons[i] - lonE7)
+			d := dlat*dlat + dlon*dlon
+			if d < bestDist {
+				bestDist = d
+				best = LandmarkCandidate{
+					GlobalNodeID: MakeGlobalNodeID(t.TileID, i),
+					Lat:          t.NodeLats[i],
+					Lon:          t.NodeLons[i],
+					Ele:          t.NodeEles[i],
+				}
+			}
+		}
+	}
+	return best
+}
