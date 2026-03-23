@@ -80,13 +80,7 @@ func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mapID := chi.URLParam(r, "mapID")
-	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "custom map not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete custom map failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete custom map", r.URL.Path)
+	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); httputil.HandleDBErr(w, r, err, "custom map not found") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -157,13 +151,7 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	}
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
-	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
-			return
-		}
-		slog.Error("delete custom map marker failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete marker", r.URL.Path)
+	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); httputil.HandleDBErr(w, r, err, "marker not found") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -197,13 +185,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 		}
 		updateReq := model.UpdateMarkerRequest{ImageURL: &req.ImageURL}
 		mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
-		if err != nil {
-			if err == pgx.ErrNoRows {
-				httputil.WriteError(w, http.StatusNotFound, "Not Found", "marker not found", r.URL.Path)
-				return
-			}
-			slog.Error("update marker image_url failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update marker", r.URL.Path)
+		if httputil.HandleDBErr(w, r, err, "marker not found") {
 			return
 		}
 		httputil.WriteJSON(w, http.StatusOK, mk)

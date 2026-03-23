@@ -233,10 +233,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req) // empty body = all tiles
 
 	// Concurrent-Guard
-	var running int
-	h.DB.Pool.QueryRow(r.Context(),
-		`SELECT count(*) FROM background_jobs WHERE job_type = 'tile_build' AND status = 'running'`).Scan(&running)
-	if running > 0 {
+	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "tile_build"); running {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
@@ -423,10 +420,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Concurrent-Guard
-	var running int
-	h.DB.Pool.QueryRow(r.Context(),
-		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_build' AND status = 'running'`).Scan(&running)
-	if running > 0 {
+	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "brouter_segment_build"); running {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
@@ -514,10 +508,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var running int
-	h.DB.Pool.QueryRow(r.Context(),
-		`SELECT count(*) FROM background_jobs WHERE job_type = 'brouter_segment_download' AND status = 'running'`).Scan(&running)
-	if running > 0 {
+	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "brouter_segment_download"); running {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}

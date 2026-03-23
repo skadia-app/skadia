@@ -2,7 +2,12 @@ package httputil
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
+	"strconv"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -49,4 +54,36 @@ func DecodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 		return v, false
 	}
 	return v, true
+}
+
+// HandleDBErr writes appropriate HTTP error for database errors.
+// Returns true if an error was handled (caller should return).
+// Returns false if err is nil (no error).
+func HandleDBErr(w http.ResponseWriter, r *http.Request, err error, notFoundMsg string, logAttrs ...any) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		WriteError(w, http.StatusNotFound, "Not Found", notFoundMsg, r.URL.Path)
+		return true
+	}
+	slog.Error("database error", append([]any{"error", err, "path", r.URL.Path}, logAttrs...)...)
+	WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+	return true
+}
+
+// ParsePagination reads limit/offset from query params with defaults and bounds.
+func ParsePagination(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
+	limit = defaultLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = min(parsed, maxLimit)
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+	return limit, offset
 }

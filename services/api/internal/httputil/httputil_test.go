@@ -3,10 +3,13 @@ package httputil
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -127,5 +130,62 @@ func TestDecodeJSON_Invalid(t *testing.T) {
 	}
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("got status %d, want 400", w.Code)
+	}
+}
+
+func TestHandleDBErr_Nil(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	handled := HandleDBErr(w, r, nil, "not found")
+	if handled {
+		t.Fatal("expected handled=false for nil error")
+	}
+}
+
+func TestHandleDBErr_NoRows(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	handled := HandleDBErr(w, r, pgx.ErrNoRows, "route not found")
+	if !handled {
+		t.Fatal("expected handled=true for ErrNoRows")
+	}
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("got %d, want 404", w.Code)
+	}
+}
+
+func TestHandleDBErr_OtherError(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	handled := HandleDBErr(w, r, errors.New("connection refused"), "route not found", "op", "get_route")
+	if !handled {
+		t.Fatal("expected handled=true for other errors")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d, want 500", w.Code)
+	}
+}
+
+func TestParsePagination(t *testing.T) {
+	tests := []struct {
+		query      string
+		defLimit   int
+		maxLimit   int
+		wantLimit  int
+		wantOffset int
+	}{
+		{"", 50, 200, 50, 0},
+		{"?limit=10&offset=20", 50, 200, 10, 20},
+		{"?limit=999", 50, 200, 200, 0},
+		{"?limit=-1", 50, 200, 50, 0},
+		{"?limit=abc", 50, 200, 50, 0},
+	}
+	for _, tt := range tests {
+		r := httptest.NewRequest("GET", "/test"+tt.query, nil)
+		limit, offset := ParsePagination(r, tt.defLimit, tt.maxLimit)
+		if limit != tt.wantLimit || offset != tt.wantOffset {
+			t.Errorf("query=%q: got limit=%d offset=%d, want %d %d",
+				tt.query, limit, offset, tt.wantLimit, tt.wantOffset)
+		}
 	}
 }
