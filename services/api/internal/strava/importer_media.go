@@ -1,7 +1,6 @@
 package strava
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -12,10 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bep/imagemeta"
-
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -86,7 +84,7 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		var takenAt *time.Time
 		var lat, lng *float64
 		if !isVideo {
-			takenAt, lat, lng = extractMediaEXIF(data, contentType)
+			takenAt, lat, lng = importutil.ExtractEXIF(data, contentType)
 		}
 
 		// Primary: look up activity via activities.csv Medien mapping
@@ -416,56 +414,6 @@ func isVideoContentType(ct string) bool {
 	return strings.HasPrefix(ct, "video/")
 }
 
-// imageFormatFromContentType maps a MIME content type to the imagemeta.ImageFormat
-// constant required for EXIF decoding.
-func imageFormatFromContentType(ct string) imagemeta.ImageFormat {
-	switch {
-	case strings.Contains(ct, "jpeg"), strings.Contains(ct, "jpg"):
-		return imagemeta.JPEG
-	case strings.Contains(ct, "png"):
-		return imagemeta.PNG
-	case strings.Contains(ct, "tiff"):
-		return imagemeta.TIFF
-	case strings.Contains(ct, "webp"):
-		return imagemeta.WebP
-	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
-		return imagemeta.HEIF
-	case strings.Contains(ct, "avif"):
-		return imagemeta.AVIF
-	default:
-		return imagemeta.JPEG // safe fallback
-	}
-}
-
-// extractMediaEXIF reads taken_at, lat, lng from image EXIF data.
-// The contentType parameter selects the correct imagemeta decoder.
-func extractMediaEXIF(data []byte, contentType string) (takenAt *time.Time, lat *float64, lng *float64) {
-	var tags imagemeta.Tags
-	_, err := imagemeta.Decode(imagemeta.Options{
-		R:           bytes.NewReader(data),
-		ImageFormat: imageFormatFromContentType(contentType),
-		Sources:     imagemeta.EXIF,
-		HandleTag: func(info imagemeta.TagInfo) error {
-			tags.Add(info)
-			return nil
-		},
-	})
-	if err != nil {
-		return nil, nil, nil
-	}
-
-	var t *time.Time
-	if tm, err := tags.GetDateTime(); err == nil && !tm.IsZero() {
-		t = &tm
-	}
-
-	if la, lo, err := tags.GetLatLong(); err == nil && (la != 0 || lo != 0) {
-		lat = &la
-		lng = &lo
-	}
-
-	return t, lat, lng
-}
 
 // isVideoExtension reports whether the file extension (including the dot) is a known
 // video container format. Used to catch mis-detected content types where http.DetectContentType

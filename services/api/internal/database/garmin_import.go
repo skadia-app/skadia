@@ -150,53 +150,7 @@ func (db *DB) FailGarminImportJob(ctx context.Context, jobID, errMsg string) err
 // ListActiveGarminImportJobs gibt laufende (und kürzlich abgeschlossene) Garmin-Import-Jobs
 // im BackgroundJob-Format zurück, damit sie in der Statusleiste erscheinen.
 func (db *DB) ListActiveGarminImportJobs(ctx context.Context, userID string) ([]BackgroundJob, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT id, status, total_modules, completed_modules, started_at, completed_at
-		 FROM garmin_import_jobs
-		 WHERE user_id = $1
-		   AND (
-		         (status = 'running' AND started_at > NOW() - INTERVAL '2 hours')
-		         OR (status IN ('completed', 'failed')
-		             AND completed_at > NOW() - INTERVAL '5 minutes')
-		       )
-		 ORDER BY started_at DESC`,
-		userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var jobs []BackgroundJob
-	for rows.Next() {
-		var (
-			id           string
-			status       string
-			totalMod     int
-			completedMod int
-			startedAt    time.Time
-			finishedAt   *time.Time
-		)
-		if err := rows.Scan(&id, &status, &totalMod, &completedMod, &startedAt, &finishedAt); err != nil {
-			return nil, err
-		}
-		entityName := "Garmin-Import"
-		jobs = append(jobs, BackgroundJob{
-			ID:              id,
-			UserID:          userID,
-			JobType:         "garmin_import",
-			EntityName:      &entityName,
-			Status:          status,
-			ProgressCurrent: int64(completedMod),
-			ProgressTotal:   int64(totalMod),
-			StartedAt:       startedAt,
-			FinishedAt:      finishedAt,
-		})
-	}
-	if jobs == nil {
-		jobs = []BackgroundJob{}
-	}
-	return jobs, rows.Err()
+	return db.listActiveImportJobs(ctx, userID, "garmin_import_jobs", "Garmin-Import", "garmin_import")
 }
 
 // --- Garmin IDs on activities / gear ---
