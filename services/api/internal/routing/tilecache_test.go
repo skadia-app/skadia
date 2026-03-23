@@ -7,7 +7,7 @@ import (
 )
 
 func TestTileCache_GetAndEvict(t *testing.T) {
-	// Each graph with NodeCount=100, EdgeCount=50 is ~4304 bytes.
+	// Each graph with NodeCount=100, EdgeCount=50 is ~3208 bytes (heap-only estimate).
 	// Budget for 2 tiles: 9000.
 	cache := NewTileCache(9000)
 	g1 := &graph.Graph{TileID: 1, NodeCount: 100, EdgeCount: 50}

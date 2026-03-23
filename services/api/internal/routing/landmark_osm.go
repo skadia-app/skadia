@@ -85,8 +85,8 @@ func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tiles []graph.TileScanResu
 	for _, lm := range landmarks {
 		latE7 := int32(lm.Lat * 1e7)
 		lonE7 := int32(lm.Lon * 1e7)
-		best := graph.FindNearestInTiles(tiles, latE7, lonE7)
-		if best.GlobalNodeID == 0 {
+		best, found := graph.FindNearestInTiles(tiles, latE7, lonE7)
+		if !found {
 			slog.Warn("OSM landmark snap failed", "osm_id", lm.OSMID, "name", lm.Name)
 			continue
 		}
@@ -100,8 +100,8 @@ func BBoxFromTiles(tiles []graph.TileScanResult) (south, west, north, east float
 	south, west = 90.0, 180.0
 	north, east = -90.0, -180.0
 	for _, t := range tiles {
-		for i := range t.NodeCount {
-			lat := float64(t.NodeLats[i]) / 1e7
+		for i, lat32 := range t.NodeLats {
+			lat := float64(lat32) / 1e7
 			lon := float64(t.NodeLons[i]) / 1e7
 			south = math.Min(south, lat)
 			north = math.Max(north, lat)

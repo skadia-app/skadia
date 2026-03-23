@@ -68,7 +68,11 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 		return false, nil
 	}
 	m.tiledReader = reader
-	m.unifiedRouter = NewUnifiedRouter(reader, 8)
+	maxConcurrent := 8
+	if os.Getenv("ROUTING_BIDIRECTIONAL") == "true" {
+		maxConcurrent = m.MaxConcurrentRoutes()
+	}
+	m.unifiedRouter = NewUnifiedRouter(reader, maxConcurrent)
 
 	// Initialize TileManager for status display (tile_count, tile_cached).
 	mgr, err := NewTileManager(tileDir, cacheBytes)
@@ -95,7 +99,11 @@ func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
 	// Lazy recreate: tiledReader is still valid after Flush, only the
 	// unifiedRouter pointer was cleared to force recreation with fresh tiles.
 	if m.tiledReader != nil {
-		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, 8)
+		maxC := 8
+		if os.Getenv("ROUTING_BIDIRECTIONAL") == "true" {
+			maxC = m.MaxConcurrentRoutes()
+		}
+		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, maxC)
 		slog.Info("unified router lazily recreated after tile rebuild")
 	}
 	return m.unifiedRouter

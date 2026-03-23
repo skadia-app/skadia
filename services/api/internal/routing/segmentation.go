@@ -75,7 +75,12 @@ func FindValleySegments(pass0Path []uint64, reader GraphReader,
 		flatLeft := true
 		flatRight := true
 		innerWindow := 3
-		threshold := int32(float64(eles[i]) * 1.2)
+		// Use absolute elevation difference for threshold to handle negative elevations
+		absEle := float64(eles[i])
+		if absEle < 0 {
+			absEle = -absEle
+		}
+		threshold := eles[i] + int32(absEle*0.2)
 		for j := max(0, i-innerWindow); j < i; j++ {
 			if eles[j] > threshold {
 				flatLeft = false

@@ -35,7 +35,7 @@ func RunBackwardSearch(reader GraphReader, dst uint64, cfg *CostConfig,
 
 		reader.ForEachEdge(entry.NodeID, func(ev EdgeView) {
 			ecf := cfg.EdgeCost(ev.Tags1, ev.Tags2)
-			if ecf.Flat >= costBlocked {
+			if ecf.CostMin() >= costBlocked {
 				return
 			}
 
