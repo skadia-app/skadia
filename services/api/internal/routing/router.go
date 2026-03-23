@@ -111,17 +111,18 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	bwd = nil
 
 	// === Pass1: segmented or standard ===
-	var res1 *routeResult
+	var result *RouteResult
+	var pass1Exp int
+	var pass1Ms int64
 
 	if routingValleSeg {
 		pass0Path := extractPath(res0.state, src, dst)
 		segments := FindValleySegments(pass0Path, r.reader, 1000.0)
 
 		if len(segments) >= 2 {
-			var totalCost float32
-			var totalExp int
-			var totalMs int64
-			mergedState := newSparseRouterState(8192)
+			// Route each segment independently and retrack per-segment.
+			// This avoids the broken-parent-chain problem of merging states.
+			var legs []*RouteResult
 			allOK := true
 
 			for _, seg := range segments {
@@ -135,60 +136,52 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 					allOK = false
 					break
 				}
-				totalCost += segRes.totalCost
-				totalExp += segRes.expansions
-				totalMs += segRes.durationMs
-				for k, v := range segRes.state.nodes {
-					// The src node of each segment is initialized with BestCost=0
-					// and Parent=0 by findRouteUnified. If we overwrite a node from
-					// a previous segment with this zero-state, the parent chain
-					// breaks at the segment boundary. Only skip the segment's src node.
-					if k == seg.From {
-						if _, exists := mergedState.nodes[k]; exists {
-							continue // keep previous segment's state for this boundary node
-						}
-					}
-					mergedState.nodes[k] = v
+
+				legResult := retrackUnified(r.reader, segRes.state, seg.From, seg.To)
+				if legResult == nil {
+					slog.Warn("segment retrack failed, falling back",
+						"from_idx", seg.FromIdx, "to_idx", seg.ToIdx)
+					allOK = false
+					break
 				}
+
+				legs = append(legs, legResult)
+				pass1Exp += segRes.expansions
+				pass1Ms += segRes.durationMs
 			}
 
-			if allOK {
-				res1 = &routeResult{
-					state:      mergedState,
-					totalCost:  totalCost,
-					expansions: totalExp,
-					durationMs: totalMs,
-				}
+			if allOK && len(legs) > 0 {
+				result = mergeLegs(legs)
 				slog.Info("segmented pass1 complete",
 					"segments", len(segments),
-					"expansions", totalExp,
-					"duration_ms", totalMs)
+					"expansions", pass1Exp,
+					"duration_ms", pass1Ms)
 			}
 		}
 	}
 
 	// Unsegmented Pass1 (default or fallback)
-	if res1 == nil {
+	if result == nil {
 		trackIndex := buildTrackIndexUnified(res0.state, src, dst)
 		pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
-		var err error
-		res1, err = findRouteUnified(ctx, r.reader, src, dst, cfg,
+		res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
 			0, pass1MaxCost, trackIndex, nil, nil)
 		if err != nil {
 			return nil, fmt.Errorf("pass1: %w", err)
 		}
-	}
+		pass1Exp = res1.expansions
+		pass1Ms = res1.durationMs
 
-	// Retrack: reconstruct path with full geometry
-	result := retrackUnified(r.reader, res1.state, src, dst)
-	if result == nil {
-		return nil, fmt.Errorf("retrack failed: broken parent chain")
+		result = retrackUnified(r.reader, res1.state, src, dst)
+		if result == nil {
+			return nil, fmt.Errorf("retrack failed: broken parent chain")
+		}
 	}
 	result.PassStats = PassStats{
 		Pass0Expansions: res0.expansions,
 		Pass0DurationMs: res0.durationMs,
-		Pass1Expansions: res1.expansions,
-		Pass1DurationMs: res1.durationMs,
+		Pass1Expansions: pass1Exp,
+		Pass1DurationMs: pass1Ms,
 		TotalDurationMs: time.Since(totalStart).Milliseconds(),
 	}
 	return result, nil
