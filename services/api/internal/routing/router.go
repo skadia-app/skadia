@@ -6,14 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
 // altDisabled disables the ALT heuristic when SKADIA_ALT_DISABLED=true.
 // Useful for A/B comparisons and debugging.
 var altDisabled = os.Getenv("SKADIA_ALT_DISABLED") == "true"
+
+var routingBidirectional = os.Getenv("ROUTING_BIDIRECTIONAL") == "true"
+var routingValleSeg = os.Getenv("ROUTING_VALLE_SEG") == "true"
 
 // UnifiedRouter is a Router backed by any GraphReader (e.g. TiledGraphReader).
 // Uses a semaphore for concurrency control instead of a pre-allocated pool.
@@ -75,26 +80,94 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		landmarkH = NewLandmarkHeuristic(r.reader, dst, setID)
 	}
 
+	// Bidirectional backward search (pruning boundary for Pass0)
+	var bwd *BackwardResult
+	if routingBidirectional {
+		srcLat, srcLon, _ := r.reader.NodeCoord(src)
+		dstLat, dstLon, _ := r.reader.NodeCoord(dst)
+		euclidDist := geo.DistanceHaversine(
+			float64(srcLat)/1e7, float64(srcLon)/1e7,
+			float64(dstLat)/1e7, float64(dstLon)/1e7,
+		)
+		// Skip backward search for short routes — overhead > benefit under 10km
+		if euclidDist >= 10_000 {
+			initialUB := float32(euclidDist) * 2.0 * cfg.AvgCostPerKm / 1000.0
+			bwdResult := RunBackwardSearch(r.reader, dst, cfg, initialUB)
+			bwd = &bwdResult
+			slog.Debug("backward search complete",
+				"nodes_reached", len(bwd.LowerBound),
+				"upper_bound", bwd.UpperBound)
+		}
+	}
+
 	// Pass 0: inadmissible A* (passCoeff > 1), MIT Landmark-Heuristik
 	res0, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
-		cfg.Pass0Coefficient, 0, nil, landmarkH)
+		cfg.Pass0Coefficient, 0, nil, landmarkH, bwd)
 	if err != nil {
 		return nil, fmt.Errorf("pass0: %w", err)
 	}
 
-	// Build track index from pass0 path for pass1 cost-cutting
-	trackIndex := buildTrackIndexUnified(res0.state, src, dst)
+	// Free backward map before Pass1 (~120 MB)
+	bwd = nil
 
-	// Pass 1: Dijkstra with track-index cost-cutting (passCoeff = 0), OHNE Heuristik
-	// Safety margin: pass0 uses DeltaEle which underestimates on hilly terrain.
-	// DeltaEle sees net elevation (e.g. +150m), full profile sees actual work (e.g. 250m).
-	// Underestimation can be up to ~1.7x on hilly edges. Single Pass0Coefficient (1.5x)
-	// is insufficient: 0.6 * 1.5 = 0.9 < 1.0. Squared coefficient gives 2.25x headroom.
-	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
-	res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
-		0, pass1MaxCost, trackIndex, nil)
-	if err != nil {
-		return nil, fmt.Errorf("pass1: %w", err)
+	// === Pass1: segmented or standard ===
+	var res1 *routeResult
+
+	if routingValleSeg {
+		pass0Path := extractPath(res0.state, src, dst)
+		segments := FindValleySegments(pass0Path, r.reader, 1000.0)
+
+		if len(segments) >= 2 {
+			var totalCost float32
+			var totalExp int
+			var totalMs int64
+			mergedState := newSparseRouterState(8192)
+			allOK := true
+
+			for _, seg := range segments {
+				segTrackIdx := buildTrackIndexUnified(res0.state, seg.From, seg.To)
+				segMax := segmentMaxCost(res0.state, seg.From, seg.To, cfg)
+				segRes, segErr := findRouteUnified(ctx, r.reader, seg.From, seg.To, cfg,
+					0, segMax, segTrackIdx, nil, nil)
+				if segErr != nil {
+					slog.Warn("segment failed, falling back",
+						"from_idx", seg.FromIdx, "to_idx", seg.ToIdx, "error", segErr)
+					allOK = false
+					break
+				}
+				totalCost += segRes.totalCost
+				totalExp += segRes.expansions
+				totalMs += segRes.durationMs
+				for k, v := range segRes.state.nodes {
+					mergedState.nodes[k] = v
+				}
+			}
+
+			if allOK {
+				res1 = &routeResult{
+					state:      mergedState,
+					totalCost:  totalCost,
+					expansions: totalExp,
+					durationMs: totalMs,
+				}
+				slog.Info("segmented pass1 complete",
+					"segments", len(segments),
+					"expansions", totalExp,
+					"duration_ms", totalMs)
+			}
+		}
+	}
+
+	// Unsegmented Pass1 (default or fallback)
+	if res1 == nil {
+		trackIndex := buildTrackIndexUnified(res0.state, src, dst)
+		pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
+		var err error
+		res1, err = findRouteUnified(ctx, r.reader, src, dst, cfg,
+			0, pass1MaxCost, trackIndex, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("pass1: %w", err)
+		}
 	}
 
 	// Retrack: reconstruct path with full geometry
@@ -257,3 +330,36 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 	return result, truncated, nil
 }
 
+// extractPath reconstructs the node path from state by following parent pointers.
+func extractPath(state *SparseRouterState, src, dst uint64) []uint64 {
+	var path []uint64
+	node := dst
+	for node != src {
+		path = append(path, node)
+		ns, ok := state.nodes[node]
+		if !ok {
+			return nil
+		}
+		node = ns.Parent
+		if len(path) > 10_000_000 {
+			return nil
+		}
+	}
+	path = append(path, src)
+	slices.Reverse(path)
+	return path
+}
+
+// segmentMaxCost computes the pass1 max cost for a segment.
+func segmentMaxCost(state *SparseRouterState, from, to uint64, cfg *CostConfig) float32 {
+	fromNS, ok1 := state.nodes[from]
+	toNS, ok2 := state.nodes[to]
+	if !ok1 || !ok2 {
+		return 0
+	}
+	segCost := toNS.EffectiveCost - fromNS.EffectiveCost
+	if segCost <= 0 {
+		segCost = toNS.BestCost - fromNS.BestCost
+	}
+	return segCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
+}

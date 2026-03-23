@@ -67,6 +67,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 	passCoeff float32, maxCost float32,
 	trackIndex map[uint64]float32,
 	landmarkH *LandmarkHeuristic, // nil = nur euklidische Heuristik
+	bwd *BackwardResult, // nil = kein Pruning
 ) (*routeResult, error) {
 
 	start := time.Now()
@@ -133,6 +134,11 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			}
 		}
 		if cutoff > 0 && ns.EffectiveCost > cutoff {
+			continue
+		}
+
+		// Backward pruning (bidirectional, pass0 only)
+		if bwd != nil && bwd.ShouldPrune(entry.NodeID, ns.EffectiveCost) {
 			continue
 		}
 
