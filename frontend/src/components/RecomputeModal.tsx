@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reprocessAllActivities } from '@/api/activities'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 // GEO_SCOPE_KEYS: alle Geo-Features triggern dasselbe "geo" Backend-Scope (Stage 2 läuft zusammen).
 export const GEO_SCOPE_KEYS = ['summits', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
@@ -96,9 +97,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
   const label = count === 1 ? '1 Aktivität' : `${count} Aktivitäten`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-sm p-6 space-y-5">
+    <ModalShell onClose={onClose} maxWidth="max-w-sm" className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-5">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           Neu berechnen — {label}
         </h2>
@@ -187,7 +186,6 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
             {state === 'loading' ? 'Läuft…' : 'Berechnen'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
