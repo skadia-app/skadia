@@ -103,9 +103,6 @@ func (s *Service) PostProcess(
 		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
 		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
 		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, false)
-	} else {
-		// No GPS — still run Stage 1 for flag-based tags (E-Bike, virtuell) and is_indoor detection.
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
