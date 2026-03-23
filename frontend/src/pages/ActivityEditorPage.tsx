@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { fetchActivity, fetchActivityStreams } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
 import { EditorMap } from '@/components/editor/EditorMap'
 import { TrimSplitControls } from '@/components/editor/TrimSplitControls'
 
@@ -211,6 +211,13 @@ export default function ActivityEditorPage() {
   const [isSavingGPS, setIsSavingGPS] = useState(false)
   const [gpsMethod, setGpsMethod] = useState<'interpolate' | 'remove'>('interpolate')
 
+  // ── Description / RPE / Feel State ───────────────────────────────────────
+  const [editDescription, setEditDescription] = useState<string>('')
+  const [editRpe, setEditRpe] = useState<number | null>(null)
+  const [editFeel, setEditFeel] = useState<number | null>(null)
+  const [isSavingMeta, setIsSavingMeta] = useState(false)
+  const [metaDirty, setMetaDirty] = useState(false)
+
   // ── Track / Trim / Split State ────────────────────────────────────────────
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
@@ -235,6 +242,16 @@ export default function ActivityEditorPage() {
     queryFn: () => getEdits(id!),
     enabled: !!id,
   })
+
+  // ── Init description / RPE / Feel from loaded activity ──────────────────
+  const didInitMeta = useRef(false)
+  useEffect(() => {
+    if (!activity || didInitMeta.current) return
+    setEditDescription(activity.description ?? '')
+    setEditRpe(activity.workout_rpe ?? null)
+    setEditFeel(activity.workout_feel ?? null)
+    didInitMeta.current = true
+  }, [activity])
 
   // ── Track GeoJSON (aus Streams abgeleitet) ────────────────────────────────
   const trackGeoJSON = useMemo<GeoJSON.LineString | null>(() => {
@@ -466,6 +483,27 @@ export default function ActivityEditorPage() {
     }
   }
 
+  // Save description / RPE / Feel
+  async function handleSaveMeta() {
+    if (!id) return
+    setIsSavingMeta(true)
+    try {
+      const patch: Record<string, unknown> = {}
+      const desc = editDescription.trim()
+      patch.description = desc || null
+      patch.workout_rpe = editRpe
+      patch.workout_feel = editFeel
+      await updateActivity(id, patch as Parameters<typeof updateActivity>[1])
+      queryClient.invalidateQueries({ queryKey: ['activity', id] })
+      setMetaDirty(false)
+      showStatus('Beschreibung & Bewertung gespeichert.')
+    } catch {
+      showStatus('Speichern fehlgeschlagen.')
+    } finally {
+      setIsSavingMeta(false)
+    }
+  }
+
   if (activityLoading || streamsLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-400">
@@ -523,6 +561,122 @@ export default function ActivityEditorPage() {
           {statusMsg}
         </div>
       )}
+
+      {/* Description / RPE / Feel */}
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
+        <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          Beschreibung & Bewertung
+        </h2>
+
+        {/* Description */}
+        <div>
+          <label htmlFor="editor-description" className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+            Beschreibung
+          </label>
+          <textarea
+            id="editor-description"
+            value={editDescription}
+            onChange={(e) => { setEditDescription(e.target.value); setMetaDirty(true) }}
+            rows={3}
+            placeholder="Notizen zur Aktivität..."
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
+                       text-sm text-neutral-900 dark:text-neutral-100 px-3 py-2
+                       placeholder:text-neutral-400 dark:placeholder:text-neutral-500
+                       focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT resize-y"
+          />
+        </div>
+
+        {/* RPE Slider */}
+        <div>
+          <label htmlFor="editor-rpe" className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+            RPE (Anstrengung)
+            {editRpe != null && (
+              <span className={`ml-2 font-semibold ${
+                editRpe <= 3 ? 'text-green-600 dark:text-green-400' :
+                editRpe <= 6 ? 'text-yellow-600 dark:text-yellow-400' :
+                editRpe <= 8 ? 'text-orange-600 dark:text-orange-400' :
+                'text-red-600 dark:text-red-400'
+              }`}>
+                {editRpe}/10
+              </span>
+            )}
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              id="editor-rpe"
+              type="range"
+              min={1}
+              max={10}
+              value={editRpe ?? 5}
+              onChange={(e) => { setEditRpe(Number(e.target.value)); setMetaDirty(true) }}
+              className="flex-1 h-2 rounded-lg appearance-none cursor-pointer
+                         bg-neutral-200 dark:bg-neutral-700
+                         accent-accent-DEFAULT"
+            />
+            {editRpe != null && (
+              <button
+                onClick={() => { setEditRpe(null); setMetaDirty(true) }}
+                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                title="RPE entfernen"
+              >
+                Entfernen
+              </button>
+            )}
+          </div>
+          <div className="flex justify-between text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 px-0.5">
+            <span>1 Leicht</span>
+            <span>5 Mittel</span>
+            <span>10 Maximum</span>
+          </div>
+        </div>
+
+        {/* Feel Emoji Buttons */}
+        <div>
+          <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+            Gefühl
+          </span>
+          <div className="flex gap-2">
+            {(['Schlecht', 'Mäßig', 'Okay', 'Gut', 'Super'] as const).map((label, i) => {
+              const emojis = ['😫', '😕', '😐', '🙂', '😄']
+              const isSelected = editFeel === i
+              return (
+                <button
+                  key={i}
+                  onClick={() => {
+                    setEditFeel(isSelected ? null : i)
+                    setMetaDirty(true)
+                  }}
+                  title={label}
+                  className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                    isSelected
+                      ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20'
+                      : 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  <span className="text-lg">{emojis[i]}</span>
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Save button */}
+        {metaDirty && (
+          <div className="flex justify-end">
+            <button
+              onClick={handleSaveMeta}
+              disabled={isSavingMeta}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                         bg-accent-DEFAULT text-white hover:bg-accent-600
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <SaveIcon className="w-4 h-4" />
+              {isSavingMeta ? 'Speichere...' : 'Speichern'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Track Map + Trim Controls */}
       {trackGeoJSON && (

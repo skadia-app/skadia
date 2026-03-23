@@ -83,7 +83,7 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
   return apiClient<Sensor[]>(`/activities/${id}/sensors`)
 }
 
-export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility'>>): Promise<Activity> {
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe'>>): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
