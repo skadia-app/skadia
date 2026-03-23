@@ -321,6 +321,28 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Virtual tag: if is_virtual is true, ensure "virtuell" tag is in tags array
+	if data.IsVirtual {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "virtuell")
+
+		var virtualTagID string
+		row := db.Pool.QueryRow(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+			VALUES ($1, 'virtuell', '#8B5CF6', '#FFFFFF', true, false, 'Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)')
+			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			RETURNING id
+		`, userID)
+		if err := row.Scan(&virtualTagID); err == nil {
+			_ = db.LinkActivityTag(ctx, activityID, virtualTagID, "auto")
+		}
+
+		fields["exclude_from_heatmap"] = true
+	}
+
 	// Manual activity tag: if is_manual_entry is true, ensure "manuell" tag
 	if data.IsManualEntry {
 		tagBase, _ := fields["tags"].([]string)
