@@ -23,6 +23,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
 
 
 
+  // Decimal-hours format for time differences — not consolidatable with fmtDuration
   function formatTimeDiff(sec: number) {
     if (sec < 60) return `${Math.round(sec)}s`
     if (sec < 3600) return `${Math.round(sec / 60)} min`

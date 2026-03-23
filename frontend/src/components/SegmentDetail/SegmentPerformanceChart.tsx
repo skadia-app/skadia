@@ -3,6 +3,7 @@ import { useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { apiClient } from '@/api/client'
+import { fmtDuration } from '@/lib/format'
 
 interface SegmentPerformanceChartProps {
   segmentId: string
@@ -10,11 +11,6 @@ interface SegmentPerformanceChartProps {
   dateTo?: string
 }
 
-function formatTime(s: number): string {
-  const m = Math.floor(s / 60)
-  const sec = Math.round(s % 60)
-  return `${m}:${String(sec).padStart(2, '0')}`
-}
 
 export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: SegmentPerformanceChartProps) {
   const navigate = useNavigate()
@@ -93,7 +89,7 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
           const [ts, time] = params.data.value ?? params.data
           const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
           const dateStr = new Date(ts).toLocaleDateString('de-DE')
-          return `${dateStr}<br/><b>${formatTime(time)}</b>${perf ? '<br/>' + perf.title : ''}`
+          return `${dateStr}<br/><b>${fmtDuration(time)}</b>${perf ? '<br/>' + perf.title : ''}`
         },
       },
       grid: { left: 60, right: 20, top: 20, bottom: 50 },
@@ -110,7 +106,7 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
       yAxis: {
         type: 'value',
         name: 'Zeit',
-        axisLabel: { formatter: (v: number) => formatTime(v) },
+        axisLabel: { formatter: (v: number) => fmtDuration(v) },
       },
       series: [
         {
@@ -176,9 +172,9 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
           )}
           <span>
             Beste:{' '}
-            <b className="text-yellow-600 dark:text-yellow-400">{formatTime(bestTime)}</b>
+            <b className="text-yellow-600 dark:text-yellow-400">{fmtDuration(bestTime)}</b>
           </span>
-          <span>&#216; {formatTime(Math.round(avgTime))}</span>
+          <span>&#216; {fmtDuration(Math.round(avgTime))}</span>
         </div>
       </div>
       <div ref={chartRef} style={{ height: '320px', width: '100%' }} />

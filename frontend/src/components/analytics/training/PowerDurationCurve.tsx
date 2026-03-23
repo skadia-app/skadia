@@ -43,6 +43,7 @@ const DURATION_LABELS: Record<number, string> = {
   3600: '1h',
 }
 
+// Uses label-lookup for standard PDC breakpoints — not consolidatable with fmtDuration
 function formatDuration(s: number): string {
   return DURATION_LABELS[s] ?? `${s}s`
 }

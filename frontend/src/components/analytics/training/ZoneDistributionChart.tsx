@@ -13,6 +13,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchZoneDistributionSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
+import { fmtDuration } from '@/lib/format'
 
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, CanvasRenderer])
 
@@ -31,12 +32,6 @@ const ZONE_COLORS = [
 
 const ZONE_LABELS = ['Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5']
 
-function formatSeconds(s: number): string {
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
 
 export default function ZoneDistributionChart() {
   const { toQueryString } = useAnalyticsFilters()
@@ -95,7 +90,7 @@ export default function ZoneDistributionChart() {
               const p = params as { name: string; value: number; percent: number }
               return `<div style="font-size:12px">
                 <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
-                <div>${formatSeconds(p.value)} (${p.percent?.toFixed(1)}%)</div>
+                <div>${fmtDuration(p.value, 'abbr')} (${p.percent?.toFixed(1)}%)</div>
               </div>`
             },
           },
@@ -186,12 +181,12 @@ export default function ZoneDistributionChart() {
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
-                <strong style="color:#f9fafb">${formatSeconds(p.value)}</strong>
+                <strong style="color:#f9fafb">${fmtDuration(p.value, 'abbr')}</strong>
               </div>`
               total += p.value
             }
             html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
-              Gesamt: <strong style="color:#f9fafb">${formatSeconds(total)}</strong>
+              Gesamt: <strong style="color:#f9fafb">${fmtDuration(total, 'abbr')}</strong>
             </div>`
             return html
           },
