@@ -2,19 +2,8 @@ import { useRef, useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
-import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { buildRasterStyle, getSavedMapStyle } from '@/lib/mapStyles'
 import { createSummitMarker, type SummitMarker } from './markerUtils'
-
-function getSavedMapStyle(): BaseStyle {
-  try {
-    const raw = localStorage.getItem('skadia-map-viewport')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed.baseStyle) return parsed.baseStyle
-    }
-  } catch { /* ignore */ }
-  return 'osm'
-}
 
 function addMarkers(
   map: maplibregl.Map,

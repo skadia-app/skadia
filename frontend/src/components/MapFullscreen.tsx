@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useQuery } from '@tanstack/react-query'
@@ -207,14 +208,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
     [streams],
   )
 
-  // ESC key to close
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   // Lock body scroll
   useEffect(() => {

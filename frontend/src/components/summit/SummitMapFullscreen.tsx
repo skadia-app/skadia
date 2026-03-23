@@ -1,23 +1,13 @@
 import { useRef, useEffect, useState } from 'react'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
-import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { buildRasterStyle, getSavedMapStyle } from '@/lib/mapStyles'
 import { createSummitMarker, type SummitMarker } from './markerUtils'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
-
-function getSavedMapStyle(): BaseStyle {
-  try {
-    const raw = localStorage.getItem('skadia-map-viewport')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed.baseStyle) return parsed.baseStyle
-    }
-  } catch { /* ignore */ }
-  return 'osm'
-}
 
 interface SummitMapFullscreenProps {
   initialSelected?: SummitVisit | null
@@ -43,14 +33,7 @@ export default function SummitMapFullscreen({
   const [yearFilter, setYearFilter] = useState(initialYear ?? '')
   const [selectedSummit, setSelectedSummit] = useState<SummitVisit | null>(initialSelected ?? null)
 
-  // Escape key closes fullscreen
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const { displaySummits, availableCountries, availableYears } = useSummitCollection({ countryFilter, elevClass, yearFilter })
 

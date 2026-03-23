@@ -2,27 +2,7 @@ import { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { apiFetch } from '@/lib/auth'
-
-const SPORT_COLORS: Record<string, string> = {
-  cycling:               '#f97316',
-  running:               '#22c55e',
-  swimming:              '#3b82f6',
-  open_water_swimming:   '#06b6d4',
-  hiking:                '#84cc16',
-  walking:               '#eab308',
-  trail_running:         '#10b981',
-  mountain_biking:       '#a3e635',
-  transition:            '#a855f7',
-  rock_climbing:         '#ef4444',
-  skiing:                '#60a5fa',
-  cross_country_skiing:  '#93c5fd',
-  paddling:              '#0ea5e9',
-  stand_up_paddleboarding: '#38bdf8',
-}
-
-function colorForSport(sportType: string): string {
-  return SPORT_COLORS[sportType] ?? '#6b7280'
-}
+import { sportChartColor } from '@/lib/sportColors'
 
 interface GeoJSONFeature {
   type: 'Feature'
@@ -139,7 +119,7 @@ function MultisportMap({ activityId, className, hoveredActivityId }, ref) {
       featureIdsRef.current = []
       data.features.forEach((feature, i) => {
         const sourceId = `ms-track-${i}`
-        const color = colorForSport(feature.properties.sport_type)
+        const color = sportChartColor(feature.properties.sport_type)
 
         map.addSource(sourceId, {
           type: 'geojson',
