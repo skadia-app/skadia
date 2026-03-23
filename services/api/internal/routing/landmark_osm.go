@@ -20,19 +20,16 @@ type OSMLandmark struct {
 
 // QueryOSMPassLandmarks returns top-N highest passes/saddles within bbox.
 // Covers category='pass' (mountain_pass=yes) AND category='summit' with natural=saddle.
-// Note: OSM ele tags can contain non-numeric values ("~1370", "1370 m").
-// The regex filter ensures only clean numeric values are cast to float.
+// Uses the ele column (float, set by skadia-osm.lua), NOT tags->>'ele'.
 func QueryOSMPassLandmarks(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64, limit int) ([]OSMLandmark, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom),
-		       (tags->>'ele')::float
+		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom), ele
 		FROM osm_pois
 		WHERE (category = 'pass' OR (category = 'summit' AND tags->>'natural' = 'saddle'))
 		  AND ST_Within(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
-		  AND (tags->>'ele') ~ '^\d+\.?\d*$'
-		  AND (tags->>'ele')::float > 800
-		ORDER BY (tags->>'ele')::float DESC
+		  AND ele IS NOT NULL AND ele > 800
+		ORDER BY ele DESC
 		LIMIT $5
 	`, west, south, east, north, limit)
 	if err != nil {
@@ -54,14 +51,13 @@ func QueryOSMPassLandmarks(ctx context.Context, pool *pgxpool.Pool,
 func QueryOSMPeakLandmarks(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64, limit int) ([]OSMLandmark, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom),
-		       (tags->>'ele')::float
+		SELECT osm_id, COALESCE(name, ''), ST_Y(geom), ST_X(geom), ele
 		FROM osm_pois
 		WHERE category = 'summit'
 		  AND tags->>'natural' IS DISTINCT FROM 'saddle'
 		  AND ST_Within(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
-		  AND (tags->>'ele') ~ '^\d+\.?\d*$'
-		ORDER BY (tags->>'ele')::float DESC
+		  AND ele IS NOT NULL
+		ORDER BY ele DESC
 		LIMIT $5
 	`, west, south, east, north, limit)
 	if err != nil {

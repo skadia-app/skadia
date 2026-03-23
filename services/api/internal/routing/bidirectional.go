@@ -13,12 +13,19 @@ type BackwardResult struct {
 func RunBackwardSearch(reader GraphReader, dst uint64, cfg *CostConfig,
 	initialUpperBound float32) BackwardResult {
 
+	// Pre-size map based on expected expansion radius.
+	// At cost_min ~1.0/100m, initialUpperBound of N corresponds to ~N*100m radius.
+	// Rough estimate: 1 node per 50m² in dense areas → hint avoids rehashing.
+	hint := max(8192, int(initialUpperBound/10))
+	if hint > 5_000_000 {
+		hint = 5_000_000 // cap to avoid over-allocation
+	}
 	result := BackwardResult{
-		LowerBound: make(map[uint64]float32, 8192),
+		LowerBound: make(map[uint64]float32, hint),
 		UpperBound: initialUpperBound,
 	}
 
-	frontier := Frontier{entries: make([]FrontierEntry, 0, 4096)}
+	frontier := Frontier{entries: make([]FrontierEntry, 0, min(hint, 65536))}
 	result.LowerBound[dst] = 0
 	frontier.Push(FrontierEntry{NodeID: dst, Cost: 0})
 
