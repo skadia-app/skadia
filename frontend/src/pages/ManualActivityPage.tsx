@@ -68,6 +68,7 @@ export default function ManualActivityPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [gearId, setGearId] = useState('')
   const [isEbike, setIsEbike] = useState(false)
+  const [isVirtual, setIsVirtual] = useState(false)
   const [rpe, setRpe] = useState<number | null>(null)
   const [feel, setFeel] = useState<number | null>(null)
 
@@ -129,6 +130,7 @@ export default function ManualActivityPage() {
         tags: selectedTags.length ? selectedTags : undefined,
         gear_id: gearId || undefined,
         is_ebike: isEbike || undefined,
+        is_virtual: isVirtual || undefined,
         workout_rpe: rpe ?? undefined,
         workout_feel: feel ?? undefined,
       })
@@ -462,6 +464,31 @@ export default function ManualActivityPage() {
                 </button>
               </div>
             )}
+
+            {/* Virtuell Toggle */}
+            <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
+              <div>
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Virtuell</p>
+                <p className="text-xs text-neutral-500">Simulierte GPS-Strecke</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isVirtual}
+                onClick={() => setIsVirtual(v => !v)}
+                className={[
+                  'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                  isVirtual ? 'bg-orange-500' : 'bg-neutral-300 dark:bg-neutral-600',
+                ].join(' ')}
+              >
+                <span
+                  className={[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
+                    isVirtual ? 'translate-x-5' : 'translate-x-0',
+                  ].join(' ')}
+                />
+              </button>
+            </div>
 
             {/* RPE Slider */}
             <div>

@@ -846,6 +846,15 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
     },
   })
 
+  async function handleExcludeChange(field: 'exclude_from_heatmap' | 'exclude_from_stats', value: boolean) {
+    await apiFetch(`/api/v1/activities/${activity.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    })
+    queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+  }
+
   // Track background recompute jobs — spinner stays active across page reloads
   const { isJobActiveForEntity } = useActiveJobs()
 
@@ -1072,6 +1081,32 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
             )}
           </div>
         )}
+      </div>
+
+      {/* Ausschluss-Checkboxen */}
+      <div className="flex flex-col gap-2 mt-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={activity.exclude_from_heatmap ?? false}
+            disabled={activity.is_virtual}
+            onChange={e => handleExcludeChange('exclude_from_heatmap', e.target.checked)}
+            className="rounded border-neutral-300 disabled:opacity-50"
+          />
+          <span className={activity.is_virtual ? 'text-neutral-400' : ''}>
+            Von Heatmap ausschließen
+          </span>
+          {activity.is_virtual && <span className="text-xs text-neutral-400">(virtuell)</span>}
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={activity.exclude_from_stats ?? false}
+            onChange={e => handleExcludeChange('exclude_from_stats', e.target.checked)}
+            className="rounded border-neutral-300"
+          />
+          Von Statistik ausschließen
+        </label>
       </div>
 
       {/* Speed smoothing + reset — opt-in correction for GPS speed noise */}
