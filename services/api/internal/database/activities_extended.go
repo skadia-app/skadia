@@ -10,14 +10,41 @@ import (
 )
 
 // GetTimeInZones returns the pre-computed zone distribution for an activity.
-func (db *DB) GetTimeInZones(ctx context.Context, activityID string) ([]model.TimeInZone, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT zone_type, zone_index, zone_high, seconds
-		 FROM activity_time_in_zone
-		 WHERE activity_id = $1
-		 ORDER BY zone_type, zone_index`,
-		activityID,
+// When both lapID and segmentLapID are nil, only session-level zones are returned
+// (rows where lap_id IS NULL AND segment_lap_id IS NULL).
+// When lapID is set, zones for that lap are returned.
+// When segmentLapID is set, zones for that segment lap are returned.
+func (db *DB) GetTimeInZones(ctx context.Context, activityID string, lapID *string, segmentLapID *string) ([]model.TimeInZone, error) {
+	var (
+		rows pgx.Rows
+		err  error
 	)
+	switch {
+	case lapID != nil:
+		rows, err = db.Pool.Query(ctx,
+			`SELECT zone_type, zone_index, zone_high, seconds, lap_id, segment_lap_id
+			 FROM activity_time_in_zone
+			 WHERE activity_id = $1 AND lap_id = $2
+			 ORDER BY zone_type, zone_index`,
+			activityID, *lapID,
+		)
+	case segmentLapID != nil:
+		rows, err = db.Pool.Query(ctx,
+			`SELECT zone_type, zone_index, zone_high, seconds, lap_id, segment_lap_id
+			 FROM activity_time_in_zone
+			 WHERE activity_id = $1 AND segment_lap_id = $2
+			 ORDER BY zone_type, zone_index`,
+			activityID, *segmentLapID,
+		)
+	default:
+		rows, err = db.Pool.Query(ctx,
+			`SELECT zone_type, zone_index, zone_high, seconds, lap_id, segment_lap_id
+			 FROM activity_time_in_zone
+			 WHERE activity_id = $1 AND lap_id IS NULL AND segment_lap_id IS NULL
+			 ORDER BY zone_type, zone_index`,
+			activityID,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get time in zones: %w", err)
 	}
@@ -25,7 +52,7 @@ func (db *DB) GetTimeInZones(ctx context.Context, activityID string) ([]model.Ti
 	var zones []model.TimeInZone
 	for rows.Next() {
 		var z model.TimeInZone
-		if err := rows.Scan(&z.ZoneType, &z.ZoneIndex, &z.ZoneHigh, &z.Seconds); err != nil {
+		if err := rows.Scan(&z.ZoneType, &z.ZoneIndex, &z.ZoneHigh, &z.Seconds, &z.LapID, &z.SegmentLapID); err != nil {
 			return nil, fmt.Errorf("scan time in zone: %w", err)
 		}
 		zones = append(zones, z)
@@ -36,28 +63,40 @@ func (db *DB) GetTimeInZones(ctx context.Context, activityID string) ([]model.Ti
 	return zones, nil
 }
 
-// SaveTimeInZones upserts time-in-zone data for an activity using a batch for efficiency.
-func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, zones []model.TimeInZoneData) error {
-	if len(zones) == 0 {
-		return nil
-	}
+// SaveTimeInZones replaces time-in-zone data for a given scope (activity + optional lap/segment_lap).
+// It DELETEs existing rows for the scope, then batch-INSERTs the new zones.
+// If zones is empty, only the DELETE is performed (clearing old data).
+func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, lapID *string, segmentLapID *string, zones []model.TimeInZoneData) error {
 	batch := &pgx.Batch{}
+
+	// DELETE existing zones for this scope.
+	// IS NOT DISTINCT FROM handles NULL correctly: NULL IS NOT DISTINCT FROM NULL → true.
+	batch.Queue(
+		`DELETE FROM activity_time_in_zone
+		 WHERE activity_id = $1
+		 AND (lap_id IS NOT DISTINCT FROM $2)
+		 AND (segment_lap_id IS NOT DISTINCT FROM $3)`,
+		activityID, lapID, segmentLapID,
+	)
+
+	// INSERT new zones.
 	for _, z := range zones {
 		var zoneHigh *float64
 		if z.ZoneHigh > 0 {
 			zoneHigh = &z.ZoneHigh
 		}
 		batch.Queue(
-			`INSERT INTO activity_time_in_zone (activity_id, zone_type, zone_index, zone_high, seconds)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (activity_id, zone_type, zone_index) DO UPDATE
-			 SET zone_high = EXCLUDED.zone_high, seconds = EXCLUDED.seconds`,
-			activityID, z.ZoneType, z.ZoneIndex, zoneHigh, z.Seconds,
+			`INSERT INTO activity_time_in_zone (activity_id, zone_type, zone_index, zone_high, seconds, lap_id, segment_lap_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			activityID, z.ZoneType, z.ZoneIndex, zoneHigh, z.Seconds, lapID, segmentLapID,
 		)
 	}
+
 	br := db.Pool.SendBatch(ctx, batch)
 	defer br.Close()
-	for range zones {
+
+	// Exec DELETE + all INSERTs.
+	for range 1 + len(zones) {
 		if _, err := br.Exec(); err != nil {
 			return fmt.Errorf("save time in zone: %w", err)
 		}

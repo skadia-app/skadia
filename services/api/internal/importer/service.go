@@ -232,7 +232,7 @@ func (s *Service) PostProcess(
 
 	g.Go(func() error {
 		if len(data.TimeInZoneData) > 0 {
-			if err := s.DB.SaveTimeInZones(gCtx, activityID, data.TimeInZoneData); err != nil {
+			if err := s.DB.SaveTimeInZones(gCtx, activityID, nil, nil, data.TimeInZoneData); err != nil {
 				slog.Error("save time in zones failed", "error", err)
 			}
 		}

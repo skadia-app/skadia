@@ -316,7 +316,7 @@ func restoreOne(
 
 	// Time-in-Zones
 	if len(data.TimeInZoneData) > 0 {
-		if err := db.SaveTimeInZones(ctx, activity.ID, data.TimeInZoneData); err != nil {
+		if err := db.SaveTimeInZones(ctx, activity.ID, nil, nil, data.TimeInZoneData); err != nil {
 			slog.Warn("save time in zones fehlgeschlagen", "id", activity.ID, "error", err)
 		}
 	}
