@@ -85,17 +85,17 @@ func (db *DB) UpsertWorkout(ctx context.Context, userID string, workout model.Wo
 	return workoutID, nil
 }
 
-func (db *DB) GetWorkout(ctx context.Context, workoutID string) (*model.WorkoutRecord, []model.WorkoutStepRecord, error) {
+func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.WorkoutRecord, []model.WorkoutStepRecord, error) {
 	var w model.WorkoutRecord
 	err := db.Pool.QueryRow(ctx, `
-		SELECT name, description, sport, sub_sport,
+		SELECT id, name, description, sport, sub_sport,
 			capabilities, num_valid_steps, pool_length_m, pool_length_unit,
 			source_hash
 		FROM workouts
-		WHERE id = $1`,
-		workoutID,
+		WHERE id = $1 AND user_id = $2`,
+		workoutID, userID,
 	).Scan(
-		&w.Name, &w.Description, &w.Sport, &w.SubSport,
+		&w.ID, &w.Name, &w.Description, &w.Sport, &w.SubSport,
 		&w.Capabilities, &w.NumValidSteps, &w.PoolLengthM, &w.PoolLengthUnit,
 		&w.SourceHash,
 	)
@@ -149,7 +149,7 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID string) (*model.WorkoutR
 
 func (db *DB) ListWorkouts(ctx context.Context, userID string, limit, offset int) ([]model.WorkoutRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT name, description, sport, sub_sport,
+		SELECT id, name, description, sport, sub_sport,
 			capabilities, num_valid_steps, pool_length_m, pool_length_unit,
 			source_hash
 		FROM workouts
@@ -167,7 +167,7 @@ func (db *DB) ListWorkouts(ctx context.Context, userID string, limit, offset int
 	for rows.Next() {
 		var w model.WorkoutRecord
 		if err := rows.Scan(
-			&w.Name, &w.Description, &w.Sport, &w.SubSport,
+			&w.ID, &w.Name, &w.Description, &w.Sport, &w.SubSport,
 			&w.Capabilities, &w.NumValidSteps, &w.PoolLengthM, &w.PoolLengthUnit,
 			&w.SourceHash,
 		); err != nil {
