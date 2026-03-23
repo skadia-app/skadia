@@ -17,7 +17,8 @@ func (h *Handler) HandleGetActivityHrData(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	hrData, err := h.DB.GetActivityHrData(r.Context(), activityID)
+	limit, offset := httputil.ParsePagination(r, 100, 500)
+	hrData, err := h.DB.GetActivityHrData(r.Context(), activityID, limit, offset)
 	if httputil.HandleDBErr(w, r, err, "hr data not found") {
 		return
 	}

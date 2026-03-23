@@ -45,14 +45,15 @@ func (db *DB) DeleteActivityHrData(ctx context.Context, activityID string) error
 	return nil
 }
 
-func (db *DB) GetActivityHrData(ctx context.Context, activityID string) ([]model.HrDataRecord, error) {
+func (db *DB) GetActivityHrData(ctx context.Context, activityID string, limit, offset int) ([]model.HrDataRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT timestamp, fractional_timestamp,
 			filtered_bpm, event_timestamp
 		FROM activity_hr_data
 		WHERE activity_id = $1
-		ORDER BY timestamp`,
-		activityID,
+		ORDER BY timestamp
+		LIMIT $2 OFFSET $3`,
+		activityID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get activity hr data: %w", err)

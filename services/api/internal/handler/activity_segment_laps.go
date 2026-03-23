@@ -17,7 +17,8 @@ func (h *Handler) HandleGetActivitySegmentLaps(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	segmentLaps, err := h.DB.GetActivitySegmentLaps(r.Context(), activityID)
+	limit, offset := httputil.ParsePagination(r, 50, 100)
+	segmentLaps, err := h.DB.GetActivitySegmentLaps(r.Context(), activityID, limit, offset)
 	if httputil.HandleDBErr(w, r, err, "segment laps not found") {
 		return
 	}
