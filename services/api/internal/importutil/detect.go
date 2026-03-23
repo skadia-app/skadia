@@ -8,14 +8,13 @@ import (
 // DetectFormat identifies the activity file format from raw bytes and filename.
 // Returns "fit", "gpx", "tcx", or "" if unknown.
 func DetectFormat(data []byte, filename string) string {
-	// FIT: Check for ".FIT" signature
+	// FIT: The header byte encodes its own length (12 or 14) and the last
+	// four bytes of the header must contain the ".FIT" signature.
 	if len(data) >= 14 {
 		headerSize := int(data[0])
-		if (headerSize == 12 || headerSize == 14) && headerSize <= len(data) {
-			sig := string(data[headerSize-4 : headerSize])
-			if sig == ".FIT" {
-				return "fit"
-			}
+		validHeader := (headerSize == 12 || headerSize == 14) && headerSize <= len(data)
+		if validHeader && string(data[headerSize-4:headerSize]) == ".FIT" {
+			return "fit"
 		}
 	}
 
