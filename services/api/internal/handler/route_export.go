@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -31,13 +29,7 @@ func (h *Handler) ExportRouteGPX(w http.ResponseWriter, r *http.Request) {
 	}
 
 	route, err := h.DB.GetRoute(r.Context(), id, userID)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("export route gpx: get route failed", "route_id", id, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch route", r.URL.Path)
+	if httputil.HandleDBErr(w, r, err, "route not found") {
 		return
 	}
 

@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
@@ -22,21 +21,14 @@ func (h *Handler) SetRouteTags(w http.ResponseWriter, r *http.Request) {
 	routeID := chi.URLParam(r, "id")
 
 	// Ownership check — GetRoute enforces WHERE user_id = $2.
-	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("set route tags: get route failed", "route_id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); httputil.HandleDBErr(w, r, err, "route not found") {
 		return
 	}
 
-	var req struct {
+	req, ok := httputil.DecodeJSON[struct {
 		TagIDs []string `json:"tag_ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.TagIDs == nil {
@@ -70,13 +62,7 @@ func (h *Handler) AddRouteTag(w http.ResponseWriter, r *http.Request) {
 	tagID := chi.URLParam(r, "tagId")
 
 	// Ownership check on the route.
-	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("add route tag: get route failed", "route_id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); httputil.HandleDBErr(w, r, err, "route not found") {
 		return
 	}
 
@@ -100,13 +86,7 @@ func (h *Handler) RemoveRouteTag(w http.ResponseWriter, r *http.Request) {
 	tagID := chi.URLParam(r, "tagId")
 
 	// Ownership check on the route.
-	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
-		if err == pgx.ErrNoRows {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "route not found", r.URL.Path)
-			return
-		}
-		slog.Error("remove route tag: get route failed", "route_id", routeID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load route", r.URL.Path)
+	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); httputil.HandleDBErr(w, r, err, "route not found") {
 		return
 	}
 
