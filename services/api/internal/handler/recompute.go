@@ -491,7 +491,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			return fmt.Errorf("parse %s JSON: %w", info.FileFormat, parseErr)
 		}
 		data = &model.ActivityData{
-			FileFormat:     info.FileFormat,
+			FileFormat:     mf.FileFormat,
 			Source:         mf.Source,
 			SportType:      mf.SportType,
 			SubType:        mf.SubType,
@@ -502,6 +502,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			ElevationGainM: mf.ElevationGainM,
 			ElevationLossM: mf.ElevationLossM,
 			IsEbike:        mf.IsEbike,
+		}
+		if mf.ElapsedTimeS > 0 {
+			data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)
 		}
 		// Persist title + description via enrichment fields (not in ActivityData).
 		enrichFields := make(map[string]any)
