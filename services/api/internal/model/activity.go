@@ -54,6 +54,8 @@ type ActivityData struct {
 	AvgCoreTemperatureC     float64
 	ThresholdPowerW         int
 	TimeInZoneData          []TimeInZoneData
+	LapTimeInZones          map[string][]TimeInZoneData `json:"-"` // key = lap UUID
+	SegmentLapTimeInZones   map[string][]TimeInZoneData `json:"-"` // key = segment lap UUID
 	UserProfileImport       *UserProfileImport
 
 	TSS   float64

@@ -1091,69 +1091,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.SwcLng = &v
 	}
 
-	// TimeInZone messages
-	for _, tiz := range timeInZones {
-		for i, raw := range tiz.TimeInHrZone {
-			if raw != basetype.Uint32Invalid {
-				zd := model.TimeInZoneData{
-					ZoneType:  "hr",
-					ZoneIndex: i,
-					Seconds:   int(raw / 1000),
-				}
-				if i < len(tiz.HrZoneHighBoundary) && tiz.HrZoneHighBoundary[i] != basetype.Uint8Invalid {
-					zd.ZoneHigh = float64(tiz.HrZoneHighBoundary[i])
-				}
-				data.TimeInZoneData = append(data.TimeInZoneData, zd)
-			}
-		}
-		for i, raw := range tiz.TimeInPowerZone {
-			if raw != basetype.Uint32Invalid {
-				zd := model.TimeInZoneData{
-					ZoneType:  "power",
-					ZoneIndex: i,
-					Seconds:   int(raw / 1000),
-				}
-				if i < len(tiz.PowerZoneHighBoundary) && tiz.PowerZoneHighBoundary[i] != basetype.Uint16Invalid {
-					zd.ZoneHigh = float64(tiz.PowerZoneHighBoundary[i])
-				}
-				data.TimeInZoneData = append(data.TimeInZoneData, zd)
-			}
-		}
-	}
-
-	// Fallback: session-level TimeInHrZone if no dedicated TimeInZone messages
-	if len(data.TimeInZoneData) == 0 && len(session.TimeInHrZone) > 0 {
-		for i, raw := range session.TimeInHrZone {
-			if raw != basetype.Uint32Invalid {
-				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
-					ZoneType:  "hr",
-					ZoneIndex: i,
-					Seconds:   int(raw / 1000),
-				})
-			}
-		}
-	}
-	if len(data.TimeInZoneData) > 0 {
-		// Also check session-level power zones as fallback
-		hasPowerZones := false
-		for _, z := range data.TimeInZoneData {
-			if z.ZoneType == "power" {
-				hasPowerZones = true
-				break
-			}
-		}
-		if !hasPowerZones && len(session.TimeInPowerZone) > 0 {
-			for i, raw := range session.TimeInPowerZone {
-				if raw != basetype.Uint32Invalid {
-					data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
-						ZoneType:  "power",
-						ZoneIndex: i,
-						Seconds:   int(raw / 1000),
-					})
-				}
-			}
-		}
-	}
+	// TimeInZone messages are processed after lap/segment-lap extraction (below)
+	// so we can map ReferenceIndex → lap UUID.
 
 	// UserProfile + ZonesTarget import
 	if userProfile != nil || zonesTarget != nil {
@@ -1217,6 +1156,80 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.Jumps = ExtractJumps(jumps)
 	data.HrData = ExtractHrData(hrs)
 	data.SegmentLaps = ExtractSegmentLaps(segmentLaps)
+
+	// TimeInZone messages — dispatch by ReferenceMesg to session / lap / segment-lap.
+	// Build messageIndex → UUID lookups from already-extracted laps/segment-laps.
+	lapUUIDByMsgIdx := make(map[int]string, len(data.Laps))
+	for _, l := range data.Laps {
+		lapUUIDByMsgIdx[l.MessageIndex] = l.ID
+	}
+	segLapUUIDByMsgIdx := make(map[int16]string, len(data.SegmentLaps))
+	for _, sl := range data.SegmentLaps {
+		segLapUUIDByMsgIdx[sl.MessageIndex] = sl.ID
+	}
+
+	for _, tiz := range timeInZones {
+		zones := extractTimeInZoneEntries(tiz)
+		if len(zones) == 0 {
+			continue
+		}
+
+		switch tiz.ReferenceMesg {
+		case typedef.MesgNumLap:
+			idx := int(tiz.ReferenceIndex)
+			if lapID, ok := lapUUIDByMsgIdx[idx]; ok {
+				if data.LapTimeInZones == nil {
+					data.LapTimeInZones = make(map[string][]model.TimeInZoneData)
+				}
+				data.LapTimeInZones[lapID] = append(data.LapTimeInZones[lapID], zones...)
+			}
+		case typedef.MesgNumSegmentLap:
+			idx := int16(tiz.ReferenceIndex)
+			if slID, ok := segLapUUIDByMsgIdx[idx]; ok {
+				if data.SegmentLapTimeInZones == nil {
+					data.SegmentLapTimeInZones = make(map[string][]model.TimeInZoneData)
+				}
+				data.SegmentLapTimeInZones[slID] = append(data.SegmentLapTimeInZones[slID], zones...)
+			}
+		default:
+			// Session-level (MesgNumSession, MesgNumInvalid, or unset)
+			data.TimeInZoneData = append(data.TimeInZoneData, zones...)
+		}
+	}
+
+	// Fallback: session-level TimeInHrZone if no dedicated TimeInZone messages
+	if len(data.TimeInZoneData) == 0 && len(session.TimeInHrZone) > 0 {
+		for i, raw := range session.TimeInHrZone {
+			if raw != basetype.Uint32Invalid {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "hr",
+					ZoneIndex: i,
+					Seconds:   int(raw / 1000),
+				})
+			}
+		}
+	}
+	if len(data.TimeInZoneData) > 0 {
+		hasPowerZones := false
+		for _, z := range data.TimeInZoneData {
+			if z.ZoneType == "power" {
+				hasPowerZones = true
+				break
+			}
+		}
+		if !hasPowerZones && len(session.TimeInPowerZone) > 0 {
+			for i, raw := range session.TimeInPowerZone {
+				if raw != basetype.Uint32Invalid {
+					data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+						ZoneType:  "power",
+						ZoneIndex: i,
+						Seconds:   int(raw / 1000),
+					})
+				}
+			}
+		}
+	}
+
 	if workout != nil {
 		data.Workout = ExtractWorkout(workout)
 		data.WorkoutSteps = ExtractWorkoutSteps(workoutSteps)
@@ -1481,5 +1494,37 @@ func mergeSessionTotals(ad *model.ActivityData, sessionMsgs []proto.Message) {
 	// which adds complexity for marginal gain. The stream-based moving time
 	// recalculation in buildActivityData already handles MovingTimeS correctly
 	// since it operates on ALL records from the merged file.
+}
+
+// extractTimeInZoneEntries converts a single FIT TimeInZone message into HR and power zone entries.
+func extractTimeInZoneEntries(tiz *mesgdef.TimeInZone) []model.TimeInZoneData {
+	var zones []model.TimeInZoneData
+	for i, raw := range tiz.TimeInHrZone {
+		if raw != basetype.Uint32Invalid {
+			zd := model.TimeInZoneData{
+				ZoneType:  "hr",
+				ZoneIndex: i,
+				Seconds:   int(raw / 1000),
+			}
+			if i < len(tiz.HrZoneHighBoundary) && tiz.HrZoneHighBoundary[i] != basetype.Uint8Invalid {
+				zd.ZoneHigh = float64(tiz.HrZoneHighBoundary[i])
+			}
+			zones = append(zones, zd)
+		}
+	}
+	for i, raw := range tiz.TimeInPowerZone {
+		if raw != basetype.Uint32Invalid {
+			zd := model.TimeInZoneData{
+				ZoneType:  "power",
+				ZoneIndex: i,
+				Seconds:   int(raw / 1000),
+			}
+			if i < len(tiz.PowerZoneHighBoundary) && tiz.PowerZoneHighBoundary[i] != basetype.Uint16Invalid {
+				zd.ZoneHigh = float64(tiz.PowerZoneHighBoundary[i])
+			}
+			zones = append(zones, zd)
+		}
+	}
+	return zones
 }
 
