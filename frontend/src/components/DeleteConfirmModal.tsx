@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { deleteActivity, deleteActivities } from '@/api/activities'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 interface Props {
   /** Single ID or array for bulk delete. */
@@ -58,9 +59,7 @@ export default function DeleteConfirmModal({
       : 'Diese Aktion kann nicht rückgängig gemacht werden. Alle Originaldateien werden dauerhaft aus dem Speicher entfernt.'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-sm p-6 space-y-4">
+    <ModalShell onClose={onClose} maxWidth="max-w-sm" className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-4">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           {isSingle ? 'Aktivität löschen?' : `${activityIds.length} Aktivitäten löschen?`}
         </h2>
@@ -142,7 +141,6 @@ export default function DeleteConfirmModal({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </ModalShell>
   )
 }
