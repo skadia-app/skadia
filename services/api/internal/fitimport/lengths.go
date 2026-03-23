@@ -58,6 +58,15 @@ func ExtractLengths(lengths []*mesgdef.Length) []model.LengthRecord {
 			rec.LengthType = strings.ToLower(l.LengthType.String())
 		}
 
+		// Stroke count per stroke type ([]uint16 → []int16)
+		if l.StrokeCount != nil {
+			arr := make([]int16, len(l.StrokeCount))
+			for j, s := range l.StrokeCount {
+				arr[j] = int16(s)
+			}
+			rec.StrokeCount = arr
+		}
+
 		result = append(result, rec)
 	}
 

@@ -1812,10 +1812,12 @@ type GearCostSummary struct {
 
 // TimeInZone is the API response for a single zone.
 type TimeInZone struct {
-	ZoneType  string   `json:"zone_type"`
-	ZoneIndex int      `json:"zone_index"`
-	ZoneHigh  *float64 `json:"zone_high,omitempty"`
-	Seconds   int      `json:"seconds"`
+	ZoneType     string   `json:"zone_type"`
+	ZoneIndex    int      `json:"zone_index"`
+	ZoneHigh     *float64 `json:"zone_high,omitempty"`
+	Seconds      int      `json:"seconds"`
+	LapID        *string  `json:"lap_id,omitempty"`
+	SegmentLapID *string  `json:"segment_lap_id,omitempty"`
 }
 
 // ZoneDistributionResponse is the API response for zone distribution.
