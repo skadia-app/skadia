@@ -190,16 +190,10 @@ type LandmarkCandidate struct {
 	Ele          int32
 }
 
-// SelectLandmarks selects up to 16 landmarks from the given tiles using a combination of:
-//   - BBox corner-nearest nodes (slots 0-3)
-//   - OSM pass/saddle landmarks (slots 4-7, optional)
-//   - OSM peak landmarks (slots 8-11, optional)
-//   - Farthest-by-Dijkstra nodes (slots 12-15, optional)
-//   - Elevation-spread fill (fallback for incomplete sets)
-//
-// farthestDijkstra may be nil to skip graph-distance-based selection.
-// osmPassCandidates and osmPeakCandidates may be nil to skip OSM-based selection.
-func SelectLandmarks(
+// SelectLandmarksLegacy is the pre-2026-03-24 selection strategy.
+// Uses BBox corners + OSM pass/peak + Farthest-Point.
+// Kept for rollback via LANDMARK_STRATEGY=legacy.
+func SelectLandmarksLegacy(
 	tiles []TileScanResult,
 	farthestDijkstra func(src uint64) (LandmarkCandidate, error),
 	osmPassCandidates []LandmarkCandidate,
@@ -319,6 +313,162 @@ func SelectLandmarks(
 	}
 
 	slog.Info("landmark selection complete", "total", pickIdx)
+	return meta, nil
+}
+
+// SelectLandmarks selects up to 16 landmarks using the Crossing-Flanks strategy:
+//   - Slots 0-3:   BBox corner-nearest nodes (baseline)
+//   - Slots 4-11:  Crossing flank landmarks (up to 8: 2 per crossing seed)
+//   - Slots 12-15: Farthest-by-Dijkstra with flank seeds + anti-clustering
+//
+// flankLandmarks: up to 8 pre-computed flank landmarks from FindFlankLandmarks.
+// farthestDijkstra: callback that runs a full Dijkstra from a source and returns
+// the farthest reachable node. May be nil to skip farthest fill.
+func SelectLandmarks(
+	tiles []TileScanResult,
+	flankLandmarks []LandmarkCandidate,
+	farthestDijkstra func(src uint64) (LandmarkCandidate, error),
+) (*LandmarkMetaData, error) {
+	if len(tiles) == 0 {
+		return nil, fmt.Errorf("no tiles to select landmarks from")
+	}
+
+	var minLat, maxLat, minLon, maxLon int32
+	minLat, minLon = math.MaxInt32, math.MaxInt32
+	maxLat, maxLon = math.MinInt32, math.MinInt32
+	var totalNodes int
+
+	for _, t := range tiles {
+		totalNodes += int(t.NodeCount)
+		for i := range t.NodeCount {
+			lat, lon := t.NodeLats[i], t.NodeLons[i]
+			if lat < minLat {
+				minLat = lat
+			}
+			if lat > maxLat {
+				maxLat = lat
+			}
+			if lon < minLon {
+				minLon = lon
+			}
+			if lon > maxLon {
+				maxLon = lon
+			}
+		}
+	}
+
+	slog.Info("landmark selection: scanned nodes", "total", totalNodes,
+		"bbox", fmt.Sprintf("lat[%d,%d] lon[%d,%d]", minLat, maxLat, minLon, maxLon))
+
+	var landmarks [16]LandmarkCandidate
+	used := make(map[uint64]bool, 16)
+	pickIdx := 0
+
+	pick := func(c LandmarkCandidate) bool {
+		if pickIdx >= 16 || c.GlobalNodeID == 0 || used[c.GlobalNodeID] {
+			return false
+		}
+		landmarks[pickIdx] = c
+		used[c.GlobalNodeID] = true
+		pickIdx++
+		return true
+	}
+
+	// --- Slot 0-3: BBox corners (identical to legacy) ---
+	midLatRad := float64(minLat+maxLat) / 2.0 * 1.745329252e-9
+	cosLat := math.Cos(midLatRad)
+	corners := [][2]int32{
+		{minLat, minLon}, {minLat, maxLon},
+		{maxLat, minLon}, {maxLat, maxLon},
+	}
+	for _, corner := range corners {
+		best := findNearestCosLat(tiles, corner[0], corner[1], cosLat, used)
+		if best.GlobalNodeID != 0 {
+			pick(best)
+		}
+	}
+
+	// --- Slot 4-11: Crossing flank landmarks ---
+	for _, flank := range flankLandmarks {
+		if pickIdx >= 12 {
+			break
+		}
+		pick(flank)
+	}
+
+	// --- Slot 12-15: Farthest-Point from flank seeds ---
+	if farthestDijkstra != nil && pickIdx > 0 {
+		// Anti-clustering: minimum Euclidean distance between landmarks
+		diagSq := float64((maxLat-minLat)*(maxLat-minLat)) +
+			float64((maxLon-minLon)*(maxLon-minLon))
+		minSpacingSq := diagSq / 36.0 // (diag/6)^2
+
+		// Rotate through flank landmarks as seeds (prefer flanks over BBox corners)
+		seedStart := 4 // first flank slot
+		if len(flankLandmarks) == 0 {
+			seedStart = 0 // fallback: use BBox corners as seeds
+		}
+
+		seedIdx := 0
+		attempts := 0
+		for pickIdx < 16 && attempts < 32 {
+			attempts++
+			srcSlot := seedStart + (seedIdx % max(1, min(len(flankLandmarks), 8)))
+			seedIdx++
+			if srcSlot >= pickIdx {
+				srcSlot = 0
+			}
+			src := landmarks[srcSlot].GlobalNodeID
+
+			candidate, err := farthestDijkstra(src)
+			if err != nil {
+				slog.Warn("farthest dijkstra failed", "error", err, "idx", pickIdx)
+				break
+			}
+			if candidate.GlobalNodeID == 0 || used[candidate.GlobalNodeID] {
+				continue
+			}
+
+			// Anti-clustering check
+			tooClose := false
+			for li := range pickIdx {
+				dlat := float64(candidate.Lat - landmarks[li].Lat)
+				dlon := float64(candidate.Lon - landmarks[li].Lon)
+				if dlat*dlat+dlon*dlon < minSpacingSq {
+					tooClose = true
+					break
+				}
+			}
+			if tooClose {
+				continue
+			}
+
+			pick(candidate)
+		}
+	}
+
+	// Elevation-spread fallback if still under 16
+	if pickIdx < 16 {
+		slog.Warn("landmark selection incomplete", "count", pickIdx, "target", 16)
+		fillLandmarksFromElevSpread(tiles, &landmarks, &pickIdx, used)
+	}
+
+	meta := &LandmarkMetaData{
+		UphillThreshold:   7.0,
+		DownhillThreshold: 7.0,
+		LandmarkCount:     pickIdx,
+		PreprocessingTime: time.Now(),
+	}
+	for i := range pickIdx {
+		meta.NodeIDs[i] = landmarks[i].GlobalNodeID
+		meta.Lats[i] = landmarks[i].Lat
+		meta.Lons[i] = landmarks[i].Lon
+	}
+
+	slog.Info("landmark selection complete",
+		"total", pickIdx,
+		"flanks", min(len(flankLandmarks), 8),
+		"bbox", 4)
 	return meta, nil
 }
 
