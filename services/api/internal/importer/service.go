@@ -79,9 +79,9 @@ func NewService(
 //  2. Phase 1 (parallel):
 //     Group A (sequential): InsertStreams → InsertTrack → InsertHeatmapData
 //     Group C (parallel): RR-Intervals, Sensors+Devices, Laps, Splits, SplitSummaries,
-//                          Lengths, ClimbPro, TimeInZones
+//                          Lengths, ClimbPro, TimeInZones, Events, Sets, Jumps, HrData, SegmentLaps
 //     Group D (parallel): UpdateActivityFileInfo + S3 Meta Upload
-//  3. NATS Events, Shadow FS, Background Segment-Matching
+//  3. DeveloperFieldDefs, Workout + Link, Stream-Enrichment, NATS Events, Shadow FS, Segment-Matching
 func (s *Service) PostProcess(
 	ctx context.Context,
 	userID, activityID string,
@@ -239,6 +239,41 @@ func (s *Service) PostProcess(
 		return nil
 	})
 
+	g.Go(func() error {
+		if err := s.DB.InsertActivityEvents(gCtx, activityID, data.Events); err != nil {
+			slog.Error("insert activity events failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertActivitySets(gCtx, activityID, data.Sets); err != nil {
+			slog.Error("insert activity sets failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertActivityJumps(gCtx, activityID, data.Jumps); err != nil {
+			slog.Error("insert activity jumps failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertActivityHrData(gCtx, activityID, data.HrData); err != nil {
+			slog.Error("insert activity hr data failed", "error", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.DB.InsertActivitySegmentLaps(gCtx, activityID, data.SegmentLaps); err != nil {
+			slog.Error("insert activity segment laps failed", "error", err)
+		}
+		return nil
+	})
+
 	// Group D: file info + S3 meta sidecar (parallel to everything else)
 	g.Go(func() error {
 		metaKey := s3Key + ".meta"
@@ -262,6 +297,25 @@ func (s *Service) PostProcess(
 	}
 
 	// ── Phase 2 (post-parallel) ───────────────────────────────────────────
+
+	// Developer field definitions (idempotent upsert, no FK dependency)
+	if len(data.DeveloperFieldDefs) > 0 {
+		if err := s.DB.UpsertDeveloperFieldDefs(ctx, data.DeveloperFieldDefs); err != nil {
+			slog.Error("upsert developer field defs failed", "error", err)
+		}
+	}
+
+	// Workout + link to activity
+	if data.Workout != nil {
+		workoutID, err := s.DB.UpsertWorkout(ctx, userID, *data.Workout, data.WorkoutSteps)
+		if err != nil {
+			slog.Error("upsert workout failed", "error", err)
+		} else if workoutID != "" {
+			if err := s.DB.SetActivityWorkoutID(ctx, activityID, workoutID); err != nil {
+				slog.Error("set activity workout id failed", "error", err)
+			}
+		}
+	}
 
 	// Stream-Enrichment runs AFTER InsertStreams (Phase 1) to avoid race condition
 	// where activity_streams is still empty.

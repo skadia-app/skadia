@@ -570,17 +570,23 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro).
+	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro, events, sets, jumps, hr data, segment laps, time-in-zone).
 	if doDetails {
-		// Batch all 5 deletes in one round-trip.
+		// Batch all 11 deletes in one round-trip.
 		detailBatch := &pgx.Batch{}
 		detailBatch.Queue("DELETE FROM activity_laps WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_splits WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_split_summaries WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_lengths WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_climb_pro_events WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_events WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_sets WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_jumps WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_hr_data WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_segment_laps WHERE activity_id = $1", activityID)
+		detailBatch.Queue("DELETE FROM activity_time_in_zone WHERE activity_id = $1", activityID)
 		br := h.DB.Pool.SendBatch(ctx, detailBatch)
-		for range 5 {
+		for range 11 {
 			if _, err := br.Exec(); err != nil {
 				br.Close()
 				return fmt.Errorf("batch delete details: %w", err)
@@ -595,8 +601,39 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		g.Go(func() error { return h.DB.InsertSplitSummaries(gCtx, activityID, data.SplitSummaries) })
 		g.Go(func() error { return h.DB.InsertLengths(gCtx, activityID, data.Lengths) })
 		g.Go(func() error { return h.DB.InsertClimbProEvents(gCtx, activityID, data.ClimbProEvents) })
+		g.Go(func() error { return h.DB.InsertActivityEvents(gCtx, activityID, data.Events) })
+		g.Go(func() error { return h.DB.InsertActivitySets(gCtx, activityID, data.Sets) })
+		g.Go(func() error { return h.DB.InsertActivityJumps(gCtx, activityID, data.Jumps) })
+		g.Go(func() error { return h.DB.InsertActivityHrData(gCtx, activityID, data.HrData) })
+		g.Go(func() error { return h.DB.InsertActivitySegmentLaps(gCtx, activityID, data.SegmentLaps) })
 		if err := g.Wait(); err != nil {
 			return fmt.Errorf("insert details: %w", err)
+		}
+
+		// Session-level time-in-zone (after inserts since activity_time_in_zone was deleted above)
+		if len(data.TimeInZoneData) > 0 {
+			if err := h.DB.SaveTimeInZones(ctx, activityID, nil, nil, data.TimeInZoneData); err != nil {
+				slog.Warn("reprocess: save time-in-zone failed", "id", activityID, "error", err)
+			}
+		}
+
+		// Developer field definitions (idempotent upsert)
+		if len(data.DeveloperFieldDefs) > 0 {
+			if err := h.DB.UpsertDeveloperFieldDefs(ctx, data.DeveloperFieldDefs); err != nil {
+				slog.Warn("reprocess: upsert developer field defs failed", "id", activityID, "error", err)
+			}
+		}
+
+		// Workout + link to activity
+		if data.Workout != nil {
+			workoutID, err := h.DB.UpsertWorkout(ctx, userID, *data.Workout, data.WorkoutSteps)
+			if err != nil {
+				slog.Warn("reprocess: upsert workout failed", "id", activityID, "error", err)
+			} else if workoutID != "" {
+				if err := h.DB.SetActivityWorkoutID(ctx, activityID, workoutID); err != nil {
+					slog.Warn("reprocess: set activity workout id failed", "id", activityID, "error", err)
+				}
+			}
 		}
 	}
 
