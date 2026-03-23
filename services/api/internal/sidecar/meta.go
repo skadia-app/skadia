@@ -20,24 +20,91 @@ type MetaFile struct {
 	DistanceM        float64   `json:"distance_m,omitempty"`
 	ElevationGainM   float64   `json:"elevation_gain_m,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
+
+	// v3 — User-editable fields (not regenerable from FIT)
+	Description   string   `json:"description,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	GearID        string   `json:"gear_id,omitempty"`
+	GearName      string   `json:"gear_name,omitempty"`
+	Visibility    string   `json:"visibility,omitempty"`
+	WorkoutFeel   *int     `json:"workout_feel,omitempty"`
+	WorkoutRpe    *int     `json:"workout_rpe,omitempty"`
+	IsEbike       bool     `json:"is_ebike,omitempty"`
+	IsManualEntry bool     `json:"is_manual_entry,omitempty"`
+	Source        string   `json:"source,omitempty"`
 }
 
+// GenerateMeta creates a v3 MetaFile from ActivityData (FIT-parsed import data).
+// User-editable fields are left empty — use GenerateMetaV3 to include them.
 func GenerateMeta(activityID string, data *model.ActivityData) *MetaFile {
-	return &MetaFile{
-		SchemaVersion:    2,
-		SkadiaID:        activityID,
-		OriginalFilename: data.OriginalName,
-		FileHashSHA256:   data.FileHash,
-		FileFormat:       data.FileFormat,
-		SportType:        data.SportType,
-		SubType:          data.SubType,
-		StartedAt:        data.StartedAt,
-		DistanceM:        data.DistanceM,
-		ElevationGainM:   data.ElevationGainM,
-		CreatedAt:        time.Now().UTC(),
+	return GenerateMetaV3(activityID, data, nil)
+}
+
+// GenerateMetaV3 creates a v3 MetaFile combining FIT data and user-editable fields.
+//   - If data != nil: FIT fields come from data (import path).
+//   - If data == nil && activity != nil: FIT fields come from the Activity model.
+//   - User-editable fields always come from activity (when not nil).
+func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model.Activity) *MetaFile {
+	m := &MetaFile{
+		SchemaVersion: 3,
+		SkadiaID:     activityID,
+		CreatedAt:     time.Now().UTC(),
 	}
+
+	// FIT fields: prefer ActivityData, fall back to Activity model.
+	if data != nil {
+		m.OriginalFilename = data.OriginalName
+		m.FileHashSHA256 = data.FileHash
+		m.FileFormat = data.FileFormat
+		m.SportType = data.SportType
+		m.SubType = data.SubType
+		m.StartedAt = data.StartedAt
+		m.DistanceM = data.DistanceM
+		m.ElevationGainM = data.ElevationGainM
+	} else if activity != nil {
+		m.OriginalFilename = derefStr(activity.OriginalFilename)
+		m.FileHashSHA256 = derefStr(activity.FileHash)
+		m.FileFormat = derefStr(activity.OriginalFileFormat)
+		m.SportType = activity.SportType
+		m.SubType = derefStr(activity.SubType)
+		m.StartedAt = activity.StartedAt
+		m.DistanceM = derefFloat(activity.DistanceM)
+		m.ElevationGainM = derefFloat(activity.ElevationGainM)
+	}
+
+	// User-editable fields from Activity model.
+	if activity != nil {
+		// Title only if manually set (auto-titles are regenerated on recompute).
+		if activity.TitleIsManual {
+			m.Title = derefStr(activity.Title)
+		}
+		m.Description = derefStr(activity.Description)
+		m.Tags = activity.Tags
+		m.GearID = derefStr(activity.GearID)
+		m.Visibility = activity.Visibility
+		m.WorkoutFeel = activity.WorkoutFeel
+		m.WorkoutRpe = activity.WorkoutRpe
+		m.IsEbike = activity.IsEbike
+		m.Source = derefStr(activity.Source)
+	}
+
+	return m
 }
 
 func (m *MetaFile) Marshal() ([]byte, error) {
 	return json.MarshalIndent(m, "", "  ")
+}
+
+func derefStr(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
+}
+
+func derefFloat(p *float64) float64 {
+	if p != nil {
+		return *p
+	}
+	return 0
 }

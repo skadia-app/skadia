@@ -606,7 +606,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.min_core_temperature_c, a.max_core_temperature_c,
 		a.avg_lap_time_s, a.best_lap_index, a.num_laps, a.first_lap_index,
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
-		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng
+		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
+		COALESCE(a.sidecar_meta_key, ''), COALESCE(a.title_is_manual, false)
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -686,6 +687,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.AvgLapTimeS, &a.BestLapIndex, &a.NumLaps, &a.FirstLapIndex,
 		&a.IntensityFactor, &a.LeftRightBalance, &a.SportProfileName, &a.SportIndex,
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
+		&a.SidecarMetaKey, &a.TitleIsManual,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
