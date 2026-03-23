@@ -10,7 +10,6 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
-	"github.com/go-chi/chi/v5"
 )
 
 type resolveSportConflictRequest struct {
@@ -23,16 +22,8 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	activityID := chi.URLParam(r, "id")
-
-	// Ownership + existence check
-	activity, err := h.DB.GetActivity(r.Context(), activityID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
-		return
-	}
-	if activity == nil || activity.UserID != userID {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+	activity, activityID, ok := h.requireActivity(w, r, userID)
+	if !ok {
 		return
 	}
 
