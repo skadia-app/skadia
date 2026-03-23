@@ -55,6 +55,17 @@ func ReadColdFloat32SectionInto(f *os.File, entry sectionEntry, offset, count ui
 // NOTE: Allocates on every call. For hot-path usage, consider LandmarkDistsInto
 // with pre-allocated buffers.
 func (g *Graph) LandmarkDists(setID LandmarkSetID, localNodeID uint32) []float32 {
+	// Try heap cache first
+	if heap := g.ensureLandmarkHeap(setID); heap != nil {
+		offset := uint32(localNodeID) * LandmarksPerSet
+		end := offset + LandmarksPerSet
+		if end <= uint32(len(heap)) {
+			result := make([]float32, LandmarksPerSet)
+			copy(result, heap[offset:end])
+			return result
+		}
+	}
+	// Fallback: ReadAt from cold section
 	sectionID := SectionLandmarkDistA + uint16(setID)
 	entry, ok := g.coldSections[sectionID]
 	if !ok || g.backingFile == nil {
@@ -73,6 +84,19 @@ func (g *Graph) LandmarkDists(setID LandmarkSetID, localNodeID uint32) []float32
 // Both buffers are grown automatically if undersized.
 // Returns the filled slice or nil if no data is available.
 func (g *Graph) LandmarkDistsInto(setID LandmarkSetID, localNodeID uint32, dst []float32, byteBuf []byte) []float32 {
+	// Try heap cache first (eliminates ReadAt syscall)
+	if heap := g.ensureLandmarkHeap(setID); heap != nil {
+		offset := uint32(localNodeID) * LandmarksPerSet
+		end := offset + LandmarksPerSet
+		if end <= uint32(len(heap)) {
+			if len(dst) < int(LandmarksPerSet) {
+				dst = make([]float32, LandmarksPerSet)
+			}
+			copy(dst[:LandmarksPerSet], heap[offset:end])
+			return dst[:LandmarksPerSet]
+		}
+	}
+	// Fallback: ReadAt from cold section
 	sectionID := SectionLandmarkDistA + uint16(setID)
 	entry, ok := g.coldSections[sectionID]
 	if !ok || g.backingFile == nil {
@@ -94,12 +118,7 @@ func (g *Graph) LandmarkDistsInto(setID LandmarkSetID, localNodeID uint32, dst [
 // byteBuf must have length >= nodeCount * LandmarksPerSet * 4.
 // Returns the filled slice (length = actualCount * LandmarksPerSet) or nil on error / unavailable.
 func (g *Graph) LandmarkDistsPageInto(setID LandmarkSetID, startLocalNode, nodeCount uint32, dst []float32, byteBuf []byte) []float32 {
-	sectionID := SectionLandmarkDistA + uint16(setID)
-	entry, ok := g.coldSections[sectionID]
-	if !ok || g.backingFile == nil {
-		return nil
-	}
-	// Clamp to available node count.
+	// Clamp to available node count
 	if startLocalNode >= g.NodeCount {
 		return nil
 	}
@@ -109,11 +128,56 @@ func (g *Graph) LandmarkDistsPageInto(setID LandmarkSetID, startLocalNode, nodeC
 	if nodeCount == 0 {
 		return nil
 	}
-	floatOffset := startLocalNode * LandmarksPerSet
+
 	floatCount := nodeCount * LandmarksPerSet
+
+	// Try heap cache first
+	if heap := g.ensureLandmarkHeap(setID); heap != nil {
+		offset := startLocalNode * LandmarksPerSet
+		end := offset + floatCount
+		if end <= uint32(len(heap)) {
+			if uint32(len(dst)) < floatCount {
+				dst = make([]float32, floatCount)
+			}
+			copy(dst[:floatCount], heap[offset:end])
+			return dst[:floatCount]
+		}
+	}
+
+	// Fallback: ReadAt from cold section
+	sectionID := SectionLandmarkDistA + uint16(setID)
+	entry, ok := g.coldSections[sectionID]
+	if !ok || g.backingFile == nil {
+		return nil
+	}
+	floatOffset := startLocalNode * LandmarksPerSet
 	result, err := ReadColdFloat32SectionInto(g.backingFile, entry, floatOffset, floatCount, dst, byteBuf)
 	if err != nil {
 		return nil
 	}
 	return result
+}
+
+// ensureLandmarkHeap lazily loads the entire landmark section for setID into
+// heap memory. Subsequent LandmarkDistsInto / LandmarkDistsPageInto calls
+// read from this heap slice instead of making pread64 syscalls.
+//
+// Memory cost: NodeCount * LandmarksPerSet * 4 bytes per set.
+// Example: 200K nodes * 16 * 4 = 12.8 MB. Large tiles (1M nodes): 64 MB.
+// Only ONE set is loaded per tile (whichever routing queries request first).
+func (g *Graph) ensureLandmarkHeap(setID LandmarkSetID) []float32 {
+	g.heapLandmarkOnce[setID].Do(func() {
+		sectionID := SectionLandmarkDistA + uint16(setID)
+		entry, ok := g.coldSections[sectionID]
+		if !ok || g.backingFile == nil {
+			return
+		}
+		count := g.NodeCount * LandmarksPerSet
+		dists, err := ReadColdFloat32Section(g.backingFile, entry, 0, count)
+		if err != nil {
+			return // silently fall back to ReadAt
+		}
+		g.heapLandmarkData[setID] = dists
+	})
+	return g.heapLandmarkData[setID]
 }
