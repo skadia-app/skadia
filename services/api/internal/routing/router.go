@@ -139,7 +139,11 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 				totalExp += segRes.expansions
 				totalMs += segRes.durationMs
 				for k, v := range segRes.state.nodes {
-					mergedState.nodes[k] = v
+					// Preserve segment-boundary nodes from previous segments
+					// to maintain the parent chain for retrack.
+					if _, exists := mergedState.nodes[k]; !exists {
+						mergedState.nodes[k] = v
+					}
 				}
 			}
 

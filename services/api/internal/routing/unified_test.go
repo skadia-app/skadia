@@ -140,7 +140,7 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 	}
 
 	// Pass1
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRetrackUnified_CoordinateCount(t *testing.T) {
 	}
 	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
 
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestRetrackUnified_AscentDescent(t *testing.T) {
 	}
 	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
 
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestFindRouteUnified_BasicRoute(t *testing.T) {
 	}
 
 	// Pass1
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
