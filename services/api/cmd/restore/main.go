@@ -321,8 +321,8 @@ func restoreOne(
 		}
 	}
 
-	// Heatmap
-	if len(data.TrackPoints) >= 2 {
+	// Heatmap (skip for heatmap-excluded activities)
+	if len(data.TrackPoints) >= 2 && !activity.ExcludeFromHeatmap {
 		var subTypePtr *string
 		if data.SubType != "" {
 			subTypePtr = &data.SubType
