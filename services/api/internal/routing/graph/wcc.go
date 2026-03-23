@@ -4,59 +4,29 @@ package graph
 // Uses union-find on the undirected version of the graph.
 func PruneWCC(g *Graph, minSize int) *Graph {
 	n := int(g.NodeCount)
-	parent := make([]int, n)
-	rank := make([]int, n)
-	size := make([]int, n)
-	for i := range parent {
-		parent[i] = i
-		size[i] = 1
-	}
-
-	var find func(int) int
-	find = func(x int) int {
-		for parent[x] != x {
-			parent[x] = parent[parent[x]]
-			x = parent[x]
-		}
-		return x
-	}
-
-	union := func(a, b int) {
-		ra, rb := find(a), find(b)
-		if ra == rb {
-			return
-		}
-		if rank[ra] < rank[rb] {
-			ra, rb = rb, ra
-		}
-		parent[rb] = ra
-		size[ra] += size[rb]
-		if rank[ra] == rank[rb] {
-			rank[ra]++
-		}
-	}
+	uf := newUnionFind(n)
 
 	for i := uint32(0); i < g.NodeCount; i++ {
 		for _, j := range g.Edges(i) {
-			union(int(i), int(j))
+			uf.union(int(i), int(j))
 		}
 	}
 
 	// Find the largest component size.
 	maxSize := 0
 	for i := range n {
-		root := find(i)
-		if size[root] > maxSize {
-			maxSize = size[root]
+		root := uf.find(i)
+		if uf.size[root] > maxSize {
+			maxSize = uf.size[root]
 		}
 	}
 
 	keep := make([]bool, n)
 	for i := range n {
-		root := find(i)
+		root := uf.find(i)
 		// Keep a node if its component is >= minSize, OR if it belongs to
 		// the largest component (always keep the main graph body).
-		if size[root] >= minSize || size[root] == maxSize {
+		if uf.size[root] >= minSize || uf.size[root] == maxSize {
 			keep[i] = true
 		}
 	}

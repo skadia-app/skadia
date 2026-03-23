@@ -78,39 +78,10 @@ func FilterWCCEdgeFile(inputPath, outputPath string, minSize int,
 
 	n := int(maxNode + 1)
 	stats.NodesTotal = n
-	parent := make([]int, n)
-	rank := make([]int, n)
-	size := make([]int, n)
-	for i := range parent {
-		parent[i] = i
-		size[i] = 1
-	}
-
-	find := func(x int) int {
-		for parent[x] != x {
-			parent[x] = parent[parent[x]]
-			x = parent[x]
-		}
-		return x
-	}
-
-	union := func(a, b int) {
-		ra, rb := find(a), find(b)
-		if ra == rb {
-			return
-		}
-		if rank[ra] < rank[rb] {
-			ra, rb = rb, ra
-		}
-		parent[rb] = ra
-		size[ra] += size[rb]
-		if rank[ra] == rank[rb] {
-			rank[ra]++
-		}
-	}
+	uf := newUnionFind(n)
 
 	for _, p := range pairs {
-		union(int(p.from), int(p.to))
+		uf.union(int(p.from), int(p.to))
 	}
 	pairs = nil // free
 
@@ -118,21 +89,21 @@ func FilterWCCEdgeFile(inputPath, outputPath string, minSize int,
 	keepRoot := make(map[int]bool)
 	maxSize := 0
 	for i := range n {
-		root := find(i)
-		if size[root] > maxSize {
-			maxSize = size[root]
+		root := uf.find(i)
+		if uf.size[root] > maxSize {
+			maxSize = uf.size[root]
 		}
 	}
 	for i := range n {
-		root := find(i)
-		if size[root] >= minSize || size[root] == maxSize {
+		root := uf.find(i)
+		if uf.size[root] >= minSize || uf.size[root] == maxSize {
 			keepRoot[root] = true
 		}
 	}
 	if borderNodes != nil {
 		for nodeID := range borderNodes {
 			if int(nodeID) < n {
-				keepRoot[find(int(nodeID))] = true
+				keepRoot[uf.find(int(nodeID))] = true
 			}
 		}
 	}
@@ -140,7 +111,7 @@ func FilterWCCEdgeFile(inputPath, outputPath string, minSize int,
 	// Build keep-set for nodes.
 	keepNode := make([]bool, n)
 	for i := range n {
-		if keepRoot[find(i)] {
+		if keepRoot[uf.find(i)] {
 			keepNode[i] = true
 		} else {
 			stats.NodesPruned++
