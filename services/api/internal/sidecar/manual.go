@@ -24,6 +24,7 @@ type ManualActivityFile struct {
 	Tags           []string          `json:"tags,omitempty"`
 	GearID         string            `json:"gear_id,omitempty"`
 	IsEbike        bool              `json:"is_ebike,omitempty"`
+	IsVirtual      bool              `json:"is_virtual,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	SourceFields   map[string]string `json:"source_fields,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`

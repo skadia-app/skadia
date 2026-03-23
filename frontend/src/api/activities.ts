@@ -9,6 +9,7 @@ export interface ActivityFilterParams {
   dateTo?: string
   isIndoor?: boolean | null
   isEbike?: boolean | null
+  isVirtual?: boolean | null
   hasGPS?: boolean | null
   gearId?: string
   search?: string
@@ -60,6 +61,7 @@ export async function fetchActivities(
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
   if (filters?.isIndoor !== null && filters?.isIndoor !== undefined) params.set('is_indoor', String(filters.isIndoor))
   if (filters?.isEbike !== null && filters?.isEbike !== undefined) params.set('is_ebike', String(filters.isEbike))
+  if (filters?.isVirtual !== null && filters?.isVirtual !== undefined) params.set('is_virtual', String(filters.isVirtual))
   if (filters?.hasGPS !== null && filters?.hasGPS !== undefined) params.set('has_gps', String(filters.hasGPS))
   if (filters?.gearId) params.set('gear_id', filters.gearId)
   if (filters?.search) params.set('search', filters.search)

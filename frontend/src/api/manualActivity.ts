@@ -13,6 +13,7 @@ export interface CreateManualActivityRequest {
   tags?: string[]
   gear_id?: string
   is_ebike?: boolean
+  is_virtual?: boolean
   workout_feel?: number
   workout_rpe?: number
 }
