@@ -41,7 +41,7 @@ echo "→ Importing into PostGIS via osm2pgsql..."
 osm2pgsql \
   --database "${DATABASE_URL:-skadia}" \
   --output=flex \
-  --style "$(dirname "$0")/../services/osm/skadia-osm.lua" \
+  --style "$(dirname "$0")/../services/api/internal/osm/skadia-osm.lua" \
   --slim --drop \
   "$PBF"
 

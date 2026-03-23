@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${SCRIPT_DIR}/data"
-LUA_SCRIPT="${SCRIPT_DIR}/skadia-osm.lua"
+LUA_SCRIPT="$(cd "${SCRIPT_DIR}/../../services/api/internal/osm" && pwd)/skadia-osm.lua"
 DB_NAME="${SKADIA_DB:-skadia}"
 DB_HOST="${SKADIA_DB_HOST:-localhost}"
 DB_PORT="${SKADIA_DB_PORT:-5432}"
