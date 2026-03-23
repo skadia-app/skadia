@@ -465,6 +465,9 @@ type Activity struct {
 	// Device registry link
 	RecordingDeviceID   *string `json:"recording_device_id,omitempty"`
 	RecordingDeviceName *string `json:"recording_device_name,omitempty"`
+	// Sidecar / manual-title tracking
+	SidecarMetaKey string `json:"sidecar_meta_key,omitempty"`
+	TitleIsManual  bool   `json:"title_is_manual,omitempty"`
 
 	// FIT SDK — Workout FK
 	WorkoutID *string `json:"workout_id,omitempty"`
