@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -181,6 +182,28 @@ func (db *DB) ConsumeAuthCode(ctx context.Context, codeHash string) (uuid.UUID, 
 	return userID, codeChallenge, redirectURI, nil
 }
 
+// --- Audit Log ---
+
+// LogAuthEvent records an auth event in the audit log.
+func (db *DB) LogAuthEvent(ctx context.Context, userID, eventType, ipAddress, userAgent string, details map[string]string) {
+	var uid *string
+	if userID != "" {
+		uid = &userID
+	}
+	var ip *string
+	if ipAddress != "" {
+		ip = &ipAddress
+	}
+	var detailsJSON []byte
+	if len(details) > 0 {
+		detailsJSON, _ = json.Marshal(details)
+	}
+	_, _ = db.Pool.Exec(ctx,
+		`INSERT INTO auth_audit_log (user_id, event_type, ip_address, user_agent, details)
+		 VALUES ($1, $2, $3::inet, $4, $5::jsonb)`,
+		uid, eventType, ip, userAgent, detailsJSON)
+}
+
 // --- Cleanup ---
 
 // CleanupExpiredTokens removes old tokens per retention policy.
@@ -228,6 +251,13 @@ func (db *DB) CleanupExpiredTokens(ctx context.Context) error {
 		`UPDATE users SET created_by_ip = NULL WHERE created_at < NOW() - INTERVAL '90 days' AND created_by_ip IS NOT NULL`)
 	if err != nil {
 		return fmt.Errorf("scrub user registration IPs: %w", err)
+	}
+
+	// Purge audit log entries older than 1 year.
+	_, err = db.Pool.Exec(ctx,
+		"DELETE FROM auth_audit_log WHERE created_at < NOW() - INTERVAL '365 days'")
+	if err != nil {
+		return fmt.Errorf("purge old audit log: %w", err)
 	}
 
 	return nil

@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,7 +15,7 @@ import (
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `{"error":%q}`, msg)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 // JWTAuth validates HS256 JWTs issued by this backend.

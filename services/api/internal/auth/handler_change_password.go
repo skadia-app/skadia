@@ -89,6 +89,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		slog.Error("revoke tokens after password change failed", "error", err)
 	}
 
-	slog.Info("password changed", "user_id", userID)
+	slog.Info("auth.password_change", "user_id", userID)
+	go h.DB.LogAuthEvent(r.Context(), userID, "password_change", middleware.ClientIP(r), r.UserAgent(), nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed"})
 }

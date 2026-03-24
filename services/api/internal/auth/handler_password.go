@@ -11,6 +11,8 @@ import (
 
 	"github.com/alexedwards/argon2id"
 	"github.com/google/uuid"
+
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 // ForgotPassword handles POST /auth/forgot-password.
@@ -48,9 +50,10 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Background: lookup user, generate token, send email.
 	go func() {
-		// Use Background context (not request context) because the HTTP response
-		// has already been sent. The 30s timeout limits goroutine lifetime.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from shutdownCtx (not request context) because the HTTP response
+		// has already been sent. The 30s timeout limits goroutine lifetime, and
+		// shutdownCtx ensures cancellation on server shutdown.
+		ctx, cancel := context.WithTimeout(h.shutdownCtx, 30*time.Second)
 		defer cancel()
 
 		user, err := h.DB.GetUserByEmail(ctx, req.Email)
@@ -149,7 +152,8 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		slog.Error("clear login delays after password reset failed", "error", err)
 	}
 
-	slog.Info("password reset", "user_id", userID.String())
+	slog.Info("auth.password_reset", "user_id", userID.String())
+	go h.DB.LogAuthEvent(r.Context(), userID.String(), "password_reset", middleware.ClientIP(r), r.UserAgent(), nil)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }

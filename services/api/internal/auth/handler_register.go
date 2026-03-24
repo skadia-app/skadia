@@ -115,7 +115,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("user registered", "user_id", user.ID, "mode", h.Config.RegistrationMode)
+	slog.Info("auth.register", "user_id", user.ID, "mode", h.Config.RegistrationMode)
+	go h.DB.LogAuthEvent(r.Context(), user.ID, "register", middleware.ClientIP(r), r.UserAgent(), map[string]string{"mode": h.Config.RegistrationMode})
 
 	// Generate verification token.
 	token, err := GenerateToken()

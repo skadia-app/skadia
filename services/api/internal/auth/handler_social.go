@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 // --- OAuth2 Config Builders ---
@@ -194,7 +196,8 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	// Update last login timestamp.
 	_ = h.DB.UpdateLoginSuccess(r.Context(), user.ID)
 
-	slog.Info("login success", "user_id", user.ID, "method", "social", "provider", provider)
+	slog.Info("auth.login_success", "user_id", user.ID, "method", "social", "provider", provider)
+	go h.DB.LogAuthEvent(r.Context(), user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "social", "provider": provider})
 
 	// Generate a short-lived auth code (30s, single-use) for the frontend.
 	authCode, err := GenerateToken()
@@ -212,8 +215,8 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to frontend callback page with the auth code.
-	http.Redirect(w, r, h.Config.FrontendURL+"/callback?code="+authCode, http.StatusTemporaryRedirect)
+	// Redirect to frontend callback page with the auth code (URL-encoded for defense-in-depth).
+	http.Redirect(w, r, h.Config.FrontendURL+"/callback?code="+url.QueryEscape(authCode), http.StatusTemporaryRedirect)
 }
 
 // socialError redirects to the frontend login page with an error code.
