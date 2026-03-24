@@ -17,6 +17,8 @@ export interface ActivityFilterParams {
   excludeTags?: string[]
   includeGear?: string[]
   excludeGear?: string[]
+  includeDevices?: string[]
+  excludeDevices?: string[]
 }
 
 export async function fetchActivities(
@@ -69,6 +71,8 @@ export async function fetchActivities(
   if (filters?.excludeTags?.length) params.set('exclude_tags', filters.excludeTags.join(','))
   if (filters?.includeGear?.length) params.set('include_gear', filters.includeGear.join(','))
   if (filters?.excludeGear?.length) params.set('exclude_gear', filters.excludeGear.join(','))
+  if (filters?.includeDevices?.length) params.set('include_devices', filters.includeDevices.join(','))
+  if (filters?.excludeDevices?.length) params.set('exclude_devices', filters.excludeDevices.join(','))
 
   return apiClient<ActivitiesResponse>(`/activities?${params}`)
 }
