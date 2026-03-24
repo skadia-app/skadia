@@ -25,7 +25,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_required"})
 		return
 	}
 
@@ -94,11 +94,11 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 	if req.Token == "" || req.NewPassword == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token and new_password required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token_and_password_required"})
 		return
 	}
 	if len(req.NewPassword) < 10 {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
@@ -34,7 +35,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var sessions []sessionEntry
+	sessions := make([]sessionEntry, 0)
 	for rows.Next() {
 		var s sessionEntry
 		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.CreatedAt, &s.ExpiresAt); err != nil {
@@ -62,6 +63,10 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "family_id_required"})
 		return
 	}
+	if _, err := uuid.Parse(familyID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_session_id"})
+		return
+	}
 
 	// Verify the family belongs to this user.
 	var ownerID string
@@ -78,6 +83,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "session_revoke", middleware.ClientIP(r), r.UserAgent(), map[string]string{"family_id": familyID})
 	slog.Info("session revoked", "user_id", userID, "family_id", familyID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "session_revoked"})
 }
