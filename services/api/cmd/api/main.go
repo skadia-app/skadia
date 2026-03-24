@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -41,8 +43,8 @@ func main() {
 
 	// pprof server on :6060 (default http mux)
 	go func() {
-		slog.Info("pprof server listening", "addr", ":6060")
-		if err := http.ListenAndServe(":6060", nil); err != nil {
+		slog.Info("pprof server listening", "addr", "127.0.0.1:6060")
+		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
 			slog.Error("pprof server failed", "error", err)
 		}
 	}()
@@ -52,6 +54,7 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	auth.ValidateConfig(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -131,28 +134,6 @@ func main() {
 		}
 	}
 
-	// Auth config (optional – only when OIDC is configured)
-	var authCfg *handler.AuthConfig
-	if cfg.OIDCClientID != "" && cfg.JWTSecret != "" {
-		authCfg = &handler.AuthConfig{
-			OIDCBaseURL:      cfg.OIDCBaseURL,
-			OIDCExternalURL:  cfg.OIDCExternalURL,
-			OIDCClientID:     cfg.OIDCClientID,
-			OIDCClientSecret: cfg.OIDCClientSecret,
-			OIDCAppSlug:      cfg.OIDCAppSlug,
-			AppRedirectURI:        cfg.AppRedirectURI,
-			FrontendURL:           cfg.FrontendURL,
-			JWTSecret:             []byte(cfg.JWTSecret),
-		}
-		slog.Info("OIDC OIDC configured",
-			"base_url", cfg.OIDCBaseURL,
-			"external_url", cfg.OIDCExternalURL,
-			"redirect_uri", cfg.AppRedirectURI,
-		)
-	} else {
-		slog.Warn("OIDC OIDC not configured (OIDC_CLIENT_ID or JWT_SECRET missing)")
-	}
-
 	// Shadow File System (optional)
 	var shadowFSCfg *shadowfs.ShadowFSConfig
 	if cfg.ShadowFSBasePath != "" {
@@ -183,8 +164,7 @@ func main() {
 		DB:            db,
 		Storage:       s3Client,
 		Events:        pub,
-		Auth:          authCfg,
-		ShadowFS:      shadowFSCfg,
+		ShadowFS: shadowFSCfg,
 		ImportService: importSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
@@ -251,9 +231,45 @@ func main() {
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 
+	// Auth handler (Go-native auth)
+	authMailer := auth.NewMailer(cfg)
+	authRL := middleware.NewRateLimiter(ctx)
+	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
+
+	// Token cleanup (daily, graceful shutdown)
+	shutdown.Go("token-cleanup", func(ctx context.Context) {
+		// Run once immediately at startup
+		if err := db.CleanupExpiredTokens(ctx); err != nil {
+			slog.Error("initial token cleanup failed", "error", err)
+		} else {
+			slog.Info("token cleanup completed at startup")
+		}
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := db.CleanupExpiredTokens(ctx); err != nil {
+					slog.Error("token cleanup failed", "error", err)
+				} else {
+					slog.Info("periodic token cleanup completed")
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+
 	// Router
 	r := chi.NewRouter()
-	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.TrustedProxyRealIP(cfg.TrustedProxyCIDRs))
+	r.Use(middleware.SecurityHeaders(strings.HasPrefix(cfg.AppURL, "https://")))
+
+	// CSRF protection via Fetch Metadata (Go 1.26 net/http)
+	csrf := http.NewCrossOriginProtection()
+	r.Use(func(next http.Handler) http.Handler { return csrf.Handler(next) })
+
 	r.Use(middleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 
@@ -261,13 +277,39 @@ func main() {
 	r.Get("/health", h.Health)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Get("/login", h.AuthLogin)
-		r.Get("/callback", h.AuthCallback)
-		r.Post("/refresh", h.AuthRefresh)
-		r.Post("/logout", h.AuthLogout)
-		// Mobile PKCE endpoints (no cookie, tokens in body)
-		r.Post("/token", h.ExchangeToken)
-		r.Post("/mobile-refresh", h.MobileRefreshToken)
+		// Go-native auth endpoints
+		r.With(middleware.RateLimitGeneric(authRL)).Get("/config", authHandler.AuthConfig)
+
+		r.With(middleware.RateLimitRegister(authRL)).
+			Post("/register", authHandler.Register)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/verify-email", authHandler.VerifyEmail)
+		r.With(middleware.RateLimitForgotPW(authRL)).
+			Post("/forgot-password", authHandler.ForgotPassword)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/reset-password", authHandler.ResetPassword)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/exchange-code", authHandler.ExchangeCode)
+		r.With(middleware.RateLimitLoginByIP(authRL)).
+			Post("/login", authHandler.Login) // POST coexists with old GET
+
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Get("/social/{provider}", authHandler.SocialLogin)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Get("/social/{provider}/callback", authHandler.SocialCallback)
+
+		// Web session management (cookie-based)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/refresh", authHandler.Refresh)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/logout", authHandler.Logout)
+
+		// Mobile (Go-native)
+		r.With(middleware.RateLimitLoginByIP(authRL)).
+			Post("/mobile/login", authHandler.MobileLogin)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/mobile/refresh", authHandler.MobileRefresh)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/mobile/exchange", authHandler.MobileExchange)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/mobile/logout", authHandler.MobileLogout)
 	})
 
 	// Internal routes (no JWT auth — service-to-service only, network-level access control)
@@ -281,19 +323,84 @@ func main() {
 		} else {
 			var jwtSecret []byte
 			if cfg.JWTSecret != "" {
-				jwtSecret = []byte(cfg.JWTSecret)
+				jwtSecret, _ = hex.DecodeString(cfg.JWTSecret) // already validated by auth.ValidateConfig
 			}
-			jwtAuth := middleware.NewJWTAuth(cfg.OIDCJWKSURL, jwtSecret)
+			jwtAuth := middleware.NewJWTAuth(jwtSecret)
 			r.Use(jwtAuth.Middleware)
-			slog.Info("JWT auth enabled", "jwks_url", cfg.OIDCJWKSURL, "hs256", cfg.JWTSecret != "")
+			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}
 
 		r.Route("/api/v1", func(r chi.Router) {
+			// ── Admin routes (RequireAdmin) ──
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(middleware.RequireAdmin(db))
+
+				// Backfill / batch operations
+				r.Post("/backfill-heatmap", h.BackfillHeatmap)
+				r.Post("/backfill-heatmap-points", h.BackfillHeatmapPoints)
+				r.Post("/backfill-weather", h.BackfillWeather)
+				r.Post("/backfill-enrichment", h.BackfillEnrichment)
+				r.Post("/backfill-sunrise-sunset", h.BackfillSunriseSunset)
+				r.Post("/phash-backfill", h.StartPhashBackfill)
+				r.Post("/detect-max-hr", h.DetectMaxHR)
+				r.Post("/activities/recompute-all", h.RecomputeAllActivities)
+				r.Get("/activities/recompute-status", h.RecomputeStatus)
+
+				// OSM
+				r.Get("/osm-status", h.GetOSMStatus)
+				r.Get("/osm-regions/status", h.GetOSMRegionStatus)
+				r.Get("/osm-disk-usage", h.GetOSMDiskUsage)
+				r.Delete("/osm-regions/{regionID}", h.DeleteOSMRegion)
+				r.Get("/osm-regions", h.ListOSMRegions)
+				r.Post("/osm-import/start", h.StartOSMImport)
+				r.Post("/osm-import/cancel/{jobID}", h.CancelOSMImport)
+				r.Post("/osm-import/retry-enrichment", h.RetryOSMEnrichment)
+				r.Get("/osm-schedule", h.GetOSMSchedule)
+				r.Post("/osm-schedule", h.SetOSMSchedule)
+
+				// DEM
+				r.Get("/dem-status", h.GetDEMStatus)
+
+				// Routing infrastructure
+				r.Post("/routing/rebuild-tiles", h.RebuildRoutingTiles)
+				r.Post("/routing/rebuild-landmarks", h.RebuildLandmarks)
+				r.Post("/routing/build-brouter-segments", h.BuildBRouterSegments)
+				r.Post("/routing/download-brouter-segments", h.DownloadBRouterSegments)
+				r.Put("/routing/cache-budget", h.SetCacheBudget)
+
+				// LLM config (system-level)
+				r.Get("/llm-config", h.GetLLMConfig)
+				r.Put("/llm-config/{role}", h.PutLLMConfigRole)
+				r.Get("/llm-config/models", h.GetLLMModels)
+				r.Post("/llm-config/test", h.TestLLMConnection)
+
+				// ML System Settings (nightly job toggles etc.)
+				r.Get("/settings/ml", h.GetMLSystemSettings)
+				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
+
+				// Photo batch operations
+				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
+				r.Post("/photos/recompute-thumbnails", h.RecomputePhotoThumbnails)
+				r.Post("/photos/recompute-embeddings", h.RecomputePhotoEmbeddings)
+
+				// User management
+				r.Get("/users", authHandler.AdminListUsers)
+				r.Post("/users/{id}/activate", authHandler.AdminActivateUser)
+				r.Post("/users/{id}/deactivate", authHandler.AdminDeactivateUser)
+				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
+				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
+			})
+
+			// ── Regular authenticated routes ──
+			r.Post("/auth/change-password", authHandler.ChangePassword)
+			r.Get("/auth/sessions", authHandler.ListMySessions)
+			r.Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
+			r.Post("/auth/link/{provider}", authHandler.LinkSocialAccount)
+			r.Delete("/auth/link/{provider}", authHandler.UnlinkSocialAccount)
+
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)
 			r.Post("/activities/group", h.GroupActivities)
-			r.Post("/activities/recompute-all", h.RecomputeAllActivities)
-			r.Get("/activities/recompute-status", h.RecomputeStatus)
 			r.Post("/activities/re-enrich", h.ReEnrichActivities)
 			r.Get("/jobs/active", h.ListActiveJobs)
 			r.Get("/jobs/stream", h.StreamJobProgress)
@@ -364,39 +471,10 @@ func main() {
 			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
 			r.Delete("/tags/{id}/cover-image", h.ClearTagCoverImage)
 
-			// ML System Settings (nightly job toggles etc.)
-			r.Get("/settings/ml", h.GetMLSystemSettings)
-			r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
-
-			r.Post("/admin/backfill-heatmap", h.BackfillHeatmap)
-			r.Post("/admin/backfill-heatmap-points", h.BackfillHeatmapPoints)
-			r.Post("/admin/backfill-weather", h.BackfillWeather)
-			r.Post("/admin/backfill-enrichment", h.BackfillEnrichment)
-			r.Post("/admin/backfill-sunrise-sunset", h.BackfillSunriseSunset)
-			r.Post("/admin/phash-backfill", h.StartPhashBackfill)
-			r.Get("/admin/osm-status", h.GetOSMStatus)
-			r.Get("/admin/osm-regions/status", h.GetOSMRegionStatus)
-			r.Get("/admin/osm-disk-usage", h.GetOSMDiskUsage)
-			r.Delete("/admin/osm-regions/{regionID}", h.DeleteOSMRegion)
-			r.Get("/admin/osm-regions", h.ListOSMRegions)
-			r.Post("/admin/osm-import/start", h.StartOSMImport)
-			r.Post("/admin/osm-import/cancel/{jobID}", h.CancelOSMImport)
-			r.Post("/admin/osm-import/retry-enrichment", h.RetryOSMEnrichment)
-			// retry-topology removed: pgr_createTopology removed in pgRouting 4.0.1
-			r.Get("/admin/osm-schedule", h.GetOSMSchedule)
-			r.Post("/admin/osm-schedule", h.SetOSMSchedule)
-			r.Get("/admin/dem-status", h.GetDEMStatus)
-			r.Post("/admin/routing/rebuild-tiles", h.RebuildRoutingTiles)
-			r.Post("/admin/routing/rebuild-landmarks", h.RebuildLandmarks)
-			r.Post("/admin/routing/build-brouter-segments", h.BuildBRouterSegments)
-			r.Post("/admin/routing/download-brouter-segments", h.DownloadBRouterSegments)
-			r.Put("/admin/routing/cache-budget", h.SetCacheBudget)
-
 			r.Get("/me", h.GetMe)
 
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
-			r.Post("/admin/detect-max-hr", h.DetectMaxHR)
 
 			r.Get("/settings/heatmap", h.GetHeatmapSettings)
 			r.Put("/settings/heatmap", h.UpdateHeatmapSettings)
@@ -472,9 +550,6 @@ func main() {
 			r.Get("/photos/{photoID}/thumb", h.StreamActivityPhotoThumb)
 			r.Get("/photos/{photoID}/full", h.StreamActivityPhotoFull)
 			r.Get("/photos/{photoID}/preview", h.StreamActivityPhotoPreview)
-			r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
-			r.Post("/photos/recompute-thumbnails", h.RecomputePhotoThumbnails)
-			r.Post("/photos/recompute-embeddings", h.RecomputePhotoEmbeddings)
 			r.Get("/map/photos", h.ListMapPhotos)
 			r.Get("/photos", h.ListPhotoFeed)
 			r.Get("/photos/search", h.SearchPhotos)
@@ -497,9 +572,7 @@ func main() {
 			r.Get("/summits/by-name/activities", h.GetSummitActivitiesByName)
 			r.Get("/summits/{osm_id}/activities", h.GetSummitActivities)
 
-			// Trails: build-topology removed (pgRouting 4.0+ removed pgr_createTopology)
-
-			// Isochrone (pgRouting)
+			// Isochrone
 			r.Post("/isochrone", h.Isochrone)
 
 			// Segments
@@ -558,11 +631,7 @@ func main() {
 			r.Get("/settings/ml/user", h.GetMLUserSettings)
 			r.Put("/settings/ml/user/{key}", h.PutMLUserSetting)
 
-			// LLM Settings (Admin + User)
-			r.Get("/admin/llm-config", h.GetLLMConfig)
-			r.Put("/admin/llm-config/{role}", h.PutLLMConfigRole)
-			r.Get("/admin/llm-config/models", h.GetLLMModels)
-			r.Post("/admin/llm-config/test", h.TestLLMConnection)
+			// LLM User Settings
 			r.Get("/user/llm-config", h.GetLLMUserConfig)
 			r.Patch("/user/llm-config", h.PatchLLMUserConfig)
 

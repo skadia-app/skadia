@@ -8,7 +8,7 @@ import (
 
 // SetCacheBudget adjusts the tile cache budget at runtime.
 // PUT /admin/routing/cache-budget
-// Admin-Berechtigung wird durch OIDC-Proxy sichergestellt.
+// Admin-Berechtigung wird durch JWT-Middleware sichergestellt.
 func (h *Handler) SetCacheBudget(w http.ResponseWriter, r *http.Request) {
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})

@@ -14,17 +14,8 @@ type Config struct {
 	GarageSecretKey  string
 	GarageBucket     string
 	ListenAddr       string
-	DevAuth          bool
-	OIDCJWKSURL string
-
-	// OIDC OIDC
-	OIDCBaseURL      string // internal (container-to-container)
-	OIDCExternalURL  string // browser-facing (for redirects)
-	OIDCClientID     string
-	OIDCClientSecret string
-	OIDCAppSlug      string // e.g. "skadia"
-	AppRedirectURI        string // e.g. "http://localhost:8080/api/v1/auth/callback"
-	FrontendURL           string // e.g. "http://localhost:5173"
+	DevAuth     bool
+	FrontendURL string // e.g. "http://localhost:5173"
 
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret string
@@ -50,6 +41,26 @@ type Config struct {
 	// Routing
 	BRouterURL       string // e.g. http://brouter:17777
 	RoutingGraphPath string // path to binary graph file
+
+	// Auth (Go-native)
+	RegistrationMode   string // "invite" (default), "open", "approval"
+	OAuthEncryptionKey string // 32-byte hex for AES-256-GCM (social login tokens)
+	StravaClientID     string
+	StravaClientSecret string
+	GoogleClientID     string
+	GoogleClientSecret string
+	AppName            string // e.g. "Skadia"
+	AppURL             string // e.g. "https://fit.example.com" (used in emails, redirects)
+	TrustedProxyCIDRs  string // comma-separated CIDRs
+	MobileRedirectURI  string // e.g. "skadia://auth"
+
+	// SMTP
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPTLSMode  string // starttls (default) | ssl | none
 }
 
 func Load() (*Config, error) {
@@ -61,16 +72,8 @@ func Load() (*Config, error) {
 		GarageSecretKey:  os.Getenv("GARAGE_SECRET_KEY"),
 		GarageBucket:     getEnvDefault("GARAGE_BUCKET", "skadia-originals"),
 		ListenAddr:       getEnvDefault("LISTEN_ADDR", ":8080"),
-		DevAuth:          os.Getenv("DEV_AUTH") == "true",
-		OIDCJWKSURL: getEnvDefault("OIDC_JWKS_URL", "http://oidc:9000/application/o/skadia/jwks/"),
-
-		OIDCBaseURL:      getEnvDefault("OIDC_BASE_URL", "http://oidc:9000"),
-		OIDCExternalURL:  getEnvDefault("OIDC_EXTERNAL_URL", getEnvDefault("OIDC_BASE_URL", "http://localhost:9000")),
-		OIDCClientID:     os.Getenv("OIDC_CLIENT_ID"),
-		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
-		OIDCAppSlug:      getEnvDefault("OIDC_APP_SLUG", "skadia"),
-		AppRedirectURI:        getEnvDefault("APP_REDIRECT_URI", "http://localhost:8080/api/v1/auth/callback"),
-		FrontendURL:           getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
+		DevAuth:     os.Getenv("DEV_AUTH") == "true",
+		FrontendURL: getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
 		JWTSecret:             os.Getenv("JWT_SECRET"),
 
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
@@ -89,6 +92,24 @@ func Load() (*Config, error) {
 
 		BRouterURL:       os.Getenv("BROUTER_URL"),
 		RoutingGraphPath: getEnvDefault("ROUTING_GRAPH_PATH", "/data/routing/graph.bin"),
+
+		RegistrationMode:   getEnvDefault("REGISTRATION_MODE", "invite"),
+		OAuthEncryptionKey: os.Getenv("OAUTH_ENCRYPTION_KEY"),
+		StravaClientID:     os.Getenv("STRAVA_CLIENT_ID"),
+		StravaClientSecret: os.Getenv("STRAVA_CLIENT_SECRET"),
+		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		AppName:            getEnvDefault("APP_NAME", "Skadia"),
+		AppURL:             getEnvDefault("APP_URL", "http://localhost:5173"),
+		TrustedProxyCIDRs:  os.Getenv("TRUSTED_PROXY_CIDRS"),
+		MobileRedirectURI:  os.Getenv("MOBILE_REDIRECT_URI"),
+
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     parseIntDefault(os.Getenv("SMTP_PORT"), 587),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		SMTPTLSMode:  getEnvDefault("SMTP_TLS", "starttls"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -109,6 +130,17 @@ func getEnvDefault(key, defaultValue string) string {
 		return v
 	}
 	return defaultValue
+}
+
+func parseIntDefault(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return v
 }
 
 func parseMaxUploadSize(s string, defaultVal int64) int64 {

@@ -113,12 +113,38 @@ export async function tryRestoreSession(): Promise<boolean> {
   return refreshToken()
 }
 
-/** Authenticated fetch wrapper — adds Authorization header automatically */
-export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+/** Authenticated fetch wrapper — adds Authorization header, retries once on 401 */
+export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const token = getToken()
   const headers = new Headers(init?.headers)
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
   }
-  return fetch(input, { ...init, headers })
+
+  const res = await fetch(input, { ...init, headers, credentials: 'include' })
+
+  // On 401, try refreshing the token.
+  // Only retry on safe/idempotent methods to avoid double-submission (e.g. POST).
+  if (res.status === 401 && !DEV_AUTH) {
+    const method = (init?.method ?? 'GET').toUpperCase()
+    const isIdempotent = method === 'GET' || method === 'HEAD' || method === 'PUT' || method === 'DELETE'
+
+    const refreshed = await refreshToken()
+    if (refreshed && isIdempotent) {
+      const retryToken = getToken()
+      const retryHeaders = new Headers(init?.headers)
+      if (retryToken) {
+        retryHeaders.set('Authorization', `Bearer ${retryToken}`)
+      }
+      return fetch(input, { ...init, headers: retryHeaders, credentials: 'include' })
+    }
+    if (!refreshed) {
+      // Refresh failed — redirect to login
+      clearToken()
+      window.location.href = '/login'
+    }
+    // Non-idempotent: token refreshed for future calls, but return 401 to caller
+  }
+
+  return res
 }
