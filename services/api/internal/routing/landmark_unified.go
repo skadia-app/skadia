@@ -135,6 +135,30 @@ func landmarkBudgetDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, s
 	return costs
 }
 
+// bfsReachableCSR counts nodes reachable from src within maxHops hops on the CSR.
+// O(maxHops * avg_degree) per call — fast enough for 18K candidates.
+// Used to distinguish trail-connected passes (reachable >= 500) from isolated
+// climbing routes or glacial approaches (reachable < 50).
+func bfsReachableCSR(csr *graph.UnifiedCSR, src uint32, maxHops int) int {
+	visited := make(map[uint32]bool, maxHops*4)
+	visited[src] = true
+	frontier := []uint32{src}
+	for hop := 0; hop < maxHops && len(frontier) > 0; hop++ {
+		var next []uint32
+		for _, nd := range frontier {
+			for ei := csr.Offsets[nd]; ei < csr.Offsets[nd+1]; ei++ {
+				tgt := csr.Edges[ei].Target
+				if !visited[tgt] {
+					visited[tgt] = true
+					next = append(next, tgt)
+				}
+			}
+		}
+		frontier = next
+	}
+	return len(visited)
+}
+
 // BuildLandmarkEdgeCostClosureCSR adapts the routing package's EdgeCost closure
 // to the graph package's EdgeCostFunc type.
 func BuildLandmarkEdgeCostClosureCSR() graph.EdgeCostFunc {
@@ -238,8 +262,8 @@ func RunUnifiedLandmarkPreprocessing(
 	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
 		south, west, north, east := BBoxFromTiles(tiles)
 
-		// SQL returns top-20 per quadrant (up to 80 candidates), ordered by ele DESC.
-		// We snap to graph, filter by CSR degree, and pick 1 per quadrant.
+		// All crossings from DB, ordered by ele DESC. We snap to graph, filter by
+		// BFS reachability (100 hops), and pick the highest connected per quadrant.
 		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
 		if seedErr != nil {
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
@@ -247,17 +271,17 @@ func RunUnifiedLandmarkPreprocessing(
 			slog.Info("crossing seed candidates from DB", "count", len(seeds))
 			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
 
-			// Phase A: Filter by CSR degree >= 3 (O(1) per candidate).
-			// Glacial saddles snap to degree 0-2 nodes. Trail passes have degree >= 3.
-			// Seeds are already quadrant-ordered from SQL, so first connected candidate
-			// per quadrant wins (highest elevation among connected ones).
+			// Filter by BFS reachability: 100-hop BFS on CSR, require >= 500 reachable.
+			// This is O(100 * avg_degree) ≈ O(300) per candidate — fast enough for 18K.
+			// Degree >= 3 alone is insufficient: many passes have degree 3 (T-junction)
+			// but are well-connected; glacial saddles also have degree 3 but reach < 50 nodes.
 			midLat := (south + north) / 2
 			midLon := (west + east) / 2
 
 			type quadrantSeed struct {
-				osmIdx  int
-				denseID uint32
-				degree  uint32
+				osmIdx    int
+				denseID   uint32
+				reachable int
 			}
 			quadrantBest := make(map[[2]int]quadrantSeed)
 
@@ -271,18 +295,21 @@ func RunUnifiedLandmarkPreprocessing(
 					continue
 				}
 				denseID := mapping[seedLocalID]
-				degree := csr.Offsets[denseID+1] - csr.Offsets[denseID]
-				if degree < 3 {
-					continue
+
+				// BFS with hop limit (100 hops, ~3-5km in trail graph)
+				reachable := bfsReachableCSR(csr, denseID, 100)
+				if reachable < 500 {
+					continue // isolated climbing route or glacier approach
 				}
 
 				quadrant := [2]int{0, 0}
 				if seeds[si].Lat >= midLat { quadrant[0] = 1 }
 				if seeds[si].Lon >= midLon { quadrant[1] = 1 }
 
-				// First connected candidate per quadrant wins (SQL ordered by ele DESC)
+				// Keep highest-elevation connected candidate per quadrant
+				// (seeds are ordered by ele DESC, so first connected wins)
 				if _, ok := quadrantBest[quadrant]; !ok {
-					quadrantBest[quadrant] = quadrantSeed{si, denseID, degree}
+					quadrantBest[quadrant] = quadrantSeed{si, denseID, reachable}
 				}
 			}
 
@@ -298,20 +325,9 @@ func RunUnifiedLandmarkPreprocessing(
 				progressFn(fmt.Sprintf("flank dijkstra %d/%d", seedNum, len(quadrantBest)), seedNum-1, len(quadrantBest))
 				costs := landmarkBudgetDijkstraUnified(ctx, csr, qs.denseID, setCfg, 50000)
 
-				reachable := 0
-				for _, c := range costs {
-					if c < math.MaxFloat32 { reachable++ }
-				}
-				if reachable < 5000 {
-					slog.Warn("crossing seed poorly connected, skipping",
-						"name", seeds[qs.osmIdx].Name, "ele", seeds[qs.osmIdx].Ele,
-						"degree", qs.degree, "reachable", reachable, "quadrant", quadrant)
-					continue
-				}
-
 				slog.Info("crossing seed accepted",
 					"name", seeds[qs.osmIdx].Name, "ele", seeds[qs.osmIdx].Ele,
-					"degree", qs.degree, "reachable", reachable, "quadrant", quadrant)
+					"bfs_reachable", qs.reachable, "quadrant", quadrant)
 
 				seed := snappedSeeds[qs.osmIdx]
 				flankA, flankB := FindFlankLandmarks(seed, costs, tiles, nodeMapping)
