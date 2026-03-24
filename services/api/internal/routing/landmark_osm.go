@@ -2,7 +2,6 @@ package routing
 
 import (
 	"context"
-	"log/slog"
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
@@ -135,12 +134,20 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SnapOSMLandmarksToGraph converts OSMLandmarks to LandmarkCandidates by snapping
+// SnappedLandmark holds a graph-snapped landmark candidate with its snap distance.
+// SnapDistM is the distance from the OSM POI to the nearest graph node in meters.
+// A small snap distance (<100m) means the crossing is directly on a trail.
+// A large snap distance (>1000m) means the crossing is far from any trail (glacier, cliff).
+type SnappedLandmark struct {
+	graph.LandmarkCandidate
+	SnapDistM float64
+}
+
+// SnapOSMLandmarksToGraph converts OSMLandmarks to SnappedLandmarks by snapping
 // to the nearest graph node using the tile SpatialGrid (O(9 cells) per candidate).
-// Each candidate is snapped via TileIDFromCoord → DeserializeMmap → NearestNode.
-// This scales to thousands of candidates without the O(N) linear scan that
-// FindNearestInTiles would require over 44M+ nodes.
-func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tileDir string) []graph.LandmarkCandidate {
+// Returns snap distance alongside each candidate — used by the pipeline to filter
+// crossings that aren't on the trail network (glacial saddles snap at >1km).
+func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tileDir string) []SnappedLandmark {
 	// Cache loaded tiles to avoid repeated mmap for candidates in the same tile.
 	tileCache := make(map[uint32]*graph.Graph)
 	// tileCache entries are released by GC finalizer (closeMmap).
@@ -158,7 +165,7 @@ func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tileDir string) []graph.La
 		return g
 	}
 
-	var candidates []graph.LandmarkCandidate
+	var results []SnappedLandmark
 	for _, lm := range landmarks {
 		tileID := graph.TileIDFromCoord(lm.Lat, lm.Lon)
 		g := loadTile(tileID)
@@ -184,17 +191,19 @@ func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tileDir string) []graph.La
 			}
 		}
 		if distDm == 65535 {
-			slog.Warn("OSM landmark snap failed", "osm_id", lm.OSMID, "name", lm.Name)
 			continue
 		}
-		candidates = append(candidates, graph.LandmarkCandidate{
-			GlobalNodeID: graph.MakeGlobalNodeID(tileID, localID),
-			Lat:          g.NodeLat[localID],
-			Lon:          g.NodeLon[localID],
-			Ele:          g.NodeEle[localID],
+		results = append(results, SnappedLandmark{
+			LandmarkCandidate: graph.LandmarkCandidate{
+				GlobalNodeID: graph.MakeGlobalNodeID(tileID, localID),
+				Lat:          g.NodeLat[localID],
+				Lon:          g.NodeLon[localID],
+				Ele:          g.NodeEle[localID],
+			},
+			SnapDistM: float64(distDm) / 10.0, // dm → m
 		})
 	}
-	return candidates
+	return results
 }
 
 // BBoxFromTiles computes bounding box from tile scan results.

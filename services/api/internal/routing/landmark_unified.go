@@ -136,29 +136,6 @@ func landmarkBudgetDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, s
 	return costs
 }
 
-// bfsReachableCSR counts nodes reachable from src within maxHops hops on the CSR.
-// O(maxHops * avg_degree) per call — fast enough for 18K candidates.
-// Used to distinguish trail-connected passes (reachable >= 500) from isolated
-// climbing routes or glacial approaches (reachable < 50).
-func bfsReachableCSR(csr *graph.UnifiedCSR, src uint32, maxHops int) int {
-	visited := make(map[uint32]bool, maxHops*4)
-	visited[src] = true
-	frontier := []uint32{src}
-	for hop := 0; hop < maxHops && len(frontier) > 0; hop++ {
-		var next []uint32
-		for _, nd := range frontier {
-			for ei := csr.Offsets[nd]; ei < csr.Offsets[nd+1]; ei++ {
-				tgt := csr.Edges[ei].Target
-				if !visited[tgt] {
-					visited[tgt] = true
-					next = append(next, tgt)
-				}
-			}
-		}
-		frontier = next
-	}
-	return len(visited)
-}
 
 // BuildLandmarkEdgeCostClosureCSR adapts the routing package's EdgeCost closure
 // to the graph package's EdgeCostFunc type.
@@ -263,13 +240,15 @@ func RunUnifiedLandmarkPreprocessing(
 	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
 		south, west, north, east := BBoxFromTiles(tiles)
 
-		// All crossings from DB, ordered by ele DESC. Pipeline:
-		// 1. Snap to graph via SpatialGrid (O(1) per candidate)
-		// 2. BFS 100-hop reachability on CSR (O(300) per candidate)
-		//    → separates trail passes (>= 500 reachable) from glacial saddles (< 50)
-		// 3. Compute median lat/lon from CONNECTED crossings (not tile bbox!)
-		//    → quadrants centered on the trail network, not on all of Europe
-		// 4. Pick highest-elevation connected crossing per quadrant
+		// Crossing seed selection pipeline:
+		// 1. SQL: all crossings ordered by ele DESC
+		// 2. Snap to graph via SpatialGrid (O(1) per candidate)
+		// 3. Filter by snap distance < 500m (crossing must be ON a trail)
+		//    → glacial saddles (2-3km from nearest trail) are filtered
+		//    → trail passes (directly on trail, <100m snap) pass
+		// 4. Median lat/lon from trail-connected crossings (not tile bbox)
+		// 5. Per quadrant: highest-elevation trail-connected crossing wins
+		// 6. Budget-Dijkstra + FindFlankLandmarks for 4 seeds
 		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
 		if seedErr != nil {
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
@@ -277,116 +256,117 @@ func RunUnifiedLandmarkPreprocessing(
 			slog.Info("crossing seed candidates from DB", "count", len(seeds))
 			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
 
-			// Pass 1: BFS reachability filter + collect connected crossings
-			type connectedCrossing struct {
-				osmIdx    int
-				denseID   uint32
-				reachable int
-			}
-			var connected []connectedCrossing
+			// Filter by snap distance: crossings ON a trail snap at < 500m.
+			// Glacial saddles snap at 1-3km (nearest trail is far below).
+			const maxSnapDistM = 500.0
 
-			progressFn("filtering crossings by connectivity", 0, len(snappedSeeds))
-			for si, seed := range snappedSeeds {
+			type trailCrossing struct {
+				osmIdx  int
+				snapIdx int
+			}
+			var onTrail []trailCrossing
+
+			for si, snap := range snappedSeeds {
 				if si >= len(seeds) {
 					break
 				}
-				seedTileID, seedLocalID := graph.SplitGlobalNodeID(seed.GlobalNodeID)
-				mapping := nodeMapping[seedTileID]
-				if mapping == nil || uint32(len(mapping)) <= seedLocalID {
-					continue
-				}
-				denseID := mapping[seedLocalID]
-				reachable := bfsReachableCSR(csr, denseID, 100)
-				if reachable >= 500 {
-					connected = append(connected, connectedCrossing{si, denseID, reachable})
+				if snap.SnapDistM <= maxSnapDistM {
+					onTrail = append(onTrail, trailCrossing{si, si})
 				}
 			}
 
-			slog.Info("crossing seeds connectivity filter complete",
-				"total", len(seeds), "connected", len(connected))
+			slog.Info("crossing seeds snap filter complete",
+				"total", len(seeds), "on_trail", len(onTrail),
+				"max_snap_m", maxSnapDistM)
 
-			if len(connected) > 0 {
-				// Pass 2: Compute median from connected crossings (NOT tile bbox)
-				connectedLats := make([]float64, len(connected))
-				connectedLons := make([]float64, len(connected))
-				for i, cc := range connected {
-					connectedLats[i] = seeds[cc.osmIdx].Lat
-					connectedLons[i] = seeds[cc.osmIdx].Lon
+			if len(onTrail) > 0 {
+				// Median from trail-connected crossings
+				trailLats := make([]float64, len(onTrail))
+				trailLons := make([]float64, len(onTrail))
+				for i, tc := range onTrail {
+					trailLats[i] = seeds[tc.osmIdx].Lat
+					trailLons[i] = seeds[tc.osmIdx].Lon
 				}
-				slices.SortFunc(connectedLats, func(a, b float64) int {
+				slices.SortFunc(trailLats, func(a, b float64) int {
 					if a < b { return -1 }
 					if a > b { return 1 }
 					return 0
 				})
-				slices.SortFunc(connectedLons, func(a, b float64) int {
+				slices.SortFunc(trailLons, func(a, b float64) int {
 					if a < b { return -1 }
 					if a > b { return 1 }
 					return 0
 				})
-				medLat := connectedLats[len(connectedLats)/2]
-				medLon := connectedLons[len(connectedLons)/2]
+				medLat := trailLats[len(trailLats)/2]
+				medLon := trailLons[len(trailLons)/2]
 
-				slog.Info("crossing median from connected crossings",
-					"med_lat", medLat, "med_lon", medLon,
-					"connected_count", len(connected))
+				slog.Info("crossing median from trail crossings",
+					"med_lat", medLat, "med_lon", medLon)
 
-				// Pass 3: Quadrant assignment + pick highest connected per quadrant
+				// Per quadrant: highest ele wins (onTrail preserves ele DESC order)
 				type quadrantSeed struct {
-					osmIdx    int
-					denseID   uint32
-					reachable int
+					osmIdx  int
+					snapIdx int
 				}
 				quadrantBest := make(map[[2]int]quadrantSeed)
 
-				for _, cc := range connected {
+				for _, tc := range onTrail {
 					quadrant := [2]int{0, 0}
-					if seeds[cc.osmIdx].Lat >= medLat { quadrant[0] = 1 }
-					if seeds[cc.osmIdx].Lon >= medLon { quadrant[1] = 1 }
+					if seeds[tc.osmIdx].Lat >= medLat { quadrant[0] = 1 }
+					if seeds[tc.osmIdx].Lon >= medLon { quadrant[1] = 1 }
 
-					// Most connected crossing per quadrant wins.
-					// BFS reachable is the primary ranking: a Brenner (1370m, BFS ~50K)
-					// beats a Glocknerscharte (3607m, BFS ~4K) because the Brenner
-					// is deeply embedded in the trail network.
-					if best, ok := quadrantBest[quadrant]; !ok || cc.reachable > best.reachable {
-						quadrantBest[quadrant] = quadrantSeed{cc.osmIdx, cc.denseID, cc.reachable}
+					// First trail-connected candidate per quadrant wins
+					// (onTrail preserves ele DESC order from SQL)
+					if _, ok := quadrantBest[quadrant]; !ok {
+						quadrantBest[quadrant] = quadrantSeed{tc.osmIdx, tc.snapIdx}
 					}
 				}
 
-				slog.Info("crossing seeds after quadrant selection",
-					"quadrants_with_seeds", len(quadrantBest))
+				slog.Info("crossing seeds selected",
+					"quadrants", len(quadrantBest))
 
-			// Phase B: Budget-Dijkstra + flank detection (max 4 runs).
-			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
-			seedNum := 0
+				// Budget-Dijkstra + flank detection (max 4 runs)
+				setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+				seedNum := 0
 
-			for quadrant, qs := range quadrantBest {
-				seedNum++
-				progressFn(fmt.Sprintf("flank dijkstra %d/%d", seedNum, len(quadrantBest)), seedNum-1, len(quadrantBest))
-				costs := landmarkBudgetDijkstraUnified(ctx, csr, qs.denseID, setCfg, 50000)
+				for quadrant, qs := range quadrantBest {
+					snap := snappedSeeds[qs.snapIdx]
 
-				slog.Info("crossing seed accepted",
-					"name", seeds[qs.osmIdx].Name, "ele", seeds[qs.osmIdx].Ele,
-					"bfs_reachable", qs.reachable, "quadrant", quadrant)
+					seedTileID, seedLocalID := graph.SplitGlobalNodeID(snap.GlobalNodeID)
+					mapping := nodeMapping[seedTileID]
+					if mapping == nil || uint32(len(mapping)) <= seedLocalID {
+						continue
+					}
+					denseID := mapping[seedLocalID]
 
-				seed := snappedSeeds[qs.osmIdx]
-				flankA, flankB := FindFlankLandmarks(seed, costs, tiles, nodeMapping)
-				if flankA.GlobalNodeID != 0 {
-					flankLandmarks = append(flankLandmarks, flankA)
-					slog.Info("flank landmark found",
-						"seed_name", seeds[qs.osmIdx].Name, "side", "A",
-						"lat", float64(flankA.Lat)/1e7, "lon", float64(flankA.Lon)/1e7,
-						"ele_m", float64(flankA.Ele)/10.0)
+					seedNum++
+					progressFn(fmt.Sprintf("flank dijkstra %d/%d", seedNum, len(quadrantBest)), seedNum-1, len(quadrantBest))
+					costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
+
+					slog.Info("crossing seed accepted",
+						"name", seeds[qs.osmIdx].Name,
+						"ele", seeds[qs.osmIdx].Ele,
+						"snap_m", snap.SnapDistM,
+						"quadrant", quadrant)
+
+					flankA, flankB := FindFlankLandmarks(snap.LandmarkCandidate, costs, tiles, nodeMapping)
+					if flankA.GlobalNodeID != 0 {
+						flankLandmarks = append(flankLandmarks, flankA)
+						slog.Info("flank landmark found",
+							"seed_name", seeds[qs.osmIdx].Name, "side", "A",
+							"lat", float64(flankA.Lat)/1e7, "lon", float64(flankA.Lon)/1e7,
+							"ele_m", float64(flankA.Ele)/10.0)
+					}
+					if flankB.GlobalNodeID != 0 {
+						flankLandmarks = append(flankLandmarks, flankB)
+						slog.Info("flank landmark found",
+							"seed_name", seeds[qs.osmIdx].Name, "side", "B",
+							"lat", float64(flankB.Lat)/1e7, "lon", float64(flankB.Lon)/1e7,
+							"ele_m", float64(flankB.Ele)/10.0)
+					}
 				}
-				if flankB.GlobalNodeID != 0 {
-					flankLandmarks = append(flankLandmarks, flankB)
-					slog.Info("flank landmark found",
-						"seed_name", seeds[qs.osmIdx].Name, "side", "B",
-						"lat", float64(flankB.Lat)/1e7, "lon", float64(flankB.Lon)/1e7,
-						"ele_m", float64(flankB.Ele)/10.0)
-				}
+				slog.Info("crossing seeds used", "accepted", seedNum, "candidates", len(seeds))
 			}
-			slog.Info("crossing seeds used", "accepted", seedNum, "candidates", len(seeds))
-			} // end if len(connected) > 0
 		}
 	}
 
@@ -430,7 +410,10 @@ func RunUnifiedLandmarkPreprocessing(
 		if pool != nil {
 			south, west, north, east := BBoxFromTiles(tiles)
 			osmPass, _ := QueryOSMPassLandmarks(ctx, pool, west, south, east, north, 4)
-			osmPassC = SnapOSMLandmarksToGraph(osmPass, tileDir)
+			snapped := SnapOSMLandmarksToGraph(osmPass, tileDir)
+			for _, s := range snapped {
+				osmPassC = append(osmPassC, s.LandmarkCandidate)
+			}
 		}
 		meta, err = graph.SelectLandmarksLegacy(tiles, farthestDijkstra, osmPassC, nil)
 	} else {
