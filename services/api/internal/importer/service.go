@@ -104,7 +104,9 @@ func (s *Service) PostProcess(
 	if data.HasGPS && data.StartLat != 0 {
 		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
 		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, false)
+		// skipGeo=true: activity_tracks is written in Phase 1 (InsertTrack).
+		// RunGeoAndPublishStage2 is called explicitly in Phase 2 after g.Wait().
+		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 	}
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
@@ -344,6 +346,12 @@ func (s *Service) PostProcess(
 		if err := enrichment.RunStreamEnrichment(ctx, s.DB, userID, activityID, streamSettings); err != nil {
 			slog.Warn("postprocess: stream enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 		}
+	}
+
+	// Geo-Enrichment + Stage-2 NATS event run AFTER InsertTrack (Phase 1) because
+	// all geo queries read from activity_tracks.track_full.
+	if data.HasGPS && data.StartLat != 0 {
+		enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, s.Events, s.GraphReader)
 	}
 
 	// Publish NATS events
