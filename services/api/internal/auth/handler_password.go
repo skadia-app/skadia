@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -15,11 +17,29 @@ import (
 // Responds immediately (200) — background goroutine handles user lookup + email.
 // This prevents timing-based user enumeration.
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		return
+	}
+
+	// Normalize email (I3).
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
+	// Email format validation (I4).
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		return
+	}
+
+	// Per-email rate limit: 3 requests per hour (I7).
+	// Always return 200 to prevent enumeration.
+	if !h.RL.Allow("forgot-email:"+req.Email, 3.0/3600, 3) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 
@@ -61,6 +81,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 // ResetPassword handles POST /auth/reset-password.
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Token       string `json:"token"`
 		NewPassword string `json:"new_password"`
@@ -77,16 +99,18 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 10 characters"})
 		return
 	}
+	if len(req.NewPassword) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		return
+	}
 
-	// HIBP check for open registration mode.
-	if h.Config.RegistrationMode == "open" {
-		compromised, err := CheckHIBP(req.NewPassword)
-		if err != nil {
-			slog.Warn("HIBP check failed during password reset", "error", err)
-		} else if compromised {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
-			return
-		}
+	// HIBP check — always, not just open mode (M12).
+	compromised, err := CheckHIBP(req.NewPassword)
+	if err != nil {
+		slog.Warn("HIBP check failed during password reset", "error", err)
+	} else if compromised {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+		return
 	}
 
 	// Validate + consume token (single-use, atomic).

@@ -176,6 +176,16 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check is_active/email_verified (C6).
+	if !user.IsActive {
+		h.socialError(w, r, "account_inactive")
+		return
+	}
+	if h.Config.SMTPHost != "" && !user.EmailVerified {
+		h.socialError(w, r, "email_not_verified")
+		return
+	}
+
 	// Update last login timestamp.
 	_ = h.DB.UpdateLoginSuccess(r.Context(), user.ID)
 
@@ -226,6 +236,12 @@ func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, strin
 	}
 	defer resp.Body.Close()
 
+	// Check provider API status before parsing (I8).
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", "", "", fmt.Errorf("strava API returned %d: %s", resp.StatusCode, string(errBody))
+	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
 	if err != nil {
 		return "", "", "", fmt.Errorf("read strava response: %w", err)
@@ -255,6 +271,12 @@ func (h *Handler) fetchGoogleProfile(client *http.Client) (string, string, strin
 		return "", "", "", fmt.Errorf("google userinfo request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Check provider API status before parsing (I8).
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", "", "", fmt.Errorf("google API returned %d: %s", resp.StatusCode, string(errBody))
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
 	if err != nil {

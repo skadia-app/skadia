@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -16,6 +18,8 @@ import (
 // Same validation, timing equalization and progressive delays as Login,
 // but returns tokens in the response body (no cookie).
 func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -24,8 +28,19 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	if req.Email == "" || req.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
+		return
+	}
+	if len(req.Password) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		return
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
 	}
 
@@ -73,6 +88,8 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 
 // MobileRefresh handles POST /auth/mobile/refresh — atomic token rotation with body-based tokens.
 func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
@@ -125,6 +142,8 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 // Consumes a short-lived auth code with S256 code_verifier validation
 // and returns tokens in the body.
 func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Code         string `json:"code"`
 		CodeVerifier string `json:"code_verifier"`
@@ -152,6 +171,19 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check is_active/email_verified after code consumption (C6).
+	var isActive, emailVerified bool
+	err = h.DB.Pool.QueryRow(r.Context(),
+		"SELECT is_active, email_verified FROM users WHERE id = $1", userID).Scan(&isActive, &emailVerified)
+	if err != nil || !isActive {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if h.Config.SMTPHost != "" && !emailVerified {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
+		return
+	}
+
 	h.issueMobileTokens(w, r, userID.String())
 }
 
@@ -164,6 +196,8 @@ func computeS256Challenge(verifier string) string {
 
 // MobileLogout handles POST /auth/mobile/logout — best-effort token revocation.
 func (h *Handler) MobileLogout(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}

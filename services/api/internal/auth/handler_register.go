@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -13,8 +16,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// usernameRe allows Unicode letters, numbers, spaces, dots, hyphens, underscores.
+var usernameRe = regexp.MustCompile(`^[\p{L}\p{N}\s._-]+$`)
+
 // Register handles POST /auth/register.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Email    string `json:"email"`
 		Username string `json:"username"`
@@ -25,13 +33,38 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalize email (I3).
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Username = strings.TrimSpace(req.Username)
+
 	// Validate inputs.
 	if req.Email == "" || req.Username == "" || req.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email, username, and password required"})
 		return
 	}
+
+	// Email format validation (I4).
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		return
+	}
+
+	// Username validation (M10).
+	if len(req.Username) < 2 || len(req.Username) > 100 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_length"})
+		return
+	}
+	if !usernameRe.MatchString(req.Username) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_chars"})
+		return
+	}
+
 	if len(req.Password) < 10 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 10 characters"})
+		return
+	}
+	if len(req.Password) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 		return
 	}
 
@@ -41,19 +74,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HIBP check (mandatory for open mode).
-	if h.Config.RegistrationMode == "open" {
-		compromised, err := CheckHIBP(req.Password)
-		if err != nil {
-			slog.Warn("HIBP check failed", "error", err)
-			// Don't block registration on HIBP failure.
-		} else if compromised {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
-			return
-		}
+	// HIBP check — always, not just open mode (M12).
+	compromised, err := CheckHIBP(req.Password)
+	if err != nil {
+		slog.Warn("HIBP check failed", "error", err)
+		// Don't block registration on HIBP failure.
+	} else if compromised {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+		return
 	}
 
-	// Check email collision.
+	// Check email collision — return 201 regardless to prevent enumeration (M7).
 	exists, err := h.DB.CheckEmailCollision(r.Context(), req.Email)
 	if err != nil {
 		slog.Error("check email collision failed", "error", err)
@@ -61,7 +92,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email_exists"})
+		// Silent — don't reveal email existence (M7).
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 		return
 	}
 
@@ -108,6 +140,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 // VerifyEmail handles POST /auth/verify-email.
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Token string `json:"token"`
 	}

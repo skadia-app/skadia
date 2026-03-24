@@ -698,6 +698,180 @@ func TestClearRefreshCookieHTTP(t *testing.T) {
 	}
 }
 
+// --- Email Validation ---
+
+func TestLoginInvalidEmail(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	body := `{"email":"not-an-email","password":"testpassword"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Login(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid email, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "invalid_email" {
+		t.Errorf("expected error 'invalid_email', got %q", resp["error"])
+	}
+}
+
+func TestRegisterInvalidEmail(t *testing.T) {
+	h := testHandler(t, &config.Config{RegistrationMode: "open", SMTPHost: "smtp.test.com"})
+
+	body := `{"email":"bad@@email","username":"user","password":"longpassword1"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid email, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestForgotPasswordInvalidEmail(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	body := `{"email":"not-valid"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ForgotPassword(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid email, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Password Max Length ---
+
+func TestLoginPasswordTooLong(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	longPassword := strings.Repeat("a", 1001)
+	body := `{"email":"test@example.com","password":"` + longPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Login(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too-long password, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "password_too_long" {
+		t.Errorf("expected error 'password_too_long', got %q", resp["error"])
+	}
+}
+
+func TestRegisterPasswordTooLong(t *testing.T) {
+	h := testHandler(t, &config.Config{RegistrationMode: "open", SMTPHost: "smtp.test.com"})
+
+	longPassword := strings.Repeat("a", 1001)
+	body := `{"email":"test@example.com","username":"testuser","password":"` + longPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too-long password, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestResetPasswordTooLong(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	longPassword := strings.Repeat("a", 1001)
+	body := `{"token":"valid-token","new_password":"` + longPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/reset-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ResetPassword(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too-long password, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Username Validation ---
+
+func TestRegisterUsernameTooShort(t *testing.T) {
+	h := testHandler(t, &config.Config{RegistrationMode: "open", SMTPHost: "smtp.test.com"})
+
+	body := `{"email":"test@example.com","username":"a","password":"longpassword1"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for short username, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "username_invalid_length" {
+		t.Errorf("expected error 'username_invalid_length', got %q", resp["error"])
+	}
+}
+
+func TestRegisterUsernameInvalidChars(t *testing.T) {
+	h := testHandler(t, &config.Config{RegistrationMode: "open", SMTPHost: "smtp.test.com"})
+
+	body := `{"email":"test@example.com","username":"user<script>","password":"longpassword1"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid username chars, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "username_invalid_chars" {
+		t.Errorf("expected error 'username_invalid_chars', got %q", resp["error"])
+	}
+}
+
+func TestRegisterUsernameUnicodeAllowed(t *testing.T) {
+	// Unicode letters should be accepted (e.g. "Müller", "Müller.Hans")
+	h := testHandler(t, &config.Config{RegistrationMode: "invite"})
+
+	body := `{"email":"test@example.com","username":"Müller-Hans.42","password":"longpassword1"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	// invite mode → 403 means username validation passed
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 (invite block after validation), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Body Size Limit ---
+
+func TestLoginBodySizeLimit(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	// Create a body > 4096 bytes
+	largeBody := `{"email":"test@example.com","password":"` + strings.Repeat("x", 5000) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(largeBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Login(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized body, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- Registration Mode Validation Order ---
 // Verify that input validation happens BEFORE mode check.
 
