@@ -101,13 +101,13 @@ func (s *Service) PostProcess(
 	// ── Phase 0 (sequential, MUST run first) ──────────────────────────────
 	// RunStage1 + ApplyRulesToActivity set metadata used by subsequent steps.
 
-	if data.HasGPS && data.StartLat != 0 {
-		// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
-		// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
-		// skipGeo=true: activity_tracks is written in Phase 1 (InsertTrack).
-		// RunGeoAndPublishStage2 is called explicitly in Phase 2 after g.Wait().
-		enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
-	}
+	// Run for all activities (GPS and non-GPS): Weather/TimeOfDay/Sunrise have internal GPS guards.
+	// Non-GPS activities still benefit from TRIMP, Intensity, EF, VI etc.
+	// skipStreamEnrichment=true: activity_streams is written in Phase 1 (InsertStreams).
+	// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
+	// skipGeo=true: activity_tracks is written in Phase 1 (InsertTrack).
+	// RunGeoAndPublishStage2 is called explicitly in Phase 2 after g.Wait().
+	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
@@ -350,9 +350,8 @@ func (s *Service) PostProcess(
 
 	// Geo-Enrichment + Stage-2 NATS event run AFTER InsertTrack (Phase 1) because
 	// all geo queries read from activity_tracks.track_full.
-	if data.HasGPS && data.StartLat != 0 {
-		enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, s.Events, s.GraphReader)
-	}
+	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
+	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, s.Events, s.GraphReader)
 
 	// Publish NATS events
 	if s.Events != nil {
@@ -545,12 +544,13 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 	}
 	if err != nil {
 		// Unique constraint violation: concurrent upload of identical file — treat as duplicate.
-		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && data.FileHash != "" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "activities_unique_file_hash" {
 			existing, dbErr := s.DB.CheckDuplicate(ctx, userID, data.FileHash)
 			if dbErr == nil && existing != nil {
 				slog.Info("concurrent duplicate upload resolved via unique constraint", "existing", existing.ID)
 				return &ActivityResult{ActivityID: existing.ID, Status: "skipped"}, nil
 			}
+			slog.Warn("unique constraint fired but conflicting activity not found", "user_id", userID, "constraint", pgErr.ConstraintName)
 		}
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
