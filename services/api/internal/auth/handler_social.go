@@ -75,7 +75,7 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	state, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate oauth state failed", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 

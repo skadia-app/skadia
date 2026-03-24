@@ -4,9 +4,21 @@ import (
 	"encoding/hex"
 	"log"
 	"log/slog"
+	"time"
 
 	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/config"
+)
+
+const (
+	// RefreshCookieName is the name of the HttpOnly refresh-token cookie.
+	RefreshCookieName = "skadia_refresh"
+
+	// RefreshTokenExpiry is the lifetime of a refresh token.
+	RefreshTokenExpiry = 7 * 24 * time.Hour
+
+	// RefreshCookieMaxAge is the cookie max-age in seconds.
+	RefreshCookieMaxAge = 7 * 24 * 3600 // seconds
 )
 
 // Argon2Params are the project-wide argon2id parameters.

@@ -101,14 +101,14 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	hash, err := argon2id.CreateHash(req.NewPassword, &Argon2Params)
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	// Update password (also sets password_changed_at).
 	if err := h.DB.UpdatePassword(r.Context(), userID.String(), hash); err != nil {
 		slog.Error("update password failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 

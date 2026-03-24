@@ -7,10 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 
-	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -23,67 +21,17 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-
 	if req.Email == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
 		return
 	}
 
-	// Per-email rate limit (5/15min).
-	if !h.RL.Allow("login-email:"+req.Email, 5.0/900, 5) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many requests"})
+	user := h.authenticateUser(w, r, req.Email, req.Password)
+	if user == nil {
 		return
-	}
-
-	user, err := h.DB.GetUserByEmail(r.Context(), req.Email)
-	if err != nil {
-		// User not found — timing equalization.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-
-	// Progressive delay check.
-	if user.LoginDelayUntil != nil && time.Now().Before(*user.LoginDelayUntil) {
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
-		retryAfter := int(time.Until(*user.LoginDelayUntil).Seconds()) + 1
-		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
-		return
-	}
-
-	// Check password.
-	if user.PasswordHash == nil {
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-
-	match, err := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
-	if err != nil || !match {
-		_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-
-	// Check is_active.
-	if !user.IsActive {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
-		return
-	}
-
-	// Check email_verified (skip check if SMTP not configured).
-	if h.Config.SMTPHost != "" && !user.EmailVerified {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
-		return
-	}
-
-	// Success — update login tracking.
-	if err := h.DB.UpdateLoginSuccess(r.Context(), user.ID); err != nil {
-		slog.Error("update login success failed", "error", err)
 	}
 
 	h.issueMobileTokens(w, r, user.ID)
@@ -95,14 +43,14 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 	jwt, err := IssueJWT(userID, h.secret)
 	if err != nil {
 		slog.Error("issue JWT failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	token, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -111,9 +59,9 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 	ip := net.ParseIP(middleware.ClientIP(r))
 
 	if err := h.DB.CreateRefreshToken(r.Context(), userID, familyID, tokenHash,
-		r.UserAgent(), ip, time.Now().Add(30*24*time.Hour)); err != nil {
+		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -129,7 +77,7 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token_required"})
 		return
 	}
 
@@ -137,18 +85,7 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 
 	userID, familyID, _, err := h.DB.RotateRefreshToken(r.Context(), tokenHash)
 	if err != nil {
-		// Check for reuse attempt.
-		revoked, checkErr := h.DB.IsRevokedToken(r.Context(), tokenHash)
-		if checkErr == nil && revoked {
-			slog.Warn("mobile refresh token reuse detected", "token_hash_prefix", tokenHash[:8])
-			var reuseFamily string
-			_ = h.DB.Pool.QueryRow(r.Context(),
-				"SELECT family_id FROM refresh_tokens WHERE token_hash = $1", tokenHash,
-			).Scan(&reuseFamily)
-			if reuseFamily != "" {
-				_ = h.DB.RevokeTokenFamily(r.Context(), reuseFamily)
-			}
-		}
+		h.handleRefreshReuse(r.Context(), tokenHash)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
 		return
 	}
@@ -157,7 +94,7 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	newToken, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -165,16 +102,16 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	ip := net.ParseIP(middleware.ClientIP(r))
 
 	if err := h.DB.CreateRefreshToken(r.Context(), userID.String(), familyID, newHash,
-		r.UserAgent(), ip, time.Now().Add(30*24*time.Hour)); err != nil {
+		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create new refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	jwt, err := IssueJWT(userID.String(), h.secret)
 	if err != nil {
 		slog.Error("issue JWT on mobile refresh failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -231,7 +168,7 @@ func (h *Handler) MobileLogout(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token_required"})
 		return
 	}
 

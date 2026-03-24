@@ -301,7 +301,7 @@ func TestRefreshEmptyCookie(t *testing.T) {
 	h := testHandler(t, &config.Config{})
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: ""})
+	req.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: ""})
 	w := httptest.NewRecorder()
 
 	h.Refresh(w, req)
@@ -476,7 +476,7 @@ func TestLogoutWithoutCookie(t *testing.T) {
 	// Verify cookie is cleared.
 	cookies := w.Result().Cookies()
 	for _, c := range cookies {
-		if c.Name == "refresh_token" && c.MaxAge != -1 {
+		if c.Name == RefreshCookieName && c.MaxAge != -1 {
 			t.Error("refresh_token cookie should have MaxAge=-1 for deletion")
 		}
 	}
@@ -663,7 +663,7 @@ func TestClearRefreshCookieAttributes(t *testing.T) {
 	}
 
 	c := cookies[0]
-	if c.Name != "refresh_token" {
+	if c.Name != RefreshCookieName {
 		t.Errorf("expected cookie name 'refresh_token', got %q", c.Name)
 	}
 	if c.MaxAge != -1 {
