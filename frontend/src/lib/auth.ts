@@ -123,10 +123,14 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
 
   const res = await fetch(input, { ...init, headers, credentials: 'include' })
 
-  // On 401, try refreshing the token and retry once
+  // On 401, try refreshing the token.
+  // Only retry on safe/idempotent methods to avoid double-submission (e.g. POST).
   if (res.status === 401 && !DEV_AUTH) {
+    const method = (init?.method ?? 'GET').toUpperCase()
+    const isIdempotent = method === 'GET' || method === 'HEAD' || method === 'PUT' || method === 'DELETE'
+
     const refreshed = await refreshToken()
-    if (refreshed) {
+    if (refreshed && isIdempotent) {
       const retryToken = getToken()
       const retryHeaders = new Headers(init?.headers)
       if (retryToken) {
@@ -134,9 +138,12 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
       }
       return fetch(input, { ...init, headers: retryHeaders, credentials: 'include' })
     }
-    // Refresh failed — redirect to login
-    clearToken()
-    window.location.href = '/login'
+    if (!refreshed) {
+      // Refresh failed — redirect to login
+      clearToken()
+      window.location.href = '/login'
+    }
+    // Non-idempotent: token refreshed for future calls, but return 401 to caller
   }
 
   return res

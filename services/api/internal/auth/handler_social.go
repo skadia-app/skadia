@@ -197,7 +197,7 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.UpdateLoginSuccess(r.Context(), user.ID)
 
 	slog.Info("auth.login_success", "user_id", user.ID, "method", "social", "provider", provider)
-	go h.DB.LogAuthEvent(r.Context(), user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "social", "provider": provider})
+	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "social", "provider": provider})
 
 	// Generate a short-lived auth code (30s, single-use) for the frontend.
 	authCode, err := GenerateToken()
