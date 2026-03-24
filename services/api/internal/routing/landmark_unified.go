@@ -238,58 +238,82 @@ func RunUnifiedLandmarkPreprocessing(
 	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
 		south, west, north, east := BBoxFromTiles(tiles)
 
-		// SelectCrossingSeedsSQL returns top-3 per quadrant (up to 12 seeds).
-		// We try seeds in order per quadrant. For each seed: run budget Dijkstra,
-		// check reachability. If < 5000 nodes reachable, the seed is on a
-		// disconnected trail (e.g. climbing route) and gets skipped.
-		// At most 4 seeds are used (1 per quadrant, first well-connected one).
+		// Two-phase seed selection:
+		// Phase A: Quick connectivity filter via CSR degree (O(1) per candidate).
+		//   Glacial saddles snap to nodes with degree 0-2. Trail-connected passes
+		//   have degree >= 3. This filters ~90% of candidates without any Dijkstra.
+		// Phase B: Median-split quadrant assignment + Budget-Dijkstra for top-1 per quadrant.
+		//   Only 4 Budget-Dijkstras run (one per quadrant), not thousands.
 		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
 		if seedErr != nil {
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
 		} else if len(seeds) > 0 {
-			slog.Info("crossing seed candidates", "count", len(seeds))
+			slog.Info("crossing seed candidates from DB", "count", len(seeds))
 			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tiles)
 
-			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
-			usedQuadrants := make(map[[2]int]bool) // track which quadrants have a seed
-			usedSeedCount := 0
+			// Phase A: Filter by CSR degree (fast connectivity proxy).
+			// A graph node with degree >= 3 is part of the trail network.
+			// Degree 0-2 means isolated climbing route or glacial approach.
+			midLat := (south + north) / 2
+			midLon := (west + east) / 2
+
+			type quadrantCandidate struct {
+				osmIdx    int
+				snappedIdx int
+				denseID   uint32
+				degree    uint32
+				ele       float64
+			}
+			quadrantBest := make(map[[2]int]*quadrantCandidate) // best per quadrant
 
 			for si, seed := range snappedSeeds {
-				if usedSeedCount >= 4 {
-					break // max 4 seeds (1 per quadrant)
+				if si >= len(seeds) {
+					break
 				}
-
-				// Determine quadrant from OSM coordinates (before snap)
-				quadrant := [2]int{0, 0}
-				if si < len(seeds) {
-					// Seeds are ordered by (lat_bin, lon_bin, rn) from SQL
-					// Quadrant can be inferred from position in the result set
-					// But simpler: use the lat/lon directly relative to bbox center
-					midLat := (south + north) / 2
-					midLon := (west + east) / 2
-					if seeds[si].Lat >= midLat {
-						quadrant[0] = 1
-					}
-					if seeds[si].Lon >= midLon {
-						quadrant[1] = 1
-					}
-				}
-				if usedQuadrants[quadrant] {
-					continue // already have a seed for this quadrant
-				}
-
 				seedTileID, seedLocalID := graph.SplitGlobalNodeID(seed.GlobalNodeID)
 				mapping := nodeMapping[seedTileID]
 				if mapping == nil || uint32(len(mapping)) <= seedLocalID {
-					slog.Warn("seed not in CSR mapping", "seed", si, "name", seeds[si].Name)
 					continue
 				}
 				denseID := mapping[seedLocalID]
 
-				progressFn(fmt.Sprintf("flank dijkstra %d/%d", usedSeedCount+1, 4), usedSeedCount, 4)
-				costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
+				// CSR degree = number of outgoing edges
+				degree := csr.Offsets[denseID+1] - csr.Offsets[denseID]
+				if degree < 3 {
+					continue // isolated node, skip
+				}
 
-				// Reachability check: skip seeds on disconnected trail fragments
+				// Quadrant assignment
+				quadrant := [2]int{0, 0}
+				if seeds[si].Lat >= midLat {
+					quadrant[0] = 1
+				}
+				if seeds[si].Lon >= midLon {
+					quadrant[1] = 1
+				}
+
+				// Keep best per quadrant: highest elevation among connected candidates
+				if best, ok := quadrantBest[quadrant]; !ok || seeds[si].Ele > best.ele {
+					quadrantBest[quadrant] = &quadrantCandidate{
+						osmIdx: si, snappedIdx: si, denseID: denseID,
+						degree: degree, ele: seeds[si].Ele,
+					}
+				}
+			}
+
+			slog.Info("crossing seeds after connectivity filter",
+				"quadrants_with_seeds", len(quadrantBest))
+
+			// Phase B: Budget-Dijkstra + flank detection for each quadrant's best seed.
+			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+			seedNum := 0
+
+			for quadrant, best := range quadrantBest {
+				seedNum++
+				progressFn(fmt.Sprintf("flank dijkstra %d/%d", seedNum, len(quadrantBest)), seedNum-1, len(quadrantBest))
+				costs := landmarkBudgetDijkstraUnified(ctx, csr, best.denseID, setCfg, 50000)
+
+				// Reachability check (safety net for degree >= 3 nodes on short dead-end trails)
 				reachable := 0
 				for _, c := range costs {
 					if c < math.MaxFloat32 {
@@ -297,23 +321,26 @@ func RunUnifiedLandmarkPreprocessing(
 					}
 				}
 				if reachable < 5000 {
-					slog.Warn("crossing seed poorly connected, skipping",
-						"seed", si, "name", seeds[si].Name,
-						"ele", seeds[si].Ele, "reachable", reachable)
+					slog.Warn("crossing seed poorly connected despite degree check, skipping",
+						"name", seeds[best.osmIdx].Name,
+						"ele", seeds[best.osmIdx].Ele,
+						"degree", best.degree, "reachable", reachable,
+						"quadrant", quadrant)
 					continue
 				}
 
 				slog.Info("crossing seed accepted",
-					"seed", si, "name", seeds[si].Name,
-					"ele", seeds[si].Ele, "reachable", reachable)
-				usedQuadrants[quadrant] = true
-				usedSeedCount++
+					"name", seeds[best.osmIdx].Name,
+					"ele", seeds[best.osmIdx].Ele,
+					"degree", best.degree, "reachable", reachable,
+					"quadrant", quadrant)
 
+				seed := snappedSeeds[best.snappedIdx]
 				flankA, flankB := FindFlankLandmarks(seed, costs, tiles, nodeMapping)
 				if flankA.GlobalNodeID != 0 {
 					flankLandmarks = append(flankLandmarks, flankA)
 					slog.Info("flank landmark found",
-						"seed", si, "seed_name", seeds[si].Name, "side", "A",
+						"seed_name", seeds[best.osmIdx].Name, "side", "A",
 						"lat", float64(flankA.Lat)/1e7,
 						"lon", float64(flankA.Lon)/1e7,
 						"ele_m", float64(flankA.Ele)/10.0)
@@ -321,13 +348,13 @@ func RunUnifiedLandmarkPreprocessing(
 				if flankB.GlobalNodeID != 0 {
 					flankLandmarks = append(flankLandmarks, flankB)
 					slog.Info("flank landmark found",
-						"seed", si, "seed_name", seeds[si].Name, "side", "B",
+						"seed_name", seeds[best.osmIdx].Name, "side", "B",
 						"lat", float64(flankB.Lat)/1e7,
 						"lon", float64(flankB.Lon)/1e7,
 						"ele_m", float64(flankB.Ele)/10.0)
 				}
 			}
-			slog.Info("crossing seeds used", "accepted", usedSeedCount, "candidates", len(seeds))
+			slog.Info("crossing seeds used", "accepted", seedNum, "candidates", len(seeds))
 		}
 	}
 
