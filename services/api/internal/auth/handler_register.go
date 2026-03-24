@@ -75,19 +75,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Create user.
 	ip := net.ParseIP(middleware.ClientIP(r))
-	user, err := h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip)
+	isActive := h.Config.RegistrationMode != "approval"
+	user, err := h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
 	if err != nil {
 		slog.Error("create user failed", "error", err)
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
-	}
-
-	// For approval mode, set user inactive until admin approves.
-	if h.Config.RegistrationMode == "approval" {
-		if _, err := h.DB.Pool.Exec(r.Context(),
-			"UPDATE users SET is_active = false WHERE id = $1", user.ID); err != nil {
-			slog.Error("set user inactive for approval", "error", err)
-		}
 	}
 
 	// Generate verification token.
