@@ -16,7 +16,7 @@ func RequireAdmin(db *database.DB) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			userID := GetUserID(r.Context())
 			if userID == "" {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -26,16 +26,16 @@ func RequireAdmin(db *database.DB) func(http.Handler) http.Handler {
 			).Scan(&isAdmin)
 
 			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			if err != nil {
 				slog.Error("admin check failed", "error", err)
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if !isAdmin {
-				http.Error(w, `{"error":"admin required"}`, http.StatusForbidden)
+				writeJSONError(w, http.StatusForbidden, "admin required")
 				return
 			}
 

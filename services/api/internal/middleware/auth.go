@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -9,6 +10,13 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
+
+// writeJSONError writes a JSON error response. Used by all middleware in this package.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, `{"error":%q}`, msg)
+}
 
 // JWTAuth validates HS256 JWTs issued by this backend.
 type JWTAuth struct {
@@ -25,7 +33,7 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-			http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "missing or invalid Authorization header")
 			return
 		}
 		tokenStr := strings.TrimPrefix(auth, "Bearer ")
@@ -38,13 +46,13 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 		)
 		if err != nil {
 			slog.Debug("JWT validation failed", "error", err)
-			http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token")
 			return
 		}
 
 		sub := token.Subject()
 		if sub == "" {
-			http.Error(w, `{"error":"token missing sub claim"}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "token missing sub claim")
 			return
 		}
 

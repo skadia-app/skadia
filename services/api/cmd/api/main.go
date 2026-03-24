@@ -299,8 +299,8 @@ func main() {
 			Get("/social/{provider}/callback", authHandler.SocialCallback)
 
 		// Web session management (cookie-based)
-		r.Post("/refresh", authHandler.Refresh)
-		r.Post("/logout", authHandler.Logout)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/refresh", authHandler.Refresh)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/logout", authHandler.Logout)
 
 		// Mobile (Go-native)
 		r.With(middleware.RateLimitLoginByIP(authRL)).
@@ -309,7 +309,7 @@ func main() {
 			Post("/mobile/refresh", authHandler.MobileRefresh)
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/mobile/exchange", authHandler.MobileExchange)
-		r.Post("/mobile/logout", authHandler.MobileLogout)
+		r.With(middleware.RateLimitGeneric(authRL)).Post("/mobile/logout", authHandler.MobileLogout)
 	})
 
 	// Internal routes (no JWT auth — service-to-service only, network-level access control)
