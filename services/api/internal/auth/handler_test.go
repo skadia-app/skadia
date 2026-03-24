@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
 	}
-	return NewHandler(nil, cfg, &Mailer{}, middleware.NewRateLimiter())
+	return NewHandler(nil, cfg, &Mailer{}, middleware.NewRateLimiter(context.Background()))
 }
 
 // --- AuthConfig Endpoint ---
@@ -501,7 +502,7 @@ func TestMobileLogoutMissingToken(t *testing.T) {
 // --- Rate Limiter Behavior ---
 
 func TestRateLimiterBurst(t *testing.T) {
-	rl := middleware.NewRateLimiter()
+	rl := middleware.NewRateLimiter(context.Background())
 
 	// Burst of 3 — first 3 should pass.
 	for i := range 3 {
@@ -517,7 +518,7 @@ func TestRateLimiterBurst(t *testing.T) {
 }
 
 func TestRateLimiterSeparateKeys(t *testing.T) {
-	rl := middleware.NewRateLimiter()
+	rl := middleware.NewRateLimiter(context.Background())
 
 	// Exhaust one key.
 	for range 3 {

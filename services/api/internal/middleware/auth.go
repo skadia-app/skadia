@@ -34,6 +34,7 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 			jwt.WithKey(jwa.HS256, j.jwtSecret),
 			jwt.WithValidate(true),
 			jwt.WithAudience("skadia-api"),
+			jwt.WithIssuer("skadia"),
 		)
 		if err != nil {
 			slog.Debug("JWT validation failed", "error", err)

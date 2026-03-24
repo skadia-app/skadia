@@ -233,7 +233,7 @@ func main() {
 
 	// Auth handler (Go-native auth)
 	authMailer := auth.NewMailer(cfg)
-	authRL := middleware.NewRateLimiter()
+	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL)
 
 	// Token cleanup (daily, graceful shutdown)
