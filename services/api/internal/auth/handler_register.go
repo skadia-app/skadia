@@ -35,7 +35,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
 	if h.Config.RegistrationMode == "invite" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration disabled"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
 		return
 	}
 

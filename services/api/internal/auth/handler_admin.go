@@ -60,7 +60,7 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var users []adminUserEntry
+	users := make([]adminUserEntry, 0)
 	for rows.Next() {
 		var u adminUserEntry
 		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.IsActive,
@@ -153,10 +153,23 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
 	rows, err := h.DB.Pool.Query(r.Context(),
 		`SELECT family_id, user_agent, ip_address::text, created_at, expires_at, revoked
 		 FROM refresh_tokens WHERE user_id = $1
-		 ORDER BY created_at DESC LIMIT 50`, userID)
+		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		slog.Error("admin list user sessions failed", "error", err, "user_id", userID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -164,7 +177,7 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 	}
 	defer rows.Close()
 
-	var sessions []adminSessionEntry
+	sessions := make([]adminSessionEntry, 0)
 	for rows.Next() {
 		var s adminSessionEntry
 		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.IPAddress,

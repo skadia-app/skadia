@@ -29,6 +29,8 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   invalid_state: 'Ungültige Sitzung. Bitte versuche es erneut.', // context: OAuth state mismatch
 
   // Password reset
+  email_required: 'E-Mail-Adresse ist erforderlich.', // context: forgot-password form
+  token_and_password_required: 'Token und neues Passwort sind erforderlich.', // context: reset-password form
   invalid_or_expired_token: 'Ungültiger oder abgelaufener Link.', // context: email verification or password reset token
 
   // Change password
@@ -36,13 +38,22 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   no_password_set: 'Kein Passwort gesetzt. Verwende Social Login.', // context: OAuth-only user trying to change password
   current_and_new_password_required: 'Aktuelles und neues Passwort sind erforderlich.', // context: change-password form
 
+  // Registration
+  registration_disabled: 'Registrierung ist deaktiviert.', // context: invite-only mode
+
   // Session
+  invalid_session_id: 'Ungültige Sitzungs-ID.', // context: session revocation with malformed ID
   session_expired: 'Sitzung abgelaufen. Bitte erneut anmelden.', // context: refresh token invalid/expired
+
+  // Admin
+  invalid_user_id: 'Ungültige Benutzer-ID.', // context: admin endpoints with malformed user ID
+  cannot_deactivate_self: 'Du kannst dein eigenes Konto nicht deaktivieren.', // context: admin self-deactivation guard
 
   // Generic
   too_many_requests: 'Zu viele Anfragen. Bitte warte einen Moment.', // context: rate limit hit
   internal_error: 'Ein interner Fehler ist aufgetreten.', // context: server error
   invalid_request: 'Ungültige Anfrage.', // context: malformed request body
+  not_implemented: 'Diese Funktion ist noch nicht verfügbar.', // context: placeholder endpoints
   unauthorized: 'Nicht autorisiert.', // context: missing/invalid JWT
 }
 

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/go-chi/chi/v5"
+
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
@@ -135,8 +137,8 @@ func TestRegistrationModeInviteBlocksRegister(t *testing.T) {
 
 	var resp map[string]string
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "registration disabled" {
-		t.Errorf("expected error 'registration disabled', got %q", resp["error"])
+	if resp["error"] != "registration_disabled" {
+		t.Errorf("expected error 'registration_disabled', got %q", resp["error"])
 	}
 }
 
@@ -992,5 +994,36 @@ func TestChangePasswordNewTooLong(t *testing.T) {
 	h.ChangePassword(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- Admin Self-Deactivation Guard ---
+
+func TestAdminCannotDeactivateSelf(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+
+	// Use a valid UUID so the parse check passes and we reach the self-deactivation guard.
+	selfID := "00000000-0000-0000-0000-000000000001"
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/"+selfID+"/deactivate", nil)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, selfID)
+	req = req.WithContext(ctx)
+
+	// Set chi URL param.
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", selfID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.AdminDeactivateUser(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "cannot_deactivate_self" {
+		t.Errorf("expected error 'cannot_deactivate_self', got %q", resp["error"])
 	}
 }
