@@ -422,10 +422,10 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If enrichment_status is pending/processing, mark all no_data modules as pending
+	// If enrichment_status is pending/processing, mark no_data as pending only for ML-only modules
 	if activity.EnrichmentStatus == "pending" || activity.EnrichmentStatus == "processing" {
 		for i := range modules {
-			if modules[i].Status == "no_data" {
+			if modules[i].Status == "no_data" && !enrichment.GoNativeModules[modules[i].Name] {
 				modules[i].Status = "pending"
 			}
 		}

@@ -8,7 +8,7 @@ import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/utils'
-import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
+import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES } from '@/components/RecomputeModal'
 
 type ReprocessMode = 'all' | 'selection'
 
@@ -70,7 +70,7 @@ export default function WorkshopReprocessPage() {
   }
 
   function buildFilter(): ReprocessFilter | undefined {
-    const allScopes = 2 + GEO_SCOPE_KEYS.length // streams,sensors,metrics,details,segments,sport_type,tags + geo items
+    const allScopes = REPROCESS_SCOPES.length + GEO_SCOPE_KEYS.length
     const scopeArr = scope.size > 0 && scope.size < allScopes ? toBackendScope(scope) : undefined
 
     if (mode === 'selection') {
@@ -317,15 +317,7 @@ export default function WorkshopReprocessPage() {
         <div>
           <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">Was neu berechnen?</label>
           <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-            {([
-              ['streams', 'Streams & Track'],
-              ['sensors', 'Sensoren'],
-              ['metrics', 'Metriken'],
-              ['details', 'Runden/Splits'],
-              ['segments', 'Segmente & Runden'],
-              ['sport_type', 'Sportart'],
-              ['tags', 'Tags'],
-            ] as const).map(([key, label]) => (
+            {REPROCESS_SCOPES.map(([key, label]) => (
               <label key={key} className="flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
                 <input
                   type="checkbox"
@@ -387,15 +379,9 @@ export default function WorkshopReprocessPage() {
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 Umfang: {scope.size === 0 ? 'Nichts ausgewählt' : [
-                  scope.has('streams') && 'Streams & Track',
-                  scope.has('sensors') && 'Sensoren',
-                  scope.has('metrics') && 'Metriken',
-                  scope.has('details') && 'Runden/Splits',
-                  scope.has('segments') && 'Segmente & Runden',
-                  scope.has('sport_type') && 'Sportart',
-                  scope.has('tags') && 'Tags',
+                  ...REPROCESS_SCOPES.filter(([key]) => scope.has(key)).map(([, label]) => label),
                   ...GEO_SCOPE_KEYS.filter(k => scope.has(k)).map(k => GEO_SCOPE_LABELS[k]),
-                ].filter(Boolean).join(', ')}
+                ].join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 Nutzerdefinierte Felder (Titel, Beschreibung, Tags, Sichtbarkeit) bleiben erhalten.

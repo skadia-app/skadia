@@ -143,7 +143,7 @@ func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID strin
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT p.osm_id, p.name, p.ele, p.category,
+		SELECT DISTINCT ON (p.osm_id) p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
 		       ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
 		FROM osm_pois p, route
@@ -151,7 +151,7 @@ func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID strin
 		  AND ST_DWithin(route.geom::geography, p.geom::geography, 100)
 		  AND p.category IN ('summit', 'pass')
 		  AND p.name IS NOT NULL
-		ORDER BY dist_m
+		ORDER BY p.osm_id, dist_m
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("summits: query: %w", err)
@@ -213,7 +213,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			FROM activity_tracks WHERE activity_id = $1
 		),
 		from_boundaries AS (
-			SELECT b.osm_id, b.name, 'boundary'::text AS source, 8::smallint AS admin_level,
+			SELECT DISTINCT ON (b.osm_id) b.osm_id, b.name, 'boundary'::text AS source, 8::smallint AS admin_level,
 			       ST_Y(ST_Centroid(b.geom)) AS center_lat,
 			       ST_X(ST_Centroid(b.geom)) AS center_lon
 			FROM osm_boundaries b, route
@@ -221,9 +221,10 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			  AND b.boundary_type = 'administrative'
 			  AND b.admin_level = 8
 			  AND ST_Length(ST_Intersection(route.geom, b.geom)::geography) >= 200
+			ORDER BY b.osm_id
 		),
 		from_poi AS (
-			SELECT p.osm_id, p.name, 'poi'::text AS source, NULL::smallint AS admin_level,
+			SELECT DISTINCT ON (p.osm_id) p.osm_id, p.name, 'poi'::text AS source, NULL::smallint AS admin_level,
 			       ST_Y(ST_Centroid(p.geom)) AS center_lat,
 			       ST_X(ST_Centroid(p.geom)) AS center_lon
 			FROM osm_pois p, route
@@ -236,6 +237,7 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 			        AND b.boundary_type = 'administrative'
 			        AND ST_Contains(b.geom, ST_Centroid(p.geom))
 			  )
+			ORDER BY p.osm_id
 		)
 		SELECT osm_id, name, source, admin_level, center_lat, center_lon
 		FROM from_boundaries
@@ -310,10 +312,16 @@ func enrichGeoTagsForests(ctx context.Context, db *database.DB, activityID strin
 			FROM intersected
 			WHERE length_m >= 200
 		),
+		osm_deduped AS (
+			SELECT DISTINCT ON (osm_id) osm_id, name, length_m,
+			       bbox_west, bbox_south, bbox_east, bbox_north
+			FROM filtered
+			ORDER BY osm_id, length_m DESC
+		),
 		deduped AS (
 			SELECT DISTINCT ON (name) osm_id, name, length_m,
 			       bbox_west, bbox_south, bbox_east, bbox_north
-			FROM filtered
+			FROM osm_deduped
 			ORDER BY name, length_m DESC
 		)
 		SELECT osm_id, name, length_m,
@@ -374,15 +382,20 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT DISTINCT ON (w.name) w.osm_id, w.name,
-		       ROUND(ST_Distance(route.geom::geography, w.geom::geography))::int AS min_dist_m,
-		       ST_XMin(w.geom) AS bbox_west, ST_YMin(w.geom) AS bbox_south,
-		       ST_XMax(w.geom) AS bbox_east, ST_YMax(w.geom) AS bbox_north
-		FROM osm_waters w, route
-		WHERE w.geom && ST_Expand(route.geom, 0.001)
-		  AND ST_DWithin(route.geom::geography, w.geom::geography, 50)
-		  AND w.name IS NOT NULL
-		ORDER BY w.name, min_dist_m
+		SELECT DISTINCT ON (name) osm_id, name, min_dist_m,
+		       bbox_west, bbox_south, bbox_east, bbox_north
+		FROM (
+			SELECT DISTINCT ON (w.osm_id) w.osm_id, w.name,
+			       ROUND(ST_Distance(route.geom::geography, w.geom::geography))::int AS min_dist_m,
+			       ST_XMin(w.geom) AS bbox_west, ST_YMin(w.geom) AS bbox_south,
+			       ST_XMax(w.geom) AS bbox_east, ST_YMax(w.geom) AS bbox_north
+			FROM osm_waters w, route
+			WHERE w.geom && ST_Expand(route.geom, 0.001)
+			  AND ST_DWithin(route.geom::geography, w.geom::geography, 50)
+			  AND w.name IS NOT NULL
+			ORDER BY w.osm_id, min_dist_m
+		) osm_deduped
+		ORDER BY name, min_dist_m
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("water: still_water query: %w", err)
@@ -427,16 +440,20 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT DISTINCT ON (ww.name) ww.osm_id, ww.name, ww.waterway,
-		       ROUND(ST_Distance(route.geom::geography, ww.geom::geography))::int AS min_dist_m,
-		       ST_AsBinary(ST_Intersection(
-		           ST_Buffer(route.geom::geography, 50)::geometry, ww.geom
-		       )) AS nearby_section
-		FROM osm_waterways ww, route
-		WHERE ww.geom && ST_Expand(route.geom, 0.001)
-		  AND ST_DWithin(route.geom::geography, ww.geom::geography, 50)
-		  AND ww.name IS NOT NULL
-		ORDER BY ww.name, min_dist_m
+		SELECT DISTINCT ON (name) osm_id, name, waterway, min_dist_m, nearby_section
+		FROM (
+			SELECT DISTINCT ON (ww.osm_id) ww.osm_id, ww.name, ww.waterway,
+			       ROUND(ST_Distance(route.geom::geography, ww.geom::geography))::int AS min_dist_m,
+			       ST_AsBinary(ST_Intersection(
+			           ST_Buffer(route.geom::geography, 50)::geometry, ww.geom
+			       )) AS nearby_section
+			FROM osm_waterways ww, route
+			WHERE ww.geom && ST_Expand(route.geom, 0.001)
+			  AND ST_DWithin(route.geom::geography, ww.geom::geography, 50)
+			  AND ww.name IS NOT NULL
+			ORDER BY ww.osm_id, min_dist_m
+		) osm_deduped
+		ORDER BY name, min_dist_m
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("water: flowing_water query: %w", err)
@@ -490,7 +507,7 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
 			FROM activity_tracks WHERE activity_id = $1
 		)
-		SELECT b.name, b.admin_level,
+		SELECT DISTINCT ON (b.name, b.admin_level) b.name, b.admin_level,
 		       CASE
 		           WHEN NOT ST_IsEmpty(ST_Intersection(route.geom, ST_Boundary(b.geom)))
 		               THEN ST_AsBinary(ST_Intersection(route.geom, ST_Boundary(b.geom)))
@@ -499,7 +516,7 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 		FROM osm_boundaries b, route
 		WHERE ST_Intersects(route.geom, b.geom)
 		  AND b.admin_level IN (2, 4)
-		ORDER BY b.admin_level
+		ORDER BY b.name, b.admin_level
 	`, activityID)
 	if err != nil {
 		return fmt.Errorf("borders: query: %w", err)
