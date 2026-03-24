@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -262,8 +263,13 @@ func RunUnifiedLandmarkPreprocessing(
 	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
 		south, west, north, east := BBoxFromTiles(tiles)
 
-		// All crossings from DB, ordered by ele DESC. We snap to graph, filter by
-		// BFS reachability (100 hops), and pick the highest connected per quadrant.
+		// All crossings from DB, ordered by ele DESC. Pipeline:
+		// 1. Snap to graph via SpatialGrid (O(1) per candidate)
+		// 2. BFS 100-hop reachability on CSR (O(300) per candidate)
+		//    → separates trail passes (>= 500 reachable) from glacial saddles (< 50)
+		// 3. Compute median lat/lon from CONNECTED crossings (not tile bbox!)
+		//    → quadrants centered on the trail network, not on all of Europe
+		// 4. Pick highest-elevation connected crossing per quadrant
 		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
 		if seedErr != nil {
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
@@ -271,20 +277,15 @@ func RunUnifiedLandmarkPreprocessing(
 			slog.Info("crossing seed candidates from DB", "count", len(seeds))
 			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
 
-			// Filter by BFS reachability: 100-hop BFS on CSR, require >= 500 reachable.
-			// This is O(100 * avg_degree) ≈ O(300) per candidate — fast enough for 18K.
-			// Degree >= 3 alone is insufficient: many passes have degree 3 (T-junction)
-			// but are well-connected; glacial saddles also have degree 3 but reach < 50 nodes.
-			midLat := (south + north) / 2
-			midLon := (west + east) / 2
-
-			type quadrantSeed struct {
+			// Pass 1: BFS reachability filter + collect connected crossings
+			type connectedCrossing struct {
 				osmIdx    int
 				denseID   uint32
 				reachable int
 			}
-			quadrantBest := make(map[[2]int]quadrantSeed)
+			var connected []connectedCrossing
 
+			progressFn("filtering crossings by connectivity", 0, len(snappedSeeds))
 			for si, seed := range snappedSeeds {
 				if si >= len(seeds) {
 					break
@@ -295,26 +296,62 @@ func RunUnifiedLandmarkPreprocessing(
 					continue
 				}
 				denseID := mapping[seedLocalID]
-
-				// BFS with hop limit (100 hops, ~3-5km in trail graph)
 				reachable := bfsReachableCSR(csr, denseID, 100)
-				if reachable < 500 {
-					continue // isolated climbing route or glacier approach
-				}
-
-				quadrant := [2]int{0, 0}
-				if seeds[si].Lat >= midLat { quadrant[0] = 1 }
-				if seeds[si].Lon >= midLon { quadrant[1] = 1 }
-
-				// Keep highest-elevation connected candidate per quadrant
-				// (seeds are ordered by ele DESC, so first connected wins)
-				if _, ok := quadrantBest[quadrant]; !ok {
-					quadrantBest[quadrant] = quadrantSeed{si, denseID, reachable}
+				if reachable >= 500 {
+					connected = append(connected, connectedCrossing{si, denseID, reachable})
 				}
 			}
 
-			slog.Info("crossing seeds after connectivity filter",
-				"quadrants_with_seeds", len(quadrantBest))
+			slog.Info("crossing seeds connectivity filter complete",
+				"total", len(seeds), "connected", len(connected))
+
+			if len(connected) > 0 {
+				// Pass 2: Compute median from connected crossings (NOT tile bbox)
+				connectedLats := make([]float64, len(connected))
+				connectedLons := make([]float64, len(connected))
+				for i, cc := range connected {
+					connectedLats[i] = seeds[cc.osmIdx].Lat
+					connectedLons[i] = seeds[cc.osmIdx].Lon
+				}
+				slices.SortFunc(connectedLats, func(a, b float64) int {
+					if a < b { return -1 }
+					if a > b { return 1 }
+					return 0
+				})
+				slices.SortFunc(connectedLons, func(a, b float64) int {
+					if a < b { return -1 }
+					if a > b { return 1 }
+					return 0
+				})
+				medLat := connectedLats[len(connectedLats)/2]
+				medLon := connectedLons[len(connectedLons)/2]
+
+				slog.Info("crossing median from connected crossings",
+					"med_lat", medLat, "med_lon", medLon,
+					"connected_count", len(connected))
+
+				// Pass 3: Quadrant assignment + pick highest connected per quadrant
+				type quadrantSeed struct {
+					osmIdx    int
+					denseID   uint32
+					reachable int
+				}
+				quadrantBest := make(map[[2]int]quadrantSeed)
+
+				for _, cc := range connected {
+					quadrant := [2]int{0, 0}
+					if seeds[cc.osmIdx].Lat >= medLat { quadrant[0] = 1 }
+					if seeds[cc.osmIdx].Lon >= medLon { quadrant[1] = 1 }
+
+					// First connected candidate per quadrant wins
+					// (connected list preserves ele DESC order from SQL)
+					if _, ok := quadrantBest[quadrant]; !ok {
+						quadrantBest[quadrant] = quadrantSeed{cc.osmIdx, cc.denseID, cc.reachable}
+					}
+				}
+
+				slog.Info("crossing seeds after quadrant selection",
+					"quadrants_with_seeds", len(quadrantBest))
 
 			// Phase B: Budget-Dijkstra + flank detection (max 4 runs).
 			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
@@ -347,6 +384,7 @@ func RunUnifiedLandmarkPreprocessing(
 				}
 			}
 			slog.Info("crossing seeds used", "accepted", seedNum, "candidates", len(seeds))
+			} // end if len(connected) > 0
 		}
 	}
 
