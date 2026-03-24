@@ -15,6 +15,14 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
+// GoNativeModules lists enrichment modules that run in Go SQL (not via ML service).
+// Read-only — do not modify at runtime.
+var GoNativeModules = map[string]bool{
+	"summits": true, "settlements": true, "forests": true,
+	"water": true, "borders": true, "surfaces": true,
+	"stops": true, "ascents": true, "intervals": true,
+}
+
 // enableDEMEnrichment controls whether Open-Meteo elevation correction is applied.
 // Disabled until a local DEM solution (e.g. SRTM tiles) is available.
 // The Open-Meteo elevation API rate-limits aggressively under any sustained load.
@@ -412,11 +420,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 		// These modules have been migrated to Go SQL (geo_enrich.go / surfaces.go) and no
 		// longer need to run in the Python ML service.
-		migratedToGo := map[string]bool{
-			"summits": true, "settlements": true, "forests": true,
-			"water": true, "borders": true, "surfaces": true,
-			"stops": true, "ascents": true, "intervals": true,
-		}
+		migratedToGo := GoNativeModules
 		if enabledModules == nil {
 			// nil means "all enabled" — expand to full list minus migrated ones
 			allModules := []string{
