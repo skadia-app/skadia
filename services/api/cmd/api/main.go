@@ -133,28 +133,6 @@ func main() {
 		}
 	}
 
-	// Auth config (optional – only when OIDC is configured)
-	var authCfg *handler.AuthConfig
-	if cfg.OIDCClientID != "" && cfg.JWTSecret != "" {
-		authCfg = &handler.AuthConfig{
-			OIDCBaseURL:      cfg.OIDCBaseURL,
-			OIDCExternalURL:  cfg.OIDCExternalURL,
-			OIDCClientID:     cfg.OIDCClientID,
-			OIDCClientSecret: cfg.OIDCClientSecret,
-			OIDCAppSlug:      cfg.OIDCAppSlug,
-			AppRedirectURI:        cfg.AppRedirectURI,
-			FrontendURL:           cfg.FrontendURL,
-			JWTSecret:             []byte(cfg.JWTSecret),
-		}
-		slog.Info("OIDC OIDC configured",
-			"base_url", cfg.OIDCBaseURL,
-			"external_url", cfg.OIDCExternalURL,
-			"redirect_uri", cfg.AppRedirectURI,
-		)
-	} else {
-		slog.Warn("OIDC OIDC not configured (OIDC_CLIENT_ID or JWT_SECRET missing)")
-	}
-
 	// Shadow File System (optional)
 	var shadowFSCfg *shadowfs.ShadowFSConfig
 	if cfg.ShadowFSBasePath != "" {
@@ -185,8 +163,7 @@ func main() {
 		DB:            db,
 		Storage:       s3Client,
 		Events:        pub,
-		Auth:          authCfg,
-		ShadowFS:      shadowFSCfg,
+		ShadowFS: shadowFSCfg,
 		ImportService: importSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
@@ -290,14 +267,6 @@ func main() {
 	r.Get("/health", h.Health)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		// OIDC OIDC endpoints (Phase 1: kept for transition)
-		r.Get("/login", h.AuthLogin)
-		r.Get("/callback", h.AuthCallback)
-		r.Post("/refresh", h.AuthRefresh)
-		r.Post("/logout", h.AuthLogout)
-		r.Post("/token", h.ExchangeToken)
-		r.Post("/mobile-refresh", h.MobileRefreshToken)
-
 		// Go-native auth endpoints
 		r.Get("/config", authHandler.AuthConfig)
 
