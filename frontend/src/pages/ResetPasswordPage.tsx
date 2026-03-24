@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { resetPassword } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
@@ -36,7 +37,7 @@ export default function ResetPasswordPage() {
       setSuccess(true)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Zurücksetzen fehlgeschlagen'
-      setError(msg)
+      setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
     }

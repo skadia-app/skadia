@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { setToken } from '@/lib/auth'
 import { exchangeAuthCode } from '@/api/auth'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function CallbackPage() {
   const navigate = useNavigate()
@@ -28,7 +29,8 @@ export default function CallbackPage() {
         navigate('/activities', { replace: true })
       })
       .catch(err => {
-        setError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen')
+        const msg = err instanceof Error ? err.message : 'exchange_failed'
+        setError(getAuthErrorMessage(msg))
       })
   }, [searchParams, navigate])
 

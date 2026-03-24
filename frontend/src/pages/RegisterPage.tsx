@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { register, getAuthConfig, type AuthConfig } from '@/api/auth'
 import { isAuthenticated } from '@/lib/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -50,7 +51,7 @@ export default function RegisterPage() {
       setSuccess(true)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Registrierung fehlgeschlagen'
-      setError(msg)
+      setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
     }

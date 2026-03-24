@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { verifyEmail } from '@/api/auth'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
@@ -21,7 +22,7 @@ export default function VerifyEmailPage() {
       await verifyEmail(token)
       setSuccess(true)
     } catch {
-      setError('Ungültiger oder abgelaufener Link.')
+      setError(getAuthErrorMessage('invalid_or_expired_token'))
     } finally {
       setLoading(false)
     }
