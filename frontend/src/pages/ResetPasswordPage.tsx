@@ -1,12 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { resetPassword } from '@/api/auth'
-
-const INPUT_CLASS =
-  'w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700 ' +
-  'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 ' +
-  'placeholder:text-neutral-400 text-sm ' +
-  'focus:outline-none focus:ring-1 focus:ring-accent-400'
+import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
@@ -103,7 +98,7 @@ export default function ResetPasswordPage() {
             required
             minLength={10}
             autoComplete="new-password"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <input
             type="password"
@@ -112,7 +107,7 @@ export default function ResetPasswordPage() {
             placeholder="Passwort bestätigen"
             required
             autoComplete="new-password"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <button
             type="submit"

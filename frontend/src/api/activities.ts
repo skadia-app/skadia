@@ -118,7 +118,7 @@ export interface ReprocessResult {
 }
 
 export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<ReprocessResult> {
-  return apiClient<ReprocessResult>('/activities/recompute-all', {
+  return apiClient<ReprocessResult>('/admin/activities/recompute-all', {
     method: 'POST',
     body: filter ?? undefined,
   })

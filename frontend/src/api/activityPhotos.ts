@@ -83,15 +83,15 @@ export async function patchActivityPhotoLocation(
 }
 
 export async function recomputePhotoPreviews(): Promise<{ job_id: string }> {
-  return apiClient('/photos/recompute-previews', { method: 'POST' })
+  return apiClient('/admin/photos/recompute-previews', { method: 'POST' })
 }
 
 export async function recomputePhotoEmbeddings(): Promise<{ job_id: string; queued: number }> {
-  return apiClient('/photos/recompute-embeddings', { method: 'POST' })
+  return apiClient('/admin/photos/recompute-embeddings', { method: 'POST' })
 }
 
 export async function recomputePhotoThumbnails(): Promise<{ job_id?: string; queued?: number; fixed?: number; status?: string }> {
-  return apiClient('/photos/recompute-thumbnails', { method: 'POST' })
+  return apiClient('/admin/photos/recompute-thumbnails', { method: 'POST' })
 }
 
 export async function backfillPhash(): Promise<{ job_id?: string; queued?: number; status?: string }> {
