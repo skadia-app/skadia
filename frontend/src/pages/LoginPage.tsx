@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
+import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -17,12 +18,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   provider_error: 'Fehler beim Social Login. Bitte versuche es erneut.',
   exchange_failed: 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.',
 }
-
-const INPUT_CLASS =
-  'w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700 ' +
-  'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 ' +
-  'placeholder:text-neutral-400 text-sm ' +
-  'focus:outline-none focus:ring-1 focus:ring-accent-400'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -95,7 +90,7 @@ export default function LoginPage() {
             placeholder="E-Mail"
             required
             autoComplete="email"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <input
             type="password"
@@ -104,7 +99,7 @@ export default function LoginPage() {
             placeholder="Passwort"
             required
             autoComplete="current-password"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <button
             type="submit"

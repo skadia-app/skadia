@@ -422,14 +422,14 @@ function MLServiceSection() {
   const { data: mlSettings, refetch: refetchML } = useQuery({
     queryKey: ['ml-system-settings'],
     queryFn: () =>
-      apiFetch('/api/v1/settings/ml').then(r => r.json()) as Promise<
+      apiFetch('/api/v1/admin/settings/ml').then(r => r.json()) as Promise<
         Record<NightlyJobKey, { enabled: boolean; time: string; description: string }>
       >,
   })
 
   async function toggleJob(key: NightlyJobKey, enabled: boolean) {
     const current = mlSettings?.[key] ?? { enabled: false, time: '02:00', description: '' }
-    await apiFetch(`/api/v1/settings/ml/${key}`, {
+    await apiFetch(`/api/v1/admin/settings/ml/${key}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...current, enabled }),

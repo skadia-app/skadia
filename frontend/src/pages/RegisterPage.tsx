@@ -2,12 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { register, getAuthConfig, type AuthConfig } from '@/api/auth'
 import { isAuthenticated } from '@/lib/auth'
-
-const INPUT_CLASS =
-  'w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700 ' +
-  'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 ' +
-  'placeholder:text-neutral-400 text-sm ' +
-  'focus:outline-none focus:ring-1 focus:ring-accent-400'
+import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -109,7 +104,7 @@ export default function RegisterPage() {
             placeholder="E-Mail"
             required
             autoComplete="email"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <input
             type="text"
@@ -118,7 +113,7 @@ export default function RegisterPage() {
             placeholder="Benutzername"
             required
             autoComplete="username"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <input
             type="password"
@@ -128,7 +123,7 @@ export default function RegisterPage() {
             required
             minLength={10}
             autoComplete="new-password"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <input
             type="password"
@@ -137,7 +132,7 @@ export default function RegisterPage() {
             placeholder="Passwort bestätigen"
             required
             autoComplete="new-password"
-            className={INPUT_CLASS}
+            className={AUTH_INPUT_CLASS}
           />
           <button
             type="submit"
