@@ -94,30 +94,53 @@ func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SelectCrossingSeedsSQL selects crossing candidates for landmark seed selection.
-// Returns ALL crossings in the bbox (typically 1K-20K), sorted by elevation DESC.
-// The pipeline selects 4 seeds (1 per quadrant) based on graph connectivity,
-// not elevation — glacial saddles are filtered by reachability, not SQL.
+// SelectCrossingSeedsSQL selects crossing candidates via median-split quadrants.
+// Returns top-20 per quadrant (up to 80 candidates), ordered by quadrant then ele DESC.
+// The pipeline filters by CSR graph connectivity (degree >= 3) and picks 1 per quadrant.
+// Top-20 depth ensures we reach trail-connected passes even when the highest
+// 10+ crossings per quadrant are glacial saddles with no trail network.
 func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64) ([]OSMLandmark, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT osm_id, COALESCE(name, '') AS name,
-		       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
-		FROM osm_pois
-		WHERE ele IS NOT NULL AND ele > 500
-		  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-		  AND (
-		    category = 'pass'
-		    OR (category = 'summit' AND subtype = 'saddle')
-		    OR (category = 'summit' AND (
-		      name ILIKE '%joch%' OR name ILIKE '%scharte%'
-		      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
-		      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
-		      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
-		      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
-		    ))
-		  )
-		ORDER BY ele DESC
+		WITH crossings AS (
+			SELECT osm_id, COALESCE(name, '') AS name,
+			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
+			FROM osm_pois
+			WHERE ele IS NOT NULL AND ele > 500
+			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+			  AND (
+			    category = 'pass'
+			    OR (category = 'summit' AND subtype = 'saddle')
+			    OR (category = 'summit' AND (
+			      name ILIKE '%joch%' OR name ILIKE '%scharte%'
+			      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
+			      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
+			      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
+			      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
+			    ))
+			  )
+		),
+		medians AS (
+			SELECT
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lat) AS med_lat,
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lon) AS med_lon
+			FROM crossings
+		),
+		ranked AS (
+			SELECT c.osm_id, c.name, c.lat, c.lon, c.ele,
+				CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END AS lat_bin,
+				CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END AS lon_bin,
+				ROW_NUMBER() OVER (
+					PARTITION BY
+						CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END,
+						CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END
+					ORDER BY c.ele DESC
+				) AS rn
+			FROM crossings c, medians m
+		)
+		SELECT osm_id, name, lat, lon, ele
+		FROM ranked WHERE rn <= 20
+		ORDER BY lat_bin, lon_bin, rn
 	`, west, south, east, north)
 	if err != nil {
 		return nil, err
