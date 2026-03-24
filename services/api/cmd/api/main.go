@@ -285,9 +285,9 @@ func main() {
 			if cfg.JWTSecret != "" {
 				jwtSecret = []byte(cfg.JWTSecret)
 			}
-			jwtAuth := middleware.NewJWTAuth(cfg.OIDCJWKSURL, jwtSecret)
+			jwtAuth := middleware.NewJWTAuth(jwtSecret)
 			r.Use(jwtAuth.Middleware)
-			slog.Info("JWT auth enabled", "jwks_url", cfg.OIDCJWKSURL, "hs256", cfg.JWTSecret != "")
+			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}
 
 		r.Route("/api/v1", func(r chi.Router) {
