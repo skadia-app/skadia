@@ -39,6 +39,10 @@ const HealthTab = lazy(() => import('@/pages/analytics/HealthTab'))
 const StatsTab = lazy(() => import('@/pages/analytics/StatsTab'))
 const InsightsTab = lazy(() => import('@/pages/analytics/InsightsTab'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'))
+const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
 const ActivityComparisonPage = lazy(() => import('@/pages/ActivityComparisonPage'))
@@ -105,6 +109,10 @@ export default function App() {
                   <Routes>
                     {/* Public routes */}
                     <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
+                    <Route path="/verify-email" element={<VerifyEmailPage />} />
                     <Route path="/callback" element={<CallbackPage />} />
 
                     {/* Protected routes */}
