@@ -133,9 +133,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	// Send verification email (async) — send the RAW token, not the hash.
 	if h.Mailer.IsConfigured() {
 		h.Mailer.SendVerificationEmail(req.Email, req.Username, token)
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+	} else {
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 	}
-
-	writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 }
 
 // VerifyEmail handles POST /auth/verify-email.

@@ -48,7 +48,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Background: lookup user, generate token, send email.
 	go func() {
-		ctx := context.Background() // detached from request
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		user, err := h.DB.GetUserByEmail(ctx, req.Email)
 		if err != nil {
@@ -137,14 +138,12 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Invalidate ALL refresh tokens for this user.
-	if _, err := h.DB.Pool.Exec(r.Context(),
-		"UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND NOT revoked", userID); err != nil {
+	if err := h.DB.RevokeAllUserTokens(r.Context(), userID.String()); err != nil {
 		slog.Error("revoke refresh tokens after password reset failed", "error", err)
 	}
 
 	// Clear login delays.
-	if _, err := h.DB.Pool.Exec(r.Context(),
-		"UPDATE users SET failed_login_count = 0, login_delay_until = NULL WHERE id = $1", userID); err != nil {
+	if err := h.DB.ClearLoginDelays(r.Context(), userID.String()); err != nil {
 		slog.Error("clear login delays after password reset failed", "error", err)
 	}
 

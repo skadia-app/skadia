@@ -75,13 +75,16 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"token": jwt})
 }
 
-// Logout handles POST /auth/logout — revoke token + clear cookie.
+// Logout handles POST /auth/logout — revoke entire token family + clear cookie.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(RefreshCookieName)
 	if err == nil && cookie.Value != "" {
 		tokenHash := HashToken(cookie.Value)
-		// Best-effort revoke — don't care if it fails.
-		_, _, _, _ = h.DB.RotateRefreshToken(r.Context(), tokenHash)
+		// Revoke the token AND its entire family.
+		_, familyID, _, rotateErr := h.DB.RotateRefreshToken(r.Context(), tokenHash)
+		if rotateErr == nil && familyID != "" {
+			_ = h.DB.RevokeTokenFamily(r.Context(), familyID)
+		}
 	}
 	h.clearRefreshCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})

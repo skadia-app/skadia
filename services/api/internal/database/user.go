@@ -182,6 +182,19 @@ func scanUser(row pgx.Row) (*model.User, error) {
 	return &u, err
 }
 
+// GetUserByID returns a user by their ID.
+func (db *DB) GetUserByID(ctx context.Context, userID string) (*model.User, error) {
+	u, err := scanUser(db.Pool.QueryRow(ctx,
+		`SELECT `+allUserColumns+` FROM users WHERE id = $1`, userID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("get user by id: %w", err)
+	}
+	return u, nil
+}
+
 // GetUserByEmail returns a user by their email address.
 func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,

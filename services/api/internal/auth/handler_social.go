@@ -98,6 +98,18 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 // Exchanges the OAuth code for tokens, gets/creates the user, and redirects
 // to the frontend with a short-lived auth code.
 func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
+	// Always clear state cookie first (even on error paths — L13 + M8).
+	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/api/v1/auth/social",
+		HttpOnly: true,
+		Secure:   isHTTPS,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
 	provider := chi.URLParam(r, "provider")
 
 	// Validate CSRF state.
@@ -110,15 +122,6 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		h.socialError(w, r, "invalid_state")
 		return
 	}
-
-	// Clear state cookie.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_state",
-		Value:    "",
-		Path:     "/api/v1/auth/social",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
 
 	// Check for error from provider (e.g. user denied consent).
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
