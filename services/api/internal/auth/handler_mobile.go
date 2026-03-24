@@ -81,8 +81,8 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":         jwt,
-		"refresh_token": token,
+		"token":              jwt,
+		refreshTokenBodyKey: token,
 	})
 }
 
@@ -133,8 +133,8 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":         jwt,
-		"refresh_token": newToken,
+		"token":              jwt,
+		refreshTokenBodyKey: newToken,
 	})
 }
 

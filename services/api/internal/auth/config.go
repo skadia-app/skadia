@@ -14,6 +14,9 @@ const (
 	// RefreshCookieName is the name of the HttpOnly refresh-token cookie.
 	RefreshCookieName = "skadia_refresh"
 
+	// refreshTokenBodyKey is the JSON field name for refresh tokens in mobile API responses/requests.
+	refreshTokenBodyKey = "refresh_token"
+
 	// RefreshTokenExpiry is the lifetime of a refresh token.
 	RefreshTokenExpiry = 7 * 24 * time.Hour
 
