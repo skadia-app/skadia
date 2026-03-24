@@ -13,8 +13,8 @@ func SecurityHeaders(isHTTPS bool) func(http.Handler) http.Handler {
 		"default-src 'self'",
 		"script-src 'self'",
 		"style-src 'self' 'unsafe-inline'", // needed for MapLibre + inline styles
-		"img-src 'self' data: blob: *.tile.openstreetmap.org tile.opentopomap.org *.tile-cyclosm.openstreetmap.fr server.arcgisonline.com *.basemaps.cartocdn.com protomaps.github.io",
-		"connect-src 'self' *.tile.openstreetmap.org tile.opentopomap.org *.tile-cyclosm.openstreetmap.fr server.arcgisonline.com *.basemaps.cartocdn.com protomaps.github.io tiles.openfreemap.org",
+		"img-src 'self' data: blob: https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile-cyclosm.openstreetmap.fr https://server.arcgisonline.com https://*.basemaps.cartocdn.com https://protomaps.github.io",
+		"connect-src 'self' https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile-cyclosm.openstreetmap.fr https://server.arcgisonline.com https://*.basemaps.cartocdn.com https://protomaps.github.io https://tiles.openfreemap.org https://nominatim.openstreetmap.org",
 		"font-src 'self' protomaps.github.io",
 		"worker-src 'self' blob:",
 		"frame-ancestors 'none'",
@@ -28,7 +28,7 @@ func SecurityHeaders(isHTTPS bool) func(http.Handler) http.Handler {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
+			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 			if isHTTPS {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")

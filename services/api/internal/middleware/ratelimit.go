@@ -1,16 +1,22 @@
 package middleware
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
 )
 
+const maxRateLimitEntries = 100_000
+
 // RateLimiter manages per-key rate limiters with automatic cleanup.
 type RateLimiter struct {
 	limiters sync.Map // map[string]*limiterEntry
+	size     atomic.Int64
 }
 
 type limiterEntry struct {
@@ -19,37 +25,75 @@ type limiterEntry struct {
 }
 
 // NewRateLimiter creates a rate limiter and starts a background cleanup goroutine.
-func NewRateLimiter() *RateLimiter {
+// The cleanup goroutine stops when ctx is cancelled.
+func NewRateLimiter(ctx context.Context) *RateLimiter {
 	rl := &RateLimiter{}
-	go rl.cleanup(15 * time.Minute)
+	go rl.cleanup(ctx, 15*time.Minute)
 	return rl
 }
 
 // Allow checks if a request from the given key is allowed.
 func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
+	// Fast path: key already exists.
 	if entry, ok := rl.limiters.Load(key); ok {
 		e := entry.(*limiterEntry)
 		e.lastSeen = time.Now()
 		return e.limiter.Allow()
 	}
-	// Create new limiter
-	l := rate.NewLimiter(rate.Limit(rps), burst)
-	rl.limiters.Store(key, &limiterEntry{limiter: l, lastSeen: time.Now()})
-	return l.Allow()
+
+	// Cap map size to prevent memory exhaustion under attack.
+	if rl.size.Load() >= maxRateLimitEntries {
+		return true // fail open — DoS protection shouldn't become DoS
+	}
+
+	// Use LoadOrStore to avoid race between concurrent first-time callers.
+	newEntry := &limiterEntry{
+		limiter:  rate.NewLimiter(rate.Limit(rps), burst),
+		lastSeen: time.Now(),
+	}
+	actual, loaded := rl.limiters.LoadOrStore(key, newEntry)
+	e := actual.(*limiterEntry)
+	e.lastSeen = time.Now()
+	if !loaded {
+		rl.size.Add(1)
+	}
+	return e.limiter.Allow()
 }
 
-func (rl *RateLimiter) cleanup(interval time.Duration) {
+func (rl *RateLimiter) cleanup(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.limiters.Range(func(key, value any) bool {
-			e := value.(*limiterEntry)
-			if time.Since(e.lastSeen) > interval {
-				rl.limiters.Delete(key)
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			rl.limiters.Range(func(key, value any) bool {
+				e := value.(*limiterEntry)
+				if time.Since(e.lastSeen) > interval {
+					rl.limiters.Delete(key)
+					rl.size.Add(-1)
+				}
+				return true
+			})
+		case <-ctx.Done():
+			return
+		}
 	}
+}
+
+// normalizeIPForRateLimit normalizes IPs for rate limiting keys.
+// IPv6 addresses are reduced to /64 prefix to prevent per-address rotation attacks.
+func normalizeIPForRateLimit(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	// IPv4: use full address.
+	if parsed.To4() != nil {
+		return parsed.String()
+	}
+	// IPv6: use /64 prefix.
+	mask := net.CIDRMask(64, 128)
+	return parsed.Mask(mask).String()
 }
 
 // RateLimitLoginByIP rate-limits login attempts: 20 per 15 minutes per IP.
@@ -75,7 +119,7 @@ func RateLimitGeneric(rl *RateLimiter) func(http.Handler) http.Handler {
 func rateLimitByIP(rl *RateLimiter, prefix string, rps float64, burst int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := ClientIP(r)
+			ip := normalizeIPForRateLimit(ClientIP(r))
 			key := prefix + ":" + ip
 			if !rl.Allow(key, rps, burst) {
 				http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
