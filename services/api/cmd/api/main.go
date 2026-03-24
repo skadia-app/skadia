@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -42,8 +43,8 @@ func main() {
 
 	// pprof server on :6060 (default http mux)
 	go func() {
-		slog.Info("pprof server listening", "addr", ":6060")
-		if err := http.ListenAndServe(":6060", nil); err != nil {
+		slog.Info("pprof server listening", "addr", "127.0.0.1:6060")
+		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
 			slog.Error("pprof server failed", "error", err)
 		}
 	}()
@@ -237,6 +238,13 @@ func main() {
 
 	// Token cleanup (daily, graceful shutdown)
 	shutdown.Go("token-cleanup", func(ctx context.Context) {
+		// Run once immediately at startup
+		if err := db.CleanupExpiredTokens(context.Background()); err != nil {
+			slog.Error("initial token cleanup failed", "error", err)
+		} else {
+			slog.Info("token cleanup completed at startup")
+		}
+
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {
@@ -244,6 +252,8 @@ func main() {
 			case <-ticker.C:
 				if err := db.CleanupExpiredTokens(context.Background()); err != nil {
 					slog.Error("token cleanup failed", "error", err)
+				} else {
+					slog.Info("periodic token cleanup completed")
 				}
 			case <-ctx.Done():
 				return
@@ -288,6 +298,10 @@ func main() {
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Get("/social/{provider}/callback", authHandler.SocialCallback)
 
+		// Web session management (cookie-based)
+		r.Post("/refresh", authHandler.Refresh)
+		r.Post("/logout", authHandler.Logout)
+
 		// Mobile (Go-native)
 		r.With(middleware.RateLimitLoginByIP(authRL)).
 			Post("/mobile/login", authHandler.MobileLogin)
@@ -309,7 +323,7 @@ func main() {
 		} else {
 			var jwtSecret []byte
 			if cfg.JWTSecret != "" {
-				jwtSecret = []byte(cfg.JWTSecret)
+				jwtSecret, _ = hex.DecodeString(cfg.JWTSecret) // already validated by auth.ValidateConfig
 			}
 			jwtAuth := middleware.NewJWTAuth(jwtSecret)
 			r.Use(jwtAuth.Middleware)
