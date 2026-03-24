@@ -50,6 +50,25 @@ type Config struct {
 	// Routing
 	BRouterURL       string // e.g. http://brouter:17777
 	RoutingGraphPath string // path to binary graph file
+
+	// Auth (Go-native)
+	RegistrationMode   string // "invite" (default), "open", "approval"
+	OAuthEncryptionKey string // 32-byte hex for AES-256-GCM (social login tokens)
+	StravaClientID     string
+	StravaClientSecret string
+	GoogleClientID     string
+	GoogleClientSecret string
+	AppName            string // e.g. "Skadia"
+	AppURL             string // e.g. "https://fit.example.com" (used in emails, redirects)
+	TrustedProxyCIDRs  string // comma-separated CIDRs
+	MobileRedirectURI  string // e.g. "skadia://auth"
+
+	// SMTP
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func Load() (*Config, error) {
@@ -89,6 +108,23 @@ func Load() (*Config, error) {
 
 		BRouterURL:       os.Getenv("BROUTER_URL"),
 		RoutingGraphPath: getEnvDefault("ROUTING_GRAPH_PATH", "/data/routing/graph.bin"),
+
+		RegistrationMode:   getEnvDefault("REGISTRATION_MODE", "invite"),
+		OAuthEncryptionKey: os.Getenv("OAUTH_ENCRYPTION_KEY"),
+		StravaClientID:     os.Getenv("STRAVA_CLIENT_ID"),
+		StravaClientSecret: os.Getenv("STRAVA_CLIENT_SECRET"),
+		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		AppName:            getEnvDefault("APP_NAME", "Skadia"),
+		AppURL:             getEnvDefault("APP_URL", "http://localhost:5173"),
+		TrustedProxyCIDRs:  os.Getenv("TRUSTED_PROXY_CIDRS"),
+		MobileRedirectURI:  os.Getenv("MOBILE_REDIRECT_URI"),
+
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     parseIntDefault(os.Getenv("SMTP_PORT"), 587),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -109,6 +145,17 @@ func getEnvDefault(key, defaultValue string) string {
 		return v
 	}
 	return defaultValue
+}
+
+func parseIntDefault(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return v
 }
 
 func parseMaxUploadSize(s string, defaultVal int64) int64 {
