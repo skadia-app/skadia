@@ -94,53 +94,31 @@ func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SelectCrossingSeedsSQL selects crossing candidates via median-split quadrants.
-// Returns top-20 per quadrant (up to 80 candidates), ordered by quadrant then ele DESC.
-// The pipeline filters by CSR graph connectivity (degree >= 3) and picks 1 per quadrant.
-// Top-20 depth ensures we reach trail-connected passes even when the highest
-// 10+ crossings per quadrant are glacial saddles with no trail network.
+// SelectCrossingSeedsSQL returns ALL outdoor crossings in the bbox, ordered by ele DESC.
+// The pipeline handles quadrant assignment and connectivity filtering in Go.
+// No SQL-side LIMIT — the O(1) SpatialGrid snap makes any number of candidates fast.
 func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64) ([]OSMLandmark, error) {
+	// Same query as QueryOutdoorCrossings but returns results sorted by ele DESC
+	// for the pipeline to pick the highest connected candidate per quadrant.
 	rows, err := pool.Query(ctx, `
-		WITH crossings AS (
-			SELECT osm_id, COALESCE(name, '') AS name,
-			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
-			FROM osm_pois
-			WHERE ele IS NOT NULL AND ele > 500
-			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-			  AND (
-			    category = 'pass'
-			    OR (category = 'summit' AND subtype = 'saddle')
-			    OR (category = 'summit' AND (
-			      name ILIKE '%joch%' OR name ILIKE '%scharte%'
-			      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
-			      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
-			      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
-			      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
-			    ))
-			  )
-		),
-		medians AS (
-			SELECT
-				percentile_cont(0.5) WITHIN GROUP (ORDER BY lat) AS med_lat,
-				percentile_cont(0.5) WITHIN GROUP (ORDER BY lon) AS med_lon
-			FROM crossings
-		),
-		ranked AS (
-			SELECT c.osm_id, c.name, c.lat, c.lon, c.ele,
-				CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END AS lat_bin,
-				CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END AS lon_bin,
-				ROW_NUMBER() OVER (
-					PARTITION BY
-						CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END,
-						CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END
-					ORDER BY c.ele DESC
-				) AS rn
-			FROM crossings c, medians m
-		)
-		SELECT osm_id, name, lat, lon, ele
-		FROM ranked WHERE rn <= 20
-		ORDER BY lat_bin, lon_bin, rn
+		SELECT osm_id, COALESCE(name, '') AS name,
+		       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
+		FROM osm_pois
+		WHERE ele IS NOT NULL AND ele > 500
+		  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+		  AND (
+		    category = 'pass'
+		    OR (category = 'summit' AND subtype = 'saddle')
+		    OR (category = 'summit' AND (
+		      name ILIKE '%joch%' OR name ILIKE '%scharte%'
+		      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
+		      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
+		      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
+		      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
+		    ))
+		  )
+		ORDER BY ele DESC
 	`, west, south, east, north)
 	if err != nil {
 		return nil, err
@@ -157,18 +135,64 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SnapOSMLandmarksToGraph converts OSMLandmarks to LandmarkCandidates by snapping to nearest graph node.
-func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tiles []graph.TileScanResult) []graph.LandmarkCandidate {
+// SnapOSMLandmarksToGraph converts OSMLandmarks to LandmarkCandidates by snapping
+// to the nearest graph node using the tile SpatialGrid (O(9 cells) per candidate).
+// Each candidate is snapped via TileIDFromCoord → DeserializeMmap → NearestNode.
+// This scales to thousands of candidates without the O(N) linear scan that
+// FindNearestInTiles would require over 44M+ nodes.
+func SnapOSMLandmarksToGraph(landmarks []OSMLandmark, tileDir string) []graph.LandmarkCandidate {
+	// Cache loaded tiles to avoid repeated mmap for candidates in the same tile.
+	tileCache := make(map[uint32]*graph.Graph)
+	// tileCache entries are released by GC finalizer (closeMmap).
+
+	loadTile := func(tileID uint32) *graph.Graph {
+		if g, ok := tileCache[tileID]; ok {
+			return g
+		}
+		path := graph.TileFilePath(tileDir, tileID)
+		g, err := graph.DeserializeMmap(path)
+		if err != nil {
+			return nil
+		}
+		tileCache[tileID] = g
+		return g
+	}
+
 	var candidates []graph.LandmarkCandidate
 	for _, lm := range landmarks {
-		latE7 := int32(lm.Lat * 1e7)
-		lonE7 := int32(lm.Lon * 1e7)
-		best, found := graph.FindNearestInTiles(tiles, latE7, lonE7)
-		if !found {
+		tileID := graph.TileIDFromCoord(lm.Lat, lm.Lon)
+		g := loadTile(tileID)
+		if g == nil {
+			continue
+		}
+		localID, distDm := graph.NearestNode(g, lm.Lat, lm.Lon)
+		if distDm == 65535 {
+			// Try neighbor tiles (candidate near tile border)
+			nnids, nncount := graph.NeighborTileIDs(tileID)
+			for i := range nncount {
+				gn := loadTile(nnids[i])
+				if gn == nil {
+					continue
+				}
+				candLocal, candDist := graph.NearestNode(gn, lm.Lat, lm.Lon)
+				if candDist < distDm {
+					localID = candLocal
+					distDm = candDist
+					tileID = nnids[i]
+					g = gn
+				}
+			}
+		}
+		if distDm == 65535 {
 			slog.Warn("OSM landmark snap failed", "osm_id", lm.OSMID, "name", lm.Name)
 			continue
 		}
-		candidates = append(candidates, best)
+		candidates = append(candidates, graph.LandmarkCandidate{
+			GlobalNodeID: graph.MakeGlobalNodeID(tileID, localID),
+			Lat:          g.NodeLat[localID],
+			Lon:          g.NodeLon[localID],
+			Ele:          g.NodeEle[localID],
+		})
 	}
 	return candidates
 }

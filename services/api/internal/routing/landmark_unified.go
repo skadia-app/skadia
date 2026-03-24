@@ -245,7 +245,7 @@ func RunUnifiedLandmarkPreprocessing(
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
 		} else if len(seeds) > 0 {
 			slog.Info("crossing seed candidates from DB", "count", len(seeds))
-			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tiles)
+			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
 
 			// Phase A: Filter by CSR degree >= 3 (O(1) per candidate).
 			// Glacial saddles snap to degree 0-2 nodes. Trail passes have degree >= 3.
@@ -374,7 +374,7 @@ func RunUnifiedLandmarkPreprocessing(
 		if pool != nil {
 			south, west, north, east := BBoxFromTiles(tiles)
 			osmPass, _ := QueryOSMPassLandmarks(ctx, pool, west, south, east, north, 4)
-			osmPassC = SnapOSMLandmarksToGraph(osmPass, tiles)
+			osmPassC = SnapOSMLandmarksToGraph(osmPass, tileDir)
 		}
 		meta, err = graph.SelectLandmarksLegacy(tiles, farthestDijkstra, osmPassC, nil)
 	} else {
