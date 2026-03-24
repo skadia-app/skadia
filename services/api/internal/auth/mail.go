@@ -24,25 +24,27 @@ func init() {
 
 // Mailer handles sending auth-related emails.
 type Mailer struct {
-	host     string
-	port     int
-	username string
-	password string
-	from     string
-	appName  string
-	appURL   string
+	host        string
+	port        int
+	username    string
+	password    string
+	from        string
+	appName     string
+	frontendURL string // for email action links
+	tlsMode     string // starttls | ssl | none
 }
 
 // NewMailer creates a mailer from config.
 func NewMailer(cfg *config.Config) *Mailer {
 	return &Mailer{
-		host:     cfg.SMTPHost,
-		port:     cfg.SMTPPort,
-		username: cfg.SMTPUsername,
-		password: cfg.SMTPPassword,
-		from:     cfg.SMTPFrom,
-		appName:  cfg.AppName,
-		appURL:   cfg.AppURL,
+		host:        cfg.SMTPHost,
+		port:        cfg.SMTPPort,
+		username:    cfg.SMTPUsername,
+		password:    cfg.SMTPPassword,
+		from:        cfg.SMTPFrom,
+		appName:     cfg.AppName,
+		frontendURL: cfg.FrontendURL,
+		tlsMode:     cfg.SMTPTLSMode,
 	}
 }
 
@@ -62,9 +64,9 @@ type emailData struct {
 func (m *Mailer) SendVerificationEmail(to, username, token string) {
 	data := emailData{
 		AppName:   m.appName,
-		AppURL:    m.appURL,
+		AppURL:    m.frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/verify-email?token=%s", m.appURL, token),
+		ActionURL: fmt.Sprintf("%s/verify-email?token=%s", m.frontendURL, token),
 	}
 	go m.send(to, fmt.Sprintf("[%s] Email verifizieren", m.appName), "verify_email", data)
 }
@@ -73,9 +75,9 @@ func (m *Mailer) SendVerificationEmail(to, username, token string) {
 func (m *Mailer) SendResetEmail(to, username, token string) {
 	data := emailData{
 		AppName:   m.appName,
-		AppURL:    m.appURL,
+		AppURL:    m.frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", m.appURL, token),
+		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, token),
 	}
 	go m.send(to, fmt.Sprintf("[%s] Passwort zurücksetzen", m.appName), "reset_password", data)
 }
@@ -109,12 +111,22 @@ func (m *Mailer) send(to, subject, templateName string, data emailData) {
 	msg.SetBodyString(gomail.TypeTextHTML, htmlBuf.String())
 	msg.AddAlternativeString(gomail.TypeTextPlain, textBuf.String())
 
+	var tlsPolicy gomail.TLSPolicy
+	switch m.tlsMode {
+	case "ssl":
+		tlsPolicy = gomail.TLSMandatory
+	case "none":
+		tlsPolicy = gomail.NoTLS
+	default: // "starttls"
+		tlsPolicy = gomail.TLSOpportunistic
+	}
+
 	client, err := gomail.NewClient(m.host,
 		gomail.WithPort(m.port),
 		gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
 		gomail.WithUsername(m.username),
 		gomail.WithPassword(m.password),
-		gomail.WithTLSPortPolicy(gomail.TLSOpportunistic),
+		gomail.WithTLSPortPolicy(tlsPolicy),
 		gomail.WithTimeout(10*time.Second),
 	)
 	if err != nil {

@@ -16,9 +16,9 @@ import (
 // Only usable for tests that don't hit database paths.
 func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	t.Helper()
-	// Ensure DummyHash is set (normally done by ValidateConfig at startup).
-	if DummyHash == "" {
-		DummyHash = "$argon2id$v=19$m=19456,t=2,p=1$dGVzdA$dGVzdA"
+	// Ensure dummyHash is set (normally done by ValidateConfig at startup).
+	if GetDummyHash() == "" {
+		dummyHash = "$argon2id$v=19$m=19456,t=2,p=1$dGVzdA$dGVzdA"
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
@@ -567,15 +567,15 @@ func TestProgressiveDelayFormula(t *testing.T) {
 
 // --- Login Timing Equalization ---
 // We cannot fully test timing equalization without a DB, but we can verify
-// the DummyHash is used (the variable is set and is a valid argon2id hash).
+// the dummyHash is used (the variable is set and is a valid argon2id hash).
 
 func TestDummyHashFormat(t *testing.T) {
-	// DummyHash is set by testHandler or ValidateConfig.
-	if DummyHash == "" {
-		t.Fatal("DummyHash should be set")
+	// dummyHash is set by testHandler or ValidateConfig.
+	if GetDummyHash() == "" {
+		t.Fatal("dummyHash should be set")
 	}
-	if !strings.HasPrefix(DummyHash, "$argon2id$") {
-		t.Errorf("DummyHash should be argon2id format, got prefix: %q", DummyHash[:20])
+	if !strings.HasPrefix(GetDummyHash(), "$argon2id$") {
+		t.Errorf("dummyHash should be argon2id format, got prefix: %q", GetDummyHash()[:20])
 	}
 }
 

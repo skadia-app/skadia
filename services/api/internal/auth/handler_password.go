@@ -98,7 +98,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hash new password with Argon2id.
-	hash, err := argon2id.CreateHash(req.NewPassword, argon2id.DefaultParams)
+	hash, err := argon2id.CreateHash(req.NewPassword, &Argon2Params)
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)

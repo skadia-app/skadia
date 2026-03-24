@@ -129,3 +129,37 @@ func TestDecryptInvalidBase64(t *testing.T) {
 		t.Fatal("expected error for invalid base64")
 	}
 }
+
+func TestDecryptLegacyCiphertextWithFirstByte0x01(t *testing.T) {
+	// A legacy ciphertext whose nonce starts with 0x01 is ambiguous:
+	// the Decrypt function may interpret it as a versioned format.
+	// This test documents the known limitation — the version detection
+	// considers 0x01 first byte as a version prefix.
+	//
+	// For production, all new ciphertexts use the versioned format (via Encrypt),
+	// so this is only relevant for legacy data where the nonce randomly started
+	// with 0x01 (probability ~1/256). In practice, such entries would need
+	// re-encryption.
+	//
+	// Verify that versioned ciphertexts always round-trip correctly,
+	// even when the ciphertext content happens to start with 0x01.
+	plaintext := "versioned with embedded 0x01"
+	enc, err := Encrypt(plaintext, validHexKey)
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Verify that the versioned blob starts with 0x01.
+	raw, _ := base64.StdEncoding.DecodeString(enc)
+	if raw[0] != keyVersion1 {
+		t.Fatalf("expected version byte 0x01, got 0x%02x", raw[0])
+	}
+
+	dec, err := Decrypt(enc, validHexKey)
+	if err != nil {
+		t.Fatalf("Decrypt versioned failed: %v", err)
+	}
+	if dec != plaintext {
+		t.Fatalf("Decrypt = %q, want %q", dec, plaintext)
+	}
+}

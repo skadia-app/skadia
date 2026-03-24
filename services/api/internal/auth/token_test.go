@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"encoding/hex"
+	"encoding/base64"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,14 +13,18 @@ func TestGenerateToken(t *testing.T) {
 		t.Fatalf("GenerateToken() error: %v", err)
 	}
 
-	// Must be 64 hex chars (32 bytes).
-	if len(token) != 64 {
-		t.Errorf("GenerateToken() length = %d, want 64", len(token))
+	// Must be 43 base64url chars (32 bytes, no padding).
+	if len(token) != 43 {
+		t.Errorf("GenerateToken() length = %d, want 43", len(token))
 	}
 
-	// Must be valid hex.
-	if _, err := hex.DecodeString(token); err != nil {
-		t.Errorf("GenerateToken() not valid hex: %v", err)
+	// Must be valid base64url.
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		t.Errorf("GenerateToken() not valid base64url: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Errorf("GenerateToken() decoded length = %d, want 32", len(decoded))
 	}
 }
 

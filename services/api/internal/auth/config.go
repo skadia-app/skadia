@@ -9,8 +9,24 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 )
 
-// DummyHash is used for timing equalization on login (non-existent users)
-var DummyHash string
+// Argon2Params are the project-wide argon2id parameters.
+// Fixed parallelism ensures hash portability across machines.
+// Memory 64 MiB, 1 iteration, 1 parallelism (RFC 9106 recommended for max-memory approach).
+var Argon2Params = argon2id.Params{
+	Memory:      64 * 1024, // 64 MiB
+	Iterations:  1,
+	Parallelism: 1,
+	SaltLength:  16,
+	KeyLength:   32,
+}
+
+// dummyHash is used for timing equalization on login (non-existent users).
+var dummyHash string
+
+// GetDummyHash returns the pre-computed argon2id hash for timing equalization.
+func GetDummyHash() string {
+	return dummyHash
+}
 
 // ValidateConfig validates auth-related configuration at startup.
 // Calls log.Fatal on critical misconfigurations.
@@ -46,7 +62,7 @@ func ValidateConfig(cfg *config.Config) {
 
 	// Dummy hash for login timing equalization — MUST succeed
 	var err error
-	DummyHash, err = argon2id.CreateHash("skadia-timing-dummy", argon2id.DefaultParams)
+	dummyHash, err = argon2id.CreateHash("skadia-timing-dummy", &Argon2Params)
 	if err != nil {
 		log.Fatal("Failed to create dummy argon2id hash for timing equalization: ", err)
 	}

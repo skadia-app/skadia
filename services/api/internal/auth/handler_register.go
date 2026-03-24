@@ -66,7 +66,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hash password with argon2id.
-	hash, err := argon2id.CreateHash(req.Password, argon2id.DefaultParams)
+	hash, err := argon2id.CreateHash(req.Password, &Argon2Params)
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)

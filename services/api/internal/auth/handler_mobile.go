@@ -41,14 +41,14 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
 		// User not found — timing equalization.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
 
 	// Progressive delay check.
 	if user.LoginDelayUntil != nil && time.Now().Before(*user.LoginDelayUntil) {
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		retryAfter := int(time.Until(*user.LoginDelayUntil).Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
@@ -57,7 +57,7 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Check password.
 	if user.PasswordHash == nil {
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}

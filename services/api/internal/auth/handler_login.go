@@ -62,7 +62,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
 		// User not found — timing equalization.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
@@ -70,7 +70,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// Progressive delay check.
 	if user.LoginDelayUntil != nil && time.Now().Before(*user.LoginDelayUntil) {
 		// Still compute hash for timing.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		retryAfter := int(time.Until(*user.LoginDelayUntil).Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
@@ -80,7 +80,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// Check password.
 	if user.PasswordHash == nil {
 		// User exists but registered via OAuth (no password set).
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, DummyHash)
+		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
