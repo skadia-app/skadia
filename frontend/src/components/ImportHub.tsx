@@ -328,6 +328,7 @@ function DropZone({ onFiles, disabled }: DropZoneProps) {
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
+    e.stopPropagation()
     setDragging(false)
     if (disabled) return
     const files = Array.from(e.dataTransfer.files).filter(f =>
