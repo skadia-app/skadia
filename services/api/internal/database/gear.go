@@ -885,8 +885,15 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 
 func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationRule, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT `+ruleSelectCols+`
-		 FROM automation_rules WHERE user_id = $1 ORDER BY priority, name`, userID,
+		`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
+		        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
+		        CASE
+		            WHEN ar.system_type = 'ebike_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
+		            WHEN ar.system_type = 'virtual_sync'  THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
+		            ELSE ar.times_applied
+		        END,
+		        ar.created_at, ar.is_system, ar.system_type
+		 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, userID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
@@ -957,8 +964,8 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		}
 		return nil, err
 	}
-	if sysType != nil && *sysType == "ebike_sync" {
-		return nil, fmt.Errorf("e-bike system rule is read-only")
+	if sysType != nil && (*sysType == "ebike_sync" || *sysType == "virtual_sync") {
+		return nil, fmt.Errorf("this system rule is read-only")
 	}
 
 	var sets []string

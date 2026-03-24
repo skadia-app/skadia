@@ -77,6 +77,10 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 
 	rule, err := h.DB.UpdateRule(r.Context(), id, userID, &update)
 	if err != nil {
+		if err.Error() == "this system rule is read-only" {
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "this system rule is read-only", r.URL.Path)
+			return
+		}
 		slog.Error("update rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
 		return
