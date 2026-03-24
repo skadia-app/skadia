@@ -172,14 +172,12 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check is_active/email_verified after code consumption (C6).
-	var isActive, emailVerified bool
-	err = h.DB.Pool.QueryRow(r.Context(),
-		"SELECT is_active, email_verified FROM users WHERE id = $1", userID).Scan(&isActive, &emailVerified)
-	if err != nil || !isActive {
+	user, err := h.DB.GetUserByID(r.Context(), userID.String())
+	if err != nil || !user.IsActive {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
 		return
 	}
-	if h.Config.SMTPHost != "" && !emailVerified {
+	if h.Config.SMTPHost != "" && !user.EmailVerified {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
 		return
 	}
@@ -194,7 +192,7 @@ func computeS256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
-// MobileLogout handles POST /auth/mobile/logout — best-effort token revocation.
+// MobileLogout handles POST /auth/mobile/logout — revoke entire token family.
 func (h *Handler) MobileLogout(w http.ResponseWriter, r *http.Request) {
 	limitBody(w, r)
 
@@ -207,7 +205,11 @@ func (h *Handler) MobileLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenHash := HashToken(req.RefreshToken)
-	_, _, _, _ = h.DB.RotateRefreshToken(r.Context(), tokenHash) // best-effort revoke
+	// Revoke the token AND its entire family.
+	_, familyID, _, rotateErr := h.DB.RotateRefreshToken(r.Context(), tokenHash)
+	if rotateErr == nil && familyID != "" {
+		_ = h.DB.RevokeTokenFamily(r.Context(), familyID)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }

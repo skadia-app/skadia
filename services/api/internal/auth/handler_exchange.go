@@ -27,14 +27,12 @@ func (h *Handler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check is_active/email_verified after code consumption (C6).
-	var isActive, emailVerified bool
-	err = h.DB.Pool.QueryRow(r.Context(),
-		"SELECT is_active, email_verified FROM users WHERE id = $1", userID).Scan(&isActive, &emailVerified)
-	if err != nil || !isActive {
+	user, err := h.DB.GetUserByID(r.Context(), userID.String())
+	if err != nil || !user.IsActive {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
 		return
 	}
-	if h.Config.SMTPHost != "" && !emailVerified {
+	if h.Config.SMTPHost != "" && !user.EmailVerified {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
 		return
 	}
