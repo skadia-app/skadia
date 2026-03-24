@@ -196,12 +196,12 @@ func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, er
 }
 
 // CreateUserWithPassword creates a new user with email/password credentials.
-func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP) (*model.User, error) {
+func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
-		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, created_by_ip)
-		 VALUES ($1, $2, $3, $4, false, $5)
+		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, created_by_ip)
+		 VALUES ($1, $2, $3, $4, false, $5, $6)
 		 RETURNING `+allUserColumns,
-		username, email, passwordHash, registrationSrc, ipAddress))
+		username, email, passwordHash, registrationSrc, isActive, ipAddress))
 	if err != nil {
 		return nil, fmt.Errorf("create user with password: %w", err)
 	}
@@ -231,18 +231,8 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 		return nil, false, fmt.Errorf("lookup oauth connection: %w", err)
 	}
 
-	// 2. No existing connection. Check for email collision.
-	if providerEmail != "" {
-		collision, err := db.CheckEmailCollision(ctx, providerEmail)
-		if err != nil {
-			return nil, false, fmt.Errorf("check email collision: %w", err)
-		}
-		if collision {
-			return nil, false, ErrEmailCollision
-		}
-	}
-
-	// 3. Create new user + oauth_connection in a transaction.
+	// 2. Create new user + oauth_connection in a transaction.
+	// Email collision check is INSIDE the tx to prevent TOCTOU races.
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("get or create user by oauth: begin tx: %w", err)
@@ -253,8 +243,22 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 	var emailPtr *string
 	if providerEmail != "" {
 		emailPtr = &providerEmail
+
+		// Check email collision inside tx to prevent TOCTOU race.
+		var exists bool
+		err = tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+			providerEmail,
+		).Scan(&exists)
+		if err != nil {
+			return nil, false, fmt.Errorf("check email collision: %w", err)
+		}
+		if exists {
+			return nil, false, ErrEmailCollision
+		}
 	}
 
+	// 3. Create the user.
 	newID := uuid.New().String()
 	u, err := scanUser(tx.QueryRow(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
@@ -379,4 +383,18 @@ func (db *DB) CheckEmailCollision(ctx context.Context, email string) (bool, erro
 		return false, fmt.Errorf("check email collision: %w", err)
 	}
 	return exists, nil
+}
+
+// ClearLoginDelays resets failed login count and delay for a user.
+func (db *DB) ClearLoginDelays(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		"UPDATE users SET failed_login_count = 0, login_delay_until = NULL, updated_at = NOW() WHERE id = $1", userID)
+	return err
+}
+
+// SetUserActive sets the is_active flag for a user.
+func (db *DB) SetUserActive(ctx context.Context, userID string, active bool) error {
+	_, err := db.Pool.Exec(ctx,
+		"UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1", userID, active)
+	return err
 }

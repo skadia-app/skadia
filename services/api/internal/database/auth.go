@@ -37,7 +37,7 @@ func (db *DB) RotateRefreshToken(ctx context.Context, tokenHash string) (uuid.UU
 	)
 	err := db.Pool.QueryRow(ctx,
 		`UPDATE refresh_tokens SET revoked = true
-		 WHERE token_hash = $1 AND revoked = false
+		 WHERE token_hash = $1 AND revoked = false AND expires_at > NOW()
 		 RETURNING user_id, family_id, created_at`,
 		tokenHash,
 	).Scan(&userID, &familyID, &createdAt)
@@ -60,6 +60,21 @@ func (db *DB) RevokeTokenFamily(ctx context.Context, familyID string) error {
 		return fmt.Errorf("revoke token family: %w", err)
 	}
 	return nil
+}
+
+// RevokeAllUserTokens revokes all refresh tokens for a user.
+func (db *DB) RevokeAllUserTokens(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		"UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND NOT revoked", userID)
+	return err
+}
+
+// GetTokenFamily returns the family_id for a given token hash.
+func (db *DB) GetTokenFamily(ctx context.Context, tokenHash string) (string, error) {
+	var familyID string
+	err := db.Pool.QueryRow(ctx,
+		"SELECT family_id FROM refresh_tokens WHERE token_hash = $1", tokenHash).Scan(&familyID)
+	return familyID, err
 }
 
 // IsRevokedToken checks if a specific token hash exists and is revoked (for reuse detection).
@@ -203,6 +218,13 @@ func (db *DB) CleanupExpiredTokens(ctx context.Context) error {
 		`DELETE FROM auth_codes WHERE expires_at < NOW()`)
 	if err != nil {
 		return fmt.Errorf("cleanup expired auth codes: %w", err)
+	}
+
+	// GDPR: scrub registration IP after 90 days.
+	_, err = db.Pool.Exec(ctx,
+		`UPDATE users SET created_by_ip = NULL WHERE created_at < NOW() - INTERVAL '90 days' AND created_by_ip IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("scrub user registration IPs: %w", err)
 	}
 
 	return nil
