@@ -20,8 +20,12 @@ require (
 	github.com/paulmach/orb v0.12.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
+	github.com/alexedwards/argon2id v1.0.0
+	github.com/wneessen/go-mail v0.7.2
 	golang.org/x/image v0.32.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.19.0
+	golang.org/x/time v0.15.0
 )
 
 require (
