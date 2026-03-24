@@ -15,6 +15,63 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
+// RunGeoAndPublishStage2 runs geo-enrichment (summits, settlements, forests, water,
+// borders, surfaces) and emits the Stage-2 NATS event.
+// It must be called AFTER activity_tracks has been written (Phase 1 InsertTrack),
+// because every geo query reads from activity_tracks.track_full.
+// This is a separate function from RunStage1 so that the import path (service.go)
+// can defer geo work to Phase 2 while still running scalar enrichment in Phase 0.
+func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activityID string, hasGPS bool, pub *event.Publisher, graphReader routing.GraphReader) {
+	enrichSettings, settingsErr := db.GetEnrichmentSettings(ctx, userID)
+	if settingsErr != nil {
+		slog.Warn("RunGeoAndPublishStage2: could not load enrichment settings, running all geo modules",
+			"user_id", userID, "error", settingsErr)
+	}
+
+	geoSettings := allGeoEnabled()
+	if enrichSettings != nil {
+		geoSettings = geoSettingsFromModel(enrichSettings)
+	}
+
+	if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
+		slog.Warn("RunGeoAndPublishStage2: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+	}
+
+	if hasGPS {
+		surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, nil); err != nil {
+			slog.Warn("RunGeoAndPublishStage2: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+	}
+
+	if pub == nil {
+		return
+	}
+	var enabledModules []string
+	if enrichSettings != nil {
+		enabledModules = enrichSettings.EnabledModules()
+	}
+	migratedToGo := GoNativeModules
+	if enabledModules == nil {
+		enabledModules = []string{"lifts", "commute", "embeddings"}
+	} else {
+		filtered := enabledModules[:0]
+		for _, m := range enabledModules {
+			if !migratedToGo[m] {
+				filtered = append(filtered, m)
+			}
+		}
+		enabledModules = filtered
+	}
+	if err := pub.PublishStage2Ready(event.Stage2ReadyEvent{
+		ActivityID:     activityID,
+		UserID:         userID,
+		EnabledModules: enabledModules,
+	}); err != nil {
+		slog.Warn("RunGeoAndPublishStage2: failed to publish stage2 event", "activity_id", activityID, "error", err)
+	}
+}
+
 // GoNativeModules lists enrichment modules that run in Go SQL (not via ML service).
 // Read-only — do not modify at runtime.
 var GoNativeModules = map[string]bool{
