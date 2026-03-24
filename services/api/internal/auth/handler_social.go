@@ -171,6 +171,8 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		&token.Expiry, h.Config.OAuthEncryptionKey)
 	if err != nil {
 		if errors.Is(err, database.ErrEmailCollision) {
+			// TODO: Account linking endpoint — currently users are told to "link in settings"
+			// but no such endpoint exists. See: docs/internal/specs/2026-03-24-auth-migration-go-native-design.md Section 11
 			h.socialError(w, r, "email_exists")
 			return
 		}
@@ -191,6 +193,8 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Update last login timestamp.
 	_ = h.DB.UpdateLoginSuccess(r.Context(), user.ID)
+
+	slog.Info("login success", "user_id", user.ID, "method", "social", "provider", provider)
 
 	// Generate a short-lived auth code (30s, single-use) for the frontend.
 	authCode, err := GenerateToken()

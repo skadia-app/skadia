@@ -152,6 +152,8 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 		slog.Error("update login success failed", "error", err)
 	}
 
+	slog.Info("login success", "user_id", user.ID, "method", "email")
+
 	return user
 }
 

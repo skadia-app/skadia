@@ -11,7 +11,12 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
-// Refresh handles POST /auth/refresh — atomic token rotation with family-based reuse detection.
+// Refresh handles POST /auth/refresh (web, cookie-based).
+//
+// Concurrent refresh behavior: If two tabs refresh simultaneously, the first
+// succeeds and the second triggers reuse detection, revoking the entire family.
+// This is the correct security behavior — it prevents stolen-token replay.
+// The frontend deduplicates refresh calls via refreshInFlight (lib/auth.ts).
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(RefreshCookieName)
 	if err != nil || cookie.Value == "" {

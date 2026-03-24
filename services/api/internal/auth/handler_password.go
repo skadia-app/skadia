@@ -147,5 +147,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		slog.Error("clear login delays after password reset failed", "error", err)
 	}
 
+	slog.Info("password reset", "user_id", userID.String())
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }
