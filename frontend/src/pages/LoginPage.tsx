@@ -3,21 +3,9 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
-
-const ERROR_MESSAGES: Record<string, string> = {
-  email_exists:
-    'Diese E-Mail ist bereits registriert. Bitte melde dich an und verknüpfe dein Konto in den Einstellungen.',
-  account_delayed: 'Zu viele Fehlversuche. Bitte versuche es später erneut.',
-  email_not_verified: 'Bitte verifiziere zuerst deine E-Mail-Adresse.',
-  account_inactive: 'Dein Konto ist noch nicht freigeschaltet.',
-  invalid_credentials: 'E-Mail oder Passwort ungültig.',
-  password_compromised:
-    'Dieses Passwort wurde in einem Datenleck gefunden. Bitte wähle ein anderes.',
-  provider_error: 'Fehler beim Social Login. Bitte versuche es erneut.',
-  exchange_failed: 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.',
-}
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -36,7 +24,7 @@ export default function LoginPage() {
 
     const errorParam = searchParams.get('error')
     if (errorParam) {
-      setError(ERROR_MESSAGES[errorParam] ?? 'Ein Fehler ist aufgetreten.')
+      setError(getAuthErrorMessage(errorParam))
     }
 
     getAuthConfig()
@@ -55,7 +43,7 @@ export default function LoginPage() {
       navigate('/activities', { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
-      setError(ERROR_MESSAGES[msg] ?? msg)
+      setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
     }
