@@ -257,14 +257,20 @@ function RuleCard({
   onToggle: (active: boolean) => void
   onDelete: () => void
 }) {
-  const isEbikeSync = rule.system_type === 'ebike_sync'
+  const isReadonlySystem = rule.system_type === 'ebike_sync' || rule.system_type === 'virtual_sync'
+
+  const readonlyDescriptions: Record<string, string> = {
+    ebike_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
+    virtual_sync: 'Wird automatisch über die Datenbankspalte is_virtual synchronisiert. Diese Regel kann nicht bearbeitet werden.',
+  }
+  const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
       <div className="flex items-start justify-between">
         <div
-          className={`flex-1 min-w-0 ${!isEbikeSync ? 'cursor-pointer' : ''}`}
-          onClick={!isEbikeSync ? onEdit : undefined}
+          className={`flex-1 min-w-0 ${!isReadonlySystem ? 'cursor-pointer' : ''}`}
+          onClick={!isReadonlySystem ? onEdit : undefined}
         >
           <div className="flex items-center gap-3">
             <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</h3>
@@ -276,9 +282,9 @@ function RuleCard({
             <span className="text-xs text-neutral-400 tabular-nums">Prio {rule.priority}</span>
             <span className="text-xs text-neutral-400 tabular-nums">{rule.times_applied}x angewendet</span>
           </div>
-          {isEbikeSync ? (
+          {isReadonlySystem ? (
             <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 italic">
-              Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.
+              {readonlyDescription}
             </div>
           ) : (
             <>
@@ -296,7 +302,7 @@ function RuleCard({
           )}
         </div>
 
-        {!isEbikeSync && (
+        {!isReadonlySystem && (
           <div className="flex items-center gap-3 ml-4">
             {/* Toggle */}
             <button
