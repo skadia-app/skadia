@@ -234,7 +234,7 @@ func main() {
 	// Auth handler (Go-native auth)
 	authMailer := auth.NewMailer(cfg)
 	authRL := middleware.NewRateLimiter(ctx)
-	authHandler := auth.NewHandler(db, cfg, authMailer, authRL)
+	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
 
 	// Token cleanup (daily, graceful shutdown)
 	shutdown.Go("token-cleanup", func(ctx context.Context) {
@@ -278,7 +278,7 @@ func main() {
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
-		r.Get("/config", authHandler.AuthConfig)
+		r.With(middleware.RateLimitGeneric(authRL)).Get("/config", authHandler.AuthConfig)
 
 		r.With(middleware.RateLimitRegister(authRL)).
 			Post("/register", authHandler.Register)
@@ -382,10 +382,21 @@ func main() {
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
 				r.Post("/photos/recompute-thumbnails", h.RecomputePhotoThumbnails)
 				r.Post("/photos/recompute-embeddings", h.RecomputePhotoEmbeddings)
+
+				// User management
+				r.Get("/users", authHandler.AdminListUsers)
+				r.Post("/users/{id}/activate", authHandler.AdminActivateUser)
+				r.Post("/users/{id}/deactivate", authHandler.AdminDeactivateUser)
+				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
+				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
 			})
 
 			// ── Regular authenticated routes ──
 			r.Post("/auth/change-password", authHandler.ChangePassword)
+			r.Get("/auth/sessions", authHandler.ListMySessions)
+			r.Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
+			r.Post("/auth/link/{provider}", authHandler.LinkSocialAccount)
+			r.Delete("/auth/link/{provider}", authHandler.UnlinkSocialAccount)
 
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)

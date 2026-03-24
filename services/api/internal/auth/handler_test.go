@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
@@ -18,16 +19,18 @@ import (
 // Only usable for tests that don't hit database paths.
 func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	t.Helper()
-	// Ensure dummyHash is set (normally done by ValidateConfig at startup).
-	// Dummy hash for tests — matches argon2Params format (m=65536,t=1,p=1) but not a real hash.
-	// Tests that exercise authenticateUser will fail on ComparePasswordAndHash (expected — no DB).
+	// Ensure dummyHash is set with a real argon2id hash (normally done by ValidateConfig at startup).
 	if dummyHash == "" {
-		dummyHash = "$argon2id$v=19$m=65536,t=1,p=1$dGVzdHNhbHQ$dGVzdGhhc2g"
+		var err error
+		dummyHash, err = argon2id.CreateHash("test-dummy", GetArgon2Params())
+		if err != nil {
+			t.Fatal("failed to create test dummy hash: " + err.Error())
+		}
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
 	}
-	return NewHandler(nil, cfg, &Mailer{}, middleware.NewRateLimiter(context.Background()))
+	return NewHandler(nil, cfg, &Mailer{}, middleware.NewRateLimiter(context.Background()), context.Background())
 }
 
 // --- AuthConfig Endpoint ---

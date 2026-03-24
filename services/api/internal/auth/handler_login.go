@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
@@ -27,24 +28,28 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 
 // Handler handles all auth-related HTTP requests.
 type Handler struct {
-	DB      *database.DB
-	Config  *config.Config
-	Mailer  *Mailer
-	RL      *middleware.RateLimiter // for per-email rate limiting (body-parsed)
-	secret  []byte                 // decoded JWT secret
-	isHTTPS bool                   // derived from Config.AppURL at init
+	DB          *database.DB
+	Config      *config.Config
+	Mailer      *Mailer
+	RL          *middleware.RateLimiter // for per-email rate limiting (body-parsed)
+	secret      []byte                 // decoded JWT secret
+	isHTTPS     bool                   // derived from Config.AppURL at init
+	shutdownCtx context.Context        // server lifecycle context for background goroutines
 }
 
-// NewHandler creates an auth handler.
-func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middleware.RateLimiter) *Handler {
+// NewHandler creates an auth handler. shutdownCtx should be the server's
+// lifecycle context so background goroutines (e.g. ForgotPassword email)
+// are cancelled on graceful shutdown.
+func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middleware.RateLimiter, shutdownCtx context.Context) *Handler {
 	secret, _ := hex.DecodeString(cfg.JWTSecret) // already validated at startup
 	return &Handler{
-		DB:      db,
-		Config:  cfg,
-		Mailer:  mailer,
-		RL:      rl,
-		secret:  secret,
-		isHTTPS: strings.HasPrefix(cfg.AppURL, "https://"),
+		DB:          db,
+		Config:      cfg,
+		Mailer:      mailer,
+		RL:          rl,
+		secret:      secret,
+		isHTTPS:     strings.HasPrefix(cfg.AppURL, "https://"),
+		shutdownCtx: shutdownCtx,
 	}
 }
 
@@ -135,6 +140,7 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	match, err := argon2id.ComparePasswordAndHash(password, *user.PasswordHash)
 	if err != nil || !match {
 		_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
+		go h.DB.LogAuthEvent(r.Context(), user.ID, "login_failure", middleware.ClientIP(r), r.UserAgent(), nil)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
@@ -150,7 +156,8 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 		slog.Error("update login success failed", "error", err)
 	}
 
-	slog.Info("login success", "user_id", user.ID, "method", "email")
+	slog.Info("auth.login_success", "user_id", user.ID, "method", "email")
+	go h.DB.LogAuthEvent(r.Context(), user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "email"})
 
 	return user
 }
@@ -200,8 +207,11 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 }
 
 // writeJSON writes a JSON response with the given status code.
+// All auth responses include Cache-Control: no-store to prevent caching
+// of tokens, credentials, and security-sensitive data.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		slog.Error("writeJSON encode failed", "error", err)
