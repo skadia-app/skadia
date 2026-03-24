@@ -22,6 +22,7 @@ func IssueJWT(userID string, secret []byte) (string, error) {
 		Issuer(JWTIssuer).
 		Audience([]string{JWTAudience}).
 		IssuedAt(now).
+		NotBefore(now).
 		Expiration(now.Add(JWTExpiry)).
 		Build()
 	if err != nil {
