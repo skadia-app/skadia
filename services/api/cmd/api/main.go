@@ -385,6 +385,8 @@ func main() {
 			})
 
 			// ── Regular authenticated routes ──
+			r.Post("/auth/change-password", authHandler.ChangePassword)
+
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)
 			r.Post("/activities/group", h.GroupActivities)

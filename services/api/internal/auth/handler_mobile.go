@@ -138,7 +138,14 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// MobileExchange handles POST /auth/mobile/exchange — PKCE auth code exchange.
+// MobileExchange handles POST /auth/mobile/exchange (PKCE).
+//
+// NOTE: Mobile social login is not yet fully implemented. The web social callback
+// (SocialCallback) always creates auth codes WITHOUT a code_challenge, so only
+// web ExchangeCode can consume them. To enable mobile social login, the social
+// flow needs to accept a code_challenge parameter from the mobile app and store
+// it with the auth code. See spec Section 3.5.
+//
 // Consumes a short-lived auth code with S256 code_verifier validation
 // and returns tokens in the body.
 func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {

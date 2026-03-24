@@ -115,6 +115,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Info("user registered", "user_id", user.ID, "email", req.Email, "mode", h.Config.RegistrationMode)
+
 	// Generate verification token.
 	token, err := GenerateToken()
 	if err != nil {
