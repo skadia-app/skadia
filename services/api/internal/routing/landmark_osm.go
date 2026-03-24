@@ -96,8 +96,9 @@ func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
 
 // SelectCrossingSeedsSQL selects up to 12 crossing seeds (top-3 per quadrant)
 // via median-split. Returns seeds ordered by quadrant then elevation.
-// Uses ele BETWEEN 500 AND 3000 to exclude glacial saddles (>3000m) which are
-// poorly connected in the trail graph and produce useless ALT landmarks.
+// No elevation cap — high-altitude passes (Thorong La 5416m, Abra La Raya 4335m)
+// are valid routing targets. Glacial saddles with no trail connectivity are
+// filtered by the reachability check in the pipeline (< 5000 reachable nodes).
 // Returns top-3 per quadrant so the pipeline can skip disconnected seeds
 // and try the next candidate.
 func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
@@ -107,7 +108,7 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 			SELECT osm_id, COALESCE(name, '') AS name,
 			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
 			FROM osm_pois
-			WHERE ele IS NOT NULL AND ele > 500 AND ele < 3000
+			WHERE ele IS NOT NULL AND ele > 500
 			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
 			  AND (
 			    category = 'pass'
