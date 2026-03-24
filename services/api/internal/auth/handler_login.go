@@ -140,7 +140,7 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	match, err := argon2id.ComparePasswordAndHash(password, *user.PasswordHash)
 	if err != nil || !match {
 		_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
-		go h.DB.LogAuthEvent(r.Context(), user.ID, "login_failure", middleware.ClientIP(r), r.UserAgent(), nil)
+		go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "login_failure", middleware.ClientIP(r), r.UserAgent(), nil)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
@@ -157,7 +157,7 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	}
 
 	slog.Info("auth.login_success", "user_id", user.ID, "method", "email")
-	go h.DB.LogAuthEvent(r.Context(), user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "email"})
+	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "login_success", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "email"})
 
 	return user
 }

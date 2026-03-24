@@ -153,7 +153,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("auth.password_reset", "user_id", userID.String())
-	go h.DB.LogAuthEvent(r.Context(), userID.String(), "password_reset", middleware.ClientIP(r), r.UserAgent(), nil)
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID.String(), "password_reset", middleware.ClientIP(r), r.UserAgent(), nil)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }

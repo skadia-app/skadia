@@ -3,9 +3,13 @@ package auth
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 // adminUserEntry is the JSON response shape for admin user listings.
@@ -23,10 +27,32 @@ type adminUserEntry struct {
 
 // AdminListUsers handles GET /admin/users — list all users with auth status.
 func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	// Get total count for pagination metadata.
+	var total int
+	if err := h.DB.Pool.QueryRow(r.Context(), `SELECT count(*) FROM users`).Scan(&total); err != nil {
+		slog.Error("admin list users count failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
 	rows, err := h.DB.Pool.Query(r.Context(),
 		`SELECT id, username, email, is_admin, is_active, email_verified,
 		        registration_source, last_login_at, created_at
-		 FROM users ORDER BY created_at DESC`)
+		 FROM users ORDER BY created_at DESC
+		 LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		slog.Error("admin list users failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -51,14 +77,19 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users":  users,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }
 
 // AdminActivateUser handles POST /admin/users/{id}/activate.
 func (h *Handler) AdminActivateUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	if userID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id_required"})
+	if _, err := uuid.Parse(userID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -68,15 +99,23 @@ func (h *Handler) AdminActivateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("admin activated user", "user_id", userID)
+	adminID := middleware.GetUserID(r.Context())
+	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_activate_user", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
+	slog.Info("admin activated user", "user_id", userID, "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
 }
 
 // AdminDeactivateUser handles POST /admin/users/{id}/deactivate.
 func (h *Handler) AdminDeactivateUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	if userID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id_required"})
+	if _, err := uuid.Parse(userID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r.Context())
+	if userID == adminID {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot_deactivate_self"})
 		return
 	}
 
@@ -91,7 +130,8 @@ func (h *Handler) AdminDeactivateUser(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("admin deactivate: revoke tokens failed", "error", err, "user_id", userID)
 	}
 
-	slog.Info("admin deactivated user", "user_id", userID)
+	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_deactivate_user", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
+	slog.Info("admin deactivated user", "user_id", userID, "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 
@@ -108,8 +148,8 @@ type adminSessionEntry struct {
 // AdminListUserSessions handles GET /admin/users/{id}/sessions.
 func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	if userID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id_required"})
+	if _, err := uuid.Parse(userID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -147,8 +187,8 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 // AdminRevokeUserSessions handles POST /admin/users/{id}/revoke-sessions.
 func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	if userID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id_required"})
+	if _, err := uuid.Parse(userID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -158,6 +198,8 @@ func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	slog.Info("admin revoked all sessions", "user_id", userID)
+	adminID := middleware.GetUserID(r.Context())
+	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_revoke_sessions", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
+	slog.Info("admin revoked all sessions", "user_id", userID, "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sessions_revoked"})
 }

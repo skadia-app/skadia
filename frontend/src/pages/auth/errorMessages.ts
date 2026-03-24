@@ -6,8 +6,8 @@
  */
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   // Login errors
-  invalid_credentials: 'E-Mail oder Passwort ung\u00FCltig.', // context: login form, wrong email/password
-  account_delayed: 'Zu viele Fehlversuche. Bitte versuche es sp\u00E4ter erneut.', // context: progressive delay after failed logins
+  invalid_credentials: 'E-Mail oder Passwort ungültig.', // context: login form, wrong email/password
+  account_delayed: 'Zu viele Fehlversuche. Bitte versuche es später erneut.', // context: progressive delay after failed logins
   email_not_verified: 'Bitte verifiziere zuerst deine E-Mail-Adresse.', // context: login blocked until email verified
   account_inactive: 'Dein Konto ist noch nicht freigeschaltet.', // context: approval-mode account pending admin activation
 
@@ -15,21 +15,21 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   password_too_short: 'Passwort muss mindestens 10 Zeichen lang sein.', // context: registration/reset password form
   password_too_long: 'Passwort ist zu lang (max. 1000 Zeichen).', // context: registration/reset password form
   password_compromised:
-    'Dieses Passwort wurde in einem Datenleck gefunden. Bitte w\u00E4hle ein anderes.', // context: HIBP check failed
-  invalid_email: 'Bitte gib eine g\u00FCltige E-Mail-Adresse ein.', // context: email format validation
+    'Dieses Passwort wurde in einem Datenleck gefunden. Bitte wähle ein anderes.', // context: HIBP check failed
+  invalid_email: 'Bitte gib eine gültige E-Mail-Adresse ein.', // context: email format validation
   username_invalid_length: 'Benutzername muss zwischen 2 und 100 Zeichen lang sein.', // context: registration
-  username_invalid_chars: 'Benutzername enth\u00E4lt ung\u00FCltige Zeichen.', // context: registration
+  username_invalid_chars: 'Benutzername enthält ungültige Zeichen.', // context: registration
   email_and_password_required: 'E-Mail und Passwort sind erforderlich.', // context: login form empty fields
 
   // Social login errors
   email_exists:
-    'Diese E-Mail ist bereits registriert. Bitte melde dich an und verkn\u00FCpfe dein Konto in den Einstellungen.', // context: social login email collision
+    'Diese E-Mail ist bereits registriert. Bitte melde dich an und verknüpfe dein Konto in den Einstellungen.', // context: social login email collision
   provider_error: 'Fehler beim Social Login. Bitte versuche es erneut.', // context: OAuth provider returned error
   exchange_failed: 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.', // context: auth code exchange failed
-  invalid_state: 'Ung\u00FCltige Sitzung. Bitte versuche es erneut.', // context: OAuth state mismatch
+  invalid_state: 'Ungültige Sitzung. Bitte versuche es erneut.', // context: OAuth state mismatch
 
   // Password reset
-  invalid_or_expired_token: 'Ung\u00FCltiger oder abgelaufener Link.', // context: email verification or password reset token
+  invalid_or_expired_token: 'Ungültiger oder abgelaufener Link.', // context: email verification or password reset token
 
   // Change password
   wrong_password: 'Aktuelles Passwort ist falsch.', // context: change-password form
@@ -42,7 +42,7 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   // Generic
   too_many_requests: 'Zu viele Anfragen. Bitte warte einen Moment.', // context: rate limit hit
   internal_error: 'Ein interner Fehler ist aufgetreten.', // context: server error
-  invalid_request: 'Ung\u00FCltige Anfrage.', // context: malformed request body
+  invalid_request: 'Ungültige Anfrage.', // context: malformed request body
   unauthorized: 'Nicht autorisiert.', // context: missing/invalid JWT
 }
 
