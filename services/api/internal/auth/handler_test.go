@@ -18,7 +18,7 @@ import (
 func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	t.Helper()
 	// Ensure dummyHash is set (normally done by ValidateConfig at startup).
-	if GetDummyHash() == "" {
+	if dummyHash == "" {
 		dummyHash = "$argon2id$v=19$m=19456,t=2,p=1$dGVzdA$dGVzdA"
 	}
 	if cfg.JWTSecret == "" {

@@ -24,10 +24,10 @@ const (
 	RefreshCookieMaxAge = 7 * 24 * 3600 // seconds
 )
 
-// Argon2Params are the project-wide argon2id parameters.
+// argon2Params are the project-wide argon2id parameters.
 // Fixed parallelism ensures hash portability across machines.
 // Memory 64 MiB, 1 iteration, 1 parallelism (RFC 9106 recommended for max-memory approach).
-var Argon2Params = argon2id.Params{
+var argon2Params = argon2id.Params{
 	Memory:      64 * 1024, // 64 MiB
 	Iterations:  1,
 	Parallelism: 1,
@@ -35,11 +35,20 @@ var Argon2Params = argon2id.Params{
 	KeyLength:   32,
 }
 
+// GetArgon2Params returns a pointer to the project-wide argon2id parameters.
+func GetArgon2Params() *argon2id.Params {
+	return &argon2Params
+}
+
 // dummyHash is used for timing equalization on login (non-existent users).
 var dummyHash string
 
 // GetDummyHash returns the pre-computed argon2id hash for timing equalization.
+// Panics if called before ValidateConfig.
 func GetDummyHash() string {
+	if dummyHash == "" {
+		panic("auth: GetDummyHash called before ValidateConfig")
+	}
 	return dummyHash
 }
 
@@ -57,6 +66,12 @@ func ValidateConfig(cfg *config.Config) {
 	// OAuth encryption key — required when social login is configured
 	if (cfg.StravaClientID != "" || cfg.GoogleClientID != "") && cfg.OAuthEncryptionKey == "" {
 		log.Fatal("OAUTH_ENCRYPTION_KEY required when social login is enabled. Generate: openssl rand -hex 32")
+	}
+	if cfg.OAuthEncryptionKey != "" {
+		decoded, err := hex.DecodeString(cfg.OAuthEncryptionKey)
+		if err != nil || len(decoded) != 32 {
+			log.Fatal("OAUTH_ENCRYPTION_KEY must be 64 hex chars (32 bytes). Generate: openssl rand -hex 32")
+		}
 	}
 
 	// Validate registration mode
@@ -77,7 +92,7 @@ func ValidateConfig(cfg *config.Config) {
 
 	// Dummy hash for login timing equalization — MUST succeed
 	var err error
-	dummyHash, err = argon2id.CreateHash("skadia-timing-dummy", &Argon2Params)
+	dummyHash, err = argon2id.CreateHash("skadia-timing-dummy", GetArgon2Params())
 	if err != nil {
 		log.Fatal("Failed to create dummy argon2id hash for timing equalization: ", err)
 	}
