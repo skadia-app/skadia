@@ -1,0 +1,14 @@
+{{.AppName}} — Email-Adresse bestätigen
+
+Hallo {{.Username}},
+
+vielen Dank für deine Registrierung bei {{.AppName}}. Bitte bestätige deine
+Email-Adresse über den folgenden Link:
+
+{{.ActionURL}}
+
+Falls du dich nicht bei {{.AppName}} registriert hast, kannst du diese
+Email ignorieren.
+
+---
+{{.AppName}} — {{.AppURL}}
