@@ -239,7 +239,7 @@ func main() {
 	// Token cleanup (daily, graceful shutdown)
 	shutdown.Go("token-cleanup", func(ctx context.Context) {
 		// Run once immediately at startup
-		if err := db.CleanupExpiredTokens(context.Background()); err != nil {
+		if err := db.CleanupExpiredTokens(ctx); err != nil {
 			slog.Error("initial token cleanup failed", "error", err)
 		} else {
 			slog.Info("token cleanup completed at startup")
@@ -250,7 +250,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				if err := db.CleanupExpiredTokens(context.Background()); err != nil {
+				if err := db.CleanupExpiredTokens(ctx); err != nil {
 					slog.Error("token cleanup failed", "error", err)
 				} else {
 					slog.Info("periodic token cleanup completed")

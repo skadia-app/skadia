@@ -195,7 +195,7 @@ func TestRegisterPasswordTooShort(t *testing.T) {
 
 	var resp map[string]string
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "password must be at least 10 characters" {
+	if resp["error"] != "password_too_short" {
 		t.Errorf("unexpected error: %q", resp["error"])
 	}
 }
@@ -759,13 +759,15 @@ func TestLoginPasswordTooLong(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.Login(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for too-long password, got %d: %s", w.Code, w.Body.String())
+	// Password max-length is checked inside authenticateUser (with timing equalization),
+	// so it returns 401 invalid_credentials (not 400) to avoid leaking info.
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for too-long password, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp map[string]string
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "password_too_long" {
-		t.Errorf("expected error 'password_too_long', got %q", resp["error"])
+	if resp["error"] != "invalid_credentials" {
+		t.Errorf("expected error 'invalid_credentials', got %q", resp["error"])
 	}
 }
 
@@ -872,23 +874,23 @@ func TestLoginBodySizeLimit(t *testing.T) {
 	}
 }
 
-// --- Registration Mode Validation Order ---
-// Verify that input validation happens BEFORE mode check.
+// --- Registration Mode Check Order ---
+// Verify that mode check happens BEFORE input validation (avoids HIBP call on rejection).
 
-func TestRegisterValidationBeforeModeCheck(t *testing.T) {
+func TestRegisterModeCheckBeforeValidation(t *testing.T) {
 	h := testHandler(t, &config.Config{
 		RegistrationMode: "invite",
 	})
 
-	// Empty fields should return 400 even in invite mode.
-	body := `{"email":"","username":"","password":""}`
+	// In invite mode, registration is rejected fast — even with valid fields.
+	body := `{"email":"test@example.com","username":"testuser","password":"validpassword123"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	h.Register(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for empty fields in invite mode, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for invite mode, got %d", w.Code)
 	}
 }
 

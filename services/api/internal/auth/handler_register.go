@@ -33,6 +33,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
+	if h.Config.RegistrationMode == "invite" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration disabled"})
+		return
+	}
+
 	// Normalize email (I3).
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Username = strings.TrimSpace(req.Username)
@@ -60,17 +66,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Password) < 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 10 characters"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return
 	}
 	if len(req.Password) > 1000 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
-		return
-	}
-
-	// Registration mode check.
-	if h.Config.RegistrationMode == "invite" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration disabled"})
 		return
 	}
 
@@ -115,7 +115,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("user registered", "user_id", user.ID, "email", req.Email, "mode", h.Config.RegistrationMode)
+	slog.Info("user registered", "user_id", user.ID, "mode", h.Config.RegistrationMode)
 
 	// Generate verification token.
 	token, err := GenerateToken()

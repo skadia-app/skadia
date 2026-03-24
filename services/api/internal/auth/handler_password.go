@@ -48,6 +48,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Background: lookup user, generate token, send email.
 	go func() {
+		// Use Background context (not request context) because the HTTP response
+		// has already been sent. The 30s timeout limits goroutine lifetime.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -97,7 +99,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.NewPassword) < 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 10 characters"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return
 	}
 	if len(req.NewPassword) > 1000 {

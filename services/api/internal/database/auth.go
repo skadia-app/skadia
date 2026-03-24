@@ -184,6 +184,9 @@ func (db *DB) ConsumeAuthCode(ctx context.Context, codeHash string) (uuid.UUID, 
 // --- Cleanup ---
 
 // CleanupExpiredTokens removes old tokens per retention policy.
+// CleanupExpiredTokens runs daily. Auth codes (30s TTL) and email tokens (1-24h TTL)
+// are functionally dead after expiry (checked at consumption time) but accumulate
+// in the DB until this cleanup runs. For a low-traffic single-user app this is acceptable.
 func (db *DB) CleanupExpiredTokens(ctx context.Context) error {
 	// Remove revoked refresh tokens older than 30 days.
 	_, err := db.Pool.Exec(ctx,

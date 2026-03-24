@@ -35,10 +35,6 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
 		return
 	}
-	if len(req.Password) > 1000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
-		return
-	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
@@ -104,6 +100,13 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.handleRefreshReuse(r.Context(), tokenHash)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
+		return
+	}
+
+	// Ensure user is still active (deactivated users must not keep refreshing).
+	user, err := h.DB.GetUserByID(r.Context(), userID.String())
+	if err != nil || !user.IsActive {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
 		return
 	}
 
@@ -216,6 +219,11 @@ func (h *Handler) MobileLogout(w http.ResponseWriter, r *http.Request) {
 	_, familyID, _, rotateErr := h.DB.RotateRefreshToken(r.Context(), tokenHash)
 	if rotateErr == nil && familyID != "" {
 		_ = h.DB.RevokeTokenFamily(r.Context(), familyID)
+	} else {
+		// Fallback: if token was already revoked, still try to revoke its family.
+		if fallbackFamily, fbErr := h.DB.GetTokenFamily(r.Context(), tokenHash); fbErr == nil && fallbackFamily != "" {
+			_ = h.DB.RevokeTokenFamily(r.Context(), fallbackFamily)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})

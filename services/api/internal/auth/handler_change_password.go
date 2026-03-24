@@ -26,6 +26,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current_and_new_password_required"})
 		return
 	}
+	if len(req.CurrentPassword) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		return
+	}
 	if len(req.NewPassword) < 10 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return

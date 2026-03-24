@@ -27,22 +27,24 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 
 // Handler handles all auth-related HTTP requests.
 type Handler struct {
-	DB     *database.DB
-	Config *config.Config
-	Mailer *Mailer
-	RL     *middleware.RateLimiter // for per-email rate limiting (body-parsed)
-	secret []byte                 // decoded JWT secret
+	DB      *database.DB
+	Config  *config.Config
+	Mailer  *Mailer
+	RL      *middleware.RateLimiter // for per-email rate limiting (body-parsed)
+	secret  []byte                 // decoded JWT secret
+	isHTTPS bool                   // derived from Config.AppURL at init
 }
 
 // NewHandler creates an auth handler.
 func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middleware.RateLimiter) *Handler {
 	secret, _ := hex.DecodeString(cfg.JWTSecret) // already validated at startup
 	return &Handler{
-		DB:     db,
-		Config: cfg,
-		Mailer: mailer,
-		RL:     rl,
-		secret: secret,
+		DB:      db,
+		Config:  cfg,
+		Mailer:  mailer,
+		RL:      rl,
+		secret:  secret,
+		isHTTPS: strings.HasPrefix(cfg.AppURL, "https://"),
 	}
 }
 
@@ -63,10 +65,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" || req.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
-		return
-	}
-	if len(req.Password) > 1000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 		return
 	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
@@ -188,13 +186,12 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Set refresh token as HttpOnly cookie.
-	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
 	http.SetCookie(w, &http.Cookie{
 		Name:     RefreshCookieName,
 		Value:    token,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isHTTPS,
+		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   RefreshCookieMaxAge,
 	})
