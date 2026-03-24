@@ -164,6 +164,18 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if locationPresent && lat != nil && lng != nil {
+		tagIDForBackfill := tagID
+		userIDForBackfill := userID
+		go func() {
+			ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := h.backfillSunTimesForLocationTag(ctx2, userIDForBackfill, tagIDForBackfill); err != nil {
+				slog.Warn("update tag: sun times backfill failed", "tag_id", tagIDForBackfill, "error", err)
+			}
+		}()
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, tag)
 }
 
@@ -446,6 +458,9 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs); err != nil {
 			slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
 		}
+		if err := h.backfillSunTimesForLocationTag(ctx2, userID, tagID); err != nil {
+			slog.Warn("location tag sun times backfill failed", "tag_id", tagID, "error", err)
+		}
 	}()
 
 	w.WriteHeader(http.StatusNoContent)
@@ -520,6 +535,74 @@ func (h *Handler) backfillWeatherForLocationTag(
 				if err := h.DB.SyncWeatherTagsToActivityTags(ctx, c.id, userID, allWeatherTags); err != nil {
 					slog.Warn("location pin weather: sync weather tags failed", "activity_id", c.id, "error", err)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// backfillSunTimesForLocationTag fills sunrise_at, sunset_at and time_of_day for
+// indoor activities that are linked to the given location tag but have no sun data yet.
+func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, tagID string) error {
+	// Read tag coordinates
+	var lat, lng *float64
+	err := h.DB.Pool.QueryRow(ctx,
+		`SELECT lat, lng FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&lat, &lng)
+	if err != nil || lat == nil || lng == nil {
+		return nil // not a location tag
+	}
+
+	// Find indoor activities without sunrise data that are linked to this tag
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT a.id, a.started_at, a.ended_at
+		FROM activities a
+		JOIN activity_tags at ON at.activity_id = a.id
+		WHERE at.tag_id = $1
+		  AND a.user_id = $2
+		  AND a.has_gps = false
+		  AND a.sunrise_at IS NULL
+		  AND a.started_at IS NOT NULL
+		  AND a.ended_at IS NOT NULL`,
+		tagID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id        string
+		startedAt time.Time
+		endedAt   time.Time
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.startedAt, &c.endedAt); err == nil {
+			candidates = append(candidates, c)
+		}
+	}
+	rows.Close()
+
+	for _, c := range candidates {
+		sun := enrichment.CalculateSunTimes(*lat, *lng, *lat, *lng, c.startedAt, c.endedAt, nil)
+		periods := enrichment.TimeOfDayPeriods(*lat, *lng, c.startedAt, c.endedAt)
+
+		fields := map[string]any{}
+		if sun.SunriseAt != nil {
+			fields["sunrise_at"] = *sun.SunriseAt
+		}
+		if sun.SunsetAt != nil {
+			fields["sunset_at"] = *sun.SunsetAt
+		}
+		if len(periods) > 0 {
+			fields["time_of_day"] = periods
+		}
+		if len(fields) > 0 {
+			if err := h.DB.UpdateEnrichmentFields(ctx, c.id, fields); err != nil {
+				slog.Warn("location pin sun times update failed", "activity_id", c.id, "error", err)
 			}
 		}
 	}
@@ -695,6 +778,16 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"updated_count": updated})
+
+	tagIDForBackfill := tagID
+	userIDForBackfill := userID
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := h.backfillSunTimesForLocationTag(ctx2, userIDForBackfill, tagIDForBackfill); err != nil {
+			slog.Warn("sync tag location: sun times backfill failed", "tag_id", tagIDForBackfill, "error", err)
+		}
+	}()
 }
 
 // GetTagZone returns the zone for a tag.
