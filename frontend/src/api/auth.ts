@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/auth'
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 export interface AuthConfig {
@@ -93,4 +95,16 @@ export async function logout(): Promise<void> {
     method: 'POST',
     credentials: 'include',
   })
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Password change failed')
+  }
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { register, getAuthConfig, type AuthConfig } from '@/api/auth'
 import { isAuthenticated } from '@/lib/auth'
-import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
