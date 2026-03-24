@@ -2,14 +2,8 @@ package handler
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -20,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -50,7 +45,7 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 
 	var encKey *string
 	if update.APIKey != nil && *update.APIKey != "" {
-		enc, err := encryptAPIKey(*update.APIKey, h.Config.LLMEncryptionKey)
+		enc, err := crypto.Encrypt(*update.APIKey, h.Config.LLMEncryptionKey)
 		if err != nil {
 			slog.Error("failed to encrypt API key", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt API key", r.URL.Path)
@@ -238,62 +233,6 @@ func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, configs)
 }
 
-// --- Helper functions ---
-
-func encryptAPIKey(plaintext, hexKey string) (string, error) {
-	if hexKey == "" {
-		return "", fmt.Errorf("encryption key not configured")
-	}
-	key, err := hex.DecodeString(hexKey)
-	if err != nil || len(key) != 32 {
-		return "", fmt.Errorf("encryption key must be a 32-byte hex string (64 hex chars)")
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-func decryptAPIKey(encoded, hexKey string) (string, error) {
-	if hexKey == "" {
-		return "", fmt.Errorf("encryption key not configured")
-	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", err
-	}
-	key, err := hex.DecodeString(hexKey)
-	if err != nil || len(key) != 32 {
-		return "", fmt.Errorf("encryption key must be a 32-byte hex string (64 hex chars)")
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
-}
 
 // liteLLMConfigTemplate is the Go template for LiteLLM config.yaml
 const liteLLMConfigTemplate = `model_list:
@@ -362,7 +301,7 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 		apiKey := "none"
 		if c.HasAPIKey {
 			if enc, err := h.DB.GetLLMAPIKeyEnc(ctx, c.Role); err == nil && enc != "" {
-				if dec, err := decryptAPIKey(enc, h.Config.LLMEncryptionKey); err == nil {
+				if dec, err := crypto.Decrypt(enc, h.Config.LLMEncryptionKey); err == nil {
 					apiKey = dec
 				}
 			}

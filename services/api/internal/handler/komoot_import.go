@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -75,7 +76,7 @@ func (h *Handler) KomootLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Encrypt password for storage
-	encPassword, err := encryptAPIKey(req.Password, h.Config.KomootEncryptionKey)
+	encPassword, err := crypto.Encrypt(req.Password, h.Config.KomootEncryptionKey)
 	if err != nil {
 		slog.Error("komoot: encrypt password failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to encrypt password", r.URL.Path)
@@ -154,7 +155,7 @@ func (h *Handler) KomootScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password, err := decryptAPIKey(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
+	password, err := crypto.Decrypt(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
 	if err != nil {
 		slog.Error("komoot: decrypt password failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
@@ -234,7 +235,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password, err := decryptAPIKey(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
+	password, err := crypto.Decrypt(creds.EncryptedPassword, h.Config.KomootEncryptionKey)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to decrypt credentials", r.URL.Path)
 		return
