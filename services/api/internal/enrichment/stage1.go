@@ -33,13 +33,17 @@ func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activi
 		geoSettings = geoSettingsFromModel(enrichSettings)
 	}
 
-	if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
-		slog.Warn("RunGeoAndPublishStage2: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
-	}
-
 	if hasGPS {
+		if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
+			slog.Warn("RunGeoAndPublishStage2: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+
 		surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, nil); err != nil {
+		var surfStream []EnrichmentStreamPoint
+		if graphReader != nil {
+			surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+		}
+		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
 			slog.Warn("RunGeoAndPublishStage2: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 		}
 	}
