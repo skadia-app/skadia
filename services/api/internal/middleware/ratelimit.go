@@ -122,7 +122,7 @@ func rateLimitByIP(rl *RateLimiter, prefix string, rps float64, burst int) func(
 			ip := normalizeIPForRateLimit(ClientIP(r))
 			key := prefix + ":" + ip
 			if !rl.Allow(key, rps, burst) {
-				http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+				writeJSONError(w, http.StatusTooManyRequests, "too many requests")
 				return
 			}
 			next.ServeHTTP(w, r)
