@@ -21,7 +21,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	exists, err := h.DB.CheckEmailCollision(r.Context(), req.Email)
 	if err != nil {
 		slog.Error("check email collision failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	if exists {
@@ -69,7 +69,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	hash, err := argon2id.CreateHash(req.Password, &Argon2Params)
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
 	if err != nil {
 		slog.Error("create user failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -125,7 +125,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.DB.SetEmailVerified(r.Context(), userID.String()); err != nil {
 		slog.Error("set email verified failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 

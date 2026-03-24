@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // Handler handles all auth-related HTTP requests.
@@ -44,72 +45,83 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-
 	if req.Email == "" || req.Password == "" {
-		http.Error(w, `{"error":"email and password required"}`, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
 		return
 	}
 
-	// Per-email rate limit (5/15min) — body-parsed, so done in handler not middleware.
-	if !h.RL.Allow("login-email:"+req.Email, 5.0/900, 5) {
-		http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+	user := h.authenticateUser(w, r, req.Email, req.Password)
+	if user == nil {
 		return
 	}
 
-	user, err := h.DB.GetUserByEmail(r.Context(), req.Email)
+	h.issueTokensAndRespond(w, r, user.ID)
+}
+
+// authenticateUser validates email/password credentials with timing equalization.
+// Returns the authenticated user or writes an error response and returns nil.
+func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email, password string) *model.User {
+	// 1. Per-email rate limit (5/15min).
+	if !h.RL.Allow("login-email:"+email, 5.0/900, 5) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_requests"})
+		return nil
+	}
+
+	// 2. Lookup user.
+	user, err := h.DB.GetUserByEmail(r.Context(), email)
 	if err != nil {
 		// User not found — timing equalization.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
+		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		return nil
 	}
 
-	// Progressive delay check.
+	// 3. Check is_active BEFORE password verify (I21 fix — no info leak with timing equalization).
+	if !user.IsActive {
+		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		return nil
+	}
+
+	// 4. Progressive delay check.
 	if user.LoginDelayUntil != nil && time.Now().Before(*user.LoginDelayUntil) {
-		// Still compute hash for timing.
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
+		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
 		retryAfter := int(time.Until(*user.LoginDelayUntil).Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
-		return
+		return nil
 	}
 
-	// Check password.
+	// 5. No password set (OAuth-only user).
 	if user.PasswordHash == nil {
-		// User exists but registered via OAuth (no password set).
-		_, _ = argon2id.ComparePasswordAndHash(req.Password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
+		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		return nil
 	}
 
-	match, err := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
+	// 6. Verify password.
+	match, err := argon2id.ComparePasswordAndHash(password, *user.PasswordHash)
 	if err != nil || !match {
 		_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		return nil
 	}
 
-	// Check is_active.
-	if !user.IsActive {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
-		return
-	}
-
-	// Check email_verified (skip check if SMTP not configured).
+	// 7. Email verified check (skip if no SMTP).
 	if h.Config.SMTPHost != "" && !user.EmailVerified {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
-		return
+		return nil
 	}
 
-	// Success — update login tracking.
+	// 8. Success — clear delays.
 	if err := h.DB.UpdateLoginSuccess(r.Context(), user.ID); err != nil {
 		slog.Error("update login success failed", "error", err)
 	}
 
-	h.issueTokensAndRespond(w, r, user.ID)
+	return user
 }
 
 // issueTokensAndRespond generates JWT + refresh token and writes the response.
@@ -119,7 +131,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	jwtToken, err := IssueJWT(userID, h.secret)
 	if err != nil {
 		slog.Error("issue JWT failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -127,7 +139,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	token, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate refresh token failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -136,22 +148,22 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	ip := net.ParseIP(middleware.ClientIP(r))
 
 	if err := h.DB.CreateRefreshToken(r.Context(), userID, familyID, tokenHash,
-		r.UserAgent(), ip, time.Now().Add(30*24*time.Hour)); err != nil {
+		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create refresh token failed", "error", err)
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	// Set refresh token as HttpOnly cookie.
 	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
 	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
+		Name:     RefreshCookieName,
 		Value:    token,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
 		Secure:   isHTTPS,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   30 * 24 * 3600, // 30 days
+		MaxAge:   RefreshCookieMaxAge,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"token": jwtToken})
