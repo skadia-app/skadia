@@ -342,6 +342,9 @@ func (db *DB) UpdateLoginSuccess(ctx context.Context, userID string) error {
 }
 
 // UpdateLoginFailure increments the failed login counter and sets a progressive delay.
+// Progressive delay: 2^(n-3) seconds after 3 failures, capped at 300s (5 min).
+// With per-email rate limit (5/15min), an attacker can attempt ~5 passwords per 20 minutes.
+// For passwords >= 10 chars this makes brute force impractical.
 func (db *DB) UpdateLoginFailure(ctx context.Context, userID string) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE users SET

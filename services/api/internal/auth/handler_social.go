@@ -79,13 +79,12 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    state,
 		Path:     "/api/v1/auth/social",
 		HttpOnly: true,
-		Secure:   isHTTPS,
+		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteLaxMode, // Lax required for OAuth redirects
 		MaxAge:   300,                   // 5 minutes
 	})
@@ -98,14 +97,15 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 // Exchanges the OAuth code for tokens, gets/creates the user, and redirects
 // to the frontend with a short-lived auth code.
 func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
-	// Always clear state cookie first (even on error paths — L13 + M8).
-	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
+	// Clear state cookie immediately — r.Cookie() reads from the request (unaffected
+	// by Set-Cookie on the response), so clearing first is safe and ensures cleanup
+	// on all code paths including errors.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    "",
 		Path:     "/api/v1/auth/social",
 		HttpOnly: true,
-		Secure:   isHTTPS,
+		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -254,6 +254,9 @@ func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, strin
 		return "", "", "", fmt.Errorf("read strava response: %w", err)
 	}
 
+	// NOTE: Strava may return empty email (user privacy settings). Users created
+	// without email cannot use password login or forgot-password. They are permanently
+	// bound to Strava OAuth until they add an email via account settings (future feature).
 	var athlete struct {
 		ID        int64  `json:"id"`
 		FirstName string `json:"firstname"`

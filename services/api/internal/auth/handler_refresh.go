@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -33,6 +32,14 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		// Fall B + C: same response (no info leak).
 		h.clearRefreshCookie(w)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
+		return
+	}
+
+	// Ensure user is still active (deactivated users must not keep refreshing).
+	user, err := h.DB.GetUserByID(r.Context(), userID.String())
+	if err != nil || !user.IsActive {
+		h.clearRefreshCookie(w)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
 		return
 	}
 
@@ -66,13 +73,12 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set new refresh cookie.
-	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
 	http.SetCookie(w, &http.Cookie{
 		Name:     RefreshCookieName,
 		Value:    newToken,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isHTTPS,
+		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   RefreshCookieMaxAge,
 	})
@@ -89,6 +95,11 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		_, familyID, _, rotateErr := h.DB.RotateRefreshToken(r.Context(), tokenHash)
 		if rotateErr == nil && familyID != "" {
 			_ = h.DB.RevokeTokenFamily(r.Context(), familyID)
+		} else {
+			// Fallback: if token was already revoked, still try to revoke its family.
+			if fallbackFamily, fbErr := h.DB.GetTokenFamily(r.Context(), tokenHash); fbErr == nil && fallbackFamily != "" {
+				_ = h.DB.RevokeTokenFamily(r.Context(), fallbackFamily)
+			}
 		}
 	}
 	h.clearRefreshCookie(w)
@@ -108,13 +119,12 @@ func (h *Handler) handleRefreshReuse(ctx context.Context, tokenHash string) {
 
 // clearRefreshCookie sends a Set-Cookie that deletes the refresh cookie.
 func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
-	isHTTPS := strings.HasPrefix(h.Config.AppURL, "https://")
 	http.SetCookie(w, &http.Cookie{
 		Name:     RefreshCookieName,
 		Value:    "",
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isHTTPS,
+		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
