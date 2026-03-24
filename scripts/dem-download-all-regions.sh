@@ -18,8 +18,8 @@ mkdir -p "$HGT_DIR" "$TIF_DIR"
 
 BASE_URL="https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com"
 
-# All 8 regions: DE, AT, CH, LI, SI, IT, GR, PT
-# Combined BBox: Lat 34-55, Lon -10 to 30
+# All 10 regions: DE, AT, CH, LI, SI, IT, GR, PT, PE, NP
+# Combined BBox: Lat -18 to 55, Lon -81 to 89
 # Adjusted to actual country boundaries to avoid ocean tiles
 
 declare -A REGIONS
@@ -32,6 +32,8 @@ REGIONS[IT]="36 47 6 19"
 REGIONS[GR]="34 42 19 30"
 REGIONS[PT]="36 42 -10 -6"
 REGIONS[LI]="47 47 9 10"
+REGIONS[PE]="-18 0 -81 -68"
+REGIONS[NP]="26 30 80 89"
 
 # Collect unique tile coordinates
 declare -A TILES
