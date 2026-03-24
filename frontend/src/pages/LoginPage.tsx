@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
-import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 

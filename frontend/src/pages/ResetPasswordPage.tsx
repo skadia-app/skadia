@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { resetPassword } from '@/api/auth'
-import { AUTH_AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
