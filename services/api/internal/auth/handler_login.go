@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+const maxAuthBodySize = 4096 // 4 KB auth payload limit
+
+// limitBody restricts the request body to maxAuthBodySize.
+func limitBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodySize)
+}
 
 // Handler handles all auth-related HTTP requests.
 type Handler struct {
@@ -40,6 +48,8 @@ func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middlew
 
 // Login handles POST /auth/login.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -48,8 +58,19 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	if req.Email == "" || req.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
+		return
+	}
+	if len(req.Password) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		return
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
 	}
 
@@ -64,6 +85,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 // authenticateUser validates email/password credentials with timing equalization.
 // Returns the authenticated user or writes an error response and returns nil.
 func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email, password string) *model.User {
+	// Normalize email.
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	// Password max length guard (prevent argon2id DoS).
+	if len(password) > 1000 {
+		_, _ = argon2id.ComparePasswordAndHash(password[:100], GetDummyHash())
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		return nil
+	}
+
 	// 1. Per-email rate limit (5/15min).
 	if !h.RL.Allow("login-email:"+email, 5.0/900, 5) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_requests"})
