@@ -60,6 +60,7 @@ type Config struct {
 	SMTPUsername string
 	SMTPPassword string
 	SMTPFrom     string
+	SMTPTLSMode  string // starttls (default) | ssl | none
 }
 
 func Load() (*Config, error) {
@@ -108,6 +109,7 @@ func Load() (*Config, error) {
 		SMTPUsername: os.Getenv("SMTP_USERNAME"),
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		SMTPTLSMode:  getEnvDefault("SMTP_TLS", "starttls"),
 	}
 
 	if cfg.DatabaseURL == "" {
