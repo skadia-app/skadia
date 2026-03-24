@@ -93,31 +93,57 @@ func QueryOutdoorCrossings(ctx context.Context, pool *pgxpool.Pool,
 	return results, rows.Err()
 }
 
-// SelectCrossingSeedsSQL returns ALL outdoor crossings in the bbox, ordered by ele DESC.
-// The pipeline handles quadrant assignment and connectivity filtering in Go.
-// No SQL-side LIMIT — the O(1) SpatialGrid snap makes any number of candidates fast.
+// SelectCrossingSeedsSQL selects up to 4 crossing seeds (one per quadrant) using
+// road-proximity ranking. Passes near major roads (motorway/trunk/primary/secondary)
+// are the most important geographic bottlenecks — they sit at the lowest crossing
+// of mountain ridges where roads, trails, and hiking routes all converge.
+//
+// Ranking: major_roads DESC (nearby road count), then ele DESC (tiebreaker).
+// Fallback: quadrants with no road-adjacent passes fall back to ele DESC.
+//
+// The flank landmarks placed from these seeds help ALL route types (road cyclist,
+// MTB, hiker, mountaineer) because flanks are in the VALLEYS on both sides of the
+// ridge, not at the pass itself.
 func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 	west, south, east, north float64) ([]OSMLandmark, error) {
-	// Same query as QueryOutdoorCrossings but returns results sorted by ele DESC
-	// for the pipeline to pick the highest connected candidate per quadrant.
 	rows, err := pool.Query(ctx, `
-		SELECT osm_id, COALESCE(name, '') AS name,
-		       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele
-		FROM osm_pois
-		WHERE ele IS NOT NULL AND ele > 500
-		  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-		  AND (
-		    category = 'pass'
-		    OR (category = 'summit' AND subtype = 'saddle')
-		    OR (category = 'summit' AND (
-		      name ILIKE '%joch%' OR name ILIKE '%scharte%'
-		      OR name ILIKE '%sattel%' OR name ILIKE '%forcella%'
-		      OR name ILIKE '%bocchetta%' OR name ILIKE '%col %'
-		      OR name ILIKE '%colle %' OR name ILIKE '%fuorcla%'
-		      OR name ILIKE '%luecke%' OR name ILIKE '%toerl%'
-		    ))
-		  )
-		ORDER BY ele DESC
+		WITH candidates AS (
+			SELECT DISTINCT ON (osm_id)
+			       osm_id, COALESCE(name, '') AS name,
+			       ST_Y(geom) AS lat, ST_X(geom) AS lon, ele, geom
+			FROM osm_pois
+			WHERE ele IS NOT NULL AND ele > 800
+			  AND geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+			  AND (
+			    category = 'pass'
+			    OR (category = 'summit' AND subtype = 'saddle')
+			  )
+		),
+		medians AS (
+			SELECT
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lat) AS med_lat,
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY lon) AS med_lon
+			FROM candidates
+		),
+		scored AS (
+			SELECT c.osm_id, c.name, c.lat, c.lon, c.ele,
+				CASE WHEN c.lat >= m.med_lat THEN 1 ELSE 0 END AS lat_bin,
+				CASE WHEN c.lon >= m.med_lon THEN 1 ELSE 0 END AS lon_bin,
+				(SELECT count(DISTINCT w.osm_id) FROM osm_ways w
+				 WHERE w.highway IN ('motorway','motorway_link','trunk','trunk_link','primary','secondary')
+				 AND ST_DWithin(w.geom, c.geom, 0.005)) AS major_roads
+			FROM candidates c, medians m
+		),
+		ranked AS (
+			SELECT *, ROW_NUMBER() OVER (
+				PARTITION BY lat_bin, lon_bin
+				ORDER BY major_roads DESC, ele DESC
+			) AS rn
+			FROM scored
+		)
+		SELECT osm_id, name, lat, lon, ele
+		FROM ranked WHERE rn = 1
+		ORDER BY lat_bin, lon_bin
 	`, west, south, east, north)
 	if err != nil {
 		return nil, err

@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -241,131 +240,66 @@ func RunUnifiedLandmarkPreprocessing(
 		south, west, north, east := BBoxFromTiles(tiles)
 
 		// Crossing seed selection pipeline:
-		// 1. SQL: all crossings ordered by ele DESC
-		// 2. Snap to graph via SpatialGrid (O(1) per candidate)
-		// 3. Filter by snap distance < 500m (crossing must be ON a trail)
-		//    → glacial saddles (2-3km from nearest trail) are filtered
-		//    → trail passes (directly on trail, <100m snap) pass
-		// 4. Median lat/lon from trail-connected crossings (not tile bbox)
-		// 5. Per quadrant: highest-elevation trail-connected crossing wins
-		// 6. Budget-Dijkstra + FindFlankLandmarks for 4 seeds
+		// 1. SQL: road-proximity ranking selects 4 seeds (1 per quadrant)
+		//    Passes near major roads are geographic bottlenecks (lowest ridge crossing).
+		//    Fallback: quadrants without road-adjacent passes use ele DESC.
+		// 2. Snap to graph via SpatialGrid (O(1) per seed)
+		// 3. Budget-Dijkstra + FindFlankLandmarks for each seed
+		//
+		// The flanks are in VALLEYS on both sides of the ridge — they help
+		// ALL route types (road cyclist, MTB, hiker, mountaineer), not just
+		// routes through the specific seed pass.
 		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
 		if seedErr != nil {
 			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
 		} else if len(seeds) > 0 {
-			slog.Info("crossing seed candidates from DB", "count", len(seeds))
+			slog.Info("crossing seeds from DB (road-proximity ranked)", "count", len(seeds))
 			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
 
-			// Filter by snap distance: crossings ON a trail snap at < 500m.
-			// Glacial saddles snap at 1-3km (nearest trail is far below).
-			const maxSnapDistM = 500.0
-
-			type trailCrossing struct {
-				osmIdx  int
-				snapIdx int
-			}
-			var onTrail []trailCrossing
-
-			for si, snap := range snappedSeeds {
-				if si >= len(seeds) {
-					break
-				}
-				if snap.SnapDistM <= maxSnapDistM {
-					onTrail = append(onTrail, trailCrossing{si, si})
-				}
-			}
-
-			slog.Info("crossing seeds snap filter complete",
-				"total", len(seeds), "on_trail", len(onTrail),
-				"max_snap_m", maxSnapDistM)
-
-			if len(onTrail) > 0 {
-				// Median from trail-connected crossings
-				trailLats := make([]float64, len(onTrail))
-				trailLons := make([]float64, len(onTrail))
-				for i, tc := range onTrail {
-					trailLats[i] = seeds[tc.osmIdx].Lat
-					trailLons[i] = seeds[tc.osmIdx].Lon
-				}
-				slices.SortFunc(trailLats, func(a, b float64) int {
-					if a < b { return -1 }
-					if a > b { return 1 }
-					return 0
-				})
-				slices.SortFunc(trailLons, func(a, b float64) int {
-					if a < b { return -1 }
-					if a > b { return 1 }
-					return 0
-				})
-				medLat := trailLats[len(trailLats)/2]
-				medLon := trailLons[len(trailLons)/2]
-
-				slog.Info("crossing median from trail crossings",
-					"med_lat", medLat, "med_lon", medLon)
-
-				// Per quadrant: highest ele wins (onTrail preserves ele DESC order)
-				type quadrantSeed struct {
-					osmIdx  int
-					snapIdx int
-				}
-				quadrantBest := make(map[[2]int]quadrantSeed)
-
-				for _, tc := range onTrail {
-					quadrant := [2]int{0, 0}
-					if seeds[tc.osmIdx].Lat >= medLat { quadrant[0] = 1 }
-					if seeds[tc.osmIdx].Lon >= medLon { quadrant[1] = 1 }
-
-					// First trail-connected candidate per quadrant wins
-					// (onTrail preserves ele DESC order from SQL)
-					if _, ok := quadrantBest[quadrant]; !ok {
-						quadrantBest[quadrant] = quadrantSeed{tc.osmIdx, tc.snapIdx}
-					}
-				}
-
-				slog.Info("crossing seeds selected",
-					"quadrants", len(quadrantBest))
-
-				// Budget-Dijkstra + flank detection (max 4 runs)
+			if len(snappedSeeds) > 0 {
+				// Budget-Dijkstra + flank detection for each seed
 				setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
-				seedNum := 0
 
-				for quadrant, qs := range quadrantBest {
-					snap := snappedSeeds[qs.snapIdx]
+				for si, snap := range snappedSeeds {
+					if si >= len(seeds) {
+						break
+					}
 
 					seedTileID, seedLocalID := graph.SplitGlobalNodeID(snap.GlobalNodeID)
 					mapping := nodeMapping[seedTileID]
 					if mapping == nil || uint32(len(mapping)) <= seedLocalID {
+						slog.Warn("crossing seed not in mapping",
+							"name", seeds[si].Name, "ele", seeds[si].Ele)
 						continue
 					}
 					denseID := mapping[seedLocalID]
 
-					seedNum++
-					progressFn(fmt.Sprintf("flank dijkstra %d/%d", seedNum, len(quadrantBest)), seedNum-1, len(quadrantBest))
+					progressFn(fmt.Sprintf("flank dijkstra %d/%d", si+1, len(snappedSeeds)), si, len(snappedSeeds))
 					costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
 
 					slog.Info("crossing seed accepted",
-						"name", seeds[qs.osmIdx].Name,
-						"ele", seeds[qs.osmIdx].Ele,
+						"name", seeds[si].Name,
+						"ele", seeds[si].Ele,
 						"snap_m", snap.SnapDistM,
-						"quadrant", quadrant)
+						"lat", seeds[si].Lat, "lon", seeds[si].Lon)
 
 					flankA, flankB := FindFlankLandmarks(snap.LandmarkCandidate, costs, tiles, nodeMapping)
 					if flankA.GlobalNodeID != 0 {
 						flankLandmarks = append(flankLandmarks, flankA)
 						slog.Info("flank landmark found",
-							"seed_name", seeds[qs.osmIdx].Name, "side", "A",
+							"seed_name", seeds[si].Name, "side", "A",
 							"lat", float64(flankA.Lat)/1e7, "lon", float64(flankA.Lon)/1e7,
 							"ele_m", float64(flankA.Ele)/10.0)
 					}
 					if flankB.GlobalNodeID != 0 {
 						flankLandmarks = append(flankLandmarks, flankB)
 						slog.Info("flank landmark found",
-							"seed_name", seeds[qs.osmIdx].Name, "side", "B",
+							"seed_name", seeds[si].Name, "side", "B",
 							"lat", float64(flankB.Lat)/1e7, "lon", float64(flankB.Lon)/1e7,
 							"ele_m", float64(flankB.Ele)/10.0)
 					}
 				}
-				slog.Info("crossing seeds used", "accepted", seedNum, "candidates", len(seeds))
+				slog.Info("crossing seeds processed", "seeds", len(snappedSeeds), "flanks", len(flankLandmarks))
 			}
 		}
 	}
