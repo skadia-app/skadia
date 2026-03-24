@@ -23,6 +23,9 @@ export default function CallbackPage() {
       return
     }
 
+    // Immediately strip auth code from URL to prevent leaking via browser history or referrer
+    window.history.replaceState({}, '', '/callback')
+
     exchangeAuthCode(code)
       .then(data => {
         setToken(data.token)
