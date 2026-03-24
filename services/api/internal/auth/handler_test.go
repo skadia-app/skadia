@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,8 +19,10 @@ import (
 func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	t.Helper()
 	// Ensure dummyHash is set (normally done by ValidateConfig at startup).
+	// Dummy hash for tests — matches argon2Params format (m=65536,t=1,p=1) but not a real hash.
+	// Tests that exercise authenticateUser will fail on ComparePasswordAndHash (expected — no DB).
 	if dummyHash == "" {
-		dummyHash = "$argon2id$v=19$m=19456,t=2,p=1$dGVzdA$dGVzdA"
+		dummyHash = "$argon2id$v=19$m=65536,t=1,p=1$dGVzdHNhbHQ$dGVzdGhhc2g"
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
@@ -477,7 +480,7 @@ func TestLogoutWithoutCookie(t *testing.T) {
 	cookies := w.Result().Cookies()
 	for _, c := range cookies {
 		if c.Name == RefreshCookieName && c.MaxAge != -1 {
-			t.Error("refresh_token cookie should have MaxAge=-1 for deletion")
+			t.Error("skadia_refresh cookie should have MaxAge=-1 for deletion")
 		}
 	}
 }
@@ -664,7 +667,7 @@ func TestClearRefreshCookieAttributes(t *testing.T) {
 
 	c := cookies[0]
 	if c.Name != RefreshCookieName {
-		t.Errorf("expected cookie name 'refresh_token', got %q", c.Name)
+		t.Errorf("expected cookie name 'skadia_refresh', got %q", c.Name)
 	}
 	if c.MaxAge != -1 {
 		t.Errorf("expected MaxAge=-1 for deletion, got %d", c.MaxAge)
@@ -908,5 +911,83 @@ func TestVerifyEmailMissingToken(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- ChangePassword Validation ---
+
+func TestChangePasswordMissingFields(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty current", `{"current_password":"","new_password":"newpassword1"}`},
+		{"empty new", `{"current_password":"oldpassword","new_password":""}`},
+		{"both empty", `{"current_password":"","new_password":""}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			// Add user context (ChangePassword is authenticated)
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user-id")
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+			h.ChangePassword(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestChangePasswordTooShort(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+	body := `{"current_password":"oldpassword","new_password":"short"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user-id")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.ChangePassword(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+	// Check error code is snake_case
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "password_too_short" {
+		t.Errorf("expected password_too_short, got %s", resp["error"])
+	}
+}
+
+func TestChangePasswordCurrentTooLong(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+	longPW := strings.Repeat("a", 1001)
+	body := fmt.Sprintf(`{"current_password":"%s","new_password":"validpassword"}`, longPW)
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user-id")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.ChangePassword(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestChangePasswordNewTooLong(t *testing.T) {
+	h := testHandler(t, &config.Config{})
+	longPW := strings.Repeat("a", 1001)
+	body := fmt.Sprintf(`{"current_password":"oldpassword","new_password":"%s"}`, longPW)
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user-id")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.ChangePassword(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
