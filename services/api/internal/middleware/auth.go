@@ -33,8 +33,7 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 		token, err := jwt.Parse([]byte(tokenStr),
 			jwt.WithKey(jwa.HS256, j.jwtSecret),
 			jwt.WithValidate(true),
-			// Phase 1: no WithAudience — old OIDC JWTs lack aud claim
-			// Phase 3 (Task 23): jwt.WithAudience("skadia-api")
+			jwt.WithAudience("skadia-api"),
 		)
 		if err != nil {
 			slog.Debug("JWT validation failed", "error", err)

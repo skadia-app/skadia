@@ -36,46 +36,6 @@ func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// GetOrCreateUserByOIDCSubject finds a user by their OIDC subject ID,
-// creating a new user row if none exists yet.
-func (db *DB) GetOrCreateUserByOIDCSubject(ctx context.Context, legacyOIDCSubject, username, email string) (*model.User, error) {
-	var u model.User
-
-	// Attempt to find existing user first.
-	err := db.Pool.QueryRow(ctx,
-		`SELECT id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at
-		 FROM users WHERE legacy_oidc_subject = $1`,
-		legacyOIDCSubject,
-	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
-		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
-
-	if err == nil {
-		return &u, nil
-	}
-	if err != pgx.ErrNoRows {
-		return nil, fmt.Errorf("get user by legacy_oidc_subject: %w", err)
-	}
-
-	// User does not exist yet – insert.
-	// ON CONFLICT (username): link the existing user to this OIDC ID
-	// (covers dev users pre-created without legacy_oidc_subject).
-	err = db.Pool.QueryRow(ctx,
-		`INSERT INTO users (username, email, legacy_oidc_subject)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (username) DO UPDATE
-		   SET legacy_oidc_subject = EXCLUDED.legacy_oidc_subject,
-		       email        = COALESCE(EXCLUDED.email, users.email)
-		 RETURNING id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at`,
-		username, nilIfEmpty(email), legacyOIDCSubject,
-	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
-		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
-	}
-
-	return &u, nil
-}
-
 // GetUserProfile returns the physiological profile of a user.
 func (db *DB) GetUserProfile(ctx context.Context, userID string) (*model.UserProfile, error) {
 	var p model.UserProfile
@@ -206,7 +166,7 @@ func birthDateForDB(d *model.DateOnly) *time.Time {
 var ErrEmailCollision = fmt.Errorf("email already registered")
 
 // allUserColumns is the shared column list for scanning a full model.User.
-const allUserColumns = `id, username, display_name, email, legacy_oidc_subject, is_admin, is_active,
+const allUserColumns = `id, username, display_name, email, is_admin, is_active,
 	created_at, updated_at, password_hash, email_verified, registration_source,
 	password_changed_at, last_login_at, failed_login_count, login_delay_until`
 
@@ -214,7 +174,7 @@ const allUserColumns = `id, username, display_name, email, legacy_oidc_subject, 
 func scanUser(row pgx.Row) (*model.User, error) {
 	var u model.User
 	err := row.Scan(
-		&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
+		&u.ID, &u.Username, &u.DisplayName, &u.Email,
 		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
 		&u.PasswordHash, &u.EmailVerified, &u.RegistrationSrc,
 		&u.PasswordChangedAt, &u.LastLoginAt, &u.FailedLoginCount, &u.LoginDelayUntil,
