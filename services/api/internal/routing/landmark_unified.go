@@ -343,9 +343,11 @@ func RunUnifiedLandmarkPreprocessing(
 					if seeds[cc.osmIdx].Lat >= medLat { quadrant[0] = 1 }
 					if seeds[cc.osmIdx].Lon >= medLon { quadrant[1] = 1 }
 
-					// First connected candidate per quadrant wins
-					// (connected list preserves ele DESC order from SQL)
-					if _, ok := quadrantBest[quadrant]; !ok {
+					// Most connected crossing per quadrant wins.
+					// BFS reachable is the primary ranking: a Brenner (1370m, BFS ~50K)
+					// beats a Glocknerscharte (3607m, BFS ~4K) because the Brenner
+					// is deeply embedded in the trail network.
+					if best, ok := quadrantBest[quadrant]; !ok || cc.reachable > best.reachable {
 						quadrantBest[quadrant] = quadrantSeed{cc.osmIdx, cc.denseID, cc.reachable}
 					}
 				}
