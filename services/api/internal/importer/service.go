@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
@@ -534,6 +536,14 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 		inserted, err = s.DB.InsertActivity(ctx, userID, data)
 	}
 	if err != nil {
+		// Unique constraint violation: concurrent upload of identical file — treat as duplicate.
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && data.FileHash != "" {
+			existing, dbErr := s.DB.CheckDuplicate(ctx, userID, data.FileHash)
+			if dbErr == nil && existing != nil {
+				slog.Info("concurrent duplicate upload resolved via unique constraint", "existing", existing.ID)
+				return &ActivityResult{ActivityID: existing.ID, Status: "skipped"}, nil
+			}
+		}
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
 
