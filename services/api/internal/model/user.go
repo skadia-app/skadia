@@ -32,17 +32,25 @@ func (d *DateOnly) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// User represents a Skadia user, mapped from OIDC via OIDC.
+// User represents a Skadia user.
 type User struct {
 	ID          string    `json:"id"`
 	Username    string    `json:"username"`
 	DisplayName *string   `json:"display_name,omitempty"`
 	Email       *string   `json:"email,omitempty"`
-	LegacyOIDCSubject string    `json:"-"`
-	IsAdmin     bool      `json:"is_admin"`
+	IsAdmin bool `json:"is_admin"`
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Auth fields (Go-native)
+	PasswordHash      *string    `json:"-"`
+	EmailVerified     bool       `json:"email_verified"`
+	RegistrationSrc   *string    `json:"registration_source,omitempty"`
+	PasswordChangedAt *time.Time `json:"-"`
+	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
+	FailedLoginCount  int        `json:"-"`
+	LoginDelayUntil   *time.Time `json:"-"`
 }
 
 // UserProfile holds physiological data for training zone calculations.

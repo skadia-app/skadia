@@ -2,12 +2,16 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -30,46 +34,6 @@ func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("list active user ids: %w", err)
 	}
 	return ids, nil
-}
-
-// GetOrCreateUserByOIDCSubject finds a user by their OIDC subject ID,
-// creating a new user row if none exists yet.
-func (db *DB) GetOrCreateUserByOIDCSubject(ctx context.Context, legacyOIDCSubject, username, email string) (*model.User, error) {
-	var u model.User
-
-	// Attempt to find existing user first.
-	err := db.Pool.QueryRow(ctx,
-		`SELECT id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at
-		 FROM users WHERE legacy_oidc_subject = $1`,
-		legacyOIDCSubject,
-	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
-		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
-
-	if err == nil {
-		return &u, nil
-	}
-	if err != pgx.ErrNoRows {
-		return nil, fmt.Errorf("get user by legacy_oidc_subject: %w", err)
-	}
-
-	// User does not exist yet – insert.
-	// ON CONFLICT (username): link the existing user to this OIDC ID
-	// (covers dev users pre-created without legacy_oidc_subject).
-	err = db.Pool.QueryRow(ctx,
-		`INSERT INTO users (username, email, legacy_oidc_subject)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (username) DO UPDATE
-		   SET legacy_oidc_subject = EXCLUDED.legacy_oidc_subject,
-		       email        = COALESCE(EXCLUDED.email, users.email)
-		 RETURNING id, username, display_name, email, legacy_oidc_subject, is_admin, is_active, created_at, updated_at`,
-		username, nilIfEmpty(email), legacyOIDCSubject,
-	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.LegacyOIDCSubject,
-		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
-	}
-
-	return &u, nil
 }
 
 // GetUserProfile returns the physiological profile of a user.
@@ -196,4 +160,257 @@ func birthDateForDB(d *model.DateOnly) *time.Time {
 	}
 	t := d.Time
 	return &t
+}
+
+// ErrEmailCollision is returned when a social login email matches an existing user.
+var ErrEmailCollision = fmt.Errorf("email already registered")
+
+// allUserColumns is the shared column list for scanning a full model.User.
+const allUserColumns = `id, username, display_name, email, is_admin, is_active,
+	created_at, updated_at, password_hash, email_verified, registration_source,
+	password_changed_at, last_login_at, failed_login_count, login_delay_until`
+
+// scanUser scans a row into a model.User using the allUserColumns column order.
+func scanUser(row pgx.Row) (*model.User, error) {
+	var u model.User
+	err := row.Scan(
+		&u.ID, &u.Username, &u.DisplayName, &u.Email,
+		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.PasswordHash, &u.EmailVerified, &u.RegistrationSrc,
+		&u.PasswordChangedAt, &u.LastLoginAt, &u.FailedLoginCount, &u.LoginDelayUntil,
+	)
+	return &u, err
+}
+
+// GetUserByID returns a user by their ID.
+func (db *DB) GetUserByID(ctx context.Context, userID string) (*model.User, error) {
+	u, err := scanUser(db.Pool.QueryRow(ctx,
+		`SELECT `+allUserColumns+` FROM users WHERE id = $1`, userID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("get user by id: %w", err)
+	}
+	return u, nil
+}
+
+// GetUserByEmail returns a user by their email address.
+func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	u, err := scanUser(db.Pool.QueryRow(ctx,
+		`SELECT `+allUserColumns+` FROM users WHERE email = $1`, email))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	return u, nil
+}
+
+// CreateUserWithPassword creates a new user with email/password credentials.
+func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool) (*model.User, error) {
+	u, err := scanUser(db.Pool.QueryRow(ctx,
+		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, created_by_ip)
+		 VALUES ($1, $2, $3, $4, false, $5, $6)
+		 RETURNING `+allUserColumns,
+		username, email, passwordHash, registrationSrc, isActive, ipAddress))
+	if err != nil {
+		return nil, fmt.Errorf("create user with password: %w", err)
+	}
+	return u, nil
+}
+
+// GetOrCreateUserByOAuth looks up or creates a user via OAuth provider.
+// Returns (user, isNewUser, error). Returns ErrEmailCollision if the provider
+// email already belongs to an existing user.
+func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string) (*model.User, bool, error) {
+	// 1. Check oauth_connections for existing link.
+	var userID string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT user_id FROM oauth_connections WHERE provider = $1 AND provider_id = $2`,
+		provider, providerID,
+	).Scan(&userID)
+	if err == nil {
+		// Found existing connection — load and return user.
+		u, err := scanUser(db.Pool.QueryRow(ctx,
+			`SELECT `+allUserColumns+` FROM users WHERE id = $1`, userID))
+		if err != nil {
+			return nil, false, fmt.Errorf("get user by oauth: %w", err)
+		}
+		return u, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, fmt.Errorf("lookup oauth connection: %w", err)
+	}
+
+	// 2. Create new user + oauth_connection in a transaction.
+	// Email collision check is INSIDE the tx to prevent TOCTOU races.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("get or create user by oauth: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Email may be NULL for providers like Strava that don't always provide it.
+	var emailPtr *string
+	if providerEmail != "" {
+		emailPtr = &providerEmail
+
+		// Check email collision inside tx to prevent TOCTOU race.
+		var exists bool
+		err = tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+			providerEmail,
+		).Scan(&exists)
+		if err != nil {
+			return nil, false, fmt.Errorf("check email collision: %w", err)
+		}
+		if exists {
+			return nil, false, ErrEmailCollision
+		}
+	}
+
+	// 3. Create the user.
+	newID := uuid.New().String()
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, $4)
+		 RETURNING `+allUserColumns,
+		newID, username, emailPtr, provider))
+	if err != nil {
+		return nil, false, fmt.Errorf("create oauth user: %w", err)
+	}
+
+	if err := db.CreateOAuthConnection(ctx, tx, u.ID, provider, providerID, providerEmail, "", accessToken, refreshToken, tokenExpiry, oauthEncKey); err != nil {
+		return nil, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("get or create user by oauth: commit: %w", err)
+	}
+	return u, true, nil
+}
+
+// CreateOAuthConnection stores an OAuth provider connection for a user.
+// Tokens are encrypted with AES-256-GCM before storage.
+func (db *DB) CreateOAuthConnection(ctx context.Context, tx pgx.Tx, userID, provider, providerID, providerEmail, scopes string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string) error {
+	var encAccess, encRefresh []byte
+
+	if len(accessToken) > 0 {
+		enc, err := crypto.Encrypt(string(accessToken), oauthEncKey)
+		if err != nil {
+			return fmt.Errorf("encrypt access token: %w", err)
+		}
+		encAccess = []byte(enc)
+	}
+	if len(refreshToken) > 0 {
+		enc, err := crypto.Encrypt(string(refreshToken), oauthEncKey)
+		if err != nil {
+			return fmt.Errorf("encrypt refresh token: %w", err)
+		}
+		encRefresh = []byte(enc)
+	}
+
+	var emailPtr *string
+	if providerEmail != "" {
+		emailPtr = &providerEmail
+	}
+
+	_, err := tx.Exec(ctx,
+		`INSERT INTO oauth_connections (user_id, provider, provider_id, provider_email, scopes, access_token, refresh_token, token_expiry)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		userID, provider, providerID, emailPtr, scopes, encAccess, encRefresh, tokenExpiry,
+	)
+	if err != nil {
+		return fmt.Errorf("create oauth connection: %w", err)
+	}
+	return nil
+}
+
+// UpdateLoginSuccess records a successful login for the user.
+func (db *DB) UpdateLoginSuccess(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET last_login_at = NOW(), failed_login_count = 0, login_delay_until = NULL, updated_at = NOW()
+		 WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("update login success: %w", err)
+	}
+	return nil
+}
+
+// UpdateLoginFailure increments the failed login counter and sets a progressive delay.
+// Progressive delay: 2^(n-3) seconds after 3 failures, capped at 300s (5 min).
+// With per-email rate limit (5/15min), an attacker can attempt ~5 passwords per 20 minutes.
+// For passwords >= 10 chars this makes brute force impractical.
+func (db *DB) UpdateLoginFailure(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET
+			failed_login_count = failed_login_count + 1,
+			login_delay_until = CASE
+				WHEN failed_login_count + 1 > 3
+				THEN NOW() + (LEAST(POWER(2, failed_login_count + 1 - 3), 300) || ' seconds')::interval
+				ELSE NULL
+			END,
+			updated_at = NOW()
+		 WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("update login failure: %w", err)
+	}
+	return nil
+}
+
+// SetEmailVerified marks a user's email as verified.
+func (db *DB) SetEmailVerified(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET email_verified = true, updated_at = NOW() WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("set email verified: %w", err)
+	}
+	return nil
+}
+
+// UpdatePassword sets a new password hash for the user.
+func (db *DB) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET password_hash = $2, password_changed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+		userID, passwordHash,
+	)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	return nil
+}
+
+// CheckEmailCollision returns true if a user with the given email already exists.
+func (db *DB) CheckEmailCollision(ctx context.Context, email string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+		email,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check email collision: %w", err)
+	}
+	return exists, nil
+}
+
+// ClearLoginDelays resets failed login count and delay for a user.
+func (db *DB) ClearLoginDelays(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		"UPDATE users SET failed_login_count = 0, login_delay_until = NULL, updated_at = NOW() WHERE id = $1", userID)
+	return err
+}
+
+// SetUserActive sets the is_active flag for a user.
+func (db *DB) SetUserActive(ctx context.Context, userID string, active bool) error {
+	_, err := db.Pool.Exec(ctx,
+		"UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1", userID, active)
+	return err
 }

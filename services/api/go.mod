@@ -3,12 +3,14 @@ module github.com/skadia-app/skadia/services/api
 go 1.26
 
 require (
+	github.com/alexedwards/argon2id v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.41.4
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.1
 	github.com/bep/imagemeta v0.17.0
 	github.com/corona10/goimagehash v1.1.0
 	github.com/disintegration/imaging v1.6.2
+	github.com/fogleman/delaunay v0.0.0-20180910191513-63f09b4c883d
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
@@ -19,11 +21,15 @@ require (
 	github.com/paulmach/orb v0.12.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
+	github.com/wneessen/go-mail v0.7.2
 	golang.org/x/image v0.32.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.19.0
+	golang.org/x/time v0.15.0
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.7 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.20 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.20 // indirect
@@ -35,7 +41,6 @@ require (
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/fogleman/delaunay v0.0.0-20180910191513-63f09b4c883d // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/hhrutter/lzw v1.0.0 // indirect
 	github.com/hhrutter/pkcs7 v0.2.0 // indirect
