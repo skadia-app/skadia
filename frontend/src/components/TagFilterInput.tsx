@@ -100,7 +100,7 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
           <button
             type="button"
             onClick={() => { setSearch(''); setListOpen(false) }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
           >
             &#10005;
           </button>

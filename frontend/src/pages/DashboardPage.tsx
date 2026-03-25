@@ -277,7 +277,7 @@ export default function DashboardPage() {
           </h2>
           <button
             onClick={() => navigate('/activities')}
-            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             Alle anzeigen
           </button>
@@ -301,7 +301,7 @@ export default function DashboardPage() {
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-2.5 text-left
                            hover:border-neutral-300 dark:hover:border-neutral-700
                            hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors
-                           flex items-center gap-3"
+                           flex items-center gap-3 cursor-pointer"
               >
                 <span style={{ color: sportColor(a.sport_type) }} className="flex-shrink-0">
                   <SportIcon sport={a.sport_type} subType={a.sub_type} isEbike={a.is_ebike} className="w-4 h-4" />

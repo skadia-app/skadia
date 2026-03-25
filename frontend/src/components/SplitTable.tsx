@@ -108,7 +108,7 @@ function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; act
     <button
       onClick={() => setEditing(true)}
       title="Schwierigkeitsgrad bearbeiten"
-      className="group flex items-center gap-1 text-left"
+      className="group flex items-center gap-1 text-left cursor-pointer"
     >
       {value ? (
         <span className="font-medium text-accent-DEFAULT">{value}</span>

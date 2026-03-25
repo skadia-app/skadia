@@ -1040,7 +1040,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
             <button
               onClick={() => setShowRevertFusionModal(true)}
               disabled={revertFusionMutation.isPending}
-              className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+              className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Fusion rückgängig
             </button>
@@ -1091,7 +1091,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
             checked={activity.exclude_from_heatmap ?? false}
             disabled={activity.is_virtual}
             onChange={e => handleExcludeChange('exclude_from_heatmap', e.target.checked)}
-            className="rounded border-neutral-300 disabled:opacity-50"
+            className="rounded border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <span className={activity.is_virtual ? 'text-neutral-400' : ''}>
             Von Heatmap ausschließen
@@ -1116,7 +1116,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
             <button
               disabled={smoothing !== 'idle'}
               onClick={() => setSmoothPopover(v => !v)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {smoothing === 'smoothing' ? '…' : '⌇'} Glätten
             </button>
@@ -1135,7 +1135,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                   setSmoothing('idle')
                 }
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               title="Geschwindigkeitsdaten aus Originaldatei wiederherstellen"
             >
               {smoothing === 'resetting' ? '…' : '↺'}
@@ -1185,7 +1185,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                       setSmoothing('idle')
                     }
                   }}
-                  className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 cursor-pointer"
+                  className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Anwenden
                 </button>
@@ -1270,7 +1270,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                   }
                 }}
                 disabled={ungroupLoading}
-                className="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 cursor-pointer transition-colors"
+                className="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 {ungroupLoading ? '…' : 'Ja'}
               </button>
@@ -1316,7 +1316,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
               <button
                 onClick={() => setShowRevertFusionModal(false)}
                 disabled={revertFusionMutation.isPending}
-                className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 Abbrechen
               </button>
@@ -1326,7 +1326,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                   revertFusionMutation.mutate()
                 }}
                 disabled={revertFusionMutation.isPending}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
               >
                 {revertFusionMutation.isPending ? (
                   <>
@@ -1349,28 +1349,28 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
       <div className="relative mt-1">
         <button
           onClick={() => setExportOpen(!exportOpen)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
           &#8595; Export
         </button>
         {exportOpen && (
           <div className="absolute right-0 mt-1 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
             {activity.sport_type === 'multisport' ? (
-              <button onClick={() => handleExport('zip')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg">
+              <button onClick={() => handleExport('zip')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-lg">
                 ZIP (Originaldateien)
               </button>
             ) : (
               <>
-                <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg">
+                <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-t-lg">
                   Original herunterladen
                 </button>
-                <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer">
                   Als GPX exportieren
                 </button>
-                <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer">
                   Als TCX exportieren
                 </button>
-                <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg">
+                <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-b-lg">
                   Als FIT exportieren
                 </button>
               </>
@@ -1438,7 +1438,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                 <button
                   onClick={() => setMultisportConfirm(true)}
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
-                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-lg transition-colors"
                 >
                   <span className="font-medium">Alles neu berechnen</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
@@ -1454,7 +1454,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                     reprocessMutation.mutate()
                   }}
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
-                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-t-lg transition-colors"
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-t-lg transition-colors"
                 >
                   <span className="font-medium">Alles</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
@@ -1468,7 +1468,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
                     setReprocessScopeOpen(true)
                   }}
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
-                             hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-b-lg transition-colors"
+                             hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-b-lg transition-colors"
                 >
                   <span className="font-medium">Details auswählen</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
@@ -1652,7 +1652,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
                          bg-emerald-50 text-emerald-700 hover:bg-emerald-100
                          dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
               title="Höhe via DEM-Raster (EEA-10) korrigieren"
             >
               {elevationCorrectionMutation.isPending ? spinnerIcon : correctIcon}
@@ -1665,7 +1665,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
                          bg-neutral-100 text-neutral-600 hover:bg-neutral-200
                          dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
               title="GPS-Höhenwerte aus Originaldatei wiederherstellen"
             >
               {elevationResetMutation.isPending ? spinnerIcon : resetIcon}
@@ -1692,7 +1692,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
                 className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
                            bg-blue-50 text-blue-700 hover:bg-blue-100
                            dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50
-                           disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                           disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 title="Distanz aus GPS-Track via Haversine neu berechnen"
               >
                 {distanceCorrectionMutation.isPending ? spinnerIcon : correctIcon}
@@ -1705,7 +1705,7 @@ function DataCorrectionsSection({ activity }: { activity: Activity }) {
                 className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
                            bg-neutral-100 text-neutral-600 hover:bg-neutral-200
                            dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
-                           disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                           disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 title="Originaldistanz aus der Aktivitätsdatei wiederherstellen"
               >
                 {distanceResetMutation.isPending ? spinnerIcon : resetIcon}
@@ -2690,11 +2690,11 @@ function ZoneDistributionChart({ distribution }: { distribution: ZoneDistributio
           <div className="flex gap-2 text-xs">
             <button
               onClick={() => setActiveType('hr')}
-              className={`px-2 py-0.5 rounded ${activeType === 'hr' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`px-2 py-0.5 rounded cursor-pointer ${activeType === 'hr' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
             >HR</button>
             <button
               onClick={() => setActiveType('power')}
-              className={`px-2 py-0.5 rounded ${activeType === 'power' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`px-2 py-0.5 rounded cursor-pointer ${activeType === 'power' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-500 hover:text-neutral-700'}`}
             >Power</button>
           </div>
         )}

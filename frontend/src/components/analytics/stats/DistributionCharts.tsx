@@ -174,7 +174,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
           onClick={() => setChartType(ct => ct === 'pie' ? 'bar' : 'pie')}
           className="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700
                      text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                     transition-colors"
+                     cursor-pointer transition-colors"
           title={chartType === 'pie' ? 'Als Balkendiagramm' : 'Als Kreisdiagramm'}
         >
           {chartType === 'pie' ? 'Balken' : 'Kreis'}
@@ -220,8 +220,8 @@ export default function DistributionCharts() {
               key={opt.value}
               onClick={() => setMetric(opt.value)}
               className={metric === opt.value
-                ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
               {opt.label}

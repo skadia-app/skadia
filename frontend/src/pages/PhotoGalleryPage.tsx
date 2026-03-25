@@ -72,7 +72,7 @@ export default function PhotoGalleryPage() {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-lg leading-none"
+              className="cursor-pointer absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-lg leading-none"
               aria-label="Suche löschen"
             >
               ×
@@ -87,7 +87,7 @@ export default function PhotoGalleryPage() {
                 key={mode}
                 onClick={() => setSortMode(mode)}
                 className={cn(
-                  'px-3 py-2 transition-colors',
+                  'cursor-pointer px-3 py-2 transition-colors',
                   sortMode === mode
                     ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 font-medium'
                     : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 bg-white dark:bg-neutral-900',
@@ -172,7 +172,7 @@ function FeedView({
           <button
             onClick={onFetchNextPage}
             disabled={isFetchingNextPage}
-            className="px-4 py-2 text-sm rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-50 cursor-pointer transition-colors"
+            className="px-4 py-2 text-sm rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             {isFetchingNextPage ? 'Lädt…' : 'Mehr laden'}
           </button>
@@ -397,7 +397,7 @@ function GalleryLightbox({
         {index > 0 && (
           <button
             onClick={() => setIndex(i => i - 1)}
-            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
+            className="cursor-pointer absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
             aria-label="Vorheriges Foto"
           >
             <ChevronLeftIcon className="w-5 h-5" />
@@ -406,7 +406,7 @@ function GalleryLightbox({
         {index < photos.length - 1 && (
           <button
             onClick={() => setIndex(i => i + 1)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
+            className="cursor-pointer absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
             aria-label="Nächstes Foto"
           >
             <ChevronRightIcon className="w-5 h-5" />

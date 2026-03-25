@@ -47,7 +47,7 @@ export default function RegionSelector({ regions, selected, onChange, showContin
             <button
               key={c}
               onClick={() => setActiveContinent(c)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              className={`px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors ${
                 activeContinent === c
                   ? 'bg-accent-DEFAULT text-white'
                   : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'

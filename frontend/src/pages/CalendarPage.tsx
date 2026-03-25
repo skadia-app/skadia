@@ -329,8 +329,8 @@ export default function CalendarPage() {
               onClick={() => setTab('weeks')}
               className={
                 tab === 'weeks'
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
               Wochen
@@ -339,8 +339,8 @@ export default function CalendarPage() {
               onClick={() => setTab('year')}
               className={
                 tab === 'year'
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
               Jahr
@@ -353,8 +353,8 @@ export default function CalendarPage() {
               onClick={() => setYearViewMode('calendar')}
               className={
                 yearViewMode === 'calendar'
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
               Kalender
@@ -363,8 +363,8 @@ export default function CalendarPage() {
               onClick={() => setYearViewMode('heatmap')}
               className={
                 yearViewMode === 'heatmap'
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
               TSS-Heatmap
@@ -410,7 +410,7 @@ export default function CalendarPage() {
                     onClick={() => setYearPickerOpen(prev => !prev)}
                     className="px-3.5 py-1.5 text-sm font-bold rounded-md border border-neutral-200 dark:border-neutral-700
                                text-neutral-800 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700
-                               transition-colors min-w-[4rem] text-center flex items-center gap-1.5 justify-center
+                               cursor-pointer transition-colors min-w-[4rem] text-center flex items-center gap-1.5 justify-center
                                hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT"
                   >
                     {selectedYear}
@@ -433,7 +433,7 @@ export default function CalendarPage() {
                             setYearPickerOpen(false)
                           }}
                           className={[
-                            'w-full px-4 py-2 text-sm text-left transition-colors',
+                            'w-full px-4 py-2 text-sm text-left cursor-pointer transition-colors',
                             year === selectedYear
                               ? 'bg-[color:var(--color-accent-DEFAULT)] text-white font-semibold'
                               : 'text-neutral-700 dark:text-neutral-300 hover:bg-[color:var(--color-accent-100)] dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
@@ -451,7 +451,7 @@ export default function CalendarPage() {
                   disabled={selectedYear >= currentYear + 1}
                   className="p-1.5 rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
-                             hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors
+                             hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors
                              disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
                   title="Nächstes Jahr"
                 >
@@ -1023,7 +1023,7 @@ function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }:
               {isFrozen && (
                 <button
                   onClick={() => onFreezeToggle(key)}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 ml-2 leading-none text-sm"
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer ml-2 leading-none text-sm"
                 >
                   ×
                 </button>

@@ -244,7 +244,7 @@ function StatusMenu({ current, onSelect, disabled }: {
       <button
         onClick={() => setOpen(!open)}
         disabled={disabled}
-        className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
+        className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Status ändern
       </button>
@@ -514,7 +514,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
         <button
           onClick={() => mutation.mutate()}
           disabled={!targetId || mutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-400 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
           {mutation.isPending ? '...' : 'Transfer'}
         </button>
@@ -655,7 +655,7 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
             <button
               onClick={() => addMut.mutate()}
               disabled={addMut.isPending}
-              className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+              className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Speichern
             </button>
@@ -841,7 +841,7 @@ function ChainRotationSection({ gearId, components }: {
             <button
               onClick={() => createMut.mutate()}
               disabled={selectedComps.size < 2 || createMut.isPending}
-              className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {selectedComps.size < 2
                 ? `Rotation erstellen (${selectedComps.size}/2 gewählt)`
@@ -905,7 +905,7 @@ function ChainRotationSection({ gearId, components }: {
             <button
               onClick={() => swapMut.mutate()}
               disabled={swapMut.isPending}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {swapMut.isPending ? 'Wechsle...' : 'Nächste Kette'}
             </button>
@@ -1121,7 +1121,7 @@ function ComponentForm({
         <button
           type="submit"
           disabled={isSaving || !name.trim() || !type.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>
@@ -1544,7 +1544,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         <button
           type="submit"
           disabled={isSaving || !name.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>

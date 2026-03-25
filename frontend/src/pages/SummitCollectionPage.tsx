@@ -164,7 +164,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
             <button
               key={cls.label}
               onClick={() => setElevClass(cls)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
                 elevClass.label === cls.label
                   ? 'bg-accent-DEFAULT text-white'
                   : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -220,7 +220,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
         <div className="ml-auto flex rounded-lg border border-neutral-300 dark:border-neutral-700 overflow-hidden">
           <button
             onClick={() => setViewMode('list')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm font-medium cursor-pointer transition-colors ${
               viewMode === 'list'
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -230,7 +230,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
           </button>
           <button
             onClick={() => setViewMode('map')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm font-medium cursor-pointer transition-colors ${
               viewMode === 'map'
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'

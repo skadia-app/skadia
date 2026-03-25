@@ -656,7 +656,7 @@ function PreviewPanel({
           <button
             onClick={handleDownload}
             disabled={!blobUrl}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-[var(--color-accent-DEFAULT,#F97316)] hover:bg-[var(--color-accent-600,#EA580C)] disabled:opacity-50 transition-colors cursor-pointer"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-[var(--color-accent-DEFAULT,#F97316)] hover:bg-[var(--color-accent-600,#EA580C)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             Herunterladen
           </button>
@@ -695,7 +695,7 @@ function DeleteConfirmDialog({
           <button
             onClick={onConfirm}
             disabled={isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             {isPending ? 'Wird gelöscht...' : 'Löschen'}
           </button>

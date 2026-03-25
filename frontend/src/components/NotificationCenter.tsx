@@ -183,7 +183,7 @@ export default function NotificationCenter() {
                     {/* X-Button: nur bei Hover sichtbar */}
                     <button
                       onClick={() => deleteNotification(n.id)}
-                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
+                      className="cursor-pointer opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
                       aria-label="Benachrichtigung löschen"
                       title="Löschen"
                     >

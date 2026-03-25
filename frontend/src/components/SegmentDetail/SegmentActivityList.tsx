@@ -94,7 +94,7 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
           <button
             key={mode}
             onClick={() => setDirectionMode(mode)}
-            className={`px-3 py-1 rounded text-sm transition-colors ${
+            className={`px-3 py-1 rounded text-sm cursor-pointer transition-colors ${
               directionMode === mode
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'

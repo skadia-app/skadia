@@ -49,7 +49,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Frag mich e
           maxLength={2000}
           rows={1}
           placeholder={placeholder}
-          className="w-full resize-none rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 transition-colors"
+          className="w-full resize-none rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
         <span className="absolute bottom-1 right-2 text-xs text-neutral-400">{value.length}/2000</span>

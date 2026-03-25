@@ -79,7 +79,7 @@ export default function SegmentDetailPage() {
           {segment.segment_type !== 'lift' && (
           <button
             onClick={() => setShowEdit(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
             <Pencil size={14} /> Bearbeiten
           </button>
@@ -87,7 +87,7 @@ export default function SegmentDetailPage() {
           <button
             onClick={() => { if (!isRecomputing) recomputeMut.mutate() }}
             disabled={isRecomputing}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isRecomputing
                 ? 'border-accent-DEFAULT text-accent-DEFAULT bg-accent-100 dark:bg-accent-100/20'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -98,7 +98,7 @@ export default function SegmentDetailPage() {
           </button>
           <button
             onClick={() => navigate('/map', { state: { activateSegmentsOverlay: true } })}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
             <Map size={14} /> Auf Karte
           </button>

@@ -101,14 +101,14 @@ export default function LiftSection({
                 <button
                   onClick={() => confirm.mutate(c.id)}
                   disabled={confirm.isPending}
-                  className="text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white cursor-pointer disabled:opacity-50"
+                  className="text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✓
                 </button>
                 <button
                   onClick={() => reject.mutate(c.id)}
                   disabled={reject.isPending}
-                  className="text-xs px-2 py-1 rounded bg-muted cursor-pointer disabled:opacity-50"
+                  className="text-xs px-2 py-1 rounded bg-muted cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✗
                 </button>

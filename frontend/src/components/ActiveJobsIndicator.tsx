@@ -205,7 +205,7 @@ function JobRow({ job }: { job: ActiveJob }) {
               console.error('Cancel job failed:', err)
             }
           }}
-          className="flex-shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-400 hover:text-red-500 transition-colors"
+          className="flex-shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-400 hover:text-red-500 cursor-pointer transition-colors"
           title="Import abbrechen"
         >
           <X size={12} />
@@ -314,7 +314,7 @@ export default function ActiveJobsIndicator() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(prev => !prev)}
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-xs"
+        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-xs"
         title="Laufende Jobs"
       >
         <RefreshCw

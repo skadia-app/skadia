@@ -88,10 +88,10 @@ function ModalItem({ modal }: ModalItemProps) {
               key={`${modal.id}-btn-${idx}`}
               onClick={() => handleButtonClick(button)}
               disabled={isLoading}
-              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed ${
+              className={`cursor-pointer px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed ${
                 button.variant === 'destructive'
-                  ? 'bg-red-500 hover:bg-red-600 text-white disabled:opacity-50'
-                  : 'text-white disabled:opacity-50 hover:opacity-90'
+                  ? 'bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                  : 'text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90'
               }`}
               style={button.variant !== 'destructive' ? { backgroundColor: accent.shade500 } : {}}
             >

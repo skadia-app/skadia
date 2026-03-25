@@ -309,7 +309,7 @@ function PhotoPreviewSection() {
             key={value}
             onClick={() => mutation.mutate(value)}
             disabled={isLoading || mutation.isPending}
-            className={`px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`px-4 py-1.5 text-sm font-medium whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               idx > 0 ? 'border-l border-neutral-200 dark:border-neutral-700' : ''
             } ${
               currentSize === value
@@ -363,7 +363,7 @@ function PhotoPreviewSection() {
               onChange={e => setFramesLocal(Number(e.target.value))}
               onMouseUp={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
               onTouchEnd={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
-              className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50"
+              className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 w-8 text-center tabular-nums">
               {currentFrames}
@@ -613,7 +613,7 @@ function NotificationSettingsSection() {
                 </div>
                 <button
                   onClick={() => removeDevice(device.id)}
-                  className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                  className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors flex-shrink-0"
                 >
                   Entfernen
                 </button>
@@ -684,7 +684,7 @@ export default function SettingsPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-1.5 rounded-md text-sm font-medium cursor-pointer transition-colors ${
               activeTab === tab.id
                 ? 'bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-sm'
                 : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
@@ -727,7 +727,7 @@ export default function SettingsPage() {
         {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
           <button
             onClick={() => setAccent(ACCENT_PALETTE[0])}
-            className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline transition-colors"
+            className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline cursor-pointer transition-colors"
           >
             Auf Standard zurücksetzen
           </button>
@@ -993,7 +993,7 @@ function SportSettingsSection() {
       <button
         type="button"
         onClick={() => setColorsOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
       >
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Sportarten</h2>
@@ -1768,7 +1768,7 @@ function HeatmapSettingsSection() {
           <button
             onClick={() => radiusMut.mutate(currentRadius)}
             disabled={radiusMut.isPending}
-            className="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
+            className="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             {radiusMut.isPending ? 'Speichert...' : 'Sichtweite speichern'}
           </button>
@@ -1883,7 +1883,7 @@ function HeatmapSettingsSection() {
             teleport_filter_activity: currentFilterActivity,
           })}
           disabled={updateHeatmapMut.isPending}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 transition-colors cursor-pointer"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
           {updateHeatmapMut.isPending ? 'Speichert...' : 'Speichern'}
         </button>

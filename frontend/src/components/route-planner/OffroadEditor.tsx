@@ -569,7 +569,7 @@ export default function OffroadEditor({
           className={[
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
             smooth
-              ? 'bg-orange-500 border-orange-500 text-white'
+              ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800',
           ].join(' ')}
         >
@@ -688,7 +688,7 @@ export default function OffroadEditor({
           Kontrollpunkt
         </span>
         {smooth && (
-          <span className="flex items-center gap-1.5 text-orange-500 font-medium">
+          <span className="flex items-center gap-1.5 text-accent-DEFAULT font-medium">
             ~ Catmull-Rom aktiv
           </span>
         )}

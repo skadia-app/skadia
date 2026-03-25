@@ -174,14 +174,14 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
           <button
             onClick={onClose}
             disabled={state === 'loading'}
-            className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+            className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             Abbrechen
           </button>
           <button
             onClick={() => mutation.mutate()}
             disabled={state === 'loading' || (mode === 'scoped' && selected.size === 0)}
-            className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 cursor-pointer"
+            className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {state === 'loading' ? 'Läuft…' : 'Berechnen'}
           </button>

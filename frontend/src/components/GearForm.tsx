@@ -200,7 +200,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
         <button
           type="submit"
           disabled={isSaving || !name.trim() || !type}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
         </button>

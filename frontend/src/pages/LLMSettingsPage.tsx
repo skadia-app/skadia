@@ -79,7 +79,7 @@ function OcrPromptsSection() {
           {settings[key] && (
             <button
               onClick={() => mut.mutate({ [key]: null })}
-              className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+              className="cursor-pointer text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
             >
               Auf Standard zurücksetzen
             </button>
@@ -280,7 +280,7 @@ function LLMRoleCard({ role, config, onSave }: {
                       disabled={isLoadingModels}
                       className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700
                                  text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
-                                 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                     >
                       {isLoadingModels ? 'Lade...' : 'Modelle laden'}
                     </button>
@@ -315,7 +315,7 @@ function LLMRoleCard({ role, config, onSave }: {
               disabled={isTesting || !needsURL}
               className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
-                         disabled:opacity-50 transition-colors"
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isTesting ? 'Teste...' : 'Verbindung testen'}
             </button>
@@ -337,7 +337,7 @@ function LLMRoleCard({ role, config, onSave }: {
         <button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="px-4 py-1.5 text-sm rounded-lg text-white disabled:opacity-50 transition-colors"
+          className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
         >
           {saveMutation.isPending ? 'Speichere...' : 'Speichern'}

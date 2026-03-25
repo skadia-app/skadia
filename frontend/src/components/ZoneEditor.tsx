@@ -874,7 +874,7 @@ export default function ZoneEditor({
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${
               mode === m
                 ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
                 : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -1007,7 +1007,7 @@ export default function ZoneEditor({
               <button
                 type="button"
                 onClick={() => handleRemoveHole(idx)}
-                className="ml-auto text-neutral-400 hover:text-red-500 transition-colors"
+                className="ml-auto text-neutral-400 hover:text-red-500 cursor-pointer transition-colors"
                 title="Ausschnitt entfernen"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">

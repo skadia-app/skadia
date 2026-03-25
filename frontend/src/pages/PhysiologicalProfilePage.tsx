@@ -180,7 +180,7 @@ export default function PhysiologicalProfilePage() {
           <button
             onClick={() => profileMutation.mutate(profileForm)}
             disabled={profileMutation.isPending}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 transition-colors"
+            className="cursor-pointer px-4 py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {profileMutation.isPending ? 'Speichern...' : 'Profil speichern'}
           </button>

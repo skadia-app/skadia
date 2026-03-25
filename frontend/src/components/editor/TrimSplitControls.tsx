@@ -512,7 +512,7 @@ export function TrimSplitControls({
                   disabled={splitMutation.isPending}
                   className="px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700
                              text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                             disabled:opacity-50 transition-colors cursor-pointer"
+                             disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
                   Abbrechen
                 </button>

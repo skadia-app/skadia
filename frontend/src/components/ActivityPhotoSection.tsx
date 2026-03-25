@@ -222,7 +222,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadMutation.isPending}
-              className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer disabled:opacity-50"
+              className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploadMutation.isPending ? 'Wird hochgeladen...' : '+ Fotos / Videos hochladen'}
             </button>

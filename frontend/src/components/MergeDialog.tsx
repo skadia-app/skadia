@@ -159,7 +159,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
                 <button
                   key={a.id}
                   onClick={() => setSelectedSourceId(a.id)}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                  className={`cursor-pointer w-full text-left px-3 py-2 text-sm transition-colors ${
                     selectedSourceId === a.id
                       ? 'text-white'
                       : 'text-neutral-900 dark:text-neutral-50 hover:bg-neutral-50 dark:hover:bg-neutral-800'

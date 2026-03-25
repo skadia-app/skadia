@@ -181,7 +181,7 @@ export function WeatherSettings() {
                       : localPrefs.display_fields.filter((f) => f !== opt.key)
                     if (next.length > 0) update({ display_fields: next })
                   }}
-                  className="accent-[var(--color-accent-DEFAULT,#f97316)] disabled:opacity-40"
+                  className="accent-[var(--color-accent-DEFAULT,#f97316)] disabled:opacity-40 disabled:cursor-not-allowed"
                 />
                 <span className="text-sm text-neutral-800 dark:text-neutral-200">{opt.label}</span>
               </label>

@@ -125,7 +125,7 @@ export default function YearlyOverview() {
             {/* Year header */}
             <button
               onClick={() => toggleYear(group.year)}
-              className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors
+              className={`w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer transition-colors
                 ${isCurrent
                   ? 'bg-[var(--color-accent-DEFAULT)]/5 hover:bg-[var(--color-accent-DEFAULT)]/10 dark:bg-[var(--color-accent-DEFAULT)]/10'
                   : 'bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800'

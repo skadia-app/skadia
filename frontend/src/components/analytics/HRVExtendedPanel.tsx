@@ -132,7 +132,7 @@ function AllMetricsTable({ data }: { data: HRVExtendedResponse }) {
     <div className="mt-4">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
+        className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
       >
         <svg
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -244,8 +244,8 @@ export default function HRVExtendedPanel({ activityId }: Props) {
                 onClick={() => setActiveTab(id)}
                 className={
                   activeTab === id
-                    ? 'px-4 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                    : 'px-4 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                    ? 'px-4 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                    : 'px-4 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
                 }
               >
                 {label}

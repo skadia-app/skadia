@@ -93,7 +93,7 @@ export default function InsightsTab() {
             onClick={() => refreshMutation.mutate()}
             disabled={refreshMutation.isPending}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium
-                       hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                       hover:bg-accent/90 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {refreshMutation.isPending ? (
               <>
@@ -133,7 +133,7 @@ export default function InsightsTab() {
           disabled={refreshMutation.isPending}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700
                      text-xs font-medium text-neutral-600 dark:text-neutral-300
-                     hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
+                     hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors
                      disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {refreshMutation.isPending ? (
@@ -176,7 +176,7 @@ export default function InsightsTab() {
         <button
           onClick={() => navigate(`/chat?context=readiness&date=${new Date().toISOString().slice(0, 10)}`)}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium
-                     hover:bg-accent/90 transition-colors"
+                     hover:bg-accent/90 cursor-pointer transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

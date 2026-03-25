@@ -101,13 +101,13 @@ export default function AutomationRulesPage() {
           <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             {applyMutation.isPending ? 'Wird angewendet...' : 'Regeln anwenden'}
           </button>
           <button
             onClick={() => setCreating(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
           >
             Regel erstellen
           </button>
@@ -226,14 +226,14 @@ export default function AutomationRulesPage() {
                 <button
                   onClick={() => setDeleteConfirmId(null)}
                   disabled={deleteMutation.isPending}
-                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Abbrechen
                 </button>
                 <button
                   onClick={() => deleteMutation.mutate(deleteConfirmId)}
                   disabled={deleteMutation.isPending}
-                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
                   {deleteMutation.isPending ? 'Wird geloscht...' : 'Loschen'}
                 </button>
@@ -308,7 +308,7 @@ function RuleCard({
             <button
               onClick={() => onToggle(!rule.is_active)}
               className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-              style={{ backgroundColor: rule.is_active ? '#f97316' : '#d4d4d4' }}
+              style={{ backgroundColor: rule.is_active ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
               role="switch"
               aria-checked={rule.is_active}
             >

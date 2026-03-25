@@ -447,7 +447,7 @@ export default function SegmentEditorModal({
                         }
                       })
                     }}
-                    className={`px-2 py-1 text-xs font-medium transition-colors ${
+                    className={`px-2 py-1 text-xs font-medium cursor-pointer transition-colors ${
                       mapStyle === key
                         ? 'bg-accent-DEFAULT text-white'
                         : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700'
@@ -460,7 +460,7 @@ export default function SegmentEditorModal({
               {/* Heatmap-Toggle */}
               <button
                 onClick={() => setHeatmapVisible(v => !v)}
-                className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+                className={`px-2 py-1 text-xs rounded-md border cursor-pointer transition-colors ${
                   heatmapVisible
                     ? 'bg-accent-DEFAULT/20 border-accent-DEFAULT/50 text-orange-400'
                     : 'border-neutral-700 text-neutral-400 hover:text-neutral-200'
@@ -607,38 +607,38 @@ export default function SegmentEditorModal({
                       <span className="text-xs text-neutral-400 w-10">Start</span>
                       <button onClick={() => setStartIdx(i => Math.max(0, i - 1))}
                         disabled={trackPhase === 'preview'}
-                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-30">&#x25C4;</button>
+                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">&#x25C4;</button>
                       <span className="text-xs text-neutral-300 tabular-nums w-14 text-center">{startIdx}</span>
                       <button onClick={() => setStartIdx(i => Math.min(endIdx - 1, i + 1))}
                         disabled={trackPhase === 'preview'}
-                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-30">&#x25BA;</button>
+                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">&#x25BA;</button>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-neutral-400 w-10">Ende</span>
                       <button onClick={() => setEndIdx(i => Math.max(startIdx + 1, i - 1))}
                         disabled={trackPhase === 'preview'}
-                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-30">&#x25C4;</button>
+                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">&#x25C4;</button>
                       <span className="text-xs text-neutral-300 tabular-nums w-14 text-center">{endIdx}</span>
                       <button onClick={() => setEndIdx(i => Math.min((trackPoints?.length ?? 1) - 1, i + 1))}
                         disabled={trackPhase === 'preview'}
-                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-30">&#x25BA;</button>
+                        className="px-2 py-1 text-xs bg-neutral-800 rounded hover:bg-neutral-700 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">&#x25BA;</button>
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end">
                     {trackPhase === 'preview' ? (
                       <>
                         <button onClick={() => setTrackPhase('adjust')}
-                          className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
+                          className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
                           Zurück bearbeiten
                         </button>
                         <button onClick={() => proceedToForm(extractSubTrack(trackPoints!, startIdx, endIdx))}
-                          className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600">
+                          className="cursor-pointer px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600">
                           Weiter &#x2192;
                         </button>
                       </>
                     ) : (
                       <button onClick={() => setTrackPhase('preview')}
-                        className="px-3 py-1.5 text-sm bg-neutral-700 rounded-lg text-neutral-200 hover:bg-neutral-600">
+                        className="cursor-pointer px-3 py-1.5 text-sm bg-neutral-700 rounded-lg text-neutral-200 hover:bg-neutral-600">
                         Vorschau
                       </button>
                     )}
@@ -664,7 +664,7 @@ export default function SegmentEditorModal({
                       setDrawGeoJSON(JSON.stringify(feature.geometry))
                       setDrawPhase('preview')
                     }}
-                    className="px-3 py-1.5 text-sm bg-neutral-700 rounded-lg text-neutral-200 hover:bg-neutral-600"
+                    className="cursor-pointer px-3 py-1.5 text-sm bg-neutral-700 rounded-lg text-neutral-200 hover:bg-neutral-600"
                   >
                     Vorschau
                   </button>
@@ -682,13 +682,13 @@ export default function SegmentEditorModal({
                       draw.changeMode('direct_select', { featureId: id[0] })
                       setDrawPhase('drawing')
                     }}
-                    className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
+                    className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
                   >
                     Zurück bearbeiten
                   </button>
                   <button
                     onClick={() => proceedToForm(drawGeoJSON!)}
-                    className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
+                    className="cursor-pointer px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                   >
                     Weiter &#x2192;
                   </button>
@@ -710,7 +710,7 @@ export default function SegmentEditorModal({
                   </p>
                   <div className="flex gap-2">
                     <button onClick={() => { setLapPhase('pick-finish'); setLapFinishIdx(null); setLapCrossings([]) }}
-                      className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
+                      className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
                       Zurück
                     </button>
                     <button
@@ -725,7 +725,7 @@ export default function SegmentEditorModal({
                         setLapMeta({ finish_lat: finish.lat, finish_lng: finish.lng })
                         proceedToForm(geo)
                       }}
-                      className="px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
+                      className="cursor-pointer px-3 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600"
                     >
                       Weiter &#x2192;
                     </button>

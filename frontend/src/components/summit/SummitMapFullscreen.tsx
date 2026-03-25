@@ -117,7 +117,7 @@ export default function SummitMapFullscreen({
               <button
                 key={cls.label}
                 onClick={() => setElevClass(cls)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
                   elevClass.label === cls.label
                     ? 'bg-accent-DEFAULT text-white'
                     : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'

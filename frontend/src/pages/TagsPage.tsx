@@ -973,7 +973,7 @@ export default function TagsPage() {
                         <button
                           onClick={() => deleteOrphanMut.mutate(tag.name)}
                           disabled={deleteOrphanMut.isPending}
-                          className="px-2.5 py-1 rounded-md text-xs font-medium text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 transition-colors cursor-pointer"
+                          className="px-2.5 py-1 rounded-md text-xs font-medium text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                           title="Aus allen Aktivitäten entfernen"
                         >
                           Entfernen
@@ -1018,7 +1018,7 @@ export default function TagsPage() {
                 <button
                   onClick={() => deleteMut.mutate(deleteConfirmId)}
                   disabled={deleteMut.isPending}
-                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
                   {deleteMut.isPending ? 'Wird gelöscht...' : 'Löschen'}
                 </button>

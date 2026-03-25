@@ -373,13 +373,13 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
               <div key={p.name} className="flex items-center gap-1 rounded-full bg-neutral-100 dark:bg-neutral-800 pl-2.5 pr-1 py-0.5">
                 <button
                   onClick={() => onFilterChange(p.filters)}
-                  className="text-xs text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  className="text-xs text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
                 >
                   {p.name}
                 </button>
                 <button
                   onClick={() => handleDeletePreset(p.name)}
-                  className="text-neutral-400 hover:text-rose-500 transition-colors text-xs leading-none"
+                  className="text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors text-xs leading-none"
                   aria-label="Preset löschen"
                 >
                   ✕
@@ -400,7 +400,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                 key={p.label}
                 onClick={() => applyDatePreset(p.days)}
                 className="text-xs px-2 py-1 rounded-md border border-neutral-200 dark:border-neutral-700
-                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 {p.label}
               </button>
@@ -523,7 +523,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
               <button
                 key={s.value}
                 onClick={() => toggleSeason(s.value)}
-                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                className={`text-xs px-2.5 py-1 rounded-md border cursor-pointer transition-colors ${
                   filters.seasons.includes(s.value)
                     ? 'bg-[var(--color-accent-DEFAULT)] text-white border-transparent font-medium'
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -541,7 +541,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
               <button
                 key={d.value}
                 onClick={() => toggleWeekday(d.value)}
-                className={`text-xs w-7 h-7 rounded-md border transition-colors font-medium ${
+                className={`text-xs w-7 h-7 rounded-md border cursor-pointer transition-colors font-medium ${
                   filters.weekdays.includes(d.value)
                     ? 'bg-[var(--color-accent-DEFAULT)] text-white border-transparent'
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -560,9 +560,9 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
         <div className="flex gap-2">
           <button
             onClick={() => onFilterChange({ isCommute: filters.isCommute === 'true' ? '' : 'true' })}
-            className={`text-xs px-3 py-1 rounded-md border transition-colors ${
+            className={`text-xs px-3 py-1 rounded-md border cursor-pointer transition-colors ${
               filters.isCommute === 'true'
-                ? 'bg-orange-500 text-white border-transparent font-medium'
+                ? 'bg-accent-DEFAULT text-white border-transparent font-medium'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
           >
@@ -570,7 +570,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
           </button>
           <button
             onClick={() => onFilterChange({ isRace: filters.isRace === 'true' ? '' : 'true' })}
-            className={`text-xs px-3 py-1 rounded-md border transition-colors ${
+            className={`text-xs px-3 py-1 rounded-md border cursor-pointer transition-colors ${
               filters.isRace === 'true'
                 ? 'bg-amber-500 text-white border-transparent font-medium'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -648,7 +648,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             </button>
             <button
               onClick={() => setShowSavePreset(false)}
-              className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
             >
               Abbrechen
             </button>
@@ -656,7 +656,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
         ) : (
           <button
             onClick={() => setShowSavePreset(true)}
-            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
           >
             + Als Filter-Preset speichern
           </button>
@@ -732,7 +732,7 @@ export default function AnalyticsPage() {
         {/* Filter toggle button */}
         <button
           onClick={() => setFilterOpen(o => !o)}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition-colors whitespace-nowrap ${
             filterCount > 0
               ? 'border-[var(--color-accent-DEFAULT)] bg-[var(--color-accent-DEFAULT)]/10 text-[var(--color-accent-DEFAULT)] font-medium'
               : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
