@@ -54,7 +54,7 @@ CREATE INDEX idx_file_attachments_entity ON file_attachments (entity_type, entit
 CREATE INDEX idx_file_attachments_user ON file_attachments (user_id);
 
 -- Migration journal (crash-safe file migration tracking)
-CREATE TABLE migration_filestore_journal (
+CREATE TABLE migration_shadowfs_journal (
     source_table TEXT NOT NULL,
     source_id    UUID NOT NULL,
     phase        TEXT NOT NULL DEFAULT 'registry',
