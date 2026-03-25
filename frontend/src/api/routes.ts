@@ -276,9 +276,10 @@ export async function getWaypointsFromActivity(
 
 // === Profile Defaults ===
 
-/** Server-side profile defaults. null = blocked highway type. */
+/** Server-side profile defaults. null = blocked highway type or unset field. */
 export interface ProfileDefaultsResponse {
   profile: string
+  // Elevation
   uphill_cost: number | null
   downhill_cost: number | null
   uphill_cutoff_pct: number | null
@@ -286,8 +287,28 @@ export interface ProfileDefaultsResponse {
   elev_penalty_buffer_m: number | null
   elev_max_buffer_m: number | null
   elev_buffer_reduce: number | null
+  // Difficulty
+  max_sac_scale: number | null
+  sac_preferred: number | null
+  max_mtb_scale: number | null
+  max_via_ferrata: number | null
+  allow_steps: boolean | null
+  allow_ferries: boolean | null
+  // Enrichment weights
+  forest_bonus: number | null
+  noise_penalty: number | null
+  traffic_penalty: number | null
+  protected_bonus: number | null
+  // Route adherence
+  cycleroute_boost: number | null
+  hikeroute_boost: number | null
+  // Behavior
+  wet_weather: boolean | null
+  path_preference: number | null
   turn_cost: number | null
+  initial_cost_road: number | null
   pass0_coefficient: number | null
+  // Highway costs — null means permanently blocked for this profile
   path_cost: number | null
   track_cost: number | null
   track_grade1_cost: number | null
