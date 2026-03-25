@@ -8,14 +8,31 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// GetMe returns the authenticated user's ID.
+// GetMe returns the authenticated user's full profile.
 // GET /api/v1/me
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"user_id": userID})
+	user, err := h.DB.GetUserByID(r.Context(), userID)
+	if err != nil {
+		slog.Error("GetMe: user not found", "error", err)
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	resp := model.MeResponse{
+		UserID:             user.ID,
+		Username:           user.Username,
+		DisplayName:        user.DisplayName,
+		Email:              user.Email,
+		IsAdmin:            user.IsAdmin,
+		EmailVerified:      user.EmailVerified,
+		HasPassword:        user.PasswordHash != nil,
+		MustChangePassword: user.MustChangePassword,
+		RegistrationSource: user.RegistrationSrc,
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GetProfile returns the user's physiological profile.
