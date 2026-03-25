@@ -1,4 +1,4 @@
--- 000233_filestore_cleanup.down.sql
+-- 000233_shadowfs_cleanup.down.sql
 -- Restores legacy S3/ShadowFS columns as nullable (no data recovery possible).
 
 -- Recreate migration journal so 000232 down-migration can work correctly.
