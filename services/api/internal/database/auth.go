@@ -253,7 +253,13 @@ func (db *DB) CleanupExpiredTokens(ctx context.Context) error {
 		return fmt.Errorf("scrub user registration IPs: %w", err)
 	}
 
-	// Purge audit log entries older than 1 year.
+	// GDPR: IP-Adressen nach 90 Tagen scrubben, Events nach 365 Tagen löschen.
+	_, err = db.Pool.Exec(ctx,
+		`UPDATE auth_audit_log SET ip_address = NULL
+		 WHERE created_at < NOW() - INTERVAL '90 days' AND ip_address IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("scrub audit log IPs: %w", err)
+	}
 	_, err = db.Pool.Exec(ctx,
 		"DELETE FROM auth_audit_log WHERE created_at < NOW() - INTERVAL '365 days'")
 	if err != nil {

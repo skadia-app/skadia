@@ -11,7 +11,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const maxRateLimitEntries = 100_000
+// 500K: Ausgelegt für 100K User mit multiplen IPs + User-IDs als Keys.
+const maxRateLimitEntries = 500_000
 
 // RateLimiter manages per-key rate limiters with automatic cleanup.
 type RateLimiter struct {
