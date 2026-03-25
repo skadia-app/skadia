@@ -168,3 +168,123 @@ export async function getAuditLog(params: {
   const res = await apiFetch(`/api/v1/admin/audit-log?${sp}`)
   return res.json() as Promise<AuditLogResponse>
 }
+
+// ── Admin User Management ───────────────────────────────────────────────────
+
+export interface AdminUser {
+  id: string
+  username: string
+  display_name: string
+  email: string
+  is_admin: boolean
+  is_active: boolean
+  email_verified: boolean
+  registration_source: string
+  last_login_at: string | null
+  created_at: string
+  deleted_at: string | null
+}
+
+export interface AdminUsersResponse {
+  users: AdminUser[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AdminUserSession {
+  family_id: string
+  user_agent: string
+  ip_address: string
+  created_at: string
+  expires_at: string
+  revoked: boolean
+}
+
+export async function getAdminUsers(params: {
+  search?: string
+  status?: string
+  limit?: number
+  offset?: number
+}): Promise<AdminUsersResponse> {
+  const sp = new URLSearchParams()
+  if (params.search) sp.set('search', params.search)
+  if (params.status) sp.set('status', params.status)
+  sp.set('limit', String(params.limit ?? 50))
+  sp.set('offset', String(params.offset ?? 0))
+  const res = await apiFetch(`/api/v1/admin/users?${sp}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to fetch users')
+  }
+  return res.json() as Promise<AdminUsersResponse>
+}
+
+export async function adminActivateUser(id: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/activate`, { method: 'POST' })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Activation failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function adminDeactivateUser(id: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/deactivate`, { method: 'POST' })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Deactivation failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function adminResetPassword(
+  id: string,
+  data: { password?: string; send_email?: boolean },
+): Promise<{ status: string; temporary_password?: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Password reset failed')
+  }
+  return res.json() as Promise<{ status: string; temporary_password?: string }>
+}
+
+export async function adminCreateUser(data: {
+  email: string
+  username: string
+  password?: string
+}): Promise<{ id: string; status: string; temporary_password?: string }> {
+  const res = await apiFetch('/api/v1/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'User creation failed')
+  }
+  return res.json() as Promise<{ id: string; status: string; temporary_password?: string }>
+}
+
+export async function getAdminUserSessions(id: string): Promise<{ sessions: AdminUserSession[] }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/sessions`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to fetch sessions')
+  }
+  return res.json() as Promise<{ sessions: AdminUserSession[] }>
+}
+
+export async function adminRevokeUserSessions(id: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/revoke-sessions`, { method: 'POST' })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Session revocation failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
