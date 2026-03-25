@@ -570,8 +570,10 @@ func main() {
 			r.Put("/privacy-zones/{id}", h.UpdatePrivacyZone)
 			r.Delete("/privacy-zones/{id}", h.DeletePrivacyZone)
 
-			r.Get("/settings/shadow-fs", h.GetShadowFSSettings)
-			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettings)
+			// Compat shims: read/write user_file_schemas instead of the legacy
+			// users.file_naming_schema column (dropped in migration 000233).
+			r.Get("/settings/shadow-fs", h.GetShadowFSSettingsCompat)
+			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettingsCompat)
 			r.Post("/shadow-fs/preview-rename", h.PreviewRename)
 			r.Post("/shadow-fs/execute-rename", h.ExecuteRename)
 			r.Get("/imports", h.GetImports)
