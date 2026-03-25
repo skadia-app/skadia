@@ -34,7 +34,9 @@ func ResolveActivityFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, 
 		return fs.Get(ctx, userID, *fileID)
 	}
 
-	// Legacy fallback 1: local file
+	// Legacy fallback: direct filesystem path from pre-FileStore era.
+	// No validateLocalPath check — this column is dropped in migration 000233.
+	// Until then, the path was written by trusted server code (ShadowFS).
 	if localPath != nil && *localPath != "" {
 		f, err := os.Open(*localPath)
 		if err == nil {

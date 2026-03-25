@@ -88,6 +88,7 @@ func (s *S3FileStore) bucketFor(fileType string) string {
 }
 
 // Put stores a file in S3 and registers it in user_files.
+// NOTE: S3FileStore buffers the entire file in memory (up to 500 MB). For streaming uploads, consider multipart upload in a future iteration. LocalFileStore streams to disk with minimal memory.
 func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// Validate file type.
 	if _, ok := fileTypeDirName[entry.FileType]; !ok {
@@ -95,6 +96,7 @@ func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) 
 	}
 
 	// Quota check.
+	// NOTE: Quota is a soft limit (TOCTOU race possible with concurrent uploads). Hard enforcement via Reconciliation job. This is by design — see Spec §15.2.
 	used, err := diskUsage(ctx, s.pool, entry.UserID)
 	if err != nil {
 		return FileRecord{}, fmt.Errorf("quota check: %w", err)

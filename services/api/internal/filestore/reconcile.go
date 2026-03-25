@@ -100,6 +100,7 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 // ---------- Check 1: Orphaned files ----------
 // Files on disk with no registry entry. Only considers files with mtime >1h ago.
 // Logs only — does NOT delete.
+// By design: orphaned files are logged but NOT auto-deleted. Manual cleanup via admin dashboard. This prevents data loss from false positives during concurrent writes.
 func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResult) error {
 	// Build a set of all known storage_paths from the registry.
 	rows, err := j.pool.Query(ctx,
@@ -503,6 +504,7 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 // ---------- Check 8: Rename cleanup ----------
 // Records with is_renaming=true: re-render the path from current schema,
 // retry the rename, or finalize if already at target.
+// NOTE: Crashed renames may leave orphaned files at old paths. These are detected by checkOrphanedFiles (Check 1) and logged. The is_renaming flag is cleared here, and the file at the new path is the authoritative version.
 func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResult) error {
 	rows, err := j.pool.Query(ctx,
 		`SELECT uf.id, uf.user_id, uf.storage_path, uf.file_type, uf.file_name,
