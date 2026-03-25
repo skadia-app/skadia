@@ -17,7 +17,7 @@ import (
 
 // ListActiveUserIDs returns the IDs of all active users.
 func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `SELECT id FROM users WHERE is_active = true`)
+	rows, err := db.Pool.Query(ctx, `SELECT id FROM users WHERE is_active = true AND deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("list active user ids: %w", err)
 	}
@@ -168,7 +168,8 @@ var ErrEmailCollision = fmt.Errorf("email already registered")
 // allUserColumns is the shared column list for scanning a full model.User.
 const allUserColumns = `id, username, display_name, email, is_admin, is_active,
 	created_at, updated_at, password_hash, email_verified, registration_source,
-	password_changed_at, last_login_at, failed_login_count, login_delay_until`
+	password_changed_at, last_login_at, failed_login_count, login_delay_until,
+	deleted_at, must_change_password, pending_email`
 
 // scanUser scans a row into a model.User using the allUserColumns column order.
 func scanUser(row pgx.Row) (*model.User, error) {
@@ -178,6 +179,7 @@ func scanUser(row pgx.Row) (*model.User, error) {
 		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
 		&u.PasswordHash, &u.EmailVerified, &u.RegistrationSrc,
 		&u.PasswordChangedAt, &u.LastLoginAt, &u.FailedLoginCount, &u.LoginDelayUntil,
+		&u.DeletedAt, &u.MustChangePassword, &u.PendingEmail,
 	)
 	return &u, err
 }
@@ -185,7 +187,7 @@ func scanUser(row pgx.Row) (*model.User, error) {
 // GetUserByID returns a user by their ID.
 func (db *DB) GetUserByID(ctx context.Context, userID string) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
-		`SELECT `+allUserColumns+` FROM users WHERE id = $1`, userID))
+		`SELECT `+allUserColumns+` FROM users WHERE id = $1 AND deleted_at IS NULL`, userID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -198,7 +200,7 @@ func (db *DB) GetUserByID(ctx context.Context, userID string) (*model.User, erro
 // GetUserByEmail returns a user by their email address.
 func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
-		`SELECT `+allUserColumns+` FROM users WHERE email = $1`, email))
+		`SELECT `+allUserColumns+` FROM users WHERE email = $1 AND deleted_at IS NULL`, email))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -401,7 +403,7 @@ func (db *DB) UpdatePassword(ctx context.Context, userID, passwordHash string) e
 func (db *DB) CheckEmailCollision(ctx context.Context, email string) (bool, error) {
 	var exists bool
 	err := db.Pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL)`,
 		email,
 	).Scan(&exists)
 	if err != nil {
@@ -421,5 +423,19 @@ func (db *DB) ClearLoginDelays(ctx context.Context, userID string) error {
 func (db *DB) SetUserActive(ctx context.Context, userID string, active bool) error {
 	_, err := db.Pool.Exec(ctx,
 		"UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1", userID, active)
+	return err
+}
+
+// ClearMustChangePassword resets the must_change_password flag after a successful password change.
+func (db *DB) ClearMustChangePassword(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET must_change_password = false WHERE id = $1`, userID)
+	return err
+}
+
+// ClearPendingEmail removes a pending email change request.
+func (db *DB) ClearPendingEmail(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET pending_email = NULL WHERE id = $1`, userID)
 	return err
 }
