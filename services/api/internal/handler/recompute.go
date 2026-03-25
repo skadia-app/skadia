@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -461,22 +462,38 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doGeo := allScope || scope["geo"]
 	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
 
-	// 1. Load reprocess info (S3 key, format, manual sport flag).
+	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
 	if err != nil {
 		return fmt.Errorf("load reprocess info: %w", err)
 	}
-	if info == nil || info.FileKey == "" {
+	if info == nil || (info.FileKey == "" && info.FileID == "") {
 		return fmt.Errorf("no original file stored for activity %s", activityID)
 	}
-	if h.Storage == nil {
-		return fmt.Errorf("storage not configured; cannot reprocess activity %s", activityID)
-	}
 
-	// 2. Download original file from Garage.
-	fileBytes, err := h.Storage.Download(ctx, info.FileKey)
-	if err != nil {
-		return fmt.Errorf("download original file: %w", err)
+	// 2. Download original file: ShadowFS (preferred), then Garage S3 fallback.
+	var fileBytes []byte
+	if h.ShadowFS != nil && info.FileID != "" {
+		rc, getErr := h.ShadowFS.Get(ctx, info.UserID, info.FileID)
+		if getErr == nil {
+			fileBytes, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("read ShadowFS entry %s: %w", info.FileID, err)
+			}
+		} else {
+			slog.Warn("reprocess: ShadowFS.Get failed, falling back to S3",
+				"activity_id", activityID, "file_id", info.FileID, "error", getErr)
+		}
+	}
+	if fileBytes == nil && h.Storage != nil && info.FileKey != "" {
+		fileBytes, err = h.Storage.Download(ctx, info.FileKey)
+		if err != nil {
+			return fmt.Errorf("download original file: %w", err)
+		}
+	}
+	if fileBytes == nil {
+		return fmt.Errorf("no storage available; cannot reprocess activity %s", activityID)
 	}
 
 	// 3. Re-parse the file.

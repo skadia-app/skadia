@@ -3,14 +3,17 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
 )
@@ -62,7 +65,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Storage == nil {
+	if h.Storage == nil && h.ShadowFS == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
 		return
 	}
@@ -81,22 +84,48 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		processed := int64(0)
 		anyFailed := false
 
+		// downloadPhoto reads photo data: ShadowFS (preferred) then S3 fallback.
+		downloadPhoto := func(photo database.BackfillPhotoRow, key string) ([]byte, error) {
+			// ShadowFS path (preferred).
+			if h.ShadowFS != nil && photo.FileID != "" {
+				rc, getErr := h.ShadowFS.Get(ctx, userID, photo.FileID)
+				if getErr == nil {
+					d, readErr := io.ReadAll(rc)
+					rc.Close()
+					if readErr == nil {
+						return d, nil
+					}
+					slog.Warn("phash backfill: ShadowFS read failed, falling back to S3",
+						"photo_id", photo.ID, "file_id", photo.FileID, "error", readErr)
+				} else {
+					slog.Warn("phash backfill: ShadowFS.Get failed, falling back to S3",
+						"photo_id", photo.ID, "file_id", photo.FileID, "error", getErr)
+				}
+			}
+			// Legacy S3 fallback.
+			if h.Storage != nil && key != "" {
+				data, _, dlErr := h.Storage.DownloadFromBucket(ctx, bucket, key)
+				return data, dlErr
+			}
+			return nil, fmt.Errorf("no storage available for photo %s", photo.ID)
+		}
+
 		for _, photo := range photos {
 			// Download thumbnail for pHash (smaller, faster to hash).
 			key := photo.S3KeyThumb
 			if key == "" {
 				key = photo.S3Key // fallback to original
 			}
-			if key == "" {
-				slog.Warn("phash backfill: photo has no S3 key, skipping", "photo_id", photo.ID)
+			if key == "" && photo.FileID == "" {
+				slog.Warn("phash backfill: photo has no S3 key or file_id, skipping", "photo_id", photo.ID)
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
 				continue
 			}
 
-			data, _, err := h.Storage.DownloadFromBucket(ctx, bucket, key)
+			data, err := downloadPhoto(photo, key)
 			if err != nil {
-				slog.Warn("phash backfill: s3 download failed", "photo_id", photo.ID, "key", key, "error", err)
+				slog.Warn("phash backfill: download failed", "photo_id", photo.ID, "key", key, "error", err)
 				anyFailed = true
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
@@ -137,22 +166,19 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 
 			// Dimensions backfill: download original if width is NULL
 			if photo.Width == nil && !photo.IsVideo {
-				origKey := photo.S3Key
-				if origKey != "" {
-					origData, _, dlErr := h.Storage.DownloadFromBucket(ctx, bucket, origKey)
-					if dlErr != nil {
-						slog.Warn("phash backfill: s3 download original failed", "photo_id", photo.ID, "error", dlErr)
-					} else {
-						if img, _, decErr := image.Decode(bytes.NewReader(origData)); decErr == nil {
-							w := img.Bounds().Dx()
-							ht := img.Bounds().Dy()
-							if err := h.DB.UpdateActivityPhotoDimensions(ctx, photo.ID, w, ht); err != nil {
-								slog.Warn("phash backfill: db update dimensions failed", "photo_id", photo.ID, "error", err)
-								anyFailed = true
-							}
-						} else {
-							slog.Warn("phash backfill: image decode failed for dimensions", "photo_id", photo.ID, "error", decErr)
+				origData, dlErr := downloadPhoto(photo, photo.S3Key)
+				if dlErr != nil {
+					slog.Warn("phash backfill: download original failed", "photo_id", photo.ID, "error", dlErr)
+				} else if origData != nil {
+					if img, _, decErr := image.Decode(bytes.NewReader(origData)); decErr == nil {
+						w := img.Bounds().Dx()
+						ht := img.Bounds().Dy()
+						if err := h.DB.UpdateActivityPhotoDimensions(ctx, photo.ID, w, ht); err != nil {
+							slog.Warn("phash backfill: db update dimensions failed", "photo_id", photo.ID, "error", err)
+							anyFailed = true
 						}
+					} else {
+						slog.Warn("phash backfill: image decode failed for dimensions", "photo_id", photo.ID, "error", decErr)
 					}
 				}
 			}

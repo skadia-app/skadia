@@ -508,12 +508,14 @@ type BackfillPhotoRow struct {
 	DurationS  *float64
 	Width      *int
 	Height     *int
+	FileID     string // user_files registry ID (ShadowFS); empty when not migrated
 }
 
 // PhotosWithoutPHash returns all photo IDs that need pHash or dimension backfill.
 func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]BackfillPhotoRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, s3_key, s3_key_thumb, is_video, duration_s, width, height FROM activity_photos
+		`SELECT id, s3_key, s3_key_thumb, is_video, duration_s, width, height, COALESCE(file_id::text, '')
+		 FROM activity_photos
 		 WHERE user_id = $1 AND (phash IS NULL OR width IS NULL)
 		 ORDER BY created_at`,
 		userID)
@@ -524,7 +526,7 @@ func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]Backfill
 	var result []BackfillPhotoRow
 	for rows.Next() {
 		var r BackfillPhotoRow
-		if err := rows.Scan(&r.ID, &r.S3Key, &r.S3KeyThumb, &r.IsVideo, &r.DurationS, &r.Width, &r.Height); err != nil {
+		if err := rows.Scan(&r.ID, &r.S3Key, &r.S3KeyThumb, &r.IsVideo, &r.DurationS, &r.Width, &r.Height, &r.FileID); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

@@ -1583,17 +1583,20 @@ type ReprocessInfo struct {
 	FileFormat        string
 	SportTypeIsManual bool
 	OriginalFilename  string
+	FileID            string // user_files registry ID (ShadowFS); empty when not migrated
+	UserID            string // activity owner
 }
 
-// GetActivityReprocessInfo loads the fields needed to re-parse an activity from S3.
+// GetActivityReprocessInfo loads the fields needed to re-parse an activity from S3 or ShadowFS.
 func (db *DB) GetActivityReprocessInfo(ctx context.Context, activityID string) (*ReprocessInfo, error) {
 	var info ReprocessInfo
-	var key, format, filename *string
+	var key, format, filename, fileID *string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT original_file_key, original_file_format, COALESCE(sport_type_is_manual, false), original_filename
+		`SELECT original_file_key, original_file_format, COALESCE(sport_type_is_manual, false), original_filename,
+		        COALESCE(file_id::text, ''), user_id
 		 FROM activities WHERE id = $1`,
 		activityID,
-	).Scan(&key, &format, &info.SportTypeIsManual, &filename)
+	).Scan(&key, &format, &info.SportTypeIsManual, &filename, &fileID, &info.UserID)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -1608,6 +1611,9 @@ func (db *DB) GetActivityReprocessInfo(ctx context.Context, activityID string) (
 	}
 	if filename != nil {
 		info.OriginalFilename = *filename
+	}
+	if fileID != nil {
+		info.FileID = *fileID
 	}
 	return &info, nil
 }
