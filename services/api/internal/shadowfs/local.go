@@ -51,8 +51,11 @@ func NewLocalShadowFS(pool *pgxpool.Pool, basePath string, renderer *SchemaRende
 
 // Put stores a file on disk and registers it in user_files.
 func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
-	// Quota check.
-	// NOTE: Quota is a soft limit (TOCTOU race possible with concurrent uploads). Hard enforcement via Reconciliation job. This is by design — see Spec §15.2.
+	// Quota check: soft limit — rejects if already over quota, but does NOT
+	// serialize concurrent uploads (advisory lock would kill bulk import perf
+	// with 10,000s of monitoring FITs). Concurrent uploads may briefly overshoot
+	// by sum of in-flight files. Post-write check (below) + Reconciliation job
+	// catch overages. This is acceptable for a safety-valve quota.
 	if s.maxUserBytes > 0 {
 		used, err := diskUsage(ctx, s.pool, entry.UserID)
 		if err != nil {
