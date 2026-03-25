@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -31,7 +32,8 @@ func (i *ActivitiesImporter) Priority() int       { return 20 }
 type KomootImportParams struct {
 	DB            *database.DB
 	Storage       *storage.S3Client
-	ImportService *importer.Service // centralised duplicate detection + insert
+	FileStore     filestore.FileStore // nil when not configured
+	ImportService *importer.Service   // centralised duplicate detection + insert
 	UserID        string
 	BatchID       string  // correlates all import_log entries for one import run
 	TourIDs       []int64 // nil/empty = all tours
@@ -206,14 +208,32 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		activityID := actResult.ActivityID
 
-		// Upload original file to S3
-		var s3Key string
-		if len(fileBytes) > 0 && p.Storage != nil {
-			s3Key = fmt.Sprintf("%s/%s.%s", p.UserID, hashStr, format)
-			contentType := "application/octet-stream"
-			if format == "gpx" {
-				contentType = "application/xml"
+		// Upload original file via FileStore (preferred) or legacy S3
+		contentType := "application/octet-stream"
+		if format == "gpx" {
+			contentType = "application/xml"
+		}
+		var fileID string
+		if len(fileBytes) > 0 && p.FileStore != nil {
+			rec, putErr := p.FileStore.Put(ctx, filestore.FileEntry{
+				UserID:      p.UserID,
+				FileType:    "activity",
+				ContentType: contentType,
+				FileName:    fmt.Sprintf("%d.%s", tour.ID, format),
+				SizeBytes:   int64(len(fileBytes)),
+				FileHash:    hashStr,
+				Tags: map[string]string{
+					"format": format,
+					"source": "komoot",
+				},
+			}, bytes.NewReader(fileBytes))
+			if putErr != nil {
+				slog.Warn("komoot activities: FileStore.Put failed", "tour_id", tour.ID, "error", putErr)
+			} else {
+				fileID = rec.ID
 			}
+		} else if len(fileBytes) > 0 && p.Storage != nil {
+			s3Key := fmt.Sprintf("%s/%s.%s", p.UserID, hashStr, format)
 			if err := p.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
 				slog.Warn("komoot activities: S3 upload failed", "tour_id", tour.ID, "error", err)
 			}
@@ -224,8 +244,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			_ = p.DB.UpdateEnrichmentFields(ctx, activityID, map[string]any{"title": tour.Name})
 		}
 
-		// PostProcess handles file info, sidecar, streams, track, heatmap, laps, segment matching, Stage 1 etc.
-		if err := p.ImportService.PostProcess(ctx, p.UserID, activityID, data, fileBytes, s3Key, format, fmt.Sprintf("%d.%s", tour.ID, format)); err != nil {
+		// PostProcess handles file info, streams, track, heatmap, laps, segment matching, Stage 1 etc.
+		if err := p.ImportService.PostProcess(ctx, p.UserID, activityID, data, fileID, format, fmt.Sprintf("%d.%s", tour.ID, format)); err != nil {
 			slog.Warn("komoot activities: PostProcess failed", "tour_id", tour.ID, "activity_id", activityID, "error", err)
 		}
 

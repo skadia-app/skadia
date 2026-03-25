@@ -22,6 +22,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -30,10 +31,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 	"github.com/google/uuid"
 )
-
-// ShadowWriterFunc is a callback that writes the shadow file for an activity.
-// The handler package provides this via (*Handler).WriteShadowForActivity.
-type ShadowWriterFunc func(ctx context.Context, userID, activityID string, data *model.ActivityData, fileBytes []byte) error
 
 // SegmentMatcherFunc is a callback that runs background segment matching and lap detection.
 // The handler package provides the concrete implementation.
@@ -44,13 +41,13 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 // handler and will be reused by the cross-platform import pipeline so that all
 // import paths go through the same post-processing logic.
 type Service struct {
-	DB      *database.DB
-	Storage *storage.S3Client
-	Events  *event.Publisher
+	DB        *database.DB
+	Storage   *storage.S3Client
+	FileStore filestore.FileStore
+	Events    *event.Publisher
 
-	// Callbacks for operations that live in the handler package to avoid
-	// circular imports. Both are optional (nil is safe – the step is skipped).
-	ShadowWriter   ShadowWriterFunc
+	// Callback for segment matching that lives in the handler package to
+	// avoid circular imports. Optional (nil is safe – the step is skipped).
 	SegmentMatcher SegmentMatcherFunc
 
 	// GraphReader provides tile-level graph access for surface enrichment.
@@ -59,19 +56,19 @@ type Service struct {
 }
 
 // NewService constructs a Service with the provided dependencies.
-// shadowWriter and segmentMatcher may be nil; those steps will be skipped.
+// segmentMatcher may be nil; the step will be skipped.
 func NewService(
 	db *database.DB,
 	s3 *storage.S3Client,
+	store filestore.FileStore,
 	events *event.Publisher,
-	shadowWriter ShadowWriterFunc,
 	segmentMatcher SegmentMatcherFunc,
 ) *Service {
 	return &Service{
 		DB:             db,
 		Storage:        s3,
+		FileStore:      store,
 		Events:         events,
-		ShadowWriter:   shadowWriter,
 		SegmentMatcher: segmentMatcher,
 	}
 }
@@ -88,8 +85,7 @@ func (s *Service) PostProcess(
 	ctx context.Context,
 	userID, activityID string,
 	data *model.ActivityData,
-	fileBytes []byte,
-	s3Key, format, filename string,
+	fileID, format, filename string,
 ) error {
 	// Resolve activity from DB to get full model (GearID etc.)
 	activity, err := s.DB.GetActivity(ctx, activityID)
@@ -290,18 +286,33 @@ func (s *Service) PostProcess(
 		return nil
 	})
 
-	// Group D: file info + S3 meta sidecar (parallel to everything else)
+	// Group D: file info + file_id linkage (parallel to everything else)
 	g.Go(func() error {
-		metaKey := s3Key + ".meta"
-		bucket := "skadia-originals"
-		if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
-			slog.Error("update file info failed", "error", err)
+		// Link file_id from FileStore.Put (set by caller) if not already set.
+		if s.FileStore != nil && fileID != "" {
+			if _, execErr := s.DB.Pool.Exec(gCtx,
+				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+				fileID, activityID,
+			); execErr != nil {
+				slog.Error("set file_id failed", "error", execErr)
+			}
 		}
-		meta := sidecar.GenerateMetaV3(activityID, data, activity)
-		metaBytes, marshalErr := meta.Marshal()
-		if marshalErr == nil {
-			if err := s.Storage.Upload(gCtx, metaKey, metaBytes, "application/json"); err != nil {
-				slog.Error("meta upload failed", "error", err)
+
+		// Legacy S3 file info (kept until full migration to FileStore)
+		if s.Storage != nil && fileID == "" {
+			// When no FileStore record exists, we still update legacy S3 columns.
+			s3Key := fmt.Sprintf("%s/%s.%s", userID, data.FileHash, format)
+			metaKey := s3Key + ".meta"
+			bucket := "skadia-originals"
+			if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
+				slog.Error("update file info failed", "error", err)
+			}
+			meta := sidecar.GenerateMetaV3(activityID, data, activity)
+			metaBytes, marshalErr := meta.Marshal()
+			if marshalErr == nil {
+				if err := s.Storage.Upload(gCtx, metaKey, metaBytes, "application/json"); err != nil {
+					slog.Error("meta upload failed", "error", err)
+				}
 			}
 		}
 		return nil
@@ -365,13 +376,6 @@ func (s *Service) PostProcess(
 			slog.Error("event publish failed", "error", err)
 		}
 		s.Events.PublishAnalyticsInvalidate(userID)
-	}
-
-	// Write to Shadow FS (best-effort)
-	if s.ShadowWriter != nil {
-		if err := s.ShadowWriter(ctx, userID, activityID, data, fileBytes); err != nil {
-			slog.Error("shadow fs write failed", "id", activityID, "error", err)
-		}
 	}
 
 	// Segment matching + lap detection (non-blocking background goroutine)
@@ -581,7 +585,7 @@ func (s *Service) ProcessMultisport(
 	sessions []*model.ActivityData,
 	fileBytes []byte,
 	fileHash string,
-	s3Key string,
+	fileID string,
 	format string,
 	filename string,
 	meta ImportMetadata,
@@ -602,11 +606,13 @@ func (s *Service) ProcessMultisport(
 		// Parent already exists (re-import of same file)
 		result.ParentID = parentID
 		result.ParentCreated = false
-		// Set S3 file info on multisport parent (same file backs all children)
-		if s3Key != "" {
-			metaKey := s3Key + ".meta"
-			if err := s.DB.UpdateActivityFileInfo(ctx, result.ParentID, "skadia-originals", s3Key, format, filename, metaKey); err != nil {
-				slog.Warn("multisport: update parent file info failed", "parent", result.ParentID, "err", err)
+		// Link file_id on parent when FileStore is in use
+		if s.FileStore != nil && fileID != "" {
+			if _, execErr := s.DB.Pool.Exec(ctx,
+				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+				fileID, result.ParentID,
+			); execErr != nil {
+				slog.Warn("multisport: set parent file_id failed", "parent", result.ParentID, "err", execErr)
 			}
 		}
 	} else {
@@ -624,11 +630,13 @@ func (s *Service) ProcessMultisport(
 		}
 		result.ParentID = parent.ID
 		result.ParentCreated = true
-		// Set S3 file info on multisport parent (same file backs all children)
-		if s3Key != "" {
-			metaKey := s3Key + ".meta"
-			if err := s.DB.UpdateActivityFileInfo(ctx, result.ParentID, "skadia-originals", s3Key, format, filename, metaKey); err != nil {
-				slog.Warn("multisport: update parent file info failed", "parent", result.ParentID, "err", err)
+		// Link file_id on parent when FileStore is in use
+		if s.FileStore != nil && fileID != "" {
+			if _, execErr := s.DB.Pool.Exec(ctx,
+				`UPDATE activities SET file_id = $1 WHERE id = $2`,
+				fileID, result.ParentID,
+			); execErr != nil {
+				slog.Warn("multisport: set parent file_id failed", "parent", result.ParentID, "err", execErr)
 			}
 		}
 	}
@@ -656,7 +664,7 @@ func (s *Service) ProcessMultisport(
 
 		// PostProcess only for newly created activities
 		if actResult.Status == "created" {
-			if err := s.PostProcess(ctx, userID, actResult.ActivityID, childData, fileBytes, s3Key, format, filename); err != nil {
+			if err := s.PostProcess(ctx, userID, actResult.ActivityID, childData, fileID, format, filename); err != nil {
 				slog.Warn("multisport child postprocess failed", "activity", actResult.ActivityID, "err", err)
 			}
 		}

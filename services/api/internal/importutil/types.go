@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
@@ -24,6 +25,7 @@ type ImportParams[S any] struct {
 	UserID           string
 	DB               *database.DB
 	Storage          *storage.S3Client
+	FileStore        filestore.FileStore // nil when not configured
 	ImportService    *importer.Service
 	JobID            string
 	OnProgress       func(current, total int, msg string)

@@ -184,9 +184,9 @@ func main() {
 	}
 
 	// Build the ImportService which holds the shared post-processing pipeline.
-	// The ShadowWriter and SegmentMatcher callbacks are wired after the Handler
-	// is created (they reference handler methods), so we set them below.
-	importSvc := importer.NewService(db, s3Client, pub, nil, nil)
+	// The SegmentMatcher callback is wired after the Handler is created
+	// (it references handler methods), so we set it below.
+	importSvc := importer.NewService(db, s3Client, store, pub, nil)
 
 	h := &handler.Handler{
 		DB:            db,
@@ -235,11 +235,6 @@ func main() {
 
 	// Coverage cache — on-demand tile loading for coverage query endpoint.
 	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
-	// Wire Shadow FS callback: delegates to the handler method which needs
-	// both h.DB and h.ShadowFS — set after h is constructed.
-	if shadowFSCfg != nil {
-		importSvc.ShadowWriter = h.WriteShadowForActivity
-	}
 
 	// Wire SegmentMatcher callback: runs segment matching + lap detection in
 	// the background goroutine, reusing the existing handler-package functions.

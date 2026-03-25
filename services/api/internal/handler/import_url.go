@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -277,16 +278,38 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return &importBytesResult{Duplicate: true}, nil
 	}
 
-	// New activity created: upload original to Garage + run PostProcess
-	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
+	// New activity created: store file via FileStore (preferred) or legacy S3, then PostProcess
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
-	if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
-		slog.Error("import_url: S3 upload failed", "error", uploadErr)
-		tracker.Error(ctx, uploadErr)
-		return nil, &importError{importErrStorage, "failed to store file"}
+	var fileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: contentType,
+			FileName:    filename,
+			SizeBytes:   int64(len(fileBytes)),
+			FileHash:    hashStr,
+			Tags: map[string]string{
+				"format": format,
+				"source": "url_import",
+			},
+		}, bytes.NewReader(fileBytes))
+		if putErr != nil {
+			slog.Error("import_url: FileStore.Put failed", "error", putErr)
+			tracker.Error(ctx, putErr)
+			return nil, &importError{importErrStorage, "failed to store file"}
+		}
+		fileID = rec.ID
+	} else {
+		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
+		if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
+			slog.Error("import_url: S3 upload failed", "error", uploadErr)
+			tracker.Error(ctx, uploadErr)
+			return nil, &importError{importErrStorage, "failed to store file"}
+		}
 	}
 
 	if format == "fit" && actData.UserProfileImport != nil {
@@ -302,7 +325,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return nil, &importError{importErrGeneral, "failed to fetch inserted activity"}
 	}
 
-	if postErr := h.ImportService.PostProcess(ctx, userID, result.ActivityID, actData, fileBytes, s3Key, format, filename); postErr != nil {
+	if postErr := h.ImportService.PostProcess(ctx, userID, result.ActivityID, actData, fileID, format, filename); postErr != nil {
 		slog.Error("import_url: post-process failed", "id", result.ActivityID, "error", postErr)
 	}
 
