@@ -14,8 +14,8 @@ const (
 	JWTExpiry   = 15 * time.Minute
 )
 
-// IssueJWT creates a signed HS256 JWT for the given user.
-func IssueJWT(userID string, secret []byte) (string, error) {
+// IssueJWT creates a signed HS256 JWT for the given user with custom claims.
+func IssueJWT(userID string, isAdmin bool, emailVerified bool, mustChangePW bool, secret []byte) (string, error) {
 	now := time.Now()
 	token, err := jwt.NewBuilder().
 		Subject(userID).
@@ -24,6 +24,9 @@ func IssueJWT(userID string, secret []byte) (string, error) {
 		IssuedAt(now).
 		NotBefore(now).
 		Expiration(now.Add(JWTExpiry)).
+		Claim("is_admin", isAdmin).
+		Claim("email_verified", emailVerified).
+		Claim("must_change_password", mustChangePW).
 		Build()
 	if err != nil {
 		return "", fmt.Errorf("build JWT: %w", err)

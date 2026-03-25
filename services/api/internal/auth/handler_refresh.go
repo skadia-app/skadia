@@ -64,7 +64,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Issue new JWT.
-	jwt, err := IssueJWT(userID.String(), h.secret)
+	jwt, err := IssueJWT(user.ID, user.IsAdmin, user.EmailVerified, user.MustChangePassword, h.secret)
 	if err != nil {
 		slog.Error("issue JWT on refresh failed", "error", err)
 		h.clearRefreshCookie(w)
