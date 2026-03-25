@@ -534,7 +534,7 @@ function TagActivitiesPanel({ tag, onClose }: { tag: Tag; onClose: () => void })
                 <button
                   onClick={() => unassignMut.mutate(act.id)}
                   disabled={unassignMut.isPending}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all cursor-pointer flex-shrink-0"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex-shrink-0"
                   title="Vom Tag entfernen"
                 >
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">

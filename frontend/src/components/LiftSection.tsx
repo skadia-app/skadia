@@ -59,20 +59,20 @@ export default function LiftSection({
       <h3 className="font-semibold text-sm">Liftfahrten</h3>
 
       {liftCount > 0 && (
-        <div className="rounded-lg border border-border p-3 space-y-2 text-sm">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">{liftCount} Fahrten</span>
+            <span className="text-neutral-500 dark:text-neutral-400">{liftCount} Fahrten</span>
             <span>{((liftDistanceM ?? 0) / 1000).toFixed(1)} km · {Math.round(liftDurationS ? liftDurationS / 60 : 0)} min</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Lift ↑ / ↓</span>
+            <span className="text-neutral-500 dark:text-neutral-400">Lift ↑ / ↓</span>
             <span>{Math.round(liftAscentM ?? 0)} / {Math.round(liftDescentM ?? 0)} m</span>
           </div>
-          <div className="border-t border-border pt-2 flex justify-between font-medium">
+          <div className="border-t border-neutral-200 dark:border-neutral-800 pt-2 flex justify-between font-medium">
             <span>Netto</span>
             <span>{(netDist / 1000).toFixed(1)} km · {Math.round(netAsc)} m↑</span>
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 cursor-pointer">
             <input
               type="checkbox"
               checked={excludeLiftSubtraction}
@@ -86,14 +86,14 @@ export default function LiftSection({
 
       {unconfirmed.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
             {unconfirmed.length} erkannte Fahrten — bitte bestätigen:
           </p>
           {unconfirmed.map(c => {
             const start = new Date(c.started_at)
             const hhmm = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`
             return (
-              <div key={c.id} className="flex items-center gap-2 rounded border border-border p-2 text-sm">
+              <div key={c.id} className="flex items-center gap-2 rounded border border-neutral-200 dark:border-neutral-800 p-2 text-sm">
                 <span className="flex-1">
                   {hhmm} · +{Math.round(c.ascent_m)} m · {Math.round(c.duration_s / 60)} min
                   {c.confidence === 'high' && <span className="ml-1 text-xs text-green-600 dark:text-green-400">(sicher)</span>}
@@ -108,7 +108,7 @@ export default function LiftSection({
                 <button
                   onClick={() => reject.mutate(c.id)}
                   disabled={reject.isPending}
-                  className="text-xs px-2 py-1 rounded bg-muted cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-xs px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✗
                 </button>

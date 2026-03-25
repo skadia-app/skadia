@@ -409,7 +409,7 @@ function ComponentsList({ gearId, gearType, components }: {
                       <button
                         onClick={() => removeMutation.mutate(comp.id)}
                         disabled={removeMutation.isPending}
-                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
+                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Entfernen
                       </button>
@@ -679,7 +679,7 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
               <button
                 onClick={() => deleteMut.mutate(e.id)}
                 disabled={deleteMut.isPending}
-                className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                className="text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 x
               </button>
@@ -898,7 +898,7 @@ function ChainRotationSection({ gearId, components }: {
             <button
               onClick={() => deleteMut.mutate()}
               disabled={deleteMut.isPending}
-              className="px-3 py-1.5 rounded-lg text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Rotation löschen
             </button>
@@ -1261,7 +1261,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
                         <button
                           onClick={() => activateMut.mutate(setup.id)}
                           disabled={activateMut.isPending}
-                          className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer"
+                          className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Aktivieren
                         </button>
@@ -1275,7 +1275,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
                       <button
                         onClick={() => deleteMut.mutate(setup.id)}
                         disabled={deleteMut.isPending}
-                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
+                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Löschen
                       </button>

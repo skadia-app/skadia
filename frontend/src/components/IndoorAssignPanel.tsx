@@ -160,7 +160,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
       <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
         <button
           onClick={() => setShowNewLocation(true)}
-          className="px-2.5 py-1.5 text-xs text-accent-DEFAULT border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 cursor-pointer whitespace-nowrap"
+          className="px-2.5 py-1.5 text-xs text-accent-DEFAULT border border-accent-DEFAULT/30 rounded-lg hover:bg-accent-DEFAULT/10 cursor-pointer whitespace-nowrap"
         >
           + Neu
         </button>
@@ -176,7 +176,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           onClick={hasSelection ? showDragHint : undefined}
           className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors select-none ${
             hasSelection
-              ? 'border-orange-300 dark:border-orange-700 text-accent-600 dark:text-orange-400 cursor-grab active:cursor-grabbing hover:bg-orange-50 dark:hover:bg-orange-900/20'
+              ? 'border-accent-DEFAULT/40 text-accent-DEFAULT cursor-grab active:cursor-grabbing hover:bg-accent-DEFAULT/10'
               : 'border-neutral-200 dark:border-neutral-700 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
           }`}
           title={hasSelection ? 'Auf Karte ziehen zum Zuweisen' : 'Erst Aktivitäten auswählen'}
@@ -189,7 +189,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
         </div>
       </div>
       {dragHint && (
-        <div className="px-3 py-1.5 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 text-xs text-accent-600 dark:text-orange-400 text-center animate-pulse">
+        <div className="px-3 py-1.5 bg-accent-DEFAULT/10 border-b border-accent-DEFAULT/30 text-xs text-accent-DEFAULT text-center animate-pulse">
           Diesen Button auf einen Pin auf der Karte ziehen
         </div>
       )}

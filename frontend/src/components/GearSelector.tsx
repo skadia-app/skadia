@@ -49,7 +49,7 @@ export default function GearSelector({ activityId, currentGearId }: GearSelector
           <button
             onClick={() => mutation.mutate(null)}
             disabled={mutation.isPending}
-            className="px-3 py-2 rounded-lg text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            className="px-3 py-2 rounded-lg text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Entfernen
           </button>

@@ -327,7 +327,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                           }
                         }}
                         className={[
-                          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
+                          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all cursor-pointer',
                           chip.state === 'include'
                             ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
                             : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',
@@ -353,7 +353,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                           }
                         }}
                         className={[
-                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-all',
+                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-all cursor-pointer',
                           chip.state === 'include'
                             ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200'
                             : 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 line-through',

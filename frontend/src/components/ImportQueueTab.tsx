@@ -155,7 +155,7 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Verwerfen
         </button>
@@ -232,7 +232,7 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Verwerfen
         </button>
@@ -306,7 +306,7 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Verwerfen
         </button>
@@ -350,14 +350,14 @@ function DuplicateItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Behalten
         </button>
         <button
           onClick={() => deleteMutation.mutate()}
           disabled={deleteMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {deleteMutation.isPending ? 'Wird gelöscht…' : 'Löschen'}
         </button>
@@ -396,7 +396,7 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Verwerfen
         </button>

@@ -301,7 +301,7 @@ export default function AdminAuditLogPage() {
             disabled={offset === 0}
             className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
-            Zurueck
+            Zurück
           </button>
           <span>
             Seite {currentPage} / {totalPages}

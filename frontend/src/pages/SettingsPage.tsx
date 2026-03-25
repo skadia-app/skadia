@@ -793,7 +793,7 @@ export default function SettingsPage() {
             onClick={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
             disabled={toggleMutation.isPending}
             className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
-            style={{ backgroundColor: settings?.hotfolder_enabled ? 'var(--color-orange-500)' : '#d4d4d4' }}
+            style={{ backgroundColor: settings?.hotfolder_enabled ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
             role="switch"
             aria-checked={settings?.hotfolder_enabled}
           >
@@ -1815,7 +1815,7 @@ function HeatmapSettingsSection() {
               setLocalFilterActivity(next)
             }}
             className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? 'var(--color-orange-500)' : '#d4d4d4' }}
+            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
             role="switch"
             aria-checked={currentFilterMap || currentFilterActivity}
           >

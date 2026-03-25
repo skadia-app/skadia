@@ -746,15 +746,15 @@ export default function ActivityEditorPage() {
               </span>
               <button
                 onClick={() => setShowPreview(p => !p)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
                   showPreview ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
                 }`}
                 role="switch"
                 aria-checked={showPreview}
               >
                 <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                    showPreview ? 'translate-x-5' : 'translate-x-0.5'
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    showPreview ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>

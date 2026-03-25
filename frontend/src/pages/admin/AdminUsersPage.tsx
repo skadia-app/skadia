@@ -182,7 +182,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             type="button"
             onClick={onClose}
             disabled={mutation.isPending}
-            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Abbrechen
           </button>
@@ -285,7 +285,7 @@ function ResetPasswordDialog({
             type="button"
             onClick={onClose}
             disabled={mutation.isPending}
-            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Abbrechen
           </button>
@@ -479,7 +479,7 @@ function ConfirmDialog({
           <button
             onClick={onClose}
             disabled={isPending}
-            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Abbrechen
           </button>

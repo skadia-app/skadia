@@ -1047,7 +1047,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           </div>
         )}
         {(activity.garmin_activity_id || activity.strava_activity_id || activity.komoot_tour_id) && (
-          <div className="flex gap-2 items-center text-sm text-muted-foreground mt-1">
+          <div className="flex gap-2 items-center text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             <span>Auf:</span>
             {activity.garmin_activity_id && (
               <a
