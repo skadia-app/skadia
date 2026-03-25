@@ -289,6 +289,8 @@ func main() {
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/reset-password", authHandler.ResetPassword)
 		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/confirm-email-change", authHandler.ConfirmEmailChange)
+		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/exchange-code", authHandler.ExchangeCode)
 		r.With(middleware.RateLimitLoginByIP(authRL)).
 			Post("/login", authHandler.Login) // POST coexists with old GET
@@ -387,10 +389,13 @@ func main() {
 
 				// User management
 				r.Get("/users", authHandler.AdminListUsers)
+				r.Post("/users", authHandler.AdminCreateUser)
 				r.Post("/users/{id}/activate", authHandler.AdminActivateUser)
 				r.Post("/users/{id}/deactivate", authHandler.AdminDeactivateUser)
+				r.Post("/users/{id}/reset-password", authHandler.AdminResetPassword)
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
+				r.Get("/audit-log", authHandler.AdminAuditLog)
 			})
 
 			// ── Regular authenticated routes ──
@@ -402,6 +407,11 @@ func main() {
 				Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
 			r.Post("/auth/link/{provider}", authHandler.LinkSocialAccount)
 			r.Delete("/auth/link/{provider}", authHandler.UnlinkSocialAccount)
+			r.With(middleware.RateLimitPerUser(authRL, "resend:", 3.0/3600, 3)).
+				Post("/auth/resend-verification", authHandler.ResendVerification)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				With(middleware.RateLimitPerUser(authRL, "change-email:", 3.0/3600, 3)).
+				Post("/auth/change-email", authHandler.ChangeEmail)
 
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)
