@@ -44,13 +44,9 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate username (same rules as registration).
-	if len(req.Username) < 2 || len(req.Username) > 100 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_length"})
-		return
-	}
-	if !usernameRe.MatchString(req.Username) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_chars"})
+	// Validate username (shared rules).
+	if errKey := ValidateUsername(req.Username); errKey != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errKey})
 		return
 	}
 

@@ -141,61 +141,27 @@ func (m *Mailer) SendAdminApprovalNeeded(to, newUsername, newEmail string) {
 }
 
 func (m *Mailer) sendApproval(to, subject string, data adminApprovalData) {
+	templateName := "admin_approval_needed"
 	if !m.IsConfigured() {
-		slog.Warn("email not sent: SMTP not configured", "to", to, "template", "admin_approval_needed")
+		slog.Warn("email not sent: SMTP not configured", "to", to, "template", templateName)
 		return
 	}
 
 	var htmlBuf, textBuf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&htmlBuf, "templates/admin_approval_needed.html", data); err != nil {
-		slog.Error("render email HTML template failed", "template", "admin_approval_needed", "error", err)
+	if err := tmpl.ExecuteTemplate(&htmlBuf, "templates/"+templateName+".html", data); err != nil {
+		slog.Error("render email HTML template failed", "template", templateName, "error", err)
 		return
 	}
-	if err := tmpl.ExecuteTemplate(&textBuf, "templates/admin_approval_needed.txt", data); err != nil {
-		slog.Error("render email text template failed", "template", "admin_approval_needed", "error", err)
+	if err := tmpl.ExecuteTemplate(&textBuf, "templates/"+templateName+".txt", data); err != nil {
+		slog.Error("render email text template failed", "template", templateName, "error", err)
 		return
 	}
 
-	msg := gomail.NewMsg()
-	if err := msg.From(m.from); err != nil {
-		slog.Error("set email from failed", "error", err)
+	if err := m.sendRaw(to, subject, templateName, htmlBuf.String(), textBuf.String()); err != nil {
+		slog.Error("send email failed", "to", to, "template", templateName, "error", err)
 		return
 	}
-	if err := msg.To(to); err != nil {
-		slog.Error("set email to failed", "error", err)
-		return
-	}
-	msg.Subject(subject)
-	msg.SetBodyString(gomail.TypeTextHTML, htmlBuf.String())
-	msg.AddAlternativeString(gomail.TypeTextPlain, textBuf.String())
-
-	var tlsPolicy gomail.TLSPolicy
-	switch m.tlsMode {
-	case "ssl":
-		tlsPolicy = gomail.TLSMandatory
-	case "none":
-		tlsPolicy = gomail.NoTLS
-	default: // "starttls"
-		tlsPolicy = gomail.TLSOpportunistic
-	}
-
-	client, err := gomail.NewClient(m.host,
-		gomail.WithPort(m.port),
-		gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
-		gomail.WithUsername(m.username),
-		gomail.WithPassword(m.password),
-		gomail.WithTLSPortPolicy(tlsPolicy),
-		gomail.WithTimeout(10*time.Second),
-	)
-	if err != nil {
-		slog.Error("create mail client failed", "error", err)
-		return
-	}
-	if err := client.DialAndSend(msg); err != nil {
-		slog.Error("send email failed", "to", to, "template", "admin_approval_needed", "error", err)
-		return
-	}
-	slog.Info("email sent", "to", to, "template", "admin_approval_needed")
+	slog.Info("email sent", "to", to, "template", templateName)
 }
 
 func (m *Mailer) send(to, subject, templateName string, data emailData) {
@@ -214,18 +180,25 @@ func (m *Mailer) send(to, subject, templateName string, data emailData) {
 		return
 	}
 
+	if err := m.sendRaw(to, subject, templateName, htmlBuf.String(), textBuf.String()); err != nil {
+		slog.Error("send email failed", "to", to, "template", templateName, "error", err)
+		return
+	}
+	slog.Info("email sent", "to", to, "template", templateName)
+}
+
+// sendRaw creates an SMTP client and dispatches the message.
+func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) error {
 	msg := gomail.NewMsg()
 	if err := msg.From(m.from); err != nil {
-		slog.Error("set email from failed", "error", err)
-		return
+		return fmt.Errorf("set from: %w", err)
 	}
 	if err := msg.To(to); err != nil {
-		slog.Error("set email to failed", "error", err)
-		return
+		return fmt.Errorf("set to: %w", err)
 	}
 	msg.Subject(subject)
-	msg.SetBodyString(gomail.TypeTextHTML, htmlBuf.String())
-	msg.AddAlternativeString(gomail.TypeTextPlain, textBuf.String())
+	msg.SetBodyString(gomail.TypeTextHTML, htmlBody)
+	msg.AddAlternativeString(gomail.TypeTextPlain, textBody)
 
 	var tlsPolicy gomail.TLSPolicy
 	switch m.tlsMode {
@@ -246,12 +219,10 @@ func (m *Mailer) send(to, subject, templateName string, data emailData) {
 		gomail.WithTimeout(10*time.Second),
 	)
 	if err != nil {
-		slog.Error("create mail client failed", "error", err)
-		return
+		return fmt.Errorf("create client: %w", err)
 	}
 	if err := client.DialAndSend(msg); err != nil {
-		slog.Error("send email failed", "to", to, "template", templateName, "error", err)
-		return
+		return fmt.Errorf("dial and send: %w", err)
 	}
-	slog.Info("email sent", "to", to, "template", templateName)
+	return nil
 }
