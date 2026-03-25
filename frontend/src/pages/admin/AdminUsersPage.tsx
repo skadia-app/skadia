@@ -1,8 +1,1043 @@
-export default function AdminUsersPage() {
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  getAdminUsers,
+  adminActivateUser,
+  adminDeactivateUser,
+  adminResetPassword,
+  adminCreateUser,
+  getAdminUserSessions,
+  adminRevokeUserSessions,
+  type AdminUser,
+  type AdminUserSession,
+} from '@/api/auth'
+import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
+import { useDebounce } from '@/lib/useDebounce'
+import { useToast } from '@/lib/toast'
+import { ModalShell } from '@/components/ui/ModalShell'
+import {
+  Search,
+  Plus,
+  MoreHorizontal,
+  Shield,
+  ShieldOff,
+  KeyRound,
+  Monitor,
+  Ban,
+  CheckCircle2,
+  Loader2,
+  Copy,
+  Check,
+} from 'lucide-react'
+
+// ── Centralized i18n-ready labels ───────────────────────────────────────────
+
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Aktiv',
+  inactive: 'Inaktiv',
+  deleted: 'Geloescht',
+  all: 'Alle',
+}
+
+const REGISTRATION_SOURCE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  registration: 'Registrierung',
+  invite: 'Einladung',
+  oauth_google: 'Google',
+  oauth_github: 'GitHub',
+}
+
+const PAGE_SIZE = 50
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function StatusBadge({ user }: { user: AdminUser }) {
+  if (user.deleted_at) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
+        {STATUS_LABELS.deleted}
+      </span>
+    )
+  }
+  if (!user.is_active) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        {STATUS_LABELS.inactive}
+      </span>
+    )
+  }
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold">User Management</h1>
-      <p className="mt-2 text-neutral-500">Coming soon.</p>
+    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400">
+      {STATUS_LABELS.active}
+    </span>
+  )
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const label = REGISTRATION_SOURCE_LABELS[source] ?? source
+  return (
+    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
+      {label}
+    </span>
+  )
+}
+
+// ── Create User Dialog ──────────────────────────────────────────────────────
+
+function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const { addToast } = useToast()
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      adminCreateUser({
+        email,
+        username,
+        password: password || undefined,
+      }),
+    onSuccess: (data) => {
+      if (data.temporary_password) {
+        setTempPassword(data.temporary_password)
+      } else {
+        addToast({ type: 'success', title: 'Benutzer erstellt' })
+        onCreated()
+        onClose()
+      }
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  function handleCopyAndClose() {
+    onCreated()
+    onClose()
+  }
+
+  async function handleCopyPassword() {
+    if (!tempPassword) return
+    await navigator.clipboard.writeText(tempPassword)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (tempPassword) {
+    return (
+      <ModalShell onClose={handleCopyAndClose} maxWidth="max-w-sm">
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Benutzer erstellt</h2>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            Temporaeres Passwort (wird nur einmal angezeigt):
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
+            <code className="flex-1 select-all font-mono text-sm break-all">{tempPassword}</code>
+            <button
+              onClick={handleCopyPassword}
+              className="shrink-0 rounded p-1.5 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
+              title="Kopieren"
+            >
+              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={handleCopyAndClose}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Schliessen
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+    )
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-sm">
+      <form
+        onSubmit={e => {
+          e.preventDefault()
+          mutation.mutate()
+        }}
+        className="space-y-4"
+      >
+        <h2 className="text-lg font-semibold">Benutzer erstellen</h2>
+
+        <div className="space-y-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-neutral-500">E-Mail *</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              placeholder="benutzer@example.com"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-neutral-500">Benutzername *</label>
+            <input
+              type="text"
+              required
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              placeholder="benutzername"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-neutral-500">Passwort (optional)</label>
+            <input
+              type="text"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              placeholder="Leer = temporaeres Passwort wird generiert"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={mutation.isPending}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="submit"
+            disabled={mutation.isPending || !email || !username}
+            className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Erstellen
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// ── Reset Password Dialog ───────────────────────────────────────────────────
+
+function ResetPasswordDialog({
+  user,
+  onClose,
+}: {
+  user: AdminUser
+  onClose: () => void
+}) {
+  const [mode, setMode] = useState<'generate' | 'custom'>('generate')
+  const [customPassword, setCustomPassword] = useState('')
+  const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const { addToast } = useToast()
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      adminResetPassword(user.id, {
+        password: mode === 'custom' ? customPassword : undefined,
+        send_email: false,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      if (data.temporary_password) {
+        setTempPassword(data.temporary_password)
+      } else {
+        addToast({ type: 'success', title: 'Passwort zurueckgesetzt' })
+        onClose()
+      }
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  async function handleCopyPassword() {
+    if (!tempPassword) return
+    await navigator.clipboard.writeText(tempPassword)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (tempPassword) {
+    return (
+      <ModalShell onClose={onClose} maxWidth="max-w-sm">
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Passwort zurueckgesetzt</h2>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            Neues Passwort fuer <strong>{user.username}</strong> (wird nur einmal angezeigt):
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
+            <code className="flex-1 select-all font-mono text-sm break-all">{tempPassword}</code>
+            <button
+              onClick={handleCopyPassword}
+              className="shrink-0 rounded p-1.5 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
+              title="Kopieren"
+            >
+              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={onClose}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Schliessen
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+    )
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-sm">
+      <form
+        onSubmit={e => {
+          e.preventDefault()
+          mutation.mutate()
+        }}
+        className="space-y-4"
+      >
+        <h2 className="text-lg font-semibold">Passwort zuruecksetzen</h2>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          Passwort fuer <strong>{user.username}</strong> zuruecksetzen.
+        </p>
+
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              checked={mode === 'generate'}
+              onChange={() => setMode('generate')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Temporaeres Passwort generieren</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              checked={mode === 'custom'}
+              onChange={() => setMode('custom')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Eigenes Passwort setzen</span>
+          </label>
+
+          {mode === 'custom' && (
+            <input
+              type="text"
+              value={customPassword}
+              onChange={e => setCustomPassword(e.target.value)}
+              placeholder="Neues Passwort (min. 10 Zeichen)"
+              className="mt-2 h-9 w-full rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              required
+              minLength={10}
+            />
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={mutation.isPending}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="submit"
+            disabled={mutation.isPending || (mode === 'custom' && customPassword.length < 10)}
+            className="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Zuruecksetzen
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// ── Sessions Dialog ─────────────────────────────────────────────────────────
+
+function SessionsDialog({
+  user,
+  onClose,
+}: {
+  user: AdminUser
+  onClose: () => void
+}) {
+  const { addToast } = useToast()
+  const queryClient = useQueryClient()
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-user-sessions', user.id],
+    queryFn: () => getAdminUserSessions(user.id),
+  })
+
+  const revokeMutation = useMutation({
+    mutationFn: () => adminRevokeUserSessions(user.id),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Alle Sitzungen widerrufen' })
+      queryClient.invalidateQueries({ queryKey: ['admin-user-sessions', user.id] })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  const sessions: AdminUserSession[] = data?.sessions ?? []
+  const activeSessions = sessions.filter(s => !s.revoked && new Date(s.expires_at) > new Date())
+
+  function parseUserAgent(ua: string): string {
+    if (!ua) return '—'
+    // Extract browser name from user agent
+    if (ua.includes('Firefox')) return 'Firefox'
+    if (ua.includes('Edg/')) return 'Edge'
+    if (ua.includes('Chrome')) return 'Chrome'
+    if (ua.includes('Safari')) return 'Safari'
+    return ua.length > 40 ? ua.slice(0, 40) + '...' : ua
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-xl">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            Sitzungen von {user.username}
+          </h2>
+          {activeSessions.length > 0 && (
+            <button
+              onClick={() => revokeMutation.mutate()}
+              disabled={revokeMutation.isPending}
+              className="flex items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {revokeMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Ban className="h-3.5 w-3.5" />
+              )}
+              Alle widerrufen
+            </button>
+          )}
+        </div>
+
+        {isLoading && (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
+          </div>
+        )}
+
+        {isError && (
+          <p className="py-4 text-center text-sm text-red-500">
+            Fehler beim Laden der Sitzungen.
+          </p>
+        )}
+
+        {!isLoading && !isError && sessions.length === 0 && (
+          <p className="py-4 text-center text-sm text-neutral-500">
+            Keine aktiven Sitzungen.
+          </p>
+        )}
+
+        {!isLoading && !isError && sessions.length > 0 && (
+          <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+            <table className="w-full text-sm">
+              <thead className="bg-neutral-50 dark:bg-neutral-900">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Browser</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">IP</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Erstellt</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Ablauf</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                {sessions.map(session => {
+                  const expired = new Date(session.expires_at) < new Date()
+                  const isActive = !session.revoked && !expired
+                  return (
+                    <tr key={session.family_id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                      <td className="px-3 py-2 text-neutral-800 dark:text-neutral-200" title={session.user_agent}>
+                        {parseUserAgent(session.user_agent)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-neutral-600 dark:text-neutral-400">
+                        {session.ip_address || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
+                        {formatTimestamp(session.created_at)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
+                        {formatTimestamp(session.expires_at)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {session.revoked ? (
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
+                            Widerrufen
+                          </span>
+                        ) : expired ? (
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-neutral-500/10 text-neutral-600 dark:text-neutral-400">
+                            Abgelaufen
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400">
+                            Aktiv
+                          </span>
+                        )}
+                        {isActive ? null : null}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            Schliessen
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ── Confirmation Dialog ─────────────────────────────────────────────────────
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  confirmClass,
+  isPending,
+  onConfirm,
+  onClose,
+}: {
+  title: string
+  message: string
+  confirmLabel: string
+  confirmClass?: string
+  isPending: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-sm">
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">{message}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            onClick={onClose}
+            disabled={isPending}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className={`flex items-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${confirmClass ?? 'bg-red-600 hover:bg-red-700'}`}
+          >
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ── User Actions Menu ───────────────────────────────────────────────────────
+
+function UserActionsMenu({
+  user,
+  onAction,
+}: {
+  user: AdminUser
+  onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions') => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  const handleAction = useCallback(
+    (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions') => {
+      setOpen(false)
+      onAction(action)
+    },
+    [onAction],
+  )
+
+  const isDeleted = user.deleted_at != null
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        className="rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+        title="Aktionen"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+
+      {open && (
+        <>
+          {/* Click-outside overlay */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+            {!isDeleted && (
+              <>
+                {user.is_active ? (
+                  <button
+                    onClick={() => handleAction('deactivate')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    <ShieldOff className="h-4 w-4 text-amber-500" />
+                    Deaktivieren
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleAction('activate')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    <Shield className="h-4 w-4 text-green-500" />
+                    Aktivieren
+                  </button>
+                )}
+                <button
+                  onClick={() => handleAction('reset-password')}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <KeyRound className="h-4 w-4 text-amber-500" />
+                  Passwort zuruecksetzen
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => handleAction('sessions')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <Monitor className="h-4 w-4 text-blue-500" />
+              Sitzungen anzeigen
+            </button>
+            {!isDeleted && (
+              <button
+                onClick={() => handleAction('revoke-sessions')}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                <Ban className="h-4 w-4" />
+                Alle Sitzungen widerrufen
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ───────────────────────────────────────────────────────────────
+
+export default function AdminUsersPage() {
+  const [searchInput, setSearchInput] = useState('')
+  const debouncedSearch = useDebounce(searchInput, 300)
+  const [statusFilter, setStatusFilter] = useState('active')
+  const [offset, setOffset] = useState(0)
+
+  // Dialogs
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [resetPasswordUser, setResetPasswordUser] = useState<AdminUser | null>(null)
+  const [sessionsUser, setSessionsUser] = useState<AdminUser | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'activate' | 'deactivate' | 'revoke-sessions'
+    user: AdminUser
+  } | null>(null)
+
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-users', debouncedSearch, statusFilter, offset],
+    queryFn: () =>
+      getAdminUsers({
+        search: debouncedSearch || undefined,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        limit: PAGE_SIZE,
+        offset,
+      }),
+  })
+
+  const users: AdminUser[] = data?.users ?? []
+  const total: number = data?.total ?? 0
+  const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // Reset offset when filters change
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value)
+    setOffset(0)
+  }, [])
+
+  const handleStatusChange = useCallback((value: string) => {
+    setStatusFilter(value)
+    setOffset(0)
+  }, [])
+
+  // ── Mutations for confirm actions ──
+
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => adminActivateUser(id),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Benutzer aktiviert' })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmAction(null)
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => adminDeactivateUser(id),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Benutzer deaktiviert' })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmAction(null)
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  const revokeSessionsMutation = useMutation({
+    mutationFn: (id: string) => adminRevokeUserSessions(id),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Alle Sitzungen widerrufen' })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmAction(null)
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  function handleUserAction(
+    user: AdminUser,
+    action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions',
+  ) {
+    switch (action) {
+      case 'activate':
+        setConfirmAction({ type: 'activate', user })
+        break
+      case 'deactivate':
+        setConfirmAction({ type: 'deactivate', user })
+        break
+      case 'reset-password':
+        setResetPasswordUser(user)
+        break
+      case 'sessions':
+        setSessionsUser(user)
+        break
+      case 'revoke-sessions':
+        setConfirmAction({ type: 'revoke-sessions', user })
+        break
+    }
+  }
+
+  function handleConfirm() {
+    if (!confirmAction) return
+    const { type, user } = confirmAction
+    switch (type) {
+      case 'activate':
+        activateMutation.mutate(user.id)
+        break
+      case 'deactivate':
+        deactivateMutation.mutate(user.id)
+        break
+      case 'revoke-sessions':
+        revokeSessionsMutation.mutate(user.id)
+        break
+    }
+  }
+
+  const confirmPending =
+    activateMutation.isPending || deactivateMutation.isPending || revokeSessionsMutation.isPending
+
+  const CONFIRM_CONFIG: Record<string, { title: string; message: string; label: string; cls?: string }> = {
+    activate: {
+      title: 'Benutzer aktivieren',
+      message: `Soll "${confirmAction?.user.username}" aktiviert werden? Der Benutzer kann sich danach wieder anmelden.`,
+      label: 'Aktivieren',
+      cls: 'bg-green-600 hover:bg-green-700',
+    },
+    deactivate: {
+      title: 'Benutzer deaktivieren',
+      message: `Soll "${confirmAction?.user.username}" deaktiviert werden? Der Benutzer kann sich danach nicht mehr anmelden.`,
+      label: 'Deaktivieren',
+    },
+    'revoke-sessions': {
+      title: 'Alle Sitzungen widerrufen',
+      message: `Alle aktiven Sitzungen von "${confirmAction?.user.username}" werden sofort beendet. Der Benutzer muss sich neu anmelden.`,
+      label: 'Widerrufen',
+    },
+  }
+
+  return (
+    <div className="p-6 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Benutzerverwaltung</h1>
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4" />
+          Benutzer erstellen
+        </button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-900">
+        {/* Search */}
+        <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+          <label className="text-xs font-medium text-neutral-500">Suche</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Name, E-Mail oder ID..."
+              className="h-9 w-full rounded border border-neutral-300 bg-white pl-9 pr-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+            />
+          </div>
+        </div>
+
+        {/* Status filter */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-neutral-500">Status</label>
+          <select
+            value={statusFilter}
+            onChange={e => handleStatusChange(e.target.value)}
+            className="h-9 rounded border border-neutral-300 bg-white px-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+          >
+            <option value="active">{STATUS_LABELS.active}</option>
+            <option value="inactive">{STATUS_LABELS.inactive}</option>
+            <option value="deleted">{STATUS_LABELS.deleted}</option>
+            <option value="all">{STATUS_LABELS.all}</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+        <table className="w-full text-sm">
+          <thead className="bg-neutral-50 dark:bg-neutral-900">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">Benutzer</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">E-Mail</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">Quelle</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">Letzter Login</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">Erstellt</th>
+              <th className="px-4 py-3 text-right font-medium text-neutral-500">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {isLoading && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Lade Benutzer...
+                  </div>
+                </td>
+              </tr>
+            )}
+            {isError && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-red-500">
+                  Fehler beim Laden der Benutzer.
+                </td>
+              </tr>
+            )}
+            {!isLoading && !isError && users.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
+                  Keine Benutzer gefunden.
+                </td>
+              </tr>
+            )}
+            {users.map(user => {
+              const isDeleted = user.deleted_at != null
+              return (
+                <tr
+                  key={user.id}
+                  className={`hover:bg-neutral-50 dark:hover:bg-neutral-800/50 ${isDeleted ? 'opacity-60' : ''}`}
+                >
+                  {/* Username + Admin badge */}
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-medium text-neutral-800 dark:text-neutral-200 ${isDeleted ? 'line-through' : ''}`}>
+                        {user.username}
+                      </span>
+                      {user.is_admin && (
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                          Admin
+                        </span>
+                      )}
+                      {!user.email_verified && !isDeleted && (
+                        <span
+                          className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          title="E-Mail nicht verifiziert"
+                        >
+                          Unverifiziert
+                        </span>
+                      )}
+                    </div>
+                    {user.display_name && user.display_name !== user.username && (
+                      <div className={`text-xs text-neutral-500 ${isDeleted ? 'line-through' : ''}`}>
+                        {user.display_name}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Email */}
+                  <td className={`px-4 py-3 text-neutral-600 dark:text-neutral-400 ${isDeleted ? 'line-through' : ''}`}>
+                    {user.email}
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-4 py-3">
+                    <StatusBadge user={user} />
+                  </td>
+
+                  {/* Registration source */}
+                  <td className="px-4 py-3">
+                    <SourceBadge source={user.registration_source} />
+                  </td>
+
+                  {/* Last login */}
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-neutral-600 dark:text-neutral-400">
+                    {formatTimestamp(user.last_login_at)}
+                  </td>
+
+                  {/* Created + deleted info */}
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-neutral-600 dark:text-neutral-400">
+                    {formatTimestamp(user.created_at)}
+                    {isDeleted && (
+                      <div className="text-red-500 mt-0.5">
+                        Geloescht: {formatTimestamp(user.deleted_at)}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-4 py-3 text-right">
+                    <UserActionsMenu
+                      user={user}
+                      onAction={action => handleUserAction(user, action)}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between text-sm text-neutral-600 dark:text-neutral-400">
+        <span>
+          {total > 0
+            ? `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} von ${total} Benutzern`
+            : 'Keine Benutzer'}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            disabled={offset === 0}
+            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+          >
+            Zurueck
+          </button>
+          <span>
+            Seite {currentPage} / {totalPages}
+          </span>
+          <button
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+            disabled={offset + PAGE_SIZE >= total}
+            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+          >
+            Weiter
+          </button>
+        </div>
+      </div>
+
+      {/* ── Dialogs ── */}
+
+      {showCreateDialog && (
+        <CreateUserDialog
+          onClose={() => setShowCreateDialog(false)}
+          onCreated={() => queryClient.invalidateQueries({ queryKey: ['admin-users'] })}
+        />
+      )}
+
+      {resetPasswordUser && (
+        <ResetPasswordDialog
+          user={resetPasswordUser}
+          onClose={() => setResetPasswordUser(null)}
+        />
+      )}
+
+      {sessionsUser && (
+        <SessionsDialog
+          user={sessionsUser}
+          onClose={() => setSessionsUser(null)}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={CONFIRM_CONFIG[confirmAction.type].title}
+          message={CONFIRM_CONFIG[confirmAction.type].message}
+          confirmLabel={CONFIRM_CONFIG[confirmAction.type].label}
+          confirmClass={CONFIRM_CONFIG[confirmAction.type].cls}
+          isPending={confirmPending}
+          onConfirm={handleConfirm}
+          onClose={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   )
 }
