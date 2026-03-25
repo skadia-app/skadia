@@ -447,7 +447,10 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		tracktype := uint8(graph.DecodeField(tags1, 11, 3)) // bits 11-13
 
 		// Road-profile: block unpaved residential/service/unclassified/track
-		// sf==0 (unknown surface) passes through — consistent with original roadHighwayCost
+		// sf==0 (unknown surface) passes through for all types — slightly more
+		// permissive than the original roadHighwayCost which blocked track with sf==0.
+		// This is intentional: many OSM tracks lack surface tags, cost 4.0 is
+		// prohibitive enough to avoid them unless no alternative exists.
 		if roadIsPavedBlock {
 			isPaved := sf >= 1 && sf <= 7
 			if !isPaved && sf != 0 {
@@ -531,7 +534,6 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		baseCF := hwCF*sfCF + penalty + surfacePenalty
 
 		// --- Enrichment (additive, from EdgeTags2) ---
-		// --- Enrichment (additive, from tags2) ---
 		var forestAdd, noiseAdd, trafficAdd, protectedSub float32
 		if forestWeight > 0 {
 			forestPct := graph.DecodeForestPct(tags2)
@@ -1111,9 +1113,8 @@ func setAvgCostPerKm(cfg *CostConfig, profileName string) {
 }
 
 // ProfileDefaultsResponse is the JSON response for GET /profiles/{name}.
-// Returns elevation parameters + highway cost defaults. Other fields (difficulty,
-// enrichment, behavior) are handled by the frontend's PROFILES constant.
-// Uses pointer fields WITHOUT omitempty so null values are serialized (blocked types).
+// Returns ALL profile defaults as single source of truth for the frontend.
+// Uses pointer fields WITHOUT omitempty so null values are serialized.
 type ProfileDefaultsResponse struct {
 	Profile           string   `json:"profile"`
 	UphillCost        *float32 `json:"uphill_cost"`
@@ -1125,6 +1126,25 @@ type ProfileDefaultsResponse struct {
 	ElevBufferReduce  *float32 `json:"elev_buffer_reduce"`
 	TurnCost          *float32 `json:"turn_cost"`
 	Pass0Coefficient  *float32 `json:"pass0_coefficient"`
+	// Difficulty
+	MaxSacScale   *int  `json:"max_sac_scale"`
+	SacPreferred  *int  `json:"sac_preferred"`
+	MaxMtbScale   *int  `json:"max_mtb_scale"`
+	MaxViaFerrata *int  `json:"max_via_ferrata"`
+	AllowSteps    *bool `json:"allow_steps"`
+	AllowFerries  *bool `json:"allow_ferries"`
+	// Enrichment weights
+	ForestBonus    *float32 `json:"forest_bonus"`
+	NoisePenalty   *float32 `json:"noise_penalty"`
+	TrafficPenalty *float32 `json:"traffic_penalty"`
+	ProtectedBonus *float32 `json:"protected_bonus"`
+	// Route adherence
+	CyclerouteBoost *float32 `json:"cycleroute_boost"`
+	HikerouteBoost  *float32 `json:"hikeroute_boost"`
+	// Behavior
+	WetWeather      *bool    `json:"wet_weather"`
+	PathPreference  *float32 `json:"path_preference"`
+	InitialCostRoad *float32 `json:"initial_cost_road"`
 	// Highway costs — null means permanently blocked for this profile
 	PathCost         *float32 `json:"path_cost"`
 	TrackCost        *float32 `json:"track_cost"`
@@ -1162,6 +1182,25 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		ElevBufferReduce:  base.ElevBufferReduce,
 		TurnCost:          base.TurnCost,
 		Pass0Coefficient:  base.Pass0Coefficient,
+		// Difficulty
+		MaxSacScale:   base.MaxSacScale,
+		SacPreferred:  base.SacPreferred,
+		MaxMtbScale:   base.MaxMtbScale,
+		MaxViaFerrata: base.MaxViaFerrata,
+		AllowSteps:    base.AllowSteps,
+		AllowFerries:  base.AllowFerries,
+		// Enrichment
+		ForestBonus:    base.ForestBonus,
+		NoisePenalty:   base.NoisePenalty,
+		TrafficPenalty: base.TrafficPenalty,
+		ProtectedBonus: base.ProtectedBonus,
+		// Route adherence
+		CyclerouteBoost: base.CyclerouteBoost,
+		HikerouteBoost:  base.HikerouteBoost,
+		// Behavior
+		WetWeather:      base.WetWeather,
+		PathPreference:  base.PathPreference,
+		InitialCostRoad: base.InitialCostRoad,
 	}
 
 	setIfPassable := func(dst **float32, cost float32) {
