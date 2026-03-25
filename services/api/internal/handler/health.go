@@ -41,9 +41,11 @@ type HandlerConfig struct {
 	RoutingGraphPath    string        // path to binary graph file
 	RoutingTimeout      time.Duration // request timeout for route calculations (default 30s)
 	MaxUploadSize       int64         // maximum upload size in bytes
-	// FileStore — used by rename handlers
-	LibraryBasePath string // e.g. /data/library (local backend only)
-	StorageBackend  string // "local" or "s3"
+	// FileStore — used by rename handlers and admin dashboard
+	LibraryBasePath  string // e.g. /data/library (local backend only)
+	StorageBackend   string // "local" or "s3"
+	KeepVersions     int    // 0=delete, 1=keep last, -1=keep all
+	SyncEnabled      bool
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

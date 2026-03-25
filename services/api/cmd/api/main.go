@@ -209,6 +209,8 @@ func main() {
 			MaxUploadSize:       cfg.MaxUploadSize,
 			LibraryBasePath:     cfg.LibraryBasePath,
 			StorageBackend:      cfg.StorageBackend,
+			KeepVersions:        cfg.LibraryKeepVersions,
+			SyncEnabled:         cfg.LibrarySyncEnabled,
 		},
 	}
 
@@ -450,7 +452,8 @@ func main() {
 				r.Get("/settings/ml", h.GetMLSystemSettings)
 				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
-				// FileStore registry & migration
+				// FileStore registry, dashboard & migration
+				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/populate-registry", h.StartRegistryPopulation)
 				r.Post("/storage/migrate", h.StartFileMigration)
 				r.Post("/storage/migrate/rollback", h.StartFileMigrationRollback)
