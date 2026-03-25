@@ -142,6 +142,14 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clear must_change_password and pending_email flags.
+	if err := h.DB.ClearMustChangePassword(r.Context(), userID.String()); err != nil {
+		slog.Error("clear must_change_password after password reset failed", "error", err)
+	}
+	if err := h.DB.ClearPendingEmail(r.Context(), userID.String()); err != nil {
+		slog.Error("clear pending_email after password reset failed", "error", err)
+	}
+
 	// Invalidate ALL refresh tokens for this user.
 	if err := h.DB.RevokeAllUserTokens(r.Context(), userID.String()); err != nil {
 		slog.Error("revoke refresh tokens after password reset failed", "error", err)

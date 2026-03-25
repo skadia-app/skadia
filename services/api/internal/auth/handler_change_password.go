@@ -11,6 +11,7 @@ import (
 
 // ChangePassword handles POST /auth/change-password (authenticated).
 // Requires valid JWT. The user provides current password + new password.
+// OAuth-Only users (no password set + must_change_password) can omit current_password.
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodySize)
 
@@ -22,12 +23,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-	if req.CurrentPassword == "" || req.NewPassword == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current_and_new_password_required"})
-		return
-	}
-	if len(req.CurrentPassword) > 1000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+
+	// NewPassword is always required.
+	if req.NewPassword == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "new_password_required"})
 		return
 	}
 	if len(req.NewPassword) < 10 {
@@ -41,23 +40,38 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.GetUserID(r.Context())
 
-	// Load user to verify current password.
+	// Load user to determine whether current_password is required.
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
-	if user.PasswordHash == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_password_set"})
-		return
+	// OAuth-Only or admin-created users without a password: current_password not required.
+	requireCurrentPassword := true
+	if user.PasswordHash == nil && user.MustChangePassword {
+		requireCurrentPassword = false
 	}
 
-	// Verify current password.
-	match, err := argon2id.ComparePasswordAndHash(req.CurrentPassword, *user.PasswordHash)
-	if err != nil || !match {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong_password"})
-		return
+	if requireCurrentPassword {
+		if req.CurrentPassword == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current_and_new_password_required"})
+			return
+		}
+		if len(req.CurrentPassword) > 1000 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+			return
+		}
+		if user.PasswordHash == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_password_set"})
+			return
+		}
+		// Verify current password.
+		match, err := argon2id.ComparePasswordAndHash(req.CurrentPassword, *user.PasswordHash)
+		if err != nil || !match {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong_password"})
+			return
+		}
 	}
 
 	// HIBP check.
@@ -82,6 +96,14 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		slog.Error("update password failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Clear must_change_password and pending_email flags.
+	if err := h.DB.ClearMustChangePassword(r.Context(), userID); err != nil {
+		slog.Error("clear must_change_password after password change failed", "error", err)
+	}
+	if err := h.DB.ClearPendingEmail(r.Context(), userID); err != nil {
+		slog.Error("clear pending_email after password change failed", "error", err)
 	}
 
 	// Revoke ALL refresh tokens (force re-login everywhere).
