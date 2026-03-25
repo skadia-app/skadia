@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"regexp"
 
+	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
-
-// reUsername matches valid usernames: starts with alphanumeric, rest alphanumeric or underscore.
-var reUsername = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_]*$`)
 
 // UpdateMe handles PATCH /api/v1/me — updates username and/or display_name.
 func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
@@ -32,12 +29,8 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 
 	if req.Username != nil {
 		u := *req.Username
-		if len(u) < 3 || len(u) > 30 {
-			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_length"})
-			return
-		}
-		if !reUsername.MatchString(u) {
-			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_chars"})
+		if errKey := auth.ValidateUsername(u); errKey != "" {
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": errKey})
 			return
 		}
 		exists, _ := h.DB.CheckUsernameCollision(r.Context(), u, userID)

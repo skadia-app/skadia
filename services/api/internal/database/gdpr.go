@@ -55,6 +55,19 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string) er
 func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath string) error {
 	slog.Info("GDPR purge starting", "user_id", userID)
 
+	// Track purge in background_jobs for UI visibility.
+	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
+		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running', NOW())`, userID)
+	markJobDone := func(status, errMsg string) {
+		if status == "failed" {
+			db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
+				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg)
+		} else {
+			db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'completed', completed_at = NOW()
+				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID)
+		}
+	}
+
 	// ---- Phase 1: Hypertables (outside TX) ----
 
 	// activity_streams and segment_efforts are cascaded from activities/segments,
@@ -64,22 +77,22 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	// Get activity IDs for stream cleanup.
 	actIDs := db.getUserActivityIDs(ctx, userID)
 
-	// Delete activity streams in batches to avoid holding locks too long.
-	for _, actID := range actIDs {
+	// Batch-delete activity streams.
+	if len(actIDs) > 0 {
 		if _, err := db.Pool.Exec(ctx,
-			`DELETE FROM activity_streams WHERE activity_id = $1`, actID); err != nil {
-			slog.Warn("GDPR: delete activity_streams failed", "activity_id", actID, "error", err)
+			`DELETE FROM activity_streams WHERE activity_id = ANY($1)`, actIDs); err != nil {
+			slog.Warn("GDPR: delete activity_streams failed", "error", err)
 		}
 	}
 
 	// Get segment IDs owned by this user.
 	segIDs := db.getUserSegmentIDs(ctx, userID)
 
-	// Delete efforts on user's own segments.
-	for _, segID := range segIDs {
+	// Batch-delete efforts on user's own segments.
+	if len(segIDs) > 0 {
 		if _, err := db.Pool.Exec(ctx,
-			`DELETE FROM segment_efforts WHERE segment_id = $1`, segID); err != nil {
-			slog.Warn("GDPR: delete segment_efforts for segment failed", "segment_id", segID, "error", err)
+			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs); err != nil {
+			slog.Warn("GDPR: delete segment_efforts for segment failed", "error", err)
 		}
 	}
 
@@ -126,6 +139,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
+		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -134,15 +148,18 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	var deletedAt *time.Time
 	if err := tx.QueryRow(ctx,
 		`SELECT deleted_at FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&deletedAt); err != nil {
+		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: user %s not found: %w", userID, err)
 	}
 	if deletedAt == nil {
+		markJobDone("failed", "user no longer marked for deletion")
 		return fmt.Errorf("GDPR: user %s no longer marked for deletion", userID)
 	}
 
 	// Tables without CASCADE that need explicit deletion.
 	// segments: created_by REFERENCES users(id) — no CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE created_by = $1`, userID); err != nil {
+		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: delete segments: %w", err)
 	}
 
@@ -176,10 +193,12 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	// refresh_tokens, email_tokens, auth_codes, auth_audit_log (SET NULL),
 	// activity_weather, activity_events, activity_sets, activity_laps, etc.
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: delete user: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
+		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: commit: %w", err)
 	}
 
@@ -200,6 +219,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	// For now, orphaned S3 objects are harmless (no PII in keys, content
 	// is only accessible via authenticated API which no longer resolves the user).
 
+	markJobDone("completed", "")
 	slog.Info("GDPR purge complete", "user_id", userID,
 		"activities", len(actIDs), "segments", len(segIDs))
 	return nil

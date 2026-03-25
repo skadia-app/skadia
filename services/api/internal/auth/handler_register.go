@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,9 +14,6 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
-
-// usernameRe allows Unicode letters, numbers, spaces, dots, hyphens, underscores.
-var usernameRe = regexp.MustCompile(`^[\p{L}\p{N}\s._-]+$`)
 
 // Register handles POST /auth/register.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -55,13 +51,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Username validation (M10).
-	if len(req.Username) < 2 || len(req.Username) > 100 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_length"})
-		return
-	}
-	if !usernameRe.MatchString(req.Username) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_chars"})
+	// Username validation (M10) — shared rules with settings.go.
+	if errKey := ValidateUsername(req.Username); errKey != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errKey})
 		return
 	}
 
@@ -171,8 +163,12 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 		return
 	}
-	h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID), HashToken(token), "verification",
-		time.Now().Add(24*time.Hour))
+	if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID), HashToken(token), "verification",
+		time.Now().Add(24*time.Hour)); err != nil {
+		slog.Error("create email token failed", "error", err)
+		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+		return
+	}
 	go h.Mailer.SendVerificationEmail(*user.Email, user.Username, token)
 	writeJSON(w, 200, map[string]string{"status": "verification_email_sent"})
 }
