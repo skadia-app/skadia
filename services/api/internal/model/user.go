@@ -51,6 +51,24 @@ type User struct {
 	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
 	FailedLoginCount  int        `json:"-"`
 	LoginDelayUntil   *time.Time `json:"-"`
+
+	// Auth UI gaps (migration 000231)
+	DeletedAt          *time.Time `json:"-"`
+	MustChangePassword bool       `json:"-"`
+	PendingEmail       *string    `json:"-"`
+}
+
+// MeResponse is the JSON shape returned by GET /auth/me.
+type MeResponse struct {
+	UserID             string  `json:"user_id"`
+	Username           string  `json:"username"`
+	DisplayName        *string `json:"display_name,omitempty"`
+	Email              *string `json:"email,omitempty"`
+	IsAdmin            bool    `json:"is_admin"`
+	EmailVerified      bool    `json:"email_verified"`
+	HasPassword        bool    `json:"has_password"`
+	MustChangePassword bool    `json:"must_change_password"`
+	RegistrationSource *string `json:"registration_source,omitempty"`
 }
 
 // UserProfile holds physiological data for training zone calculations.

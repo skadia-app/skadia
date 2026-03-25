@@ -8,6 +8,7 @@ import (
 type contextKey string
 
 const UserIDKey contextKey = "user_id"
+const MustChangePWKey contextKey = "must_change_password"
 
 // DevAuthMiddleware is a development-only middleware that injects a fixed user ID.
 // Only active when DEV_AUTH=true. Use JWTAuth for production.
