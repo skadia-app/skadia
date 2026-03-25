@@ -318,7 +318,6 @@ export default function RouteSuggestionDialog({
                   className={`
                     inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform
                     ${roundTrip ? 'translate-x-[18px]' : 'translate-x-[3px]'}
-                    ${!roundTrip ? 'bg-neutral-300 dark:bg-neutral-600' : ''}
                   `}
                 />
                 {!roundTrip && (
@@ -349,7 +348,6 @@ export default function RouteSuggestionDialog({
                   className={`
                     inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform
                     ${preferUnknown ? 'translate-x-[18px]' : 'translate-x-[3px]'}
-                    ${!preferUnknown ? 'bg-neutral-300 dark:bg-neutral-600' : ''}
                   `}
                 />
                 {!preferUnknown && (

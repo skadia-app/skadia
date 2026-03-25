@@ -201,6 +201,7 @@ function LLMRoleCard({ role, config, onSave }: {
         <Toggle
           checked={enabled}
           onChange={() => setEnabled(!enabled)}
+          aria-label={`${ROLE_LABELS[role] ?? role} aktivieren`}
         />
       </div>
 

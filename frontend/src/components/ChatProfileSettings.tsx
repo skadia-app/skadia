@@ -119,12 +119,12 @@ function SliderRow({ label, value, min, max, step = 1, format, onChange, disable
         value={value}
         disabled={disabled}
         onChange={e => onChange(Number(e.target.value))}
-        className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 [--track-color:#d4d4d4] dark:[--track-color:#525252]"
         style={{
           accentColor: 'var(--color-accent-DEFAULT, #f97316)',
           background: disabled
-            ? '#d4d4d4'
-            : `linear-gradient(to right, var(--color-accent-DEFAULT, #f97316) 0%, var(--color-accent-DEFAULT, #f97316) ${((value - min) / (max - min)) * 100}%, #d4d4d4 ${((value - min) / (max - min)) * 100}%, #d4d4d4 100%)`,
+            ? 'var(--track-color)'
+            : `linear-gradient(to right, var(--color-accent-DEFAULT, #f97316) 0%, var(--color-accent-DEFAULT, #f97316) ${((value - min) / (max - min)) * 100}%, var(--track-color) ${((value - min) / (max - min)) * 100}%, var(--track-color) 100%)`,
         }}
       />
     </div>
@@ -170,7 +170,7 @@ function ToggleRow({ label, description, value, onChange, disabled }: {
           <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
         )}
       </div>
-      <Toggle checked={value} onChange={onChange} disabled={disabled} />
+      <Toggle checked={value} onChange={onChange} disabled={disabled} aria-label={label} />
     </div>
   )
 }

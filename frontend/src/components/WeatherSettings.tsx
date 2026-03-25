@@ -204,6 +204,7 @@ export function WeatherSettings() {
         <Toggle
           checked={localPrefs?.auto_tags ?? true}
           onChange={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
+          aria-label="Automatische Wetter-Tags"
         />
       </div>
 

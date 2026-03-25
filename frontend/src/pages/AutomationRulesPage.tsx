@@ -309,6 +309,7 @@ function RuleCard({
             <Toggle
               checked={rule.is_active}
               onChange={(active) => onToggle(active)}
+              aria-label={`${rule.name} aktivieren`}
             />
             {/* Delete button: only for non-system rules */}
             {!rule.is_system && (

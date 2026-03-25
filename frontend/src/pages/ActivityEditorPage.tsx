@@ -749,6 +749,7 @@ export default function ActivityEditorPage() {
                 checked={showPreview}
                 onChange={() => setShowPreview(p => !p)}
                 color="#22C55E"
+                aria-label="Korrigierte Vorschau anzeigen"
               />
             </div>
           </div>

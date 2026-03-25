@@ -821,55 +821,6 @@ func gravelHighwayCost(hw, tracktype uint8) float32 {
 	}
 }
 
-func roadHighwayCost(hw, sf uint8) float32 {
-	isPaved := sf >= 1 && sf <= 7 // asphalt, concrete, paving_stones, sett, cobblestone, metal, wood
-
-	switch hw {
-	case 18: // cycleway — bevorzugt: sicher, glatt, rennradgerecht
-		return 1.0
-	case 9, 10: // tertiary — Hauptwahl auf Straßen
-		return 1.1
-	case 7, 8: // secondary — gut befahrbar
-		return 1.2
-	case 11, 12: // residential, living_street — OK wenn befestigt
-		if isPaved || sf == 0 {
-			return 1.3
-		}
-		return costBlocked
-	case 13: // unclassified — nur wenn befestigt
-		if isPaved || sf == 0 {
-			return 1.4
-		}
-		return costBlocked
-	case 5, 6: // primary — viel Verkehr, akzeptabel aber nicht ideal
-		return 1.5
-	case 14: // service — kurze Verbindungen OK wenn befestigt
-		if isPaved || sf == 0 {
-			return 1.8
-		}
-		return costBlocked
-	case 21: // pedestrian — Rennrad nur im Notfall
-		return 8.0
-	case 15: // track — Schotter = Pannengefahr
-		if isPaved {
-			return 4.0
-		}
-		return costBlocked
-	case 16: // path — unbefestigt, unfahrbar für Rennrad
-		return costBlocked
-	case 17: // footway — nicht für Rennrad
-		return costBlocked
-	case 19: // bridleway — nicht für Rennrad
-		return costBlocked
-	case 20: // steps
-		return costBlocked
-	case 22: // via_ferrata
-		return costBlocked
-	default:
-		return 8.0
-	}
-}
-
 // --- Profile-specific surface costs ---
 
 func profileSurfaceCost(profile string, sf uint8) float32 {
