@@ -302,6 +302,40 @@ func main() {
 		}
 	})
 
+	// FileStore reconciliation (daily, graceful shutdown)
+	if cfg.LibraryBasePath != "" {
+		reconcileRenderer := filestore.NewSchemaRenderer()
+		reconcileJob := filestore.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
+		shutdown.Go("filestore-reconciliation", func(ctx context.Context) {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					slog.Info("filestore reconcile: starting daily run")
+					result, err := reconcileJob.Run(ctx, nil)
+					if err != nil {
+						slog.Error("filestore reconcile: daily run failed", "error", err)
+					} else {
+						slog.Info("filestore reconcile: daily run complete",
+							"orphaned", result.OrphanedFiles,
+							"dangling", result.DanglingRecords,
+							"size_fixes", result.SizeMismatches,
+							"archived_cleaned", result.ArchivedCleaned,
+							"temp_cleaned", result.TempCleaned,
+							"duplicates", result.DuplicatePaths,
+							"purging_cleaned", result.PurgingCleaned,
+							"rename_fixed", result.RenameFixed,
+							"archive_warnings", len(result.ArchiveWarnings),
+						)
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		})
+	}
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(middleware.TrustedProxyRealIP(cfg.TrustedProxyCIDRs))
