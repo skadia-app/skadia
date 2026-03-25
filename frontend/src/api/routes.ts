@@ -274,6 +274,41 @@ export async function getWaypointsFromActivity(
   return apiClient(`/routes/from-activity/${activityId}/waypoints`)
 }
 
+// === Profile Defaults ===
+
+/** Server-side profile defaults. null = blocked highway type. */
+export interface ProfileDefaultsResponse {
+  profile: string
+  uphill_cost: number | null
+  downhill_cost: number | null
+  uphill_cutoff_pct: number | null
+  downhill_cutoff_pct: number | null
+  elev_penalty_buffer_m: number | null
+  elev_max_buffer_m: number | null
+  elev_buffer_reduce: number | null
+  turn_cost: number | null
+  pass0_coefficient: number | null
+  path_cost: number | null
+  track_cost: number | null
+  track_grade1_cost: number | null
+  track_grade2_cost: number | null
+  track_grade3_cost: number | null
+  footway_cost: number | null
+  cycleway_cost: number | null
+  bridleway_cost: number | null
+  pedestrian_cost: number | null
+  residential_cost: number | null
+  service_cost: number | null
+  unclassified_cost: number | null
+  tertiary_cost: number | null
+  secondary_cost: number | null
+  primary_cost: number | null
+}
+
+export async function getProfileDefaults(name: string): Promise<ProfileDefaultsResponse> {
+  return apiClient(`/routing/profiles/${encodeURIComponent(name)}`)
+}
+
 // === Internal Router (BadRouter) ===
 
 export async function computeInternalRoute(

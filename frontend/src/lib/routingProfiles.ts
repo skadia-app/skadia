@@ -26,6 +26,22 @@ export interface ProfileConfig {
   turn_cost?: number
   initial_cost_road?: number
   pass0_coefficient?: number
+  // Highway cost overrides (null from API = blocked type)
+  path_cost?: number
+  track_cost?: number
+  track_grade1_cost?: number
+  track_grade2_cost?: number
+  track_grade3_cost?: number
+  footway_cost?: number
+  cycleway_cost?: number
+  bridleway_cost?: number
+  pedestrian_cost?: number
+  residential_cost?: number
+  service_cost?: number
+  unclassified_cost?: number
+  tertiary_cost?: number
+  secondary_cost?: number
+  primary_cost?: number
 }
 
 // ─── Field Metadata ────────────────────────────────────────────────────────
