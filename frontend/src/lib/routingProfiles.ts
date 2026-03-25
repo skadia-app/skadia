@@ -1,3 +1,5 @@
+import type { ProfileDefaultsResponse } from '@/api/routes'
+
 // ─── Profile Config Types ──────────────────────────────────────────────────
 
 export interface ProfileConfig {
@@ -475,9 +477,73 @@ export const PROFILES: ProfileMeta[] = [
   },
 ]
 
+// ─── Server Defaults Cache ────────────────────────────────────────────────
+
+/**
+ * In-memory cache: profile name → server defaults.
+ * Populated by fetchAndCacheServerDefaults(), consumed by getProfileDefaults().
+ */
+const serverDefaultsCache = new Map<string, ProfileConfig>()
+
+/** Convert a server ProfileDefaultsResponse into a ProfileConfig. */
+export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileConfig {
+  const cfg: ProfileConfig = { profile: resp.profile }
+
+  // Map all numeric/boolean fields — skip nulls (leave undefined → fallback to TS defaults)
+  const numericKeys: (keyof ProfileDefaultsResponse & keyof ProfileConfig)[] = [
+    'uphill_cost', 'downhill_cost', 'uphill_cutoff_pct', 'downhill_cutoff_pct',
+    'elev_penalty_buffer_m', 'elev_max_buffer_m', 'elev_buffer_reduce',
+    'max_sac_scale', 'sac_preferred', 'max_mtb_scale', 'max_via_ferrata',
+    'forest_bonus', 'noise_penalty', 'traffic_penalty', 'protected_bonus',
+    'cycleroute_boost', 'hikeroute_boost',
+    'path_preference', 'turn_cost', 'initial_cost_road', 'pass0_coefficient',
+    'path_cost', 'track_cost', 'track_grade1_cost', 'track_grade2_cost',
+    'track_grade3_cost', 'footway_cost', 'cycleway_cost', 'bridleway_cost',
+    'pedestrian_cost', 'residential_cost', 'service_cost', 'unclassified_cost',
+    'tertiary_cost', 'secondary_cost', 'primary_cost',
+  ]
+  for (const k of numericKeys) {
+    const val = resp[k]
+    if (val !== null && val !== undefined) {
+      ;(cfg as Record<string, unknown>)[k] = val
+    }
+  }
+
+  const boolKeys: (keyof ProfileDefaultsResponse & keyof ProfileConfig)[] = [
+    'allow_steps', 'allow_ferries', 'wet_weather',
+  ]
+  for (const k of boolKeys) {
+    const val = resp[k]
+    if (val !== null && val !== undefined) {
+      ;(cfg as Record<string, unknown>)[k] = val
+    }
+  }
+
+  return cfg
+}
+
+/** Cache server defaults for a profile. Called from ProfileEditor on fetch. */
+export function cacheServerDefaults(name: string, resp: ProfileDefaultsResponse): void {
+  serverDefaultsCache.set(name, serverResponseToConfig(resp))
+}
+
+/** Get cached server defaults, if available. */
+export function getCachedServerDefaults(name: string): ProfileConfig | undefined {
+  return serverDefaultsCache.get(name)
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Get profile defaults: server cache (single source of truth) with TS PROFILES fallback.
+ * When server defaults are cached, they take priority over hardcoded TS values.
+ */
 export function getProfileDefaults(name: string): ProfileConfig {
+  // Prefer server defaults if cached
+  const cached = serverDefaultsCache.get(name)
+  if (cached) return { ...cached }
+
+  // Fallback to hardcoded TS defaults
   const meta = PROFILES.find(p => p.name === name)
   return meta ? { ...meta.defaults } : { profile: name }
 }

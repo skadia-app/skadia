@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   PROFILES,
   FIELD_METADATA,
   SECTION_LABELS,
   getProfileDefaults,
+  cacheServerDefaults,
   type ProfileConfig,
   type FieldSection,
 } from '@/lib/routingProfiles'
@@ -302,16 +303,24 @@ export interface ProfileEditorProps {
 
 export default function ProfileEditor({ config, onChange }: ProfileEditorProps) {
   const currentProfile = config.profile ?? 'hiking'
+  // getProfileDefaults now prefers cached server defaults over TS PROFILES
   const defaults = getProfileDefaults(currentProfile)
 
   // Server-side defaults (includes highway costs with null for blocked types)
   const [serverDefaults, setServerDefaults] = useState<ProfileDefaultsResponse | null>(null)
 
+  // Track which profile the user most recently switched to (for stale-fetch guard)
+  const switchTargetRef = useRef<string>(currentProfile)
+
   const loadServerDefaults = useCallback((profileName: string) => {
     fetchProfileDefaults(profileName)
-      .then(setServerDefaults)
+      .then(resp => {
+        // Cache in the global store so getProfileDefaults() returns server values
+        cacheServerDefaults(profileName, resp)
+        setServerDefaults(resp)
+      })
       .catch(() => {
-        // Silently fall back — sliders will show without defaults
+        // Silently fall back — sliders will show without server defaults
         setServerDefaults(null)
       })
   }, [])
@@ -325,13 +334,13 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   function resetSection(section: FieldSection) {
+    // defaults already prefers server cache → single source of truth
     const sectionFields = FIELD_METADATA.filter(f => f.section === section)
     const patch: Partial<ProfileConfig> = {}
     for (const f of sectionFields) {
       const k = f.key as keyof ProfileConfig
       const defaultVal = defaults[k]
       if (defaultVal !== undefined) {
-        // Type-safe assignment
         ;(patch as Record<string, unknown>)[k] = defaultVal
       }
     }
@@ -348,7 +357,27 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   function handleProfileSwitch(profileName: string) {
+    // Mark this as the most recent switch target (stale-fetch guard)
+    switchTargetRef.current = profileName
+
+    // Immediate: apply best-known defaults (server cache if available, else TS fallback)
     onChange(getProfileDefaults(profileName))
+
+    // Async: fetch authoritative server defaults and update if they differ
+    fetchProfileDefaults(profileName)
+      .then(resp => {
+        cacheServerDefaults(profileName, resp)
+        setServerDefaults(resp)
+
+        // Only apply if user hasn't switched to a different profile in the meantime
+        if (switchTargetRef.current === profileName) {
+          onChange(getProfileDefaults(profileName))
+        }
+      })
+      .catch(() => {
+        // Server unreachable — keep the TS defaults already applied
+        setServerDefaults(null)
+      })
   }
 
   /** Get the server default for a highway cost key. Returns null for blocked types. */
