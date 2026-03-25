@@ -165,9 +165,28 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				hashArr := sha256.Sum256(fileBytes)
 				hashStr := hex.EncodeToString(hashArr[:])
 				tracker.SetFileHash(ctx, hashStr)
-				s3Key := fmt.Sprintf("%s/%s.fit", params.UserID, hashStr)
-
-				if params.Storage != nil {
+				// Upload file — FileStore path preferred; legacy S3 as fallback.
+				var msFileID string
+				if params.FileStore != nil {
+					rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+						UserID:      params.UserID,
+						FileType:    "activity",
+						ContentType: "application/octet-stream",
+						FileName:    ref.fileName,
+						SizeBytes:   int64(len(fileBytes)),
+						FileHash:    hashStr,
+						Tags: map[string]string{
+							"format": "fit",
+							"source": "garmin",
+						},
+					}, bytes.NewReader(fileBytes))
+					if putErr != nil {
+						slog.Warn("garmin activities: FileStore.Put multisport failed", "file", ref.fileName, "error", putErr)
+					} else {
+						msFileID = rec.ID
+					}
+				} else if params.Storage != nil {
+					s3Key := fmt.Sprintf("%s/%s.fit", params.UserID, hashStr)
 					if uploadErr := params.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
 						slog.Warn("garmin activities: S3 upload multisport failed", "file", ref.fileName, "error", uploadErr)
 					}
@@ -177,7 +196,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					GarminActivityID: garminActivityID,
 					SourcePlatform:   "garmin",
 				}
-				msResult, msErr := params.ImportService.ProcessMultisport(ctx, params.UserID, sessions, fileBytes, hashStr, s3Key, "fit", ref.fileName, meta)
+				msResult, msErr := params.ImportService.ProcessMultisport(ctx, params.UserID, sessions, fileBytes, hashStr, msFileID, "fit", ref.fileName, meta)
 				if msErr != nil {
 					slog.Warn("garmin activities: multisport import failed", "file", ref.fileName, "sessions", len(sessions), "error", msErr)
 					result.Errors = append(result.Errors, fmt.Sprintf("multisport %s: %s", ref.fileName, msErr))

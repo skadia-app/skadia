@@ -190,16 +190,39 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			msTracker.Processing(ctx)
 			msTracker.SetFileHash(ctx, hashStr)
 
-			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-			if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
-				slog.Error("import_url: S3 upload for multisport failed", "error", uploadErr)
-				msTracker.Error(ctx, fmt.Errorf("S3 upload: %w", uploadErr))
-				return nil, &importError{importErrStorage, "failed to store file"}
+			// Upload file — FileStore path preferred; legacy S3 as fallback.
+			var msFileID string
+			if h.FileStore != nil {
+				rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+					UserID:      userID,
+					FileType:    "activity",
+					ContentType: "application/octet-stream",
+					FileName:    filename,
+					SizeBytes:   int64(len(fileBytes)),
+					FileHash:    hashStr,
+					Tags: map[string]string{
+						"format": format,
+						"source": "url_import",
+					},
+				}, bytes.NewReader(fileBytes))
+				if putErr != nil {
+					slog.Error("import_url: FileStore.Put multisport failed", "error", putErr)
+					msTracker.Error(ctx, fmt.Errorf("FileStore upload: %w", putErr))
+					return nil, &importError{importErrStorage, "failed to store file"}
+				}
+				msFileID = rec.ID
+			} else {
+				s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
+				if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
+					slog.Error("import_url: S3 upload for multisport failed", "error", uploadErr)
+					msTracker.Error(ctx, fmt.Errorf("S3 upload: %w", uploadErr))
+					return nil, &importError{importErrStorage, "failed to store file"}
+				}
 			}
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				ctx, userID, sessions, fileBytes, hashStr,
-				s3Key, format, filename,
+				msFileID, format, filename,
 				importer.ImportMetadata{
 					SourcePlatform:   "url",
 					ConflictStrategy: conflictStrategy,
