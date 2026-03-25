@@ -87,8 +87,8 @@ function ProfileSection() {
 
   const mutation = useMutation({
     mutationFn: updateMe,
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['me'], updated)
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['me'] })
       addToast({ type: 'success', title: 'Profil aktualisiert' })
     },
     onError: (err) => {
@@ -158,7 +158,7 @@ function EmailSection() {
       setDialogOpen(false)
       setNewEmail('')
       setPassword('')
-      if (data.status === 'verification_sent') {
+      if (data.status === 'verification_email_sent') {
         addToast({ type: 'success', title: 'Bestätigungsmail gesendet', message: 'Bitte klicke den Link in der E-Mail um die Änderung abzuschließen.' })
       } else {
         addToast({ type: 'success', title: 'E-Mail geändert' })
