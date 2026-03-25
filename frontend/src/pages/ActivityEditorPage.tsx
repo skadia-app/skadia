@@ -13,6 +13,7 @@ echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
 import { useToast } from '@/lib/toast'
+import Toggle from '@/components/Toggle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -744,20 +745,11 @@ export default function ActivityEditorPage() {
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
                 {showPreview ? 'Vorschau (korrigiert)' : 'Original'}
               </span>
-              <button
-                onClick={() => setShowPreview(p => !p)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
-                  showPreview ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-                }`}
-                role="switch"
-                aria-checked={showPreview}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    showPreview ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+              <Toggle
+                checked={showPreview}
+                onChange={() => setShowPreview(p => !p)}
+                color="#22C55E"
+              />
             </div>
           </div>
           <div ref={chartRef} style={{ height: 260 }} />

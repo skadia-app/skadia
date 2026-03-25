@@ -5,6 +5,7 @@ import { getWeatherSettings, updateWeatherSettings } from '@/api/settings'
 import { apiClient } from '@/api/client'
 import type { WeatherPrefs } from '@/api/types'
 import { WEATHER_DISPLAY_FIELD_OPTIONS } from '@/api/types'
+import Toggle from '@/components/Toggle'
 
 export function WeatherSettings() {
   const { addToast } = useToast()
@@ -200,23 +201,10 @@ export function WeatherSettings() {
             Vergibt automatisch Tags wie &ldquo;Sonnig&rdquo; oder &ldquo;Regen&rdquo; basierend auf den Wetterdaten
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={localPrefs?.auto_tags ?? true}
-          onClick={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
-          className={`relative inline-flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors ${
-            (localPrefs?.auto_tags ?? true)
-              ? 'bg-accent-DEFAULT'
-              : 'bg-neutral-300 dark:bg-neutral-600'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              (localPrefs?.auto_tags ?? true) ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
+        <Toggle
+          checked={localPrefs?.auto_tags ?? true}
+          onChange={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
+        />
       </div>
 
       {/* Backfill-Button */}

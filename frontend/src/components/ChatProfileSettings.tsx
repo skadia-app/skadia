@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import Toggle from '@/components/Toggle'
 
 // -----------------------------------------------------------------------
 // Types
@@ -92,34 +93,6 @@ function resolveProfile(setting: ChatUserSetting): ChatProfile {
 // -----------------------------------------------------------------------
 // Sub-components
 // -----------------------------------------------------------------------
-
-function Toggle({ checked, onChange, disabled = false }: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => !disabled && onChange(!checked)}
-      className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
-      style={{
-        backgroundColor: checked ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4',
-        opacity: disabled ? 0.4 : 1,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  )
-}
 
 function SliderRow({ label, value, min, max, step = 1, format, onChange, disabled }: {
   label: string

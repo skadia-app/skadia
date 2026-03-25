@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Toggle from '@/components/Toggle'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchLLMConfig, saveLLMRole, fetchOllamaModels, testLLMConnection,
@@ -197,15 +198,10 @@ function LLMRoleCard({ role, config, onSave }: {
             {ROLE_DESCRIPTIONS[role]}
           </p>
         </div>
-        <button
-          onClick={() => setEnabled(!enabled)}
-          className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-          style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
-          role="switch"
-          aria-checked={enabled}
-        >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
+        <Toggle
+          checked={enabled}
+          onChange={() => setEnabled(!enabled)}
+        />
       </div>
 
       {enabled && (
