@@ -131,3 +131,40 @@ export async function changePassword(currentPassword: string, newPassword: strin
     throw new Error(data.error ?? 'Password change failed')
   }
 }
+
+export interface AuditLogEntry {
+  id: number
+  user_id: string | null
+  username: string | null
+  event_type: string
+  ip_address: string | null
+  user_agent: string | null
+  details: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export async function getAuditLog(params: {
+  event_type?: string
+  user_id?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}): Promise<AuditLogResponse> {
+  const sp = new URLSearchParams()
+  if (params.event_type) sp.set('event_type', params.event_type)
+  if (params.user_id) sp.set('user_id', params.user_id)
+  if (params.from) sp.set('from', params.from)
+  if (params.to) sp.set('to', params.to)
+  sp.set('limit', String(params.limit ?? 50))
+  sp.set('offset', String(params.offset ?? 0))
+  const res = await apiFetch(`/api/v1/admin/audit-log?${sp}`)
+  return res.json() as Promise<AuditLogResponse>
+}
