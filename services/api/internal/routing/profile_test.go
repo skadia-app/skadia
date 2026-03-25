@@ -412,6 +412,26 @@ func TestBuildCostConfig_CutoffConversion(t *testing.T) {
 	}
 }
 
+func TestMergeProfile_HighwayCostOverride(t *testing.T) {
+	override := ProfileConfig{
+		PrimaryCost:     ptr32(2.0),
+		CyclewayCost:    ptr32(1.5),
+		TrackGrade1Cost: ptr32(0.8),
+	}
+
+	merged := mergeProfile(builtinProfiles["gravel"], override)
+
+	if merged.PrimaryCost == nil || *merged.PrimaryCost != 2.0 {
+		t.Errorf("PrimaryCost = %v, want 2.0", merged.PrimaryCost)
+	}
+	if merged.CyclewayCost == nil || *merged.CyclewayCost != 1.5 {
+		t.Errorf("CyclewayCost = %v, want 1.5", merged.CyclewayCost)
+	}
+	if merged.PathCost != nil {
+		t.Errorf("PathCost should be nil (not overridden), got %v", *merged.PathCost)
+	}
+}
+
 func TestEdgeCost_TrafficPenalty(t *testing.T) {
 	tags := encodeTags("path", "")
 	enrich0 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{TrafficClass: 0})
