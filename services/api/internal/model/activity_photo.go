@@ -6,6 +6,7 @@ type ActivityPhoto struct {
 	ID               string     `json:"id"`
 	UserID           string     `json:"user_id"`
 	ActivityID       *string    `json:"activity_id"`
+	FileID           *string    `json:"-"` // user_files.id (FileStore registry)
 	S3Bucket         string     `json:"-"`
 	S3Key            string     `json:"-"`
 	S3KeyThumb       string     `json:"-"`
