@@ -333,7 +333,7 @@ func main() {
 		r.Route("/api/v1", func(r chi.Router) {
 			// ── Admin routes (RequireAdmin) ──
 			r.Route("/admin", func(r chi.Router) {
-				r.Use(middleware.RequireAdmin(db))
+				r.Use(middleware.RequireAdmin())
 
 				// Backfill / batch operations
 				r.Post("/backfill-heatmap", h.BackfillHeatmap)
