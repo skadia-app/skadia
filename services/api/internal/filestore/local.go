@@ -198,6 +198,16 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 		return FileRecord{}, fmt.Errorf("filestore: insert record: %w", err)
 	}
 
+	// Post-write quota check: catches cases where SizeBytes was 0 on entry.
+	if s.maxUserBytes > 0 && written > 0 {
+		usage, _ := diskUsage(ctx, s.pool, entry.UserID)
+		if usage > s.maxUserBytes {
+			s.safeRemove(fullPath, relPath)
+			_, _ = s.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, rec.ID)
+			return FileRecord{}, fmt.Errorf("filestore: storage quota exceeded (post-write check)")
+		}
+	}
+
 	return rec, nil
 }
 
@@ -310,21 +320,21 @@ func (s *LocalFileStore) DeleteAllForUser(ctx context.Context, userID string) er
 	}
 
 	// Safety-net: remove the user directory entirely.
-	userDir, err := s.getUserDir(ctx, userID)
-	if err == nil {
+	userDir := s.getUserDirOrFallback(ctx, userID)
+	if userDir != "" {
 		userFullPath := filepath.Join(s.basePath, userDir)
 		if err := s.validateLocalPath(userDir); err == nil {
 			if err := os.RemoveAll(userFullPath); err != nil {
 				slog.Warn("filestore: removeAll user dir", "path", userFullPath, "err", err)
 			}
 		}
-	}
 
-	// Clean _cache and _temp dirs.
-	for _, sub := range []string{"_cache", "_temp"} {
-		p := filepath.Join(s.basePath, userDir, sub)
-		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
-			slog.Warn("filestore: remove cache/temp dir", "path", p, "err", err)
+		// Clean _cache and _temp dirs.
+		for _, sub := range []string{"_cache", "_temp"} {
+			p := filepath.Join(s.basePath, userDir, sub)
+			if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
+				slog.Warn("filestore: remove cache/temp dir", "path", p, "err", err)
+			}
 		}
 	}
 
@@ -529,6 +539,17 @@ func (s *LocalFileStore) getUserDir(ctx context.Context, userID string) (string,
 		return "", fmt.Errorf("filestore: invalid library_dir_name: %q", name)
 	}
 	return name, nil
+}
+
+// getUserDirOrFallback returns the user directory, falling back to the userID itself
+// when the user row has already been deleted (e.g., during GDPR purge).
+func (s *LocalFileStore) getUserDirOrFallback(ctx context.Context, userID string) string {
+	dir, err := s.getUserDir(ctx, userID)
+	if err == nil {
+		return dir
+	}
+	// User row gone (CASCADE already fired) — fall back to UUID-based directory.
+	return userID
 }
 
 // validateLocalPath ensures the resolved path stays within basePath and is not a symlink escape.
