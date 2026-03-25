@@ -117,6 +117,24 @@ func RateLimitGeneric(rl *RateLimiter) func(http.Handler) http.Handler {
 	return rateLimitByIP(rl, "generic", 10.0/900, 10) // 10 per 900s
 }
 
+// RateLimitChangePassword rate-limits change-password: 5 per 15 minutes per user_id.
+func RateLimitChangePassword(rl *RateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID := GetUserID(r.Context())
+			if userID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !rl.Allow("changepw:"+userID, 5.0/900, 5) {
+				http.Error(w, `{"error":"too_many_requests"}`, http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func rateLimitByIP(rl *RateLimiter, prefix string, rps float64, burst int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -15,6 +15,7 @@ import (
 type sessionEntry struct {
 	FamilyID  string    `json:"family_id"`
 	UserAgent *string   `json:"user_agent,omitempty"`
+	IPAddress string    `json:"ip_address"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -25,7 +26,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
 	rows, err := h.DB.Pool.Query(r.Context(),
-		`SELECT family_id, user_agent, created_at, expires_at
+		`SELECT family_id, user_agent, ip_address::text, created_at, expires_at
 		 FROM refresh_tokens WHERE user_id = $1 AND NOT revoked AND expires_at > NOW()
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -38,7 +39,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 	sessions := make([]sessionEntry, 0)
 	for rows.Next() {
 		var s sessionEntry
-		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.CreatedAt, &s.ExpiresAt); err != nil {
+		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.IPAddress, &s.CreatedAt, &s.ExpiresAt); err != nil {
 			slog.Error("list my sessions scan failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
