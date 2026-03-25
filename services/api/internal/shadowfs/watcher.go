@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -276,6 +277,13 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 	// Size is stable — process the file.
 	delete(w.pendingSizes, absPath)
 
+	// H8: Validate the path is not a symlink escaping the basePath.
+	if err := validateWatcherPath(absPath, w.basePath); err != nil {
+		slog.Warn("library-watcher: path validation failed — skipping",
+			"path", absPath, "error", err)
+		return
+	}
+
 	// Attempt move/rename detection: check if any missing registered file
 	// has the same size and hash.
 	hash, err := hashFile(absPath)
@@ -319,46 +327,77 @@ func (w *LibraryWatcher) handleDeletedFile(_ context.Context, relPath string, re
 
 // detectMove checks if the file matches a registered file that is missing
 // from disk (same user, same hash). If so, updates the storage_path.
+// Scans ALL candidates and only selects the one whose old path is actually missing on disk.
 func (w *LibraryWatcher) detectMove(ctx context.Context, userID, newRelPath, hash string, size int64) (bool, error) {
-	var oldID, oldPath string
-	err := w.pool.QueryRow(ctx,
+	rows, err := w.pool.Query(ctx,
 		`SELECT id, storage_path FROM user_files
 		 WHERE user_id = $1 AND file_hash = $2 AND size_bytes = $3
 		   AND storage_backend = 'local' AND status = 'active'
-		 ORDER BY updated_at DESC
-		 LIMIT 1`,
+		 ORDER BY updated_at DESC`,
 		userID, hash, size,
-	).Scan(&oldID, &oldPath)
+	)
 	if err != nil {
 		return false, nil // No match — not a move.
 	}
+	defer rows.Close()
 
-	// Verify the old path no longer exists on disk.
-	oldAbs := filepath.Join(w.basePath, oldPath)
-	if _, statErr := os.Stat(oldAbs); statErr == nil {
-		return false, nil // Old file still exists — this is a copy, not a move.
+	type candidate struct {
+		id, path string
 	}
-
-	// Update storage_path.
-	_, err = w.pool.Exec(ctx,
-		`UPDATE user_files SET storage_path = $1, updated_at = NOW()
-		 WHERE id = $2 AND user_id = $3`,
-		newRelPath, oldID, userID,
-	)
-	if err != nil {
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.path); err != nil {
+			return false, err
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
 		return false, err
 	}
 
-	slog.Info("library-watcher: detected file move/rename",
-		"user", userID, "fileID", oldID,
-		"oldPath", oldPath, "newPath", newRelPath)
-	return true, nil
+	// Find the first candidate whose old path is actually missing on disk.
+	for _, c := range candidates {
+		oldAbs := filepath.Join(w.basePath, c.path)
+		if _, statErr := os.Stat(oldAbs); statErr == nil {
+			continue // Old file still exists — this is a copy, not a move.
+		}
+		// This candidate's old file is missing — this is the moved file.
+		_, err = w.pool.Exec(ctx,
+			`UPDATE user_files SET storage_path = $1, updated_at = NOW()
+			 WHERE id = $2 AND user_id = $3`,
+			newRelPath, c.id, userID,
+		)
+		if err != nil {
+			return false, err
+		}
+		slog.Info("library-watcher: detected file move/rename",
+			"user", userID, "fileID", c.id,
+			"oldPath", c.path, "newPath", newRelPath)
+		return true, nil
+	}
+
+	return false, nil // All candidates still have their files — this is not a move.
 }
 
 // registerExternalFile inserts a new file record for an externally-added file.
 func (w *LibraryWatcher) registerExternalFile(ctx context.Context, relPath, userID string, info fs.FileInfo, hash string) {
 	fileName := filepath.Base(relPath)
-	contentType := DetectContentType(fileName, "", nil)
+
+	// Read the first 512 bytes for magic-byte content-type detection.
+	// Fall back to extension-only if the file cannot be read.
+	var first512 []byte
+	absPath := filepath.Join(w.basePath, relPath)
+	if f, err := os.Open(absPath); err == nil {
+		buf := make([]byte, 512)
+		n, _ := io.ReadFull(f, buf)
+		f.Close()
+		if n > 0 {
+			first512 = buf[:n]
+		}
+	}
+
+	contentType := DetectContentType(fileName, "", first512)
 	fileType := w.inferFileType(relPath)
 
 	_, err := w.pool.Exec(ctx,
@@ -572,14 +611,19 @@ func (w *LibraryWatcher) saveState() {
 		return
 	}
 
-	if err := os.WriteFile(w.stateFile, data, 0o644); err != nil {
+	if err := os.WriteFile(w.stateFile, data, 0o600); err != nil {
 		slog.Error("library-watcher: write state file", "error", err)
 	}
 }
 
 // ---------- Helpers ----------
 
+// maxHashFileSize is the maximum file size we will hash (500 MB).
+// Files larger than this are skipped with a warning.
+const maxHashFileSize = 500 * 1024 * 1024
+
 // hashFile computes the SHA256 hex digest of a file.
+// Files larger than maxHashFileSize are skipped.
 func hashFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -587,9 +631,34 @@ func hashFile(path string) (string, error) {
 	}
 	defer f.Close()
 
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if info.Size() > maxHashFileSize {
+		return "", fmt.Errorf("file too large for hashing (%d bytes > %d limit)", info.Size(), maxHashFileSize)
+	}
+
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, io.LimitReader(f, maxHashFileSize)); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// validateWatcherPath resolves symlinks and verifies the real path is within basePath.
+// This prevents symlink traversal attacks that could escape the library directory.
+func validateWatcherPath(absPath, basePath string) error {
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return fmt.Errorf("resolve symlinks: %w", err)
+	}
+	resolvedBase, err := filepath.EvalSymlinks(basePath)
+	if err != nil {
+		return fmt.Errorf("resolve basePath symlinks: %w", err)
+	}
+	if !strings.HasPrefix(resolved, resolvedBase+string(filepath.Separator)) && resolved != resolvedBase {
+		return fmt.Errorf("resolved path %q escapes basePath %q", resolved, resolvedBase)
+	}
+	return nil
 }

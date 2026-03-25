@@ -475,6 +475,9 @@ type Activity struct {
 	SidecarMetaKey string `json:"sidecar_meta_key,omitempty"`
 	TitleIsManual  bool   `json:"title_is_manual,omitempty"`
 
+	// Unified FileStore — link to user_files registry entry for the original file.
+	FileID *string `json:"file_id,omitempty"`
+
 	// FIT SDK — Workout FK
 	WorkoutID *string `json:"workout_id,omitempty"`
 
