@@ -143,7 +143,13 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Health data (TimescaleDB hypertables — SELECT * is intentional for full export)
-	for _, table := range []string{"health_daily_summary", "health_sleep", "health_hrv", "health_weight"} {
+	for _, table := range []string{
+		"health_daily_summary", "health_sleep", "health_snapshots",
+		"health_hrv_night_values", "health_weight_entries",
+		"health_blood_pressure", "health_fitness_age",
+		"health_stress_snapshots", "health_spo2_snapshots",
+		"health_training_load", "health_readiness_scores",
+	} {
 		hRows, err := h.DB.Pool.Query(ctx,
 			fmt.Sprintf(`SELECT * FROM %s WHERE user_id = $1`, table), userID)
 		if err == nil {
@@ -172,13 +178,19 @@ func writeZipJSON(zw *zip.Writer, name string, data any) {
 	}
 }
 
-// exportRowsToZip converts pgx Rows to a JSON array and writes it to the zip archive.
+// exportRowsToZip streams pgx Rows as a JSON array into the zip archive without buffering all rows.
 func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
 	defer rows.Close()
 
 	cols := rows.FieldDescriptions()
-	var result []map[string]any
+	w, err := zw.Create(name)
+	if err != nil {
+		slog.Error("data export: create zip entry failed", "name", name, "error", err)
+		return
+	}
 
+	w.Write([]byte("["))
+	first := true
 	for rows.Next() {
 		vals, err := rows.Values()
 		if err != nil {
@@ -187,17 +199,18 @@ func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
 		}
 		row := make(map[string]any, len(cols))
 		for i, col := range cols {
-			row[col.Name] = vals[i]
+			row[string(col.Name)] = vals[i]
 		}
-		result = append(result, row)
+		if !first {
+			w.Write([]byte(","))
+		}
+		first = false
+		json.NewEncoder(w).Encode(row)
 	}
+	w.Write([]byte("]"))
 
 	if err := rows.Err(); err != nil {
 		slog.Error("data export: rows iteration error", "name", name, "error", err)
-	}
-
-	if len(result) > 0 {
-		writeZipJSON(zw, name, result)
 	}
 }
 
