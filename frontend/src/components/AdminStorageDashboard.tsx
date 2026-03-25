@@ -177,6 +177,10 @@ export default function AdminStorageDashboard() {
   const populateMut = useMutation<ActionResponse>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/populate-registry', { method: 'POST' }),
     onSuccess: (res) => {
+      if (res.status === 'already_running') {
+        addToast({ type: 'warning', title: 'Registry befüllen läuft bereits' })
+        return
+      }
       addToast({ type: 'success', title: `Registry befüllen ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: () => {
@@ -187,6 +191,10 @@ export default function AdminStorageDashboard() {
   const migrateMut = useMutation<ActionResponse>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate', { method: 'POST' }),
     onSuccess: (res) => {
+      if (res.status === 'already_running') {
+        addToast({ type: 'warning', title: 'Dateien migrieren läuft bereits' })
+        return
+      }
       addToast({ type: 'success', title: `Dateien migrieren ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: () => {
@@ -197,6 +205,10 @@ export default function AdminStorageDashboard() {
   const reconcileMut = useMutation<ActionResponse>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/reconcile', { method: 'POST' }),
     onSuccess: (res) => {
+      if (res.status === 'already_running') {
+        addToast({ type: 'warning', title: 'Abgleich läuft bereits' })
+        return
+      }
       addToast({ type: 'success', title: `Abgleich ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: () => {
@@ -208,6 +220,10 @@ export default function AdminStorageDashboard() {
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate/rollback', { method: 'POST' }),
     onSuccess: (res) => {
       setShowRollbackConfirm(false)
+      if (res.status === 'already_running') {
+        addToast({ type: 'warning', title: 'Rollback läuft bereits' })
+        return
+      }
       addToast({ type: 'success', title: `Rollback ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: () => {

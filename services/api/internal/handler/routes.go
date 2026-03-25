@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -135,6 +136,9 @@ func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean up route photo files in ShadowFS before the CASCADE delete removes the DB rows.
+	h.cleanupRoutePhotoFiles(r.Context(), id, userID)
+
 	// DeleteRoute enforces ownership via WHERE id = $1 AND user_id = $2
 	if err := h.DB.DeleteRoute(r.Context(), id, userID); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
 		return
@@ -164,4 +168,32 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
+}
+
+// cleanupRoutePhotoFiles deletes ShadowFS files for all photos belonging to a
+// route. Must be called BEFORE the route is deleted (CASCADE would drop the
+// route_photos rows and lose the file_id references).
+func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string) {
+	if h.ShadowFS == nil {
+		return
+	}
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT COALESCE(file_id::text, '') FROM route_photos WHERE route_id = $1 AND user_id = $2`,
+		routeID, userID,
+	)
+	if err != nil {
+		slog.Warn("route delete: query route_photos file_ids failed", "route_id", routeID, "error", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var fileID string
+		if err := rows.Scan(&fileID); err != nil || fileID == "" {
+			continue
+		}
+		if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
+			slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
+		}
+	}
 }

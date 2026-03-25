@@ -57,8 +57,7 @@ func (w *Watcher) Start() error {
 		return err
 	}
 
-	w.wg.Add(1)
-	go w.loop()
+	w.wg.Go(func() { w.loop() })
 
 	// Scan for files already present (dropped while server was down).
 	w.wg.Go(func() { w.scanExisting() })
@@ -85,8 +84,6 @@ type pendingEntry struct {
 }
 
 func (w *Watcher) loop() {
-	defer w.wg.Done()
-
 	pending := make(map[string]*pendingEntry)
 	var mu sync.Mutex
 

@@ -312,7 +312,11 @@ function LibraryDirSection() {
 
   const mut = useMutation({
     mutationFn: () => updateLibraryDir(currentValue),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      if (res.status === 'library_dir_name_taken') {
+        addToast({ type: 'warning', title: 'Verzeichnisname bereits vergeben' })
+        return
+      }
       setLocalValue(null)
       queryClient.invalidateQueries({ queryKey: ['library-dir'] })
       addToast({ type: 'success', title: LABELS.savedLibDir })

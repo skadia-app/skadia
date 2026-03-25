@@ -740,6 +740,12 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 
 	// ── Save sidecar: ShadowFS preferred, legacy S3 as fallback ─────────
 	if h.ShadowFS != nil {
+		// Delete the previous sidecar file to avoid orphans.
+		if sidecarFileID != "" {
+			if delErr := h.ShadowFS.Delete(ctx, userID, sidecarFileID); delErr != nil {
+				slog.Warn("edit-ops: ShadowFS.Delete old sidecar failed", "activity_id", activityID, "file_id", sidecarFileID, "error", delErr)
+			}
+		}
 		fileName := fmt.Sprintf("%s.edits.json", activityID)
 		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,

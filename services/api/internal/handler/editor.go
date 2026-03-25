@@ -157,7 +157,21 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var sidecarFileID string
+
+	// Resolve existing sidecar_file_id so we can delete the old file before writing the new one.
+	var oldSidecarFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&oldSidecarFileID)
+
 	if h.ShadowFS != nil {
+		// Delete the previous sidecar file to avoid orphans.
+		if oldSidecarFileID != "" {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, oldSidecarFileID); delErr != nil {
+				slog.Warn("editor: ShadowFS.Delete old sidecar failed", "id", activityID, "file_id", oldSidecarFileID, "error", delErr)
+			}
+		}
 		fileName := fmt.Sprintf("%s.edits.json", activityID)
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,

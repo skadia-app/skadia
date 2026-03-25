@@ -195,6 +195,18 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		slog.Warn("GDPR: delete llm_user_config failed", "error", err)
 	}
 
+	// segment_efforts: user_id REFERENCES users(id) — no CASCADE.
+	// Covers efforts by this user on OTHER users' segments (own-segment efforts
+	// already deleted in Phase 1, but the user_id FK still blocks user deletion).
+	if _, err := tx.Exec(ctx, `DELETE FROM segment_efforts WHERE user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete segment_efforts by user_id failed", "error", err)
+	}
+
+	// segment_versions: created_by REFERENCES users(id) — no CASCADE.
+	if _, err := tx.Exec(ctx, `DELETE FROM segment_versions WHERE created_by = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete segment_versions failed", "error", err)
+	}
+
 	// segments: created_by REFERENCES users(id) — no CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE created_by = $1`, userID); err != nil {
 		markJobDone("failed", err.Error())

@@ -532,8 +532,14 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 	if h.ShadowFS != nil && activity.FileID != nil && *activity.FileID != "" {
 		rc, getErr := h.ShadowFS.Get(r.Context(), activity.UserID, *activity.FileID)
 		if getErr == nil {
-			data, _ = io.ReadAll(rc)
+			var readErr error
+			data, readErr = io.ReadAll(rc)
 			rc.Close()
+			if readErr != nil {
+				slog.Warn("export original: ShadowFS read failed, falling back to S3",
+					"activity_id", activity.ID, "file_id", *activity.FileID, "error", readErr)
+				data = nil
+			}
 		} else {
 			slog.Warn("export original: ShadowFS.Get failed, falling back to S3",
 				"activity_id", activity.ID, "file_id", *activity.FileID, "error", getErr)
@@ -930,7 +936,7 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 
 // exportMultisportZip packages the original files of all child activities into a single ZIP.
 func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, parent *model.Activity) {
-	if h.Storage == nil {
+	if h.Storage == nil && h.ShadowFS == nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original files not available", r.URL.Path)
 		return
 	}
@@ -956,10 +962,35 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 				ext = strings.ToLower(parts[len(parts)-1])
 			}
 		}
-		s3Key := fmt.Sprintf("%s/%s.%s", child.UserID, *child.FileHash, ext)
-		data, _, err := h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
-		if err != nil {
-			slog.Warn("multisport zip: child download failed", "child_id", child.ID, "key", s3Key, "error", err)
+
+		// ShadowFS path (preferred): read via file_id when available.
+		var data []byte
+		if h.ShadowFS != nil && child.FileID != nil && *child.FileID != "" {
+			rc, getErr := h.ShadowFS.Get(r.Context(), child.UserID, *child.FileID)
+			if getErr == nil {
+				var readErr error
+				data, readErr = io.ReadAll(rc)
+				rc.Close()
+				if readErr != nil {
+					slog.Warn("multisport zip: ShadowFS read failed, falling back to S3",
+						"child_id", child.ID, "file_id", *child.FileID, "error", readErr)
+					data = nil
+				}
+			} else {
+				slog.Warn("multisport zip: ShadowFS.Get failed, falling back to S3",
+					"child_id", child.ID, "file_id", *child.FileID, "error", getErr)
+			}
+		}
+		// Legacy S3 fallback.
+		if data == nil && h.Storage != nil {
+			s3Key := fmt.Sprintf("%s/%s.%s", child.UserID, *child.FileHash, ext)
+			var dlErr error
+			data, _, dlErr = h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
+			if dlErr != nil {
+				slog.Warn("multisport zip: child download failed", "child_id", child.ID, "key", s3Key, "error", dlErr)
+			}
+		}
+		if data == nil {
 			continue
 		}
 		entryName := fmt.Sprintf("%02d_%s_%s.%s", i+1, child.StartedAt.Format("2006-01-02"), child.SportType, ext)

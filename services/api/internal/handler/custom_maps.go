@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,6 +82,10 @@ func (h *Handler) DeleteCustomMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mapID := chi.URLParam(r, "mapID")
+
+	// Clean up marker image files in ShadowFS before the CASCADE delete removes the DB rows.
+	h.cleanupCustomMapMarkerImages(r.Context(), mapID, userID)
+
 	if err := h.DB.DeleteCustomMap(r.Context(), mapID, userID); httputil.HandleDBErr(w, r, err, "custom map not found") {
 		return
 	}
@@ -297,4 +302,32 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, mk)
+}
+
+// cleanupCustomMapMarkerImages deletes ShadowFS files for all marker images in
+// a custom map. Must be called BEFORE the map is deleted (CASCADE would drop
+// the custom_map_markers rows and lose the image_file_id references).
+func (h *Handler) cleanupCustomMapMarkerImages(ctx context.Context, mapID, userID string) {
+	if h.ShadowFS == nil {
+		return
+	}
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT COALESCE(image_file_id::text, '') FROM custom_map_markers WHERE map_id = $1 AND user_id = $2`,
+		mapID, userID,
+	)
+	if err != nil {
+		slog.Warn("custom map delete: query marker image_file_ids failed", "map_id", mapID, "error", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var fileID string
+		if err := rows.Scan(&fileID); err != nil || fileID == "" {
+			continue
+		}
+		if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
+			slog.Warn("custom map delete: ShadowFS.Delete marker image failed", "map_id", mapID, "file_id", fileID, "error", delErr)
+		}
+	}
 }
