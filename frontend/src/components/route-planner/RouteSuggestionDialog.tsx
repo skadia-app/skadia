@@ -307,7 +307,7 @@ export default function RouteSuggestionDialog({
                   Start- und Endpunkt sind identisch
                 </span>
               </div>
-              <Toggle checked={roundTrip} onChange={setRoundTrip} aria-label="Rundtour" />
+              <Toggle checked={roundTrip} onChange={setRoundTrip} size="sm" aria-label="Rundtour" />
             </label>
 
             {/* Terra Incognita toggle */}
@@ -320,7 +320,7 @@ export default function RouteSuggestionDialog({
                   Unbekannte Wege und Gebiete werden stärker gewichtet
                 </span>
               </div>
-              <Toggle checked={preferUnknown} onChange={setPreferUnknown} aria-label="Terra Incognita bevorzugen" />
+              <Toggle checked={preferUnknown} onChange={setPreferUnknown} size="sm" aria-label="Terra Incognita bevorzugen" />
             </label>
           </div>
 
