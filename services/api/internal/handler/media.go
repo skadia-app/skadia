@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -67,4 +69,58 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Write(data)
+}
+
+// ServeFile serves a file from the FileStore.
+// GET /api/v1/files/{fileID}
+func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	fileID := chi.URLParam(r, "fileID")
+	if fileID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fileID required", r.URL.Path)
+		return
+	}
+
+	resolved, err := h.FileStore.Resolve(r.Context(), userID, fileID)
+	if err != nil {
+		slog.Error("file serve failed", "file_id", fileID, "error", err)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "file not found", r.URL.Path)
+		return
+	}
+
+	// Security headers
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	// Content-Disposition: inline for images/video, attachment for everything else
+	disposition := "attachment"
+	if strings.HasPrefix(resolved.ContentType, "image/") || strings.HasPrefix(resolved.ContentType, "video/") {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition",
+		mime.FormatMediaType(disposition, map[string]string{"filename": resolved.FileName}))
+
+	switch resolved.Type {
+	case "local":
+		http.ServeFile(w, r, resolved.Path)
+	case "s3":
+		// Sensitive types: server-side proxy (don't expose presigned URL)
+		if resolved.ContentType == "" ||
+			strings.HasPrefix(resolved.ContentType, "application/") ||
+			resolved.ContentType == "text/plain" {
+			resp, err := http.Get(resolved.URL) //nolint:noctx
+			if err != nil {
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch file", r.URL.Path)
+				return
+			}
+			defer resp.Body.Close()
+			w.Header().Set("Content-Type", resolved.ContentType)
+			io.Copy(w, resp.Body) //nolint:errcheck
+		} else {
+			// Media: redirect to presigned URL
+			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
+		}
+	}
 }

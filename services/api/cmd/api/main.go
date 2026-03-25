@@ -632,6 +632,7 @@ func main() {
 			r.Get("/photos", h.ListPhotoFeed)
 			r.Get("/photos/search", h.SearchPhotos)
 			r.Get("/media/{bucket}/*", h.ServeMedia)
+			r.Get("/files/{fileID}", h.ServeFile)
 
 			// Geo
 			r.Get("/geo/visited-pois", h.GetVisitedPOIs)
