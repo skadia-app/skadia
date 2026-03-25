@@ -115,6 +115,11 @@ export async function getMe(): Promise<MeData> {
   return res.json() as Promise<MeData>
 }
 
+export async function resendVerification(): Promise<{ status: string }> {
+  const res = await apiFetch('/api/v1/auth/resend-verification', { method: 'POST' })
+  return res.json() as Promise<{ status: string }>
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const res = await apiFetch(`${API_BASE}/auth/change-password`, {
     method: 'POST',
