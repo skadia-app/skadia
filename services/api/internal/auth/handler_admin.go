@@ -2,12 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -248,6 +250,90 @@ func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_revoke_sessions", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
 	slog.Info("admin revoked all sessions", "user_id", userID, "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sessions_revoked"})
+}
+
+// AdminResetPassword handles POST /admin/users/{id}/reset-password.
+// Two modes:
+//  1. Set a temporary password directly (must_change_password=true, all tokens revoked).
+//  2. Send a password-reset email via SMTP.
+func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
+	targetID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(targetID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		return
+	}
+
+	var req struct {
+		Password  *string `json:"password,omitempty"`
+		SendEmail bool    `json:"send_email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	targetUser, err := h.DB.GetUserByID(r.Context(), targetID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r.Context())
+	ip := middleware.ClientIP(r)
+
+	if req.Password != nil {
+		// HIBP-Check — only block if definitively compromised; network errors are non-fatal.
+		compromised, err := CheckHIBP(*req.Password)
+		if err == nil && compromised {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+			return
+		}
+		hash, err := argon2id.CreateHash(*req.Password, GetArgon2Params())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if err := h.DB.UpdatePassword(r.Context(), targetID, hash); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err := h.DB.Pool.Exec(r.Context(),
+			`UPDATE users SET must_change_password = true WHERE id = $1`, targetID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if err := h.DB.RevokeAllUserTokens(r.Context(), targetID); err != nil {
+			slog.Warn("admin reset-password: revoke tokens failed", "error", err, "user_id", targetID)
+		}
+		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_reset_password", ip, r.UserAgent(),
+			map[string]string{"target_user_id": targetID, "method": "password"})
+		slog.Info("admin reset password (direct)", "target_user_id", targetID, "admin_id", adminID)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+
+	} else if req.SendEmail {
+		if h.Config.SMTPHost == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
+			return
+		}
+		token, err := GenerateToken()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(targetID),
+			HashToken(token), "reset", time.Now().Add(1*time.Hour)); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		go h.Mailer.SendResetEmail(*targetUser.Email, targetUser.Username, token)
+		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_reset_password", ip, r.UserAgent(),
+			map[string]string{"target_user_id": targetID, "method": "email"})
+		slog.Info("admin reset password (email)", "target_user_id", targetID, "admin_id", adminID)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "reset_email_sent"})
+
+	} else {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+	}
 }
 
 // notifyAdminsNewRegistration emails all active admins about a pending approval request.
