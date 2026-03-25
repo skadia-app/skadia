@@ -26,6 +26,10 @@ func HashToken(token string) string {
 }
 
 // GenerateFamily creates a new token family ID.
-func GenerateFamily() string {
-	return uuid.New().String()
+func GenerateFamily() (string, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return "", fmt.Errorf("generate family: %w", err)
+	}
+	return id.String(), nil
 }

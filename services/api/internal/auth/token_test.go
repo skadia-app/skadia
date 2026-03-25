@@ -65,7 +65,10 @@ func TestHashTokenDifferentInputs(t *testing.T) {
 }
 
 func TestGenerateFamily(t *testing.T) {
-	family := GenerateFamily()
+	family, err := GenerateFamily()
+	if err != nil {
+		t.Fatalf("GenerateFamily() returned error: %v", err)
+	}
 
 	// Must be a valid UUID.
 	if _, err := uuid.Parse(family); err != nil {
@@ -76,7 +79,10 @@ func TestGenerateFamily(t *testing.T) {
 func TestGenerateFamilyUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	for range 100 {
-		f := GenerateFamily()
+		f, err := GenerateFamily()
+		if err != nil {
+			t.Fatalf("GenerateFamily() returned error: %v", err)
+		}
 		if seen[f] {
 			t.Fatal("GenerateFamily() produced duplicate family ID")
 		}
