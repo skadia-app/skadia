@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -99,19 +100,26 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 
 	// Activities metadata (without streams — too large)
 	actRows, err := h.DB.Pool.Query(ctx,
-		`SELECT id, name, sport_type, started_at, elapsed_time, distance, elevation_gain,
-		        avg_hr, max_hr, avg_power, calories, description, is_virtual
+		`SELECT id, title, sport_type, sub_type, started_at, elapsed_time_s, moving_time_s,
+		        distance_m, elevation_gain_m, elevation_loss_m, avg_heart_rate, max_heart_rate,
+		        avg_power_w, total_calories, description, is_virtual, is_indoor, source,
+		        gear_id, start_city, start_country, created_at
 		 FROM activities WHERE user_id = $1 ORDER BY started_at DESC`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "activities.json", actRows)
+	} else {
+		slog.Error("data export: activities query failed", "error", err)
 	}
 
 	// Gear
 	gearRows, err := h.DB.Pool.Query(ctx,
-		`SELECT id, name, brand, model, gear_type, distance, retired, created_at
+		`SELECT id, name, type, sub_type, brand, model, total_distance_m, total_time_s,
+		        total_activities, is_retired, notes, created_at
 		 FROM gear WHERE user_id = $1`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "gear.json", gearRows)
+	} else {
+		slog.Error("data export: gear query failed", "error", err)
 	}
 
 	// Tags
@@ -119,41 +127,40 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, name, color, description, is_auto FROM tags WHERE user_id = $1`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "tags.json", tagRows)
+	} else {
+		slog.Error("data export: tags query failed", "error", err)
 	}
 
 	// Segments
 	segRows, err := h.DB.Pool.Query(ctx,
-		`SELECT id, name, distance, elevation_gain, created_at FROM segments WHERE user_id = $1`, userID)
+		`SELECT id, name, sport_group, segment_type, distance_m, elevation_gain_m,
+		        effort_count, created_at
+		 FROM segments WHERE created_by = $1`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "segments.json", segRows)
-	}
-
-	// Privacy zones
-	pzRows, err := h.DB.Pool.Query(ctx,
-		`SELECT id, name, center_lat, center_lng, radius_m FROM privacy_zones WHERE user_id = $1`, userID)
-	if err == nil {
-		exportRowsToZip(zw, "privacy_zones.json", pzRows)
+	} else {
+		slog.Error("data export: segments query failed", "error", err)
 	}
 
 	// Planned routes
 	prRows, err := h.DB.Pool.Query(ctx,
-		`SELECT id, name, distance, elevation_gain, created_at FROM planned_routes WHERE user_id = $1`, userID)
+		`SELECT id, name, sport_type, total_distance_m, total_elevation_gain,
+		        estimated_time_min, created_at
+		 FROM planned_routes WHERE user_id = $1`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "planned_routes.json", prRows)
+	} else {
+		slog.Error("data export: planned_routes query failed", "error", err)
 	}
 
 	// Health data (TimescaleDB hypertables — SELECT * is intentional for full export)
-	for _, table := range []string{
-		"health_daily_summary", "health_sleep", "health_snapshots",
-		"health_hrv_night_values", "health_weight_entries",
-		"health_blood_pressure", "health_fitness_age",
-		"health_stress_snapshots", "health_spo2_snapshots",
-		"health_training_load", "health_readiness_scores",
-	} {
+	var exportedTables []string
+	for _, table := range database.AllHealthTables() {
 		hRows, err := h.DB.Pool.Query(ctx,
 			fmt.Sprintf(`SELECT * FROM %s WHERE user_id = $1`, table), userID)
 		if err == nil {
 			exportRowsToZip(zw, fmt.Sprintf("health/%s.json", table), hRows)
+			exportedTables = append(exportedTables, table)
 		}
 	}
 
@@ -162,13 +169,32 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		streamShadowFSToZip(basePath, userID, zw)
 	}
 
+	// Export manifest with metadata
+	manifest := map[string]any{
+		"exported_at": time.Now().Format(time.RFC3339),
+		"tables": append([]string{
+			"account", "profile", "activities", "gear", "tags",
+			"segments", "planned_routes",
+		}, exportedTables...),
+	}
+	writeZipJSON(zw, "manifest.json", manifest)
+
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_requested",
 		middleware.ClientIP(r), r.UserAgent(), nil)
 }
 
+// createZipEntry creates a zip entry with the current timestamp (avoids 1979 default).
+func createZipEntry(zw *zip.Writer, name string) (io.Writer, error) {
+	return zw.CreateHeader(&zip.FileHeader{
+		Name:     name,
+		Method:   zip.Deflate,
+		Modified: time.Now(),
+	})
+}
+
 // writeZipJSON writes a single JSON value to the zip archive under the given name.
 func writeZipJSON(zw *zip.Writer, name string, data any) {
-	w, err := zw.Create(name)
+	w, err := createZipEntry(zw, name)
 	if err != nil {
 		slog.Error("data export: create zip entry failed", "name", name, "error", err)
 		return
@@ -183,7 +209,7 @@ func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
 	defer rows.Close()
 
 	cols := rows.FieldDescriptions()
-	w, err := zw.Create(name)
+	w, err := createZipEntry(zw, name)
 	if err != nil {
 		slog.Error("data export: create zip entry failed", "name", name, "error", err)
 		return
@@ -229,7 +255,7 @@ func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
 		if relErr != nil {
 			return nil
 		}
-		w, createErr := zw.Create("originals/" + rel)
+		w, createErr := createZipEntry(zw, "originals/"+rel)
 		if createErr != nil {
 			slog.Error("data export: create zip entry for shadowfs failed", "path", rel, "error", createErr)
 			return nil
