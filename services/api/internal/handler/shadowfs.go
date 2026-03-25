@@ -81,6 +81,15 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Validate schema before persisting.
+	if req.Schema != "" {
+		renderer := shadowfs.NewSchemaRenderer()
+		if _, err := renderer.ValidateSchema("activity", req.Schema); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+	}
+
 	// Persist schema update to user_file_schemas (activity type).
 	if req.Schema != "" {
 		if _, err := h.DB.Pool.Exec(r.Context(),

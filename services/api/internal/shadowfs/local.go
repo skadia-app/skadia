@@ -51,6 +51,11 @@ func NewLocalShadowFS(pool *pgxpool.Pool, basePath string, renderer *SchemaRende
 
 // Put stores a file on disk and registers it in user_files.
 func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
+	// Validate file type.
+	if _, ok := fileTypeDirName[entry.FileType]; !ok {
+		return FileRecord{}, fmt.Errorf("unknown file type %q", entry.FileType)
+	}
+
 	// Quota check: soft limit — rejects if already over quota, but does NOT
 	// serialize concurrent uploads (advisory lock would kill bulk import perf
 	// with 10,000s of monitoring FITs). Concurrent uploads may briefly overshoot
@@ -89,6 +94,9 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 		err := s.pool.QueryRow(ctx,
 			`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = $2`,
 			entry.UserID, entry.FileType).Scan(&userSchema)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return FileRecord{}, fmt.Errorf("shadowfs: query schema: %w", err)
+		}
 		if err == nil && userSchema != "" {
 			schema = userSchema
 		}
@@ -116,6 +124,7 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	}
 
 	// Write file with O_EXCL race retry (except edit sidecars which overwrite).
+	// Safe: O_EXCL fails atomically at open before any data is read. Do not change writeFile to read data before opening.
 	var written int64
 	var hashHex string
 	var first512 []byte
@@ -149,7 +158,7 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	// Content-type detection.
 	contentType := DetectContentType(entry.FileName, entry.ContentType, first512)
 
-	// Override size and hash with what we actually wrote.
+	// entry.SizeBytes/FileHash are advisory; DB always stores computed values (written/hashHex)
 	if entry.SizeBytes == 0 {
 		entry.SizeBytes = written
 	}
@@ -205,7 +214,10 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 
 	// Post-write quota check: catches cases where SizeBytes was 0 on entry.
 	if s.maxUserBytes > 0 && written > 0 {
-		usage, _ := diskUsage(ctx, s.pool, entry.UserID)
+		usage, qErr := diskUsage(ctx, s.pool, entry.UserID)
+		if qErr != nil {
+			slog.Warn("shadowfs: post-write quota check failed", "error", qErr)
+		}
 		if usage > s.maxUserBytes {
 			s.safeRemove(fullPath, relPath)
 			_, _ = s.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, rec.ID)
@@ -264,9 +276,17 @@ func (s *LocalShadowFS) Delete(ctx context.Context, userID, fileID string) error
 
 	fullPath := filepath.Join(s.basePath, storagePath)
 
+	// Delete registry entry FIRST. If DB delete fails, file stays (correct).
+	// If os.Remove fails after DB delete, reconciler catches the orphan.
+	_, err = s.pool.Exec(ctx,
+		`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: delete record: %w", err)
+	}
+
 	// Remove the file.
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("shadowfs: remove: %w", err)
+		slog.Warn("shadowfs: remove file after DB delete (reconciler will clean up)", "path", fullPath, "error", err)
 	}
 
 	// Remove file-type-specific sidecars.
@@ -275,12 +295,6 @@ func (s *LocalShadowFS) Delete(ctx context.Context, userID, fileID string) error
 	// Clean empty parent directories.
 	cleanEmptyDirs(filepath.Dir(fullPath), s.basePath)
 
-	// Delete registry entry.
-	_, err = s.pool.Exec(ctx,
-		`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
-	if err != nil {
-		return fmt.Errorf("shadowfs: delete record: %w", err)
-	}
 	return nil
 }
 
@@ -393,7 +407,8 @@ func (s *LocalShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.
 		}
 
 		// ZIP Slip prevention.
-		if strings.Contains(zipPath, "..") {
+		zipPath = filepath.Clean(zipPath)
+		if strings.Contains(zipPath, "..") || strings.HasPrefix(zipPath, "/") {
 			slog.Warn("shadowfs: skip path with .. in zip", "path", zipPath)
 			continue
 		}
@@ -436,7 +451,7 @@ func (s *LocalShadowFS) Resolve(ctx context.Context, userID, fileID string) (Res
 	var sizeBytes int64
 	err := s.pool.QueryRow(ctx,
 		`SELECT storage_path, content_type, file_name, size_bytes
-		FROM user_files WHERE id = $1 AND user_id = $2`,
+		FROM user_files WHERE id = $1 AND user_id = $2 AND status != 'purging'`,
 		fileID, userID).Scan(&storagePath, &contentType, &fileName, &sizeBytes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -501,17 +516,30 @@ func (s *LocalShadowFS) Archive(ctx context.Context, userID, fileID, replacedByI
 		return fmt.Errorf("shadowfs: mkdir archive: %w", err)
 	}
 
+	// Set is_renaming=true BEFORE os.Rename so reconciler can recover crashed archives.
+	_, err = s.pool.Exec(ctx,
+		`UPDATE user_files SET is_renaming = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+		fileID, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: set is_renaming: %w", err)
+	}
+
 	// Move file.
 	if err := os.Rename(fullPath, archiveFull); err != nil {
+		// Roll back is_renaming flag on rename failure.
+		_, _ = s.pool.Exec(ctx,
+			`UPDATE user_files SET is_renaming = false, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+			fileID, userID)
 		return fmt.Errorf("shadowfs: rename to archive: %w", err)
 	}
 
 	// Clean empty source directories.
 	cleanEmptyDirs(filepath.Dir(fullPath), s.basePath)
 
-	// Update registry.
+	// Update registry and clear is_renaming.
 	_, err = s.pool.Exec(ctx,
-		`UPDATE user_files SET storage_path = $1, status = 'archived', replaced_by = $2, updated_at = NOW()
+		`UPDATE user_files SET storage_path = $1, status = 'archived', replaced_by = $2,
+			is_renaming = false, updated_at = NOW()
 		WHERE id = $3 AND user_id = $4`,
 		archiveRel, replacedByID, fileID, userID)
 	if err != nil {
@@ -587,6 +615,42 @@ func (s *LocalShadowFS) validateLocalPath(relPath string) error {
 				return fmt.Errorf("shadowfs: eval parent symlinks: %w", err)
 			}
 			if !strings.HasPrefix(real, s.basePath) {
+				return fmt.Errorf("shadowfs: parent symlink escapes basePath: %q -> %q", parentDir, real)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateRelPath checks that relPath stays within basePath and contains no
+// symlink escapes. It is the package-level equivalent of validateLocalPath and
+// is used by handler code that operates outside of a LocalShadowFS instance.
+func ValidateRelPath(basePath, relPath string) error {
+	cleaned := filepath.Clean(relPath)
+	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+		return fmt.Errorf("shadowfs: path traversal blocked: %q", relPath)
+	}
+	fullPath := filepath.Join(basePath, cleaned)
+	if !strings.HasPrefix(fullPath, basePath+string(filepath.Separator)) && fullPath != basePath {
+		return fmt.Errorf("shadowfs: path escapes basePath: %q", relPath)
+	}
+	// Check symlinks on existing paths.
+	if _, err := os.Lstat(fullPath); err == nil {
+		real, err := filepath.EvalSymlinks(fullPath)
+		if err != nil {
+			return fmt.Errorf("shadowfs: eval symlinks: %w", err)
+		}
+		if !strings.HasPrefix(real, basePath) {
+			return fmt.Errorf("shadowfs: symlink escapes basePath: %q -> %q", fullPath, real)
+		}
+	} else {
+		parentDir := filepath.Dir(fullPath)
+		if _, err := os.Lstat(parentDir); err == nil {
+			real, err := filepath.EvalSymlinks(parentDir)
+			if err != nil {
+				return fmt.Errorf("shadowfs: eval parent symlinks: %w", err)
+			}
+			if !strings.HasPrefix(real, basePath) {
 				return fmt.Errorf("shadowfs: parent symlink escapes basePath: %q -> %q", parentDir, real)
 			}
 		}

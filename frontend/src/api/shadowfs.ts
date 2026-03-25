@@ -26,10 +26,10 @@ export async function getFileSchemas(): Promise<FileSchema[]> {
 }
 
 export async function updateFileSchema(
-  type: FileType,
+  fileType: FileType,
   schema: string,
 ): Promise<FileSchemaUpdateResponse> {
-  return apiClient<FileSchemaUpdateResponse>(`/settings/file-schemas/${type}`, {
+  return apiClient<FileSchemaUpdateResponse>(`/settings/file-schemas/${fileType}`, {
     method: 'PUT',
     body: { schema },
   })
