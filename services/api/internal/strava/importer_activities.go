@@ -301,11 +301,30 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if format == "fit" && params.ImportService != nil {
 				sessions, msParseErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
 				if msParseErr == nil && len(sessions) > 1 {
-					// Multi-session FIT: compute hash, upload to S3, delegate to ProcessMultisport
+					// Multi-session FIT: upload via FileStore (preferred) or legacy S3, then delegate.
 					hash := sha256.Sum256(fileBytes)
 					msHash := hex.EncodeToString(hash[:])
-					msS3Key := fmt.Sprintf("%s/%s.fit", params.UserID, msHash)
-					if params.Storage != nil {
+					var msFileID string
+					if params.FileStore != nil {
+						rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+							UserID:      params.UserID,
+							FileType:    "activity",
+							ContentType: "application/octet-stream",
+							FileName:    filename,
+							SizeBytes:   int64(len(fileBytes)),
+							FileHash:    msHash,
+							Tags: map[string]string{
+								"format": "fit",
+								"source": "strava",
+							},
+						}, bytes.NewReader(fileBytes))
+						if putErr != nil {
+							slog.Warn("strava activities: FileStore.Put multisport failed", "file", filename, "error", putErr)
+						} else {
+							msFileID = rec.ID
+						}
+					} else if params.Storage != nil {
+						msS3Key := fmt.Sprintf("%s/%s.fit", params.UserID, msHash)
 						if uploadErr := params.Storage.Upload(ctx, msS3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
 							slog.Warn("strava activities: S3 upload for multisport failed", "file", filename, "error", uploadErr)
 						}
@@ -317,7 +336,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					}
 					_, msErr := params.ImportService.ProcessMultisport(
 						ctx, params.UserID, sessions, fileBytes, msHash,
-						msS3Key, "fit", filename, importMeta,
+						msFileID, "fit", filename, importMeta,
 					)
 					if msErr != nil {
 						slog.Warn("strava activities: ProcessMultisport failed", "strava_id", stravaID, "error", msErr)
