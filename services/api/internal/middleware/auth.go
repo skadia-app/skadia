@@ -57,6 +57,19 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), UserIDKey, sub)
+
+		// Extract custom claims from JWT into context
+		isAdminVal, _ := token.Get("is_admin")
+		isAdmin, _ := isAdminVal.(bool)
+		emailVerifiedVal, _ := token.Get("email_verified")
+		emailVerified, _ := emailVerifiedVal.(bool)
+		mustChangePWVal, _ := token.Get("must_change_password")
+		mustChangePW, _ := mustChangePWVal.(bool)
+
+		ctx = context.WithValue(ctx, IsAdminKey, isAdmin)
+		ctx = context.WithValue(ctx, EmailVerifiedKey, emailVerified)
+		ctx = context.WithValue(ctx, MustChangePWKey, mustChangePW)
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
