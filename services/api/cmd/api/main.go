@@ -317,6 +317,39 @@ func main() {
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/mobile/exchange", authHandler.MobileExchange)
 		r.With(middleware.RateLimitGeneric(authRL)).Post("/mobile/logout", authHandler.MobileLogout)
+
+		// ── Authenticated auth routes (JWT required) ──
+		r.Group(func(r chi.Router) {
+			if cfg.DevAuth {
+				r.Use(middleware.DevAuthMiddleware)
+			} else {
+				var jwtSecret []byte
+				if cfg.JWTSecret != "" {
+					jwtSecret, _ = hex.DecodeString(cfg.JWTSecret)
+				}
+				jwtAuth := middleware.NewJWTAuth(jwtSecret)
+				r.Use(jwtAuth.Middleware)
+			}
+			r.Use(middleware.RequirePasswordChanged())
+
+			r.With(middleware.RateLimitChangePassword(authRL)).
+				Post("/change-password", authHandler.ChangePassword)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Get("/sessions", authHandler.ListMySessions)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Post("/sessions/{familyId}/revoke", authHandler.RevokeSession)
+			r.Post("/link/{provider}", authHandler.LinkSocialAccount)
+			r.Delete("/link/{provider}", authHandler.UnlinkSocialAccount)
+			r.With(middleware.RateLimitPerUser(authRL, "resend:", 3.0/3600, 3)).
+				Post("/resend-verification", authHandler.ResendVerification)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				With(middleware.RateLimitPerUser(authRL, "change-email:", 3.0/3600, 3)).
+				Post("/change-email", authHandler.ChangeEmail)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Delete("/account", authHandler.DeleteAccount)
+			r.With(middleware.RateLimitPerUser(authRL, "export:", 2.0/3600, 2)).
+				Get("/data-export", authHandler.DataExport)
+		})
 	})
 
 	// Internal routes (no JWT auth — service-to-service only, network-level access control)
@@ -405,23 +438,8 @@ func main() {
 			})
 
 			// ── Regular authenticated routes ──
-			r.With(middleware.RateLimitChangePassword(authRL)).
-				Post("/auth/change-password", authHandler.ChangePassword)
-			r.With(middleware.RateLimitGeneric(authRL)).
-				Get("/auth/sessions", authHandler.ListMySessions)
-			r.With(middleware.RateLimitGeneric(authRL)).
-				Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
-			r.Post("/auth/link/{provider}", authHandler.LinkSocialAccount)
-			r.Delete("/auth/link/{provider}", authHandler.UnlinkSocialAccount)
-			r.With(middleware.RateLimitPerUser(authRL, "resend:", 3.0/3600, 3)).
-				Post("/auth/resend-verification", authHandler.ResendVerification)
-			r.With(middleware.RateLimitGeneric(authRL)).
-				With(middleware.RateLimitPerUser(authRL, "change-email:", 3.0/3600, 3)).
-				Post("/auth/change-email", authHandler.ChangeEmail)
-			r.With(middleware.RateLimitGeneric(authRL)).
-				Delete("/auth/account", authHandler.DeleteAccount)
-			r.With(middleware.RateLimitPerUser(authRL, "export:", 2.0/3600, 2)).
-				Get("/auth/data-export", authHandler.DataExport)
+			// Auth-spezifische Routen (change-password, sessions, etc.) sind
+			// im /api/v1/auth Block als authentifizierte Sub-Gruppe registriert.
 
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)
