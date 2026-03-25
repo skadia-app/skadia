@@ -243,7 +243,7 @@ func RunUnifiedLandmarkPreprocessing(
 		// Without clustering, global median-split places all seeds in the
 		// largest region (Europe), leaving other regions without local flanks.
 		clusters := detectTileClusters(tiles)
-		seedSlots := allocateSeedSlots(clusters, 4)
+		seedSlots := allocateSeedSlots(clusters, 6)
 
 		slog.Info("tile clusters detected", "clusters", len(clusters),
 			"slot_distribution", seedSlots)
