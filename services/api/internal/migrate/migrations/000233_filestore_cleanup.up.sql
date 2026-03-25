@@ -9,6 +9,9 @@ BEGIN
             RAISE EXCEPTION 'filestore migration not complete: pending/failed entries remain in migration_filestore_journal';
         END IF;
     END IF;
+    IF EXISTS (SELECT 1 FROM background_jobs WHERE job_type IN ('filestore_file_move', 'filestore_rollback') AND status = 'running') THEN
+        RAISE EXCEPTION 'filestore file move job is still running';
+    END IF;
 END $$;
 
 -- Drop legacy columns from activities

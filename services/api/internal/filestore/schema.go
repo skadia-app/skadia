@@ -68,6 +68,9 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 	if schema == "" {
 		return nil, fmt.Errorf("schema is empty")
 	}
+	if strings.ContainsRune(schema, 0) {
+		return nil, fmt.Errorf("schema must not contain null bytes")
+	}
 	if strings.Contains(schema, "..") {
 		return nil, fmt.Errorf("schema must not contain '..'")
 	}

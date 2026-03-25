@@ -38,6 +38,7 @@ CREATE INDEX idx_user_files_user_type ON user_files (user_id, file_type);
 CREATE INDEX idx_user_files_parent ON user_files (parent_type, parent_id) WHERE parent_id IS NOT NULL;
 CREATE INDEX idx_user_files_hash ON user_files (user_id, file_hash) WHERE file_hash IS NOT NULL;
 CREATE INDEX idx_user_files_status ON user_files (status) WHERE status IN ('archived', 'purging');
+CREATE UNIQUE INDEX idx_user_files_edit_upsert ON user_files (user_id, file_type, parent_id) WHERE file_type = 'edit';
 
 -- Multi-parent file linking (bookmarks, not ownership)
 CREATE TABLE file_attachments (

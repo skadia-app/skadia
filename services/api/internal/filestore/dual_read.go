@@ -50,6 +50,15 @@ func ResolveActivityFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, 
 	return nil, fmt.Errorf("no file found for activity %s", activityID)
 }
 
+// allowedMediaTables is the set of tables permitted in ResolveMediaFile queries.
+var allowedMediaTables = map[string]bool{
+	"activity_photos":   true,
+	"gear_documents":    true,
+	"route_photos":      true,
+	"tags":              true,
+	"custom_map_markers": true,
+}
+
 // ResolveMediaFile returns a reader for a media file (photo, document, etc.)
 // by querying the given table for its file_id and legacy S3 key columns.
 //
@@ -58,6 +67,10 @@ func ResolveActivityFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, 
 //
 // Same "legacy_s3:<key>" sentinel convention as ResolveActivityFile applies.
 func ResolveMediaFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, tableName, fileIDColumn, s3KeyColumn, rowID, userID string) (io.ReadCloser, error) {
+	if !allowedMediaTables[tableName] {
+		return nil, fmt.Errorf("invalid table name")
+	}
+
 	var fileID *string
 	var s3Key *string
 	query := fmt.Sprintf(
