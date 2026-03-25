@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -326,7 +327,29 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := shadowfs.ExecuteRename(h.ShadowFSConfig.BasePath, items)
+	// Validate that all paths belong to the authenticated user's directory
+	// and contain no traversal or symlink escapes.
+	userPrefix := userID + "/"
+	basePath := h.ShadowFSConfig.BasePath
+	validItems := make([]shadowfs.RenameItem, 0, len(items))
+	for _, item := range items {
+		if !strings.HasPrefix(item.OldPath, userPrefix) || !strings.HasPrefix(item.NewPath, userPrefix) {
+			slog.Warn("rename: path outside user directory blocked",
+				"user_id", userID, "old", item.OldPath, "new", item.NewPath)
+			continue
+		}
+		if err := shadowfs.ValidateRelPath(basePath, item.OldPath); err != nil {
+			slog.Warn("rename: old path validation failed", "path", item.OldPath, "error", err)
+			continue
+		}
+		if err := shadowfs.ValidateRelPath(basePath, item.NewPath); err != nil {
+			slog.Warn("rename: new path validation failed", "path", item.NewPath, "error", err)
+			continue
+		}
+		validItems = append(validItems, item)
+	}
+
+	result := shadowfs.ExecuteRename(basePath, validItems)
 
 	// Update local_file_path in DB for successfully renamed files
 	for _, item := range result.SucceededItems {

@@ -17,6 +17,7 @@ export interface FileSchemaUpdateResponse {
 
 export interface LibraryDir {
   library_dir_name: string
+  status?: string
 }
 
 // ── API functions ──────────────────────────────────────────────────────────

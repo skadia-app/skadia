@@ -25,6 +25,32 @@ BEGIN
     IF EXISTS (SELECT 1 FROM background_jobs WHERE job_type IN ('shadowfs_file_move', 'shadowfs_rollback') AND status = 'running') THEN
         RAISE EXCEPTION 'shadowfs cleanup blocked: file move job is still running';
     END IF;
+    -- Guard 5: gear_documents without file_id but with legacy S3 keys?
+    IF EXISTS (SELECT 1 FROM gear_documents WHERE file_id IS NULL AND s3_key IS NOT NULL) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % gear_documents have legacy S3 keys but no file_id',
+            (SELECT COUNT(*) FROM gear_documents WHERE file_id IS NULL AND s3_key IS NOT NULL);
+    END IF;
+    -- Guard 6: route_photos without file_id but with legacy S3 keys?
+    IF EXISTS (SELECT 1 FROM route_photos WHERE file_id IS NULL AND s3_key IS NOT NULL) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % route_photos have legacy S3 keys but no file_id',
+            (SELECT COUNT(*) FROM route_photos WHERE file_id IS NULL AND s3_key IS NOT NULL);
+    END IF;
+    -- Guard 7: tags with legacy cover_image_url but no cover_file_id?
+    IF EXISTS (SELECT 1 FROM tags WHERE cover_file_id IS NULL AND cover_image_url IS NOT NULL) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % tags have legacy cover_image_url but no cover_file_id',
+            (SELECT COUNT(*) FROM tags WHERE cover_file_id IS NULL AND cover_image_url IS NOT NULL);
+    END IF;
+    -- Guard 8: custom_map_markers with legacy image_url but no image_file_id?
+    IF EXISTS (SELECT 1 FROM custom_map_markers WHERE image_file_id IS NULL AND image_url IS NOT NULL) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % custom_map_markers have legacy image_url but no image_file_id',
+            (SELECT COUNT(*) FROM custom_map_markers WHERE image_file_id IS NULL AND image_url IS NOT NULL);
+    END IF;
+    -- Guard 9: import_queue with pending legacy S3 keys?
+    -- import_queue has no file_id equivalent — just ensure no active entries reference s3_key.
+    IF EXISTS (SELECT 1 FROM import_queue WHERE s3_key IS NOT NULL AND status IN ('pending', 'processing')) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % import_queue entries still reference legacy s3_key',
+            (SELECT COUNT(*) FROM import_queue WHERE s3_key IS NOT NULL AND status IN ('pending', 'processing'));
+    END IF;
 END $$;
 
 -- Drop legacy columns from activities

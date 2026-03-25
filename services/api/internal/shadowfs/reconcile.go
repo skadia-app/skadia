@@ -219,7 +219,9 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 	var totalLocal int64
 	if countErr := j.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM user_files WHERE storage_backend = 'local' AND status != 'purging'`,
-	).Scan(&totalLocal); countErr == nil && totalLocal > 0 {
+	).Scan(&totalLocal); countErr != nil {
+		return fmt.Errorf("count local records for safety check: %w", countErr)
+	} else if totalLocal > 0 {
 		if float64(len(toDelete))/float64(totalLocal) > 0.5 {
 			slog.Error("shadowfs reconcile: >50% of local records appear dangling — skipping deletion (possible mount issue)",
 				"dangling", len(toDelete), "total", totalLocal)

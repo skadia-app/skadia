@@ -1041,16 +1041,46 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, fileHash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, fileHash)
 
-	// Upload original
-	if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3Key, photoBytes, ct); err != nil {
-		return nil, fmt.Errorf("s3 upload photo: %w", err)
+	// ShadowFS path (preferred): store original via ShadowFS.
+	var shadowFileID string
+	if s.ShadowFS != nil {
+		parentType := "activity"
+		rec, putErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    meta.OriginalFilename,
+			SizeBytes:   int64(len(photoBytes)),
+			FileHash:    fileHash,
+			ParentType:  &parentType,
+			ParentID:    shadowfs.Ptr(activityID),
+		}, bytes.NewReader(photoBytes))
+		if putErr != nil {
+			slog.Warn("importer: ShadowFS.Put photo failed, falling back to S3", "err", putErr)
+		} else {
+			shadowFileID = rec.ID
+		}
+	}
+
+	// Legacy S3 upload (fallback when ShadowFS is not available or as dual-write).
+	if s.Storage != nil {
+		if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3Key, photoBytes, ct); err != nil {
+			if shadowFileID == "" {
+				return nil, fmt.Errorf("s3 upload photo: %w", err)
+			}
+			slog.Warn("importer: s3 upload photo failed (ShadowFS ok)", "err", err)
+		}
+	} else if shadowFileID == "" {
+		return nil, fmt.Errorf("no storage available for photo upload")
 	}
 
 	// Upload thumbnail
 	if thumbData != nil {
-		if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-			slog.Warn("importer: s3 upload thumb failed", "err", err)
-			s3KeyThumb = s3Key // fallback: original
+		if s.Storage != nil {
+			if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
+				slog.Warn("importer: s3 upload thumb failed", "err", err)
+				s3KeyThumb = s3Key // fallback: original
+			}
 		}
 	} else {
 		s3KeyThumb = s3Key
@@ -1059,10 +1089,12 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	// Upload preview
 	if previewData != nil {
 		pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
-		if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
-			slog.Warn("importer: s3 upload preview failed", "err", err)
-		} else {
-			s3KeyPreview = pk
+		if s.Storage != nil {
+			if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
+				slog.Warn("importer: s3 upload preview failed", "err", err)
+			} else {
+				s3KeyPreview = pk
+			}
 		}
 	}
 
@@ -1085,6 +1117,9 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		FileHash:         &hashCopy,
 		TakenAt:          meta.TakenAt,
 		IsVideo:          isVideo,
+	}
+	if shadowFileID != "" {
+		photo.FileID = &shadowFileID
 	}
 
 	// Location fields from metadata

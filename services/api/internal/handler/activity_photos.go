@@ -571,11 +571,13 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 					continue
 				}
 				previewKey := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, previewKey, previewData, "image/jpeg"); err != nil {
-					slog.Warn("recompute preview: video s3 upload failed", "photo_id", photo.ID, "error", err)
-					anyFailed = true
-				} else if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, previewKey); err != nil {
-					anyFailed = true
+				if h.Storage != nil {
+					if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, previewKey, previewData, "image/jpeg"); err != nil {
+						slog.Warn("recompute preview: video s3 upload failed", "photo_id", photo.ID, "error", err)
+						anyFailed = true
+					} else if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, previewKey); err != nil {
+						anyFailed = true
+					}
 				}
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
@@ -603,15 +605,17 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 			}
 
 			s3KeyPreview := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-			if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-				slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
-				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-			if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, s3KeyPreview); err != nil {
-				anyFailed = true
+			if h.Storage != nil {
+				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
+					slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
+					anyFailed = true
+					processed++
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
+					continue
+				}
+				if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, s3KeyPreview); err != nil {
+					anyFailed = true
+				}
 			}
 			processed++
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
@@ -665,7 +669,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.Storage == nil {
+	if h.Storage == nil && h.ShadowFS == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
 		return
 	}
@@ -683,10 +687,26 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		anyFailed := false
 
 		for _, photo := range badPhotos {
-			// Download the original file (the raw video).
-			data, _, err := h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
-			if err != nil {
-				slog.Warn("recompute thumbnails: download failed", "photo_id", photo.ID, "key", photo.S3Key, "error", err)
+			// Download the original file: ShadowFS (preferred), then S3 fallback.
+			var data []byte
+			if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
+				rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
+				if getErr == nil {
+					data, _ = io.ReadAll(rc)
+					rc.Close()
+				} else {
+					slog.Warn("recompute thumbnails: ShadowFS.Get failed, falling back to S3",
+						"photo_id", photo.ID, "file_id", *photo.FileID, "error", getErr)
+				}
+			}
+			if data == nil && h.Storage != nil {
+				var dlErr error
+				data, _, dlErr = h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
+				if dlErr != nil {
+					slog.Warn("recompute thumbnails: download failed", "photo_id", photo.ID, "key", photo.S3Key, "error", dlErr)
+				}
+			}
+			if data == nil {
 				anyFailed = true
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)

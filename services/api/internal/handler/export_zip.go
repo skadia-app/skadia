@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -147,16 +148,39 @@ func (h *Handler) exportActivityBytes(ctx context.Context, activity *model.Activ
 				ext = strings.ToLower(parts[len(parts)-1])
 			}
 		}
-		if activity.FileHash == nil {
+		if activity.FileHash == nil && (activity.FileID == nil || *activity.FileID == "") {
 			return nil, "", fmt.Errorf("no original file stored")
 		}
-		if h.Storage == nil {
-			return nil, "", fmt.Errorf("storage not configured")
+
+		// ShadowFS path (preferred): read via file_id when available.
+		var data []byte
+		if h.ShadowFS != nil && activity.FileID != nil && *activity.FileID != "" {
+			rc, getErr := h.ShadowFS.Get(ctx, activity.UserID, *activity.FileID)
+			if getErr == nil {
+				var readErr error
+				data, readErr = io.ReadAll(rc)
+				rc.Close()
+				if readErr != nil {
+					slog.Warn("export: ShadowFS read failed, falling back to S3",
+						"activity_id", activity.ID, "file_id", *activity.FileID, "error", readErr)
+					data = nil
+				}
+			} else {
+				slog.Warn("export: ShadowFS.Get failed, falling back to S3",
+					"activity_id", activity.ID, "file_id", *activity.FileID, "error", getErr)
+			}
 		}
-		s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
-		data, _, err := h.Storage.DownloadFromBucket(ctx, "skadia-originals", s3Key)
-		if err != nil {
-			return nil, "", fmt.Errorf("download original: %w", err)
+		// Legacy S3 fallback.
+		if data == nil && h.Storage != nil && activity.FileHash != nil {
+			s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
+			var dlErr error
+			data, _, dlErr = h.Storage.DownloadFromBucket(ctx, "skadia-originals", s3Key)
+			if dlErr != nil {
+				return nil, "", fmt.Errorf("download original: %w", dlErr)
+			}
+		}
+		if data == nil {
+			return nil, "", fmt.Errorf("no storage available for activity %s", activity.ID)
 		}
 		filename := fmt.Sprintf("activity-%s-%s.%s", date, activity.ID[:8], ext)
 		return data, filename, nil

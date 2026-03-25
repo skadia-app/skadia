@@ -206,7 +206,9 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 			VALUES ($1, $2, $3, 's3', $4, $5, $6, $7, $8, $9, $10, $11, 'active')
 			ON CONFLICT (storage_backend, storage_path) DO UPDATE SET
 				size_bytes = EXCLUDED.size_bytes, file_hash = EXCLUDED.file_hash,
-				content_type = EXCLUDED.content_type, updated_at = NOW()
+				content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name,
+				parent_type = EXCLUDED.parent_type, parent_id = EXCLUDED.parent_id,
+				has_sidecar = EXCLUDED.has_sidecar, updated_at = NOW()
 			RETURNING id, user_id, file_type, storage_backend, storage_path, content_type,
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
@@ -286,13 +288,21 @@ func (s *S3ShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 
 	bucket := s.bucketFor(fileType)
 
-	// Delete main object.
-	_, err = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	// Delete DB record first — an orphaned S3 object is safe (reconciler cleans it),
+	// but a dangling DB record pointing to a deleted S3 object causes user-visible errors.
+	_, err = s.pool.Exec(ctx,
+		`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
+	if err != nil {
+		return fmt.Errorf("db delete: %w", err)
+	}
+
+	// Delete main S3 object.
+	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(storagePath),
-	})
-	if err != nil {
-		slog.Warn("s3 delete failed", "error", err, "key", storagePath)
+	}); err != nil {
+		slog.Warn("s3 delete failed (orphaned object, reconciler will clean)",
+			"error", err, "key", storagePath, "bucket", bucket)
 	}
 
 	// Delete sidecar if present.
@@ -306,12 +316,6 @@ func (s *S3ShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 		}
 	}
 
-	// Remove from DB.
-	_, err = s.pool.Exec(ctx,
-		`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
-	if err != nil {
-		return fmt.Errorf("db delete: %w", err)
-	}
 	return nil
 }
 
@@ -319,16 +323,24 @@ func (s *S3ShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 // Acquires a per-user advisory lock to prevent races with concurrent uploads.
 func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
 	// Advisory lock prevents concurrent uploads from creating files while we purge.
-	if _, err := s.pool.Exec(ctx,
+	// Must use a pinned connection — advisory locks are session-level and would
+	// silently release if the pooled connection is returned between calls.
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx,
 		`SELECT pg_advisory_lock(hashtext($1))`, userID); err != nil {
 		return fmt.Errorf("advisory lock: %w", err)
 	}
 	defer func() {
-		_, _ = s.pool.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, userID)
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, userID)
 	}()
 
 	// Mark all files as purging.
-	_, err := s.pool.Exec(ctx,
+	_, err = conn.Exec(ctx,
 		`UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("mark purging: %w", err)
@@ -340,6 +352,12 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 		userID + "/",
 		"_cache/" + userID + "/",
 		"_temp/" + userID + "/",
+		// Legacy S3 prefixes from pre-ShadowFS era.
+		"activity-photos/" + userID + "/",
+		"gear/" + userID + "/",
+		"route-photos/" + userID + "/",
+		"marker-images/" + userID + "/",
+		"tag-covers/" + userID + "/",
 	}
 
 	for _, bucket := range buckets {
@@ -353,7 +371,7 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 	}
 
 	// Remove from DB.
-	_, err = s.pool.Exec(ctx,
+	_, err = conn.Exec(ctx,
 		`DELETE FROM user_files WHERE user_id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("db purge: %w", err)
