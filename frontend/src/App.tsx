@@ -47,6 +47,8 @@ const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'))
 const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
+const ConfirmEmailChangePage = lazy(() => import('@/pages/auth/ConfirmEmailChangePage'))
+const CancelDeletionPage = lazy(() => import('@/pages/auth/CancelDeletionPage'))
 const ImportPage = lazy(() => import('@/pages/ImportPage'))
 const ActivityComparisonPage = lazy(() => import('@/pages/ActivityComparisonPage'))
 const FusionPage = lazy(() => import('@/pages/FusionPage'))
@@ -119,6 +121,8 @@ export default function App() {
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/verify-email" element={<VerifyEmailPage />} />
                     <Route path="/callback" element={<CallbackPage />} />
+                    <Route path="/confirm-email-change" element={<ConfirmEmailChangePage />} />
+                    <Route path="/cancel-deletion" element={<CancelDeletionPage />} />
 
                     {/* Protected routes */}
                     <Route element={<AuthGuard />}>
