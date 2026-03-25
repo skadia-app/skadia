@@ -66,7 +66,12 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 	}
 
 	tokenHash := HashToken(token)
-	familyID := GenerateFamily()
+	familyID, err := GenerateFamily()
+	if err != nil {
+		slog.Error("generate family ID failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
 	ip := net.ParseIP(middleware.ClientIP(r))
 
 	if err := h.DB.CreateRefreshToken(r.Context(), userID, familyID, tokenHash,
