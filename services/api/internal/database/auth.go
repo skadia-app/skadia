@@ -184,6 +184,63 @@ func (db *DB) ConsumeAuthCode(ctx context.Context, codeHash string) (uuid.UUID, 
 
 // --- Audit Log ---
 
+// AuditLogEntry is the JSON response shape for admin audit log listings.
+type AuditLogEntry struct {
+	ID        int64      `json:"id"`
+	UserID    *string    `json:"user_id,omitempty"`
+	Username  *string    `json:"username,omitempty"`
+	EventType string     `json:"event_type"`
+	IPAddress *string    `json:"ip_address,omitempty"`
+	UserAgent *string    `json:"user_agent,omitempty"`
+	Details   any        `json:"details,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// GetAuditLog returns paginated audit log entries with optional filters.
+func (db *DB) GetAuditLog(ctx context.Context, eventType, userID string,
+	from, to *time.Time, limit, offset int) ([]AuditLogEntry, int, error) {
+
+	query := `SELECT a.id, a.user_id::text, u.username, a.event_type,
+                     a.ip_address::text, a.user_agent, a.details, a.created_at
+              FROM auth_audit_log a
+              LEFT JOIN users u ON u.id = a.user_id
+              WHERE ($1 = '' OR a.event_type = $1)
+                AND ($2 = '' OR a.user_id::text = $2)
+                AND ($3::timestamptz IS NULL OR a.created_at >= $3)
+                AND ($4::timestamptz IS NULL OR a.created_at <= $4)
+              ORDER BY a.created_at DESC
+              LIMIT $5 OFFSET $6`
+
+	rows, err := db.Pool.Query(ctx, query, eventType, userID, from, to, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var entries []AuditLogEntry
+	for rows.Next() {
+		var e AuditLogEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.Username, &e.EventType,
+			&e.IPAddress, &e.UserAgent, &e.Details, &e.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	countQuery := `SELECT count(*) FROM auth_audit_log a
+                   WHERE ($1 = '' OR a.event_type = $1)
+                     AND ($2 = '' OR a.user_id::text = $2)
+                     AND ($3::timestamptz IS NULL OR a.created_at >= $3)
+                     AND ($4::timestamptz IS NULL OR a.created_at <= $4)`
+	var total int
+	db.Pool.QueryRow(ctx, countQuery, eventType, userID, from, to).Scan(&total) //nolint:errcheck
+
+	return entries, total, nil
+}
+
 // LogAuthEvent records an auth event in the audit log.
 func (db *DB) LogAuthEvent(ctx context.Context, userID, eventType, ipAddress, userAgent string, details map[string]string) {
 	var uid *string
