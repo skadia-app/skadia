@@ -2,7 +2,7 @@
 -- Restores legacy S3/ShadowFS columns as nullable (no data recovery possible).
 
 -- Recreate migration journal so 000232 down-migration can work correctly.
-CREATE TABLE IF NOT EXISTS migration_filestore_journal (
+CREATE TABLE IF NOT EXISTS migration_shadowfs_journal (
     source_table TEXT NOT NULL,
     source_id    UUID NOT NULL,
     phase        TEXT NOT NULL DEFAULT 'registry',

@@ -1,16 +1,16 @@
 -- 000233_filestore_cleanup.up.sql
--- Drops legacy S3/ShadowFS columns now that the Unified FileStore migration is complete.
+-- Drops legacy S3/ShadowFS columns now that the Unified ShadowFS migration is complete.
 
 -- Pre-check: ensure migration is complete
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_filestore_journal') THEN
-        IF EXISTS (SELECT 1 FROM migration_filestore_journal WHERE status IN ('pending', 'failed')) THEN
-            RAISE EXCEPTION 'filestore migration not complete: pending/failed entries remain in migration_filestore_journal';
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_shadowfs_journal') THEN
+        IF EXISTS (SELECT 1 FROM migration_shadowfs_journal WHERE status IN ('pending', 'failed')) THEN
+            RAISE EXCEPTION 'shadowfs migration not complete: pending/failed entries remain in migration_shadowfs_journal';
         END IF;
     END IF;
-    IF EXISTS (SELECT 1 FROM background_jobs WHERE job_type IN ('filestore_file_move', 'filestore_rollback') AND status = 'running') THEN
-        RAISE EXCEPTION 'filestore file move job is still running';
+    IF EXISTS (SELECT 1 FROM background_jobs WHERE job_type IN ('shadowfs_file_move', 'shadowfs_rollback') AND status = 'running') THEN
+        RAISE EXCEPTION 'shadowfs file move job is still running';
     END IF;
 END $$;
 
@@ -49,4 +49,4 @@ ALTER TABLE import_queue DROP COLUMN IF EXISTS s3_bucket;
 ALTER TABLE import_queue DROP COLUMN IF EXISTS s3_key;
 
 -- Drop migration journal now that cleanup is done
-DROP TABLE IF EXISTS migration_filestore_journal;
+DROP TABLE IF EXISTS migration_shadowfs_journal;
