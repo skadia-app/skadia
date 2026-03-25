@@ -147,30 +147,34 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	if user.EmailVerified {
-		writeJSON(w, 200, map[string]string{"status": "already_verified"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_verified"})
 		return
 	}
 	if !h.Mailer.IsConfigured() {
-		writeJSON(w, 400, map[string]string{"error": "smtp_not_configured"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 		return
 	}
 	token, err := GenerateToken()
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID), HashToken(token), "verification",
 		time.Now().Add(24*time.Hour)); err != nil {
 		slog.Error("create email token failed", "error", err)
-		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if user.Email == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_email_configured"})
 		return
 	}
 	go h.Mailer.SendVerificationEmail(*user.Email, user.Username, token)
-	writeJSON(w, 200, map[string]string{"status": "verification_email_sent"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
 }
 
 // VerifyEmail handles POST /auth/verify-email.
