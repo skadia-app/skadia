@@ -232,15 +232,23 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 		provider, providerID,
 	).Scan(&userID)
 	if err == nil {
-		// Found existing connection — load and return user.
+		// Found existing connection — load user, but only if not soft-deleted.
 		u, err := scanUser(db.Pool.QueryRow(ctx,
-			`SELECT `+allUserColumns+` FROM users WHERE id = $1`, userID))
+			`SELECT `+allUserColumns+` FROM users WHERE id = $1 AND deleted_at IS NULL`, userID))
 		if err != nil {
-			return nil, false, fmt.Errorf("get user by oauth: %w", err)
+			if errors.Is(err, pgx.ErrNoRows) {
+				// User was soft-deleted — remove stale oauth_connection so we
+				// can create a fresh user below.
+				_, _ = db.Pool.Exec(ctx,
+					`DELETE FROM oauth_connections WHERE provider = $1 AND provider_id = $2`,
+					provider, providerID)
+			} else {
+				return nil, false, fmt.Errorf("get user by oauth: %w", err)
+			}
+		} else {
+			return u, false, nil
 		}
-		return u, false, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, fmt.Errorf("lookup oauth connection: %w", err)
 	}
 
@@ -258,9 +266,10 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 		emailPtr = &providerEmail
 
 		// Check email collision inside tx to prevent TOCTOU race.
+		// Ignore soft-deleted users so the email can be re-used.
 		var exists bool
 		err = tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+			`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL)`,
 			providerEmail,
 		).Scan(&exists)
 		if err != nil {
