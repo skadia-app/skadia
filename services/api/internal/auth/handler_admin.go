@@ -282,6 +282,14 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 	ip := middleware.ClientIP(r)
 
 	if req.Password != nil {
+		if len(*req.Password) < 10 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
+			return
+		}
+		if len(*req.Password) > 1000 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+			return
+		}
 		// HIBP-Check — only block if definitively compromised; network errors are non-fatal.
 		compromised, err := CheckHIBP(*req.Password)
 		if err == nil && compromised {
@@ -323,6 +331,10 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(targetID),
 			HashToken(token), "reset", time.Now().Add(1*time.Hour)); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if targetUser.Email == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_has_no_email"})
 			return
 		}
 		go h.Mailer.SendResetEmail(*targetUser.Email, targetUser.Username, token)
@@ -378,10 +390,10 @@ func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// parseIntDefault parses s as an integer, returning def on empty string or parse error.
+// parseIntDefault parses s as an integer, returning def on empty string, parse error, or negative value.
 func parseIntDefault(s string, def int) int {
 	v, err := strconv.Atoi(s)
-	if err != nil {
+	if err != nil || v < 0 {
 		return def
 	}
 	return v

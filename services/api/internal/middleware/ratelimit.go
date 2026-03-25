@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -13,6 +14,9 @@ import (
 
 // 500K: Ausgelegt für 100K User mit multiplen IPs + User-IDs als Keys.
 const maxRateLimitEntries = 500_000
+
+// rateLimitCapacityWarned fires once when capacity is exceeded; reset after each cleanup cycle.
+var rateLimitCapacityWarned atomic.Bool
 
 // RateLimiter manages per-key rate limiters with automatic cleanup.
 type RateLimiter struct {
@@ -44,6 +48,9 @@ func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
 
 	// Cap map size to prevent memory exhaustion under attack.
 	if rl.size.Load() >= maxRateLimitEntries {
+		if rateLimitCapacityWarned.CompareAndSwap(false, true) {
+			slog.Warn("rate limiter capacity exceeded, failing open", "size", rl.size.Load())
+		}
 		return true // fail open — DoS protection shouldn't become DoS
 	}
 
@@ -75,6 +82,7 @@ func (rl *RateLimiter) cleanup(ctx context.Context, interval time.Duration) {
 				}
 				return true
 			})
+			rateLimitCapacityWarned.Store(false)
 		case <-ctx.Done():
 			return
 		}
