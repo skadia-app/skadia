@@ -4,6 +4,7 @@ import { suggestRoute, type RouteSuggestionParams, type RouteSuggestion } from '
 import { useAccentColor } from '@/lib/accentColor'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
+import Toggle from '@/components/Toggle'
 
 // Sport options relevant for route planning (GPS-tracked outdoor sports)
 const ROUTE_SPORT_OPTIONS = [
@@ -306,24 +307,7 @@ export default function RouteSuggestionDialog({
                   Start- und Endpunkt sind identisch
                 </span>
               </div>
-              <button
-                role="switch"
-                aria-checked={roundTrip}
-                onClick={() => setRoundTrip(v => !v)}
-                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer"
-                style={{ backgroundColor: roundTrip ? accent.shade500 : undefined }}
-                data-state={roundTrip ? 'checked' : 'unchecked'}
-              >
-                <span
-                  className={`
-                    inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform
-                    ${roundTrip ? 'translate-x-[18px]' : 'translate-x-[3px]'}
-                  `}
-                />
-                {!roundTrip && (
-                  <span className="absolute inset-0 rounded-full bg-neutral-300 dark:bg-neutral-700 -z-10" />
-                )}
-              </button>
+              <Toggle checked={roundTrip} onChange={setRoundTrip} aria-label="Rundtour" />
             </label>
 
             {/* Terra Incognita toggle */}
@@ -336,24 +320,7 @@ export default function RouteSuggestionDialog({
                   Unbekannte Wege und Gebiete werden stärker gewichtet
                 </span>
               </div>
-              <button
-                role="switch"
-                aria-checked={preferUnknown}
-                onClick={() => setPreferUnknown(v => !v)}
-                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer"
-                style={{ backgroundColor: preferUnknown ? accent.shade500 : undefined }}
-                data-state={preferUnknown ? 'checked' : 'unchecked'}
-              >
-                <span
-                  className={`
-                    inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform
-                    ${preferUnknown ? 'translate-x-[18px]' : 'translate-x-[3px]'}
-                  `}
-                />
-                {!preferUnknown && (
-                  <span className="absolute inset-0 rounded-full bg-neutral-300 dark:bg-neutral-700 -z-10" />
-                )}
-              </button>
+              <Toggle checked={preferUnknown} onChange={setPreferUnknown} aria-label="Terra Incognita bevorzugen" />
             </label>
           </div>
 
