@@ -1109,3 +1109,83 @@ func setAvgCostPerKm(cfg *CostConfig, profileName string) {
 		cfg.AvgCostPerKm = 1800 // hiking fallback
 	}
 }
+
+// ProfileDefaultsResponse is the JSON response for GET /profiles/{name}.
+// Returns elevation parameters + highway cost defaults. Other fields (difficulty,
+// enrichment, behavior) are handled by the frontend's PROFILES constant.
+// Uses pointer fields WITHOUT omitempty so null values are serialized (blocked types).
+type ProfileDefaultsResponse struct {
+	Profile           string   `json:"profile"`
+	UphillCost        *float32 `json:"uphill_cost"`
+	DownhillCost      *float32 `json:"downhill_cost"`
+	UphillCutoffPct   *float32 `json:"uphill_cutoff_pct"`
+	DownhillCutoffPct *float32 `json:"downhill_cutoff_pct"`
+	ElevPenaltyBuffer *float32 `json:"elev_penalty_buffer_m"`
+	ElevMaxBuffer     *float32 `json:"elev_max_buffer_m"`
+	ElevBufferReduce  *float32 `json:"elev_buffer_reduce"`
+	TurnCost          *float32 `json:"turn_cost"`
+	Pass0Coefficient  *float32 `json:"pass0_coefficient"`
+	// Highway costs — null means permanently blocked for this profile
+	PathCost         *float32 `json:"path_cost"`
+	TrackCost        *float32 `json:"track_cost"`
+	TrackGrade1Cost  *float32 `json:"track_grade1_cost"`
+	TrackGrade2Cost  *float32 `json:"track_grade2_cost"`
+	TrackGrade3Cost  *float32 `json:"track_grade3_cost"`
+	FootwayCost      *float32 `json:"footway_cost"`
+	CyclewayCost     *float32 `json:"cycleway_cost"`
+	BridlewayCost    *float32 `json:"bridleway_cost"`
+	PedestrianCost   *float32 `json:"pedestrian_cost"`
+	ResidentialCost  *float32 `json:"residential_cost"`
+	ServiceCost      *float32 `json:"service_cost"`
+	UnclassifiedCost *float32 `json:"unclassified_cost"`
+	TertiaryCost     *float32 `json:"tertiary_cost"`
+	SecondaryCost    *float32 `json:"secondary_cost"`
+	PrimaryCost      *float32 `json:"primary_cost"`
+}
+
+// ProfileDefaults returns the full defaults for a profile.
+// Blocked highway types have nil cost (serialized as null).
+func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
+	base, err := BuiltinProfile(name)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &ProfileDefaultsResponse{
+		Profile:           name,
+		UphillCost:        base.UphillCost,
+		DownhillCost:      base.DownhillCost,
+		UphillCutoffPct:   base.UphillCutoffPct,
+		DownhillCutoffPct: base.DownhillCutoffPct,
+		ElevPenaltyBuffer: base.ElevPenaltyBuffer,
+		ElevMaxBuffer:     base.ElevMaxBuffer,
+		ElevBufferReduce:  base.ElevBufferReduce,
+		TurnCost:          base.TurnCost,
+		Pass0Coefficient:  base.Pass0Coefficient,
+	}
+
+	setIfPassable := func(dst **float32, cost float32) {
+		if cost >= costBlocked {
+			*dst = nil
+		} else {
+			*dst = ptr32(cost)
+		}
+	}
+	setIfPassable(&r.PathCost, profileHighwayCostDefault(name, 16, 0))
+	setIfPassable(&r.TrackCost, profileHighwayCostDefault(name, 15, 0))
+	setIfPassable(&r.TrackGrade1Cost, profileHighwayCostDefault(name, 15, 1))
+	setIfPassable(&r.TrackGrade2Cost, profileHighwayCostDefault(name, 15, 2))
+	setIfPassable(&r.TrackGrade3Cost, profileHighwayCostDefault(name, 15, 3))
+	setIfPassable(&r.FootwayCost, profileHighwayCostDefault(name, 17, 0))
+	setIfPassable(&r.CyclewayCost, profileHighwayCostDefault(name, 18, 0))
+	setIfPassable(&r.BridlewayCost, profileHighwayCostDefault(name, 19, 0))
+	setIfPassable(&r.PedestrianCost, profileHighwayCostDefault(name, 21, 0))
+	setIfPassable(&r.ResidentialCost, profileHighwayCostDefault(name, 11, 0))
+	setIfPassable(&r.ServiceCost, profileHighwayCostDefault(name, 14, 0))
+	setIfPassable(&r.UnclassifiedCost, profileHighwayCostDefault(name, 13, 0))
+	setIfPassable(&r.TertiaryCost, profileHighwayCostDefault(name, 9, 0))
+	setIfPassable(&r.SecondaryCost, profileHighwayCostDefault(name, 7, 0))
+	setIfPassable(&r.PrimaryCost, profileHighwayCostDefault(name, 5, 0))
+
+	return r, nil
+}

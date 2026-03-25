@@ -20,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/go-chi/chi/v5"
 )
 
 // RoutingGraphStatus returns the current routing status based on tile availability.
@@ -452,6 +453,18 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		"job_id":  jobID,
 		"regions": labels,
 	})
+}
+
+// HandleGetProfileDefaults returns the full default ProfileConfig for a profile.
+// GET /api/v1/routing/profiles/{name}
+func (h *Handler) HandleGetProfileDefaults(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	p, err := routing.ProfileDefaults(name)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, p)
 }
 
 // DownloadBRouterSegments downloads pre-built BRouter rd5 segments from brouter.de.
