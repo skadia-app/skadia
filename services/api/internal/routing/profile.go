@@ -541,30 +541,30 @@ func hikingHighwayCost(hw uint8) float32 {
 
 func mtbHighwayCost(hw uint8) float32 {
 	switch hw {
-	case 15: // track
-		return 1.0
-	case 16: // path
-		return 1.1
-	case 18: // cycleway
-		return 1.0
-	case 17: // footway
-		return 1.2
-	case 11, 12: // residential, living_street
-		return 1.0
-	case 14: // service
-		return 1.1
-	case 13: // unclassified
-		return 1.0
-	case 9, 10: // tertiary
-		return 1.1
-	case 7, 8: // secondary
-		return 1.2
-	case 5, 6: // primary
+	case 16: // path — Singletrail: MTB-Paradies, aktiv bevorzugen
+		return 0.8
+	case 15: // track — Forstweg: gut, aber path bevorzugt
+		return 0.9
+	case 17: // footway — akzeptabel, aber kein Ziel
+		return 1.3
+	case 19: // bridleway — oft alpine Trails, nicht blockieren
+		return 1.4
+	case 14: // service — Zufahrtswege: nur Durchfahrt
+		return 1.4
+	case 13: // unclassified — Nebenstraße: besser als Hauptstraßen
+		return 1.3
+	case 11, 12: // residential, living_street — Wohnstraße: meiden
 		return 1.5
+	case 18: // cycleway — asphaltierter Radweg: für MTBler langweilig
+		return 1.6
+	case 9, 10: // tertiary — Dorfstraße: meiden
+		return 1.5
+	case 7, 8: // secondary — stark meiden
+		return 2.0
+	case 5, 6: // primary — sehr stark meiden
+		return 3.0
 	case 21: // pedestrian
 		return 2.0
-	case 19: // bridleway
-		return 3.0
 	case 20: // steps
 		return costBlocked
 	case 22: // via_ferrata
@@ -574,48 +574,51 @@ func mtbHighwayCost(hw uint8) float32 {
 	}
 }
 
+// trekkingHighwayCost berechnet den Highway-Kostenfaktor für Trekking/Tourenrad.
+// Trekking-Nutzer bevorzugen Radwege und ruhige Straßen für lange Strecken.
+// Stark befahrene Hauptstraßen und rauhe Pfade werden gemieden.
 func trekkingHighwayCost(hw, tracktype uint8) float32 {
 	switch hw {
-	case 18: // cycleway
+	case 18: // cycleway — bevorzugt, sicher und komfortabel
 		return 1.0
 	case 15: // track (grade-dependent)
 		switch tracktype {
-		case 1: // grade1
+		case 1: // grade1 — befestigter Forstweg, ideal
 			return 1.0
-		case 2: // grade2
-			return 1.3
-		case 3: // grade3
-			return 1.8
-		case 4: // grade4
+		case 2: // grade2 — guter Schotterweg, noch OK
+			return 1.5
+		case 3: // grade3 — rauer Weg, grenzwertig für Tourenrad
 			return 2.5
-		case 5: // grade5
-			return 3.0
-		default: // unknown
-			return 1.3
+		case 4: // grade4 — sehr rau, kaum fahrbar
+			return 4.0
+		case 5: // grade5 — unbefahrbar für Tourenrad
+			return 5.0
+		default: // unknown — wie grade2 annehmen
+			return 1.5
 		}
-	case 16: // path
-		return 1.0
-	case 17: // footway
-		return 1.2
-	case 11, 12: // residential, living_street
-		return 1.1
-	case 14: // service
-		return 1.3
-	case 13: // unclassified
-		return 1.3
-	case 9, 10: // tertiary
-		return 1.4
-	case 7, 8: // secondary
-		return 1.6
-	case 5, 6: // primary
+	case 16: // path — zu schmal/rau für Tourenrad
+		return 3.5
+	case 17: // footway — Fußweg, Tourenrad ungeeignet
 		return 3.0
-	case 19: // bridleway
-		return 5.0
-	case 20: // steps
-		return 40
-	case 21: // pedestrian
+	case 11, 12: // residential, living_street — ruhig, angenehm
+		return 1.1
+	case 14: // service — Zufahrtsweg, akzeptabel
+		return 1.3
+	case 13: // unclassified — ruhige Straße, gut geeignet
+		return 1.2
+	case 9, 10: // tertiary — etwas Verkehr, noch tolerierbar
+		return 1.4
+	case 7, 8: // secondary — mehr Verkehr, ungemütlich
 		return 2.0
-	case 22: // via_ferrata
+	case 5, 6: // primary — stark befahren, meiden
+		return 4.0
+	case 19: // bridleway — Reitweg, kein Radweg
+		return 5.0
+	case 20: // steps — nicht fahrbar
+		return 40
+	case 21: // pedestrian — Fußgängerzone
+		return 2.0
+	case 22: // via_ferrata — gesperrt
 		return costBlocked
 	default:
 		return 1.5
@@ -623,48 +626,51 @@ func trekkingHighwayCost(hw, tracktype uint8) float32 {
 }
 
 func gravelHighwayCost(hw, tracktype uint8) float32 {
+	// Gravel riders prefer unpaved tracks and quiet roads.
+	// Schotter/Forstwege (track grade1-3) are ideal terrain.
+	// Busy roads (primary/secondary) are unpleasant but not impossible.
 	switch hw {
-	case 15: // track (grade-dependent)
+	case 15: // track (grade-dependent) — core gravel terrain
 		switch tracktype {
-		case 1:
+		case 1: // grade1: solid surface, fast gravel
 			return 1.0
-		case 2:
+		case 2: // grade2: gravel/dirt, excellent gravel terrain
+			return 1.1
+		case 3: // grade3: rougher surface, still good for gravel
 			return 1.5
-		case 3:
-			return 2.0
-		case 4:
-			return 3.0
-		case 5:
+		case 4: // grade4: very rough, challenging but possible
+			return 2.5
+		case 5: // grade5: extreme terrain, mostly unrideable
 			return 4.0
-		default:
-			return 1.5
+		default: // unknown tracktype — assume grade2-quality
+			return 1.1
 		}
-	case 18: // cycleway
+	case 18: // cycleway — paved but fine
 		return 1.0
-	case 16: // path
-		return 1.5
-	case 11, 12: // residential, living_street
-		return 1.8
+	case 13: // unclassified — quiet backroads, good gravel territory
+		return 1.1
+	case 11, 12: // residential, living_street — low traffic, acceptable
+		return 1.3
 	case 14: // service
-		return 1.5
-	case 13: // unclassified
-		return 1.5
-	case 9, 10: // tertiary
-		return 3.0
-	case 7, 8: // secondary
-		return 4.0
-	case 5, 6: // primary
-		return 5.0
-	case 17: // footway
-		return 2.0
-	case 19: // bridleway
-		return 3.0
+		return 1.4
+	case 16: // path — often singletrack, narrower than track
+		return 1.6
+	case 9, 10: // tertiary — moderate traffic, acceptable for connecting
+		return 1.8
+	case 7, 8: // secondary — more traffic, avoid if possible
+		return 2.8
+	case 5, 6: // primary — high traffic, dangerous, strongly avoid
+		return 4.5
+	case 17: // footway — not ideal but passable
+		return 2.5
+	case 19: // bridleway — soft surface, often too soft
+		return 2.5
 	case 20: // steps
 		return costBlocked
 	case 22: // via_ferrata
 		return costBlocked
 	case 21: // pedestrian
-		return 3.0
+		return 2.5
 	default:
 		return 2.0
 	}
@@ -674,48 +680,48 @@ func roadHighwayCost(hw, sf uint8) float32 {
 	isPaved := sf >= 1 && sf <= 7 // asphalt, concrete, paving_stones, sett, cobblestone, metal, wood
 
 	switch hw {
-	case 9, 10: // tertiary
+	case 18: // cycleway — bevorzugt: sicher, glatt, rennradgerecht
 		return 1.0
-	case 7, 8: // secondary
+	case 9, 10: // tertiary — Hauptwahl auf Straßen
 		return 1.1
-	case 5, 6: // primary
+	case 7, 8: // secondary — gut befahrbar
 		return 1.2
-	case 18: // cycleway
-		return 1.3
-	case 11, 12: // residential, living_street
-		if isPaved || sf == 0 {
-			return 1.2
-		}
-		return 10
-	case 14: // service
-		if isPaved || sf == 0 {
-			return 1.5
-		}
-		return 10
-	case 13: // unclassified
+	case 11, 12: // residential, living_street — OK wenn befestigt
 		if isPaved || sf == 0 {
 			return 1.3
 		}
-		return 10
-	case 15: // track
-		if isPaved {
-			return 1.5
+		return costBlocked
+	case 13: // unclassified — nur wenn befestigt
+		if isPaved || sf == 0 {
+			return 1.4
 		}
-		return 10
-	case 16: // path
-		return 10
-	case 17: // footway
-		return 10
-	case 19: // bridleway
-		return 10
+		return costBlocked
+	case 5, 6: // primary — viel Verkehr, akzeptabel aber nicht ideal
+		return 1.5
+	case 14: // service — kurze Verbindungen OK wenn befestigt
+		if isPaved || sf == 0 {
+			return 1.8
+		}
+		return costBlocked
+	case 21: // pedestrian — Rennrad nur im Notfall
+		return 8.0
+	case 15: // track — Schotter = Pannengefahr
+		if isPaved {
+			return 4.0
+		}
+		return costBlocked
+	case 16: // path — unbefestigt, unfahrbar für Rennrad
+		return costBlocked
+	case 17: // footway — nicht für Rennrad
+		return costBlocked
+	case 19: // bridleway — nicht für Rennrad
+		return costBlocked
 	case 20: // steps
 		return costBlocked
 	case 22: // via_ferrata
 		return costBlocked
-	case 21: // pedestrian
-		return 5.0
 	default:
-		return 5.0
+		return 8.0
 	}
 }
 
@@ -765,57 +771,68 @@ func outdoorSurfaceCost(sf uint8) float32 {
 
 func roadSurfaceCost(sf uint8) float32 {
 	switch sf {
-	case 0: // unknown
+	case 0: // unknown — auf Straßen meist Asphalt
 		return 1.0
-	case 1: // asphalt
+	case 1: // asphalt — ideal für Rennrad
 		return 1.0
-	case 2: // concrete
-		return 1.1
-	case 3: // paving_stones
-		return 1.2
-	case 8: // compacted
+	case 2: // concrete — gut befahrbar
+		return 1.05
+	case 3: // paving_stones — holprig aber OK
 		return 1.3
-	case 9: // fine_gravel
+	case 4, 5: // sett, cobblestone — sehr holprig, Pannengefahr
+		return 2.5
+	case 6: // metal — rutschig bei Nässe
 		return 1.5
-	case 10: // gravel
-		return 3.0
-	case 12, 13, 16: // dirt, earth, ground
-		return 5.0
+	case 7: // wood — rutschig, selten
+		return 1.8
+	case 8: // compacted — fest, passierbar
+		return 1.5
+	case 9: // fine_gravel — riskant für Rennrad
+		return 2.0
+	case 10: // gravel — Pannengefahr, stark vermeiden
+		return 4.0
+	case 12, 13, 16: // dirt, earth, ground — unfahrbar
+		return costBlocked
 	case 17: // mud
-		return 10
+		return costBlocked
 	case 14: // grass
-		return 5.0
+		return costBlocked
 	case 18: // sand
-		return 5.0
+		return costBlocked
 	case 20: // snow
-		return 10
+		return costBlocked
 	case 21: // ice
-		return 10
+		return costBlocked
 	default:
-		return 1.5
+		return 1.1 // unbekannte Oberfläche: auf Straßen meist befestigt
 	}
 }
 
 func gravelSurfaceCost(sf uint8) float32 {
+	// Gravel bikes are optimized for gravel/compacted surfaces.
+	// Asphalt is slightly less preferred (hard, vibration), but fine.
+	// Soft surfaces (dirt, mud) are harder and slower.
 	switch sf {
 	case 0: // unknown
 		return 1.0
-	case 8, 9: // compacted, fine_gravel
+	case 8, 9: // compacted, fine_gravel — ideal gravel surface
 		return 1.0
-	case 1, 2: // asphalt, concrete
+	case 10: // gravel — core terrain for gravel bikes
+		return 1.0
+	case 1, 2: // asphalt, concrete — smooth but not gravel's sweet spot
 		return 1.1
 	case 3: // paving_stones
-		return 1.1
-	case 10: // gravel
 		return 1.2
-	case 12, 13, 16: // dirt, earth, ground
-		return 1.8
+	case 4: // sett/cobblestone — rough paved
+		return 1.4
+	case 12, 13, 16: // dirt, earth, ground — soft, slower
+		return 1.6
+	case 14: // grass — soft, slow
+		return 2.0
 	case 17: // mud
 		return 3.0
 	case 18: // sand
 		return 3.0
-	case 14: // grass
-		return 2.0
 	case 20: // snow
 		return 5.0
 	case 21: // ice
