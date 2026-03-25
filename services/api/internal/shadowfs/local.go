@@ -299,7 +299,17 @@ func (s *LocalShadowFS) Delete(ctx context.Context, userID, fileID string) error
 }
 
 // DeleteAllForUser removes all files for a user (GDPR purge).
+// Acquires a per-user advisory lock to prevent races with concurrent uploads.
 func (s *LocalShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
+	// Advisory lock prevents concurrent uploads from creating files while we purge.
+	if _, err := s.pool.Exec(ctx,
+		`SELECT pg_advisory_lock(hashtext($1))`, userID); err != nil {
+		return fmt.Errorf("shadowfs: advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = s.pool.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, userID)
+	}()
+
 	// Mark all files as purging.
 	_, err := s.pool.Exec(ctx,
 		`UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)

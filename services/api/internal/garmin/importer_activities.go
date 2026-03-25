@@ -181,10 +181,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						},
 					}, bytes.NewReader(fileBytes))
 					if putErr != nil {
-						slog.Warn("garmin activities: ShadowFS.Put multisport failed", "file", ref.fileName, "error", putErr)
-					} else {
-						msFileID = rec.ID
+						slog.Error("garmin activities: ShadowFS.Put multisport failed — skipping activity", "file", ref.fileName, "error", putErr)
+						result.Errors = append(result.Errors, fmt.Sprintf("multisport upload %s: %s", ref.fileName, putErr))
+						tracker.Error(ctx, putErr)
+						continue
 					}
+					msFileID = rec.ID
 				} else if params.Storage != nil {
 					s3Key := fmt.Sprintf("%s/%s.fit", params.UserID, hashStr)
 					if uploadErr := params.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
@@ -269,18 +271,13 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		if actResult.Status == "enriched" || actResult.Status == "replaced" {
-			result.Skipped++ // counts as "not newly created" for import stats
-			tracker.Completed(ctx, actResult.ActivityID)
-			continue
-		}
 		if actResult.Status == "skipped" {
 			result.Skipped++
 			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 			continue
 		}
 
-		// New activity inserted — store file via ShadowFS (preferred) or legacy S3
+		// Upload file for created, enriched, and replaced statuses via ShadowFS (preferred) or legacy S3.
 		contentType := "application/octet-stream"
 		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
@@ -310,6 +307,18 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
 			}
 		}
+
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			// Run PostProcess for enriched/replaced too — the activity needs updated streams/heatmap.
+			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, ref.fileName); postErr != nil {
+				slog.Warn("garmin activities: PostProcess failed (enriched/replaced)", "file", ref.fileName, "error", postErr)
+			}
+			result.Skipped++ // counts as "not newly created" for import stats
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+
+		// New activity inserted
 		if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, ref.fileName); postErr != nil {
 			slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
 			// Non-fatal: activity is already stored

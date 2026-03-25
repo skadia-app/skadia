@@ -319,10 +319,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							},
 						}, bytes.NewReader(fileBytes))
 						if putErr != nil {
-							slog.Warn("strava activities: ShadowFS.Put multisport failed", "file", filename, "error", putErr)
-						} else {
-							msFileID = rec.ID
+							slog.Error("strava activities: ShadowFS.Put multisport failed — skipping activity", "file", filename, "error", putErr)
+							result.Errors = append(result.Errors, fmt.Sprintf("multisport upload strava_id=%d: %s", stravaID, putErr))
+							tracker.Error(ctx, putErr)
+							continue
 						}
+						msFileID = rec.ID
 					} else if params.Storage != nil {
 						msS3Key := fmt.Sprintf("%s/%s.fit", params.UserID, msHash)
 						if uploadErr := params.Storage.Upload(ctx, msS3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
@@ -424,38 +426,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Do not set FileFormat since we don't know it
 		}
 
-		// Upload original file via ShadowFS (preferred) or legacy S3
+		// File upload is deferred until after ProcessActivity confirms a "created" status.
+		// This prevents orphaned files in ShadowFS for duplicates/skipped activities.
 		var fileID string
-		if len(fileBytes) > 0 {
-			contentType := "application/octet-stream"
-			if format == "gpx" || format == "tcx" {
-				contentType = "application/xml"
-			}
-			if params.ShadowFS != nil {
-				rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
-					UserID:      params.UserID,
-					FileType:    "activity",
-					ContentType: contentType,
-					FileName:    filename,
-					SizeBytes:   int64(len(fileBytes)),
-					FileHash:    hashStr,
-					Tags: map[string]string{
-						"format": format,
-						"source": "strava",
-					},
-				}, bytes.NewReader(fileBytes))
-				if putErr != nil {
-					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
-				} else {
-					fileID = rec.ID
-				}
-			} else if params.Storage != nil {
-				s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-					slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
-				}
-			}
-		}
 
 		// CSV-only activity (no file in Strava export, e.g. manually created in Strava).
 		// Store the CSV row as a JSON source file so every activity has a stored original.
@@ -532,6 +505,39 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			result.Skipped++ // counts as "not newly created" for import stats
 			tracker.Completed(ctx, actResult.ActivityID)
 			continue
+		}
+
+		// New activity inserted — upload original file via ShadowFS (preferred) or legacy S3.
+		// Only reached for "created" status, preventing orphaned files for skipped/enriched/replaced.
+		if len(fileBytes) > 0 {
+			contentType := "application/octet-stream"
+			if format == "gpx" || format == "tcx" {
+				contentType = "application/xml"
+			}
+			if params.ShadowFS != nil {
+				rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
+					UserID:      params.UserID,
+					FileType:    "activity",
+					ContentType: contentType,
+					FileName:    filename,
+					SizeBytes:   int64(len(fileBytes)),
+					FileHash:    hashStr,
+					Tags: map[string]string{
+						"format": format,
+						"source": "strava",
+					},
+				}, bytes.NewReader(fileBytes))
+				if putErr != nil {
+					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
+				} else {
+					fileID = rec.ID
+				}
+			} else if params.Storage != nil {
+				s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+					slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
+				}
+			}
 		}
 
 		// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, NATS…)

@@ -105,7 +105,7 @@ func Load() (*Config, error) {
 		LibraryKeepVersions: parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
 		LibrarySyncEnabled:  os.Getenv("LIBRARY_SYNC_ENABLED") == "true",
 		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") == "true",
-		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), 50*1024*1024*1024),
+		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), int64(50)*1024*1024*1024),
 
 		// S3 with fallback to GARAGE_* for backward compatibility
 		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
@@ -150,6 +150,12 @@ func Load() (*Config, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
+
+	// L29: Validate STORAGE_BACKEND.
+	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
+		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
+	}
+
 	if cfg.StorageBackend == "s3" {
 		if cfg.S3AccessKey == "" {
 			return nil, fmt.Errorf("S3_ACCESS_KEY (or GARAGE_ACCESS_KEY) is required when STORAGE_BACKEND=s3")
@@ -159,7 +165,28 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// M21: Validate LIBRARY_BASE_PATH.
+	if err := validateLibraryBasePath(cfg.LibraryBasePath); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateLibraryBasePath ensures the library path is safe and absolute.
+func validateLibraryBasePath(p string) error {
+	if p == "" {
+		return fmt.Errorf("LIBRARY_BASE_PATH must not be empty")
+	}
+	if p[0] != '/' {
+		return fmt.Errorf("LIBRARY_BASE_PATH must be absolute, got %q", p)
+	}
+	for _, dangerous := range []string{"/", "/etc", "/var", "/usr", "/home"} {
+		if p == dangerous {
+			return fmt.Errorf("LIBRARY_BASE_PATH must not be %q", dangerous)
+		}
+	}
+	return nil
 }
 
 func getEnvDefault(key, defaultValue string) string {

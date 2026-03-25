@@ -128,7 +128,11 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"brouter_segment_download": "BRouter-Segmente herunterladen",
 		"device_orphan_cleanup":    "Verwaiste Geräte bereinigen",
 		"activity_re_enrich":       "Enrichment-Update",
-		"shadowfs_reconcile":      "Dateispeicher-Konsistenzprüfung",
+		"shadowfs_reconcile":       "Dateispeicher-Konsistenzprüfung",
+		"shadowfs_migration":       "Dateispeicher-Registry-Migration",
+		"shadowfs_file_move":       "Dateispeicher-Dateimigration",
+		"shadowfs_rollback":        "Dateispeicher-Rollback",
+		"gdpr_purge":               "DSGVO-Datenlöschung",
 	}
 	label := labels[jobType]
 	if label == "" {
