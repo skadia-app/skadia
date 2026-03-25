@@ -149,6 +149,34 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ResendVerification handles POST /auth/resend-verification.
+// Requires authentication (user must already be logged in).
+func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	user, err := h.DB.GetUserByID(r.Context(), userID)
+	if err != nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if user.EmailVerified {
+		writeJSON(w, 200, map[string]string{"status": "already_verified"})
+		return
+	}
+	if !h.Mailer.IsConfigured() {
+		writeJSON(w, 400, map[string]string{"error": "smtp_not_configured"})
+		return
+	}
+	token, err := GenerateToken()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+		return
+	}
+	h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID), HashToken(token), "verification",
+		time.Now().Add(24*time.Hour))
+	go h.Mailer.SendVerificationEmail(*user.Email, user.Username, token)
+	writeJSON(w, 200, map[string]string{"status": "verification_email_sent"})
+}
+
 // VerifyEmail handles POST /auth/verify-email.
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	limitBody(w, r)

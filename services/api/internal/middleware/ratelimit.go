@@ -135,6 +135,25 @@ func RateLimitChangePassword(rl *RateLimiter) func(http.Handler) http.Handler {
 	}
 }
 
+// RateLimitPerUser is a generic per-user rate limiter reusable for multiple endpoints.
+// prefix is prepended to the userID to form the rate limit key (e.g. "resend-verification:").
+func RateLimitPerUser(rl *RateLimiter, prefix string, rps float64, burst int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID := GetUserID(r.Context())
+			if userID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !rl.Allow(prefix+userID, rps, burst) {
+				http.Error(w, `{"error":"too_many_requests"}`, http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func rateLimitByIP(rl *RateLimiter, prefix string, rps float64, burst int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
