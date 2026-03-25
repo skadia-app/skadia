@@ -100,15 +100,16 @@ func main() {
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
-	// S3 Storage (Garage)
-	s3Client, err := storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
-	if err != nil {
-		slog.Error("failed to create S3 client", "error", err)
-		os.Exit(1)
-	}
-
-	// Ensure media bucket exists (only when using legacy S3/Garage directly)
+	// S3 Storage (Garage) — only initialised when STORAGE_BACKEND=s3
+	var s3Client *storage.S3Client
 	if cfg.StorageBackend == "s3" {
+		s3Client, err = storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
+		if err != nil {
+			slog.Error("failed to create S3 client", "error", err)
+			os.Exit(1)
+		}
+
+		// Ensure media bucket exists (only when using legacy S3/Garage directly)
 		mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
 		if mediaBucket == "" {
 			mediaBucket = "skadia-media"
