@@ -4,6 +4,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
 import ColorPicker from '@/components/ColorPicker'
+import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
 
 interface Props {
@@ -866,16 +867,11 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       {/* Offset-Pin Toggle */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-3 space-y-2">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={offsetPinEnabled}
-            onClick={() => setOffsetPinEnabled(v => !v)}
-            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-            style={{ backgroundColor: offsetPinEnabled ? '#3B82F6' : '#d4d4d4' }}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${offsetPinEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
+          <Toggle
+            checked={offsetPinEnabled}
+            onChange={() => setOffsetPinEnabled(v => !v)}
+            color="#3B82F6"
+          />
           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Versetzter Pin</span>
         </div>
         {offsetPinEnabled ? (

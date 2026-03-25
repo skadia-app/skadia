@@ -6,6 +6,7 @@ import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import { CATEGORIES, SPORT_DEFS, sportsInCategory } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
+import Toggle from '@/components/Toggle'
 import type { Gear } from '@/api/types'
 import type { Tag } from '@/api/tags'
 
@@ -445,23 +446,10 @@ export default function ManualActivityPage() {
                   <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Bike</p>
                   <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isEbike}
-                  onClick={() => setIsEbike(v => !v)}
-                  className={[
-                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                    isEbike ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600',
-                  ].join(' ')}
-                >
-                  <span
-                    className={[
-                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
-                      isEbike ? 'translate-x-5' : 'translate-x-0',
-                    ].join(' ')}
-                  />
-                </button>
+                <Toggle
+                  checked={isEbike}
+                  onChange={() => setIsEbike(v => !v)}
+                />
               </div>
             )}
 
@@ -471,23 +459,10 @@ export default function ManualActivityPage() {
                 <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Virtuell</p>
                 <p className="text-xs text-neutral-500">Simulierte GPS-Strecke</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isVirtual}
-                onClick={() => setIsVirtual(v => !v)}
-                className={[
-                  'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                  isVirtual ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600',
-                ].join(' ')}
-              >
-                <span
-                  className={[
-                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
-                    isVirtual ? 'translate-x-5' : 'translate-x-0',
-                  ].join(' ')}
-                />
-              </button>
+              <Toggle
+                checked={isVirtual}
+                onChange={() => setIsVirtual(v => !v)}
+              />
             </div>
 
             {/* RPE Slider */}

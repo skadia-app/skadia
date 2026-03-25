@@ -9,6 +9,7 @@ import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
+import Toggle from '@/components/Toggle'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1607,16 +1608,10 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
               <svg className="w-4 h-4 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 109 9"/><path d="M3 12V6h6"/></svg>
               <span className="text-sm font-medium">Rundtour</span>
               <div className="ml-auto">
-                <button
-                  type="button"
-                  onClick={() => toggleRoundTrip(!hasRoundTripCondition)}
-                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer"
-                  style={{ backgroundColor: hasRoundTripCondition ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
-                  role="switch"
-                  aria-checked={hasRoundTripCondition}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${hasRoundTripCondition ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
+                <Toggle
+                  checked={hasRoundTripCondition}
+                  onChange={() => toggleRoundTrip(!hasRoundTripCondition)}
+                />
               </div>
             </div>
           )

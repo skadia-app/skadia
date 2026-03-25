@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { fetchRules, createRule, updateRule, deleteRule, applyRules } from '@/api/rules'
 import type { AutomationRule } from '@/api/types'
 import RuleEditor from '@/components/RuleEditor'
+import Toggle from '@/components/Toggle'
 
 export default function AutomationRulesPage() {
   const queryClient = useQueryClient()
@@ -305,19 +306,10 @@ function RuleCard({
         {!isReadonlySystem && (
           <div className="flex items-center gap-3 ml-4">
             {/* Toggle */}
-            <button
-              onClick={() => onToggle(!rule.is_active)}
-              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-              style={{ backgroundColor: rule.is_active ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
-              role="switch"
-              aria-checked={rule.is_active}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  rule.is_active ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <Toggle
+              checked={rule.is_active}
+              onChange={(active) => onToggle(active)}
+            />
             {/* Delete button: only for non-system rules */}
             {!rule.is_system && (
               <button

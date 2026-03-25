@@ -29,6 +29,7 @@ import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
 import AccountSettingsTab from '@/pages/settings/AccountSettingsTab'
+import Toggle from '@/components/Toggle'
 
 // Analysis module configuration — enrichment toggles for the Analysen tab.
 interface AnalysisModule {
@@ -134,23 +135,15 @@ function AutomatischeAnalysenSection() {
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">ML-Service nicht erreichbar</p>
                 )}
               </div>
-              <button
-                onClick={() => {
+              <Toggle
+                checked={enabled && !mlUnavailable}
+                onChange={() => {
                   if (!settings) return
                   mut.mutate({ [module.field]: !(settings[module.field] ?? true) })
                 }}
                 disabled={isLoading || mut.isPending || mlUnavailable}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-0.5"
-                style={{ backgroundColor: enabled && !mlUnavailable ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4' }}
-                role="switch"
-                aria-checked={enabled}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+                className="mt-0.5"
+              />
             </div>
           )
         })}
@@ -486,21 +479,10 @@ function MLServiceSection() {
                 </span>
                 <span className="text-xs text-neutral-400 ml-2">({time} Uhr)</span>
               </div>
-              <button
-                onClick={() => toggleJob(key, !enabled)}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-                style={{
-                  backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4',
-                }}
-                role="switch"
-                aria-checked={enabled}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+              <Toggle
+                checked={enabled}
+                onChange={() => toggleJob(key, !enabled)}
+              />
             </div>
           )
         })}
@@ -570,21 +552,10 @@ function NotificationSettingsSection() {
                 <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
                 <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {description}</span>
               </div>
-              <button
-                onClick={() => toggleNotify(key, !enabled)}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-                style={{
-                  backgroundColor: enabled ? 'var(--color-accent-DEFAULT, #f97316)' : '#d4d4d4',
-                }}
-                role="switch"
-                aria-checked={enabled}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+              <Toggle
+                checked={enabled}
+                onChange={() => toggleNotify(key, !enabled)}
+              />
             </div>
           )
         })}
@@ -789,20 +760,11 @@ export default function SettingsPage() {
           </div>
 
           {/* Toggle */}
-          <button
-            onClick={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
+          <Toggle
+            checked={!!settings?.hotfolder_enabled}
+            onChange={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
             disabled={toggleMutation.isPending}
-            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
-            style={{ backgroundColor: settings?.hotfolder_enabled ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
-            role="switch"
-            aria-checked={settings?.hotfolder_enabled}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                settings?.hotfolder_enabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          />
         </div>
 
         {/* Pfad */}
@@ -1808,23 +1770,14 @@ function HeatmapSettingsSection() {
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Teleportationslücken ausblenden
           </p>
-          <button
-            onClick={() => {
+          <Toggle
+            checked={!!(currentFilterMap || currentFilterActivity)}
+            onChange={() => {
               const next = !(currentFilterMap || currentFilterActivity)
               setLocalFilterMap(next)
               setLocalFilterActivity(next)
             }}
-            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
-            style={{ backgroundColor: (currentFilterMap || currentFilterActivity) ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
-            role="switch"
-            aria-checked={currentFilterMap || currentFilterActivity}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                (currentFilterMap || currentFilterActivity) ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          />
         </div>
         <p className="text-xs text-neutral-400 mb-4">
           Filtert gerade Linien heraus, die entstehen wenn die GPS-Aufzeichnung gestoppt und an einem anderen Ort wieder gestartet wurde.
