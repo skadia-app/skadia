@@ -4,12 +4,19 @@ import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
+import { useToast } from '@/lib/toast'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+
+const LOGIN_MESSAGES: Record<string, { title: string; description?: string }> = {
+  password_changed: { title: 'Passwort geändert', description: 'Bitte melde dich mit deinem neuen Passwort an.' },
+  deletion_scheduled: { title: 'Account-Löschung geplant', description: 'Dein Account wird in 30 Tagen gelöscht. Du erhältst eine E-Mail zum Abbrechen.' },
+}
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { addToast } = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -27,10 +34,16 @@ export default function LoginPage() {
       setError(getAuthErrorMessage(errorParam))
     }
 
+    const messageParam = searchParams.get('message')
+    if (messageParam && LOGIN_MESSAGES[messageParam]) {
+      const m = LOGIN_MESSAGES[messageParam]
+      addToast({ type: 'info', title: m.title, ...(m.description && { message: m.description }) })
+    }
+
     getAuthConfig()
       .then(setConfig)
       .catch(() => {})
-  }, [navigate, searchParams])
+  }, [navigate, searchParams, addToast])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

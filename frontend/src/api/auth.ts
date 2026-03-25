@@ -288,3 +288,77 @@ export async function adminRevokeUserSessions(id: string): Promise<{ status: str
   }
   return res.json() as Promise<{ status: string }>
 }
+
+// ── User Account Management ─────────────────────────────────────────────────
+
+export interface UserSession {
+  family_id: string
+  user_agent: string
+  ip_address: string
+  created_at: string
+  expires_at: string
+  is_current: boolean
+}
+
+export async function getSessions(): Promise<{ sessions: UserSession[] }> {
+  const res = await apiFetch('/api/v1/auth/sessions')
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to fetch sessions')
+  }
+  return res.json() as Promise<{ sessions: UserSession[] }>
+}
+
+export async function revokeSession(familyId: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/auth/sessions/${familyId}/revoke`, { method: 'POST' })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Session revocation failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function updateMe(data: { username?: string; display_name?: string }): Promise<MeData> {
+  const res = await apiFetch('/api/v1/me', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Update failed')
+  }
+  return res.json() as Promise<MeData>
+}
+
+export async function changeEmail(data: { new_email: string; password?: string }): Promise<{ status: string }> {
+  const res = await apiFetch('/api/v1/auth/change-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Email change failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function deleteAccount(data: { password?: string; confirmation?: string }): Promise<{ status: string }> {
+  const res = await apiFetch('/api/v1/auth/account', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Account deletion failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function getDataExport(): Promise<Blob> {
+  const res = await apiFetch('/api/v1/auth/data-export')
+  if (!res.ok) throw new Error('Export failed')
+  return res.blob()
+}

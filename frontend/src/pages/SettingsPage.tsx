@@ -28,6 +28,7 @@ import RenamePreview from '@/components/RenamePreview'
 import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
+import AccountSettingsTab from '@/pages/settings/AccountSettingsTab'
 
 // Analysis module configuration — enrichment toggles for the Analysen tab.
 interface AnalysisModule {
@@ -632,9 +633,10 @@ export default function SettingsPage() {
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai'>(
+  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai' | 'konto'>(
     searchParams.get('tab') === 'ai' ? 'ai'
       : searchParams.get('tab') === 'analysen' ? 'analysen'
+      : searchParams.get('tab') === 'konto' ? 'konto'
       : 'general'
   )
 
@@ -675,6 +677,7 @@ export default function SettingsPage() {
       <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit">
         {[
           { id: 'general' as const,  label: 'Allgemein' },
+          { id: 'konto' as const,    label: 'Konto'     },
           { id: 'analysen' as const, label: 'Analysen'  },
           { id: 'ai' as const,       label: 'KI & ML'   },
         ].map(tab => (
@@ -691,6 +694,8 @@ export default function SettingsPage() {
           </button>
         ))}
       </div>
+
+      {activeTab === 'konto' && <AccountSettingsTab />}
 
       {activeTab === 'analysen' && <AutomatischeAnalysenSection />}
 
