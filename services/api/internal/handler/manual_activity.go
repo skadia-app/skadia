@@ -128,7 +128,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		manualFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		if err := h.Storage.Upload(r.Context(), s3Key, jsonBytes, "application/json"); err != nil {
 			slog.Error("manual activity: S3 upload failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)

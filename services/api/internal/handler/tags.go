@@ -286,22 +286,24 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 				if srcKey == "" {
 					srcKey = photo.S3Key
 				}
-				photoData, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, srcKey)
-				if dlErr == nil {
-					// imageutil.Resize gibt (nil, nil) wenn Bild bereits ≤ 800×800 — Fallback auf activity_photo_url.
-					thumbData, resizeErr := imageutil.Resize(photoData, 800, 800, 85)
-					if resizeErr == nil && thumbData != nil {
-						thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
-						if ulErr := h.Storage.UploadToBucket(r.Context(), "skadia-media", thumbKey, thumbData, "image/jpeg"); ulErr == nil {
-							u := fmt.Sprintf("/api/v1/media/skadia-media/%s", thumbKey)
-							thumbURLPtr = &u
-						} else {
-							slog.Warn("upload tag cover thumb from photo failed", "error", ulErr)
-							// Fallback auf activity_photo_url bleibt
+				if h.Storage != nil {
+					photoData, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, srcKey)
+					if dlErr == nil {
+						// imageutil.Resize gibt (nil, nil) wenn Bild bereits ≤ 800×800 — Fallback auf activity_photo_url.
+						thumbData, resizeErr := imageutil.Resize(photoData, 800, 800, 85)
+						if resizeErr == nil && thumbData != nil {
+							thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
+							if ulErr := h.Storage.UploadToBucket(r.Context(), "skadia-media", thumbKey, thumbData, "image/jpeg"); ulErr == nil {
+								u := fmt.Sprintf("/api/v1/media/skadia-media/%s", thumbKey)
+								thumbURLPtr = &u
+							} else {
+								slog.Warn("upload tag cover thumb from photo failed", "error", ulErr)
+								// Fallback auf activity_photo_url bleibt
+							}
 						}
+					} else {
+						slog.Warn("download activity photo for thumb failed", "error", dlErr)
 					}
-				} else {
-					slog.Warn("download activity photo for thumb failed", "error", dlErr)
 				}
 			} else {
 				slog.Warn("get activity photo for cover thumb failed", "photo_id", req.ActivityPhotoID, "error", photoErr)
@@ -391,7 +393,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	coverURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
 	thumbURL := coverURL // Fallback: Cover ist sein eigenes Thumbnail
 	thumbData, thumbErr := imageutil.Resize(data, 800, 800, 85)
-	if thumbErr == nil && thumbData != nil {
+	if h.Storage != nil && thumbErr == nil && thumbData != nil {
 		if uploadErr := h.Storage.UploadToBucket(r.Context(), bucket, thumbKey, thumbData, "image/jpeg"); uploadErr != nil {
 			slog.Warn("s3 upload tag cover thumb failed", "error", uploadErr)
 			// Thumb-Fehler ist nicht fatal — Fallback auf coverURL bleibt
@@ -456,7 +458,7 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		if delErr := h.FileStore.Delete(r.Context(), userID, coverFileID); delErr != nil {
 			slog.Warn("clear tag cover: FileStore.Delete failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
 		}
-	} else {
+	} else if h.Storage != nil {
 		// Thumb löschen (immer eigener Upload, da wir ihn selbst erstellt haben)
 		if tag.CoverImageThumbURL != nil && *tag.CoverImageThumbURL != "" {
 			thumbS3Key := strings.TrimPrefix(*tag.CoverImageThumbURL, "/api/v1/media/"+bucket+"/")

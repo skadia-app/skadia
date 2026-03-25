@@ -160,7 +160,7 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("delete gear: filestore delete document failed",
 					"gear_id", id, "file_id", e.FileID, "error", delErr)
 			}
-		} else if e.S3Bucket != "" && e.S3Key != "" {
+		} else if e.S3Bucket != "" && e.S3Key != "" && h.Storage != nil {
 			// Legacy S3 fallback
 			if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
 				slog.Warn("delete gear: s3 delete document failed",
@@ -950,7 +950,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		// Clear legacy S3 fields — file lives in FileStore only.
 		mediaBucket = ""
 		s3Key = ""
-	} else {
+	} else if h.Storage != nil {
 		// Legacy S3 upload.
 		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
 			slog.Error("s3 upload failed", "error", err)
@@ -989,7 +989,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// PDF-Thumbnail generieren (best-effort, legacy S3 only — FileStore thumbs TBD)
-	if contentType == "application/pdf" && s3Key != "" {
+	if h.Storage != nil && contentType == "application/pdf" && s3Key != "" {
 		if thumbData, err := generatePDFThumbnail(data, 400); err == nil {
 			thumbKey := fmt.Sprintf("gear/%s/%s/%s_thumb.jpg", userID, gearID, hashStr)
 			if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
@@ -1276,7 +1276,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		// Clear legacy S3 fields — file lives in FileStore only.
 		mediaBucket = ""
 		s3Key = ""
-	} else {
+	} else if h.Storage != nil {
 		// Legacy S3 upload.
 		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
 			slog.Error("s3 upload failed", "error", err)
@@ -1365,7 +1365,7 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Error("filestore delete failed", "file_id", fileID, "error", delErr)
 		}
-	} else if bucket != "" {
+	} else if bucket != "" && h.Storage != nil {
 		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
 			slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", delErr)
 		}
@@ -1414,6 +1414,10 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Legacy S3 download.
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "file not available", r.URL.Path)
+		return
+	}
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), doc.S3Bucket, doc.S3Key)
 	if err != nil {
 		slog.Error("s3 download failed", "error", err)

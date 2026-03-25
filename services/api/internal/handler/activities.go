@@ -217,7 +217,7 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Refresh sidecar .meta with updated user fields.
 	freshAct, _ := h.DB.GetActivity(r.Context(), id)
-	if freshAct != nil && freshAct.SidecarMetaKey != "" {
+	if h.Storage != nil && freshAct != nil && freshAct.SidecarMetaKey != "" {
 		meta := sidecar.GenerateMetaV3(id, nil, freshAct)
 		metaBytes, _ := meta.Marshal()
 		if metaBytes != nil {
@@ -511,6 +511,10 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 	// S3 key format matches the upload handler: {userID}/{fileHash}.{ext}
 	s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
 	// Original files are stored in the skadia-originals bucket
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original file not available", r.URL.Path)
+		return
+	}
 	data, _, err := h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
 	if err != nil {
 		slog.Warn("export original download failed", "activity_id", activity.ID, "key", s3Key, "error", err)
@@ -893,6 +897,10 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 
 // exportMultisportZip packages the original files of all child activities into a single ZIP.
 func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, parent *model.Activity) {
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original files not available", r.URL.Path)
+		return
+	}
 	children, err := h.DB.GetChildActivities(r.Context(), parent.ID)
 	if err != nil || len(children) == 0 {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no child activities found", r.URL.Path)

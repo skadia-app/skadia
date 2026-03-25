@@ -141,7 +141,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				msFileID = rec.ID
-			} else {
+			} else if h.Storage != nil {
 				// Legacy S3 path (will be removed after migration)
 				if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 					slog.Error("s3 upload for multisport failed", "error", uploadErr)
@@ -242,7 +242,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fitFileID = rec.ID
-		} else {
+		} else if h.Storage != nil {
 			// Legacy S3 path (will be removed after migration)
 			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
 				slog.Error("S3 upload failed", "error", uploadErr)
@@ -379,7 +379,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		gpxFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		// Legacy S3 path (will be removed after migration)
 		if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
 			slog.Error("S3 upload failed", "error", err)

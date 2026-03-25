@@ -150,6 +150,9 @@ func (h *Handler) exportActivityBytes(ctx context.Context, activity *model.Activ
 		if activity.FileHash == nil {
 			return nil, "", fmt.Errorf("no original file stored")
 		}
+		if h.Storage == nil {
+			return nil, "", fmt.Errorf("storage not configured")
+		}
 		s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
 		data, _, err := h.Storage.DownloadFromBucket(ctx, "skadia-originals", s3Key)
 		if err != nil {

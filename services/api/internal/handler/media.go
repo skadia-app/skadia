@@ -56,6 +56,11 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
+		return
+	}
+
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, key)
 	if err != nil {
 		slog.Error("media proxy: s3 download failed", "bucket", bucket, "key", key, "error", err)
