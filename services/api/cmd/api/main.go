@@ -266,6 +266,12 @@ func main() {
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
 	authHandler.FileStore = store
 
+	// Library watcher (polling, local backend only)
+	if cfg.StorageBackend == "local" && cfg.LibrarySyncEnabled {
+		watcher := filestore.NewLibraryWatcher(db.Pool, cfg.LibraryBasePath, cfg.LibrarySyncAutoImport)
+		shutdown.Go("library-watcher", func(ctx context.Context) { watcher.Run(ctx) })
+	}
+
 	// Token cleanup (daily, graceful shutdown)
 	shutdown.Go("token-cleanup", func(ctx context.Context) {
 		// Run once immediately at startup
@@ -457,6 +463,7 @@ func main() {
 				r.Post("/storage/populate-registry", h.StartRegistryPopulation)
 				r.Post("/storage/migrate", h.StartFileMigration)
 				r.Post("/storage/migrate/rollback", h.StartFileMigrationRollback)
+				r.Post("/storage/reconcile", h.StartReconciliation)
 
 				// Photo batch operations
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
