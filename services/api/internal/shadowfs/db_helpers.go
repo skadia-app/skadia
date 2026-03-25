@@ -38,10 +38,11 @@ func listRecords(ctx context.Context, pool *pgxpool.Pool, userID string, fileTyp
 	return records, rows.Err()
 }
 
-// diskUsage sums size_bytes from user_files. Used by both backends.
+// diskUsage sums size_bytes from active user_files only. Used by both backends.
+// Archived and purging files are excluded from quota accounting.
 func diskUsage(ctx context.Context, pool *pgxpool.Pool, userID string) (int64, error) {
 	var total int64
 	err := pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files WHERE user_id = $1`, userID).Scan(&total)
+		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files WHERE user_id = $1 AND status = 'active'`, userID).Scan(&total)
 	return total, err
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // ResolveCollision appends _1, _2 etc. to the file stem if a file already
@@ -24,5 +26,5 @@ func ResolveCollision(basePath, relativePath string) string {
 			return candidate
 		}
 	}
-	return stem + "_overflow" + ext
+	return stem + "_" + uuid.New().String()[:8] + ext
 }
