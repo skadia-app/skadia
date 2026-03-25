@@ -98,7 +98,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
               <button
                 onClick={() => removeMutation.mutate(tag.id)}
                 disabled={removeMutation.isPending}
-                className="opacity-60 hover:opacity-100 cursor-pointer ml-0.5"
+                className="opacity-60 hover:opacity-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30 ml-0.5"
                 title="Standort entfernen"
               >
                 <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">

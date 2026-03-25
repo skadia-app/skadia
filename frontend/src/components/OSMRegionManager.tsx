@@ -161,7 +161,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         {diskData && (
           <button
             onClick={() => setDiskExpanded(!diskExpanded)}
-            className="cursor-pointer flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="cursor-pointer flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
           >
             <Database className="w-3 h-3" />
             {formatBytes(diskData.total_bytes)} OSM-Daten

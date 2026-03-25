@@ -106,7 +106,7 @@ export default function LLMSettingsPage() {
       <div>
         <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI & Modelle</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          LLM-Backends konfigurieren. Aenderungen werden nach dem naechsten Container-Neustart von LiteLLM uebernommen.
+          LLM-Backends konfigurieren. Änderungen werden nach dem nächsten Container-Neustart von LiteLLM übernommen.
         </p>
       </div>
 
@@ -199,12 +199,12 @@ function LLMRoleCard({ role, config, onSave }: {
         </div>
         <button
           onClick={() => setEnabled(!enabled)}
-          className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
+          className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
           style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
           role="switch"
           aria-checked={enabled}
         >
-          <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
         </button>
       </div>
 
