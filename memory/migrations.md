@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000204**
+Alle Migrationen im Überblick. Nächste freie: **000232**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -42,3 +42,13 @@ Alle Migrationen im Überblick. Nächste freie: **000204**
 | 000201 | surfaces_category                  | activity_surfaces +category TEXT NOT NULL DEFAULT 'surface' ('surface' oder 'highway') |
 | 000202 | device_data_repair                 | Shadow Devices eliminieren + GarminProductInvalid-Strings bereinigen |
 | 000203 | osm_pois_rename_peak_to_summit     | osm_pois.category 'peak'→'summit'; DROP idx_osm_pois_peak; CREATE idx_osm_pois_summit |
+| 000204–000222 | (ältere Migrationen)            | diverse Features (Summit Collection, Virtual Activities, Shadow-FS, FIT SDK, etc.) |
+| 000223 | users_auth_columns                 | Go-native Auth: password_hash, email_verified, is_active, is_admin, invite_code, register_mode Spalten auf users |
+| 000224 | oauth_connections                  | oauth_connections Tabelle (provider, provider_user_id, access_token verschlüsselt) |
+| 000225 | refresh_tokens                     | refresh_tokens Tabelle (token_family, token_hash, revoked_at) |
+| 000226 | email_tokens                       | email_tokens Tabelle (purpose: verify/reset/invite; expires_at) |
+| 000227 | auth_codes                         | auth_codes Tabelle (PKCE Mobile Auth Code Exchange) |
+| 000228 | users_auth_data_migration          | Datenmigration: OIDC-User-Daten in neue Auth-Struktur übertragen |
+| 000229 | drop_legacy_oidc_subject                  | legacy_oidc_subject Spalte aus users entfernt |
+| 000230 | auth_audit_log                     | auth_audit_log Tabelle (action, user_id, ip, user_agent, meta; 365-Tage-Retention) |
+| 000231 | auth_ui_gaps                       | users: +deleted_at TIMESTAMPTZ, +must_change_password BOOL DEFAULT false, +pending_email TEXT |
