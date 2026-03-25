@@ -83,6 +83,11 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if h.FileStore == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "file storage not configured", r.URL.Path)
+		return
+	}
+
 	fileID := chi.URLParam(r, "fileID")
 	if fileID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fileID required", r.URL.Path)
@@ -115,7 +120,12 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 		if resolved.ContentType == "" ||
 			strings.HasPrefix(resolved.ContentType, "application/") ||
 			resolved.ContentType == "text/plain" {
-			resp, err := http.Get(resolved.URL) //nolint:noctx
+			req, err := http.NewRequestWithContext(r.Context(), "GET", resolved.URL, nil)
+			if err != nil {
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch file", r.URL.Path)
+				return
+			}
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch file", r.URL.Path)
 				return

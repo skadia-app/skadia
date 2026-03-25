@@ -140,6 +140,17 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, fileStoreCleanu
 		}
 	}
 
+	// ---- Phase 1.5: External storage (must run BEFORE user row deletion) ----
+	// FileStore.DeleteAllForUser queries user_files rows, which CASCADE-delete
+	// with the user row. Run cleanup while those rows still exist.
+	if fileStoreCleanup != nil {
+		if err := fileStoreCleanup(ctx, userID); err != nil {
+			slog.Warn("GDPR: file store cleanup failed", "user_id", userID, "error", err)
+		} else {
+			slog.Info("GDPR: file store cleanup complete", "user_id", userID)
+		}
+	}
+
 	// ---- Phase 2: Transaction for everything else ----
 
 	tx, err := db.Pool.Begin(ctx)
@@ -205,17 +216,6 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, fileStoreCleanu
 	if err := tx.Commit(ctx); err != nil {
 		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: commit: %w", err)
-	}
-
-	// ---- Phase 3: External storage (best-effort, non-transactional) ----
-
-	// FileStore cleanup: removes original FIT/GPX files, photos, documents, exports.
-	if fileStoreCleanup != nil {
-		if err := fileStoreCleanup(ctx, userID); err != nil {
-			slog.Warn("GDPR: file store cleanup failed", "user_id", userID, "error", err)
-		} else {
-			slog.Info("GDPR: file store cleanup complete", "user_id", userID)
-		}
 	}
 
 	markJobDone("completed", "")
