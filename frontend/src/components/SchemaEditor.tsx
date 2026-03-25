@@ -136,7 +136,7 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
                          text-neutral-600 dark:text-neutral-400
                          hover:bg-orange-50 hover:border-orange-300 hover:text-accent-600
                          dark:hover:bg-orange-900/20 dark:hover:border-orange-700 dark:hover:text-orange-400
-                         transition-colors"
+                         cursor-pointer transition-colors"
             >
               <span className="font-mono">{v.key}</span>
               <span className="text-neutral-400 dark:text-neutral-600">{v.label}</span>
@@ -146,7 +146,7 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
 
         <button
           onClick={() => setShowAll(prev => !prev)}
-          className="text-xs text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-orange-400 transition-colors"
+          className="cursor-pointer text-xs text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-orange-400 transition-colors"
         >
           {showAll
             ? '↑ Weniger anzeigen'

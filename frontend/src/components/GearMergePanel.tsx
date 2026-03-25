@@ -75,20 +75,20 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => mergeMut.mutate({ primary: idA, from: idB })}
                 disabled={isPending}
-                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
+                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-white transition-colors"
               >
                 {gA.name} behalten
               </button>
               <button
                 onClick={() => mergeMut.mutate({ primary: idB, from: idA })}
                 disabled={isPending}
-                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
+                className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-white transition-colors"
               >
                 {gB.name} behalten
               </button>
               <button
                 onClick={() => setIgnored(s => new Set([...s, key]))}
-                className="px-3 text-xs py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                className="px-3 text-xs py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors"
               >
                 Ignorieren
               </button>

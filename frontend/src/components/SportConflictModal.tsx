@@ -118,14 +118,14 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
               <button
                 disabled={loading}
                 onClick={() => handleResolve(conflict.platform_sport)}
-                className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 transition-colors disabled:opacity-50"
+                className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {sportLabel(conflict.platform_sport)}
               </button>
               <button
                 disabled={loading}
                 onClick={() => handleResolve(conflict.file_sport)}
-                className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 transition-colors disabled:opacity-50"
+                className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {sportLabel(conflict.file_sport)}
               </button>
@@ -149,7 +149,7 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
                 key={s.key}
                 disabled={loading}
                 onClick={() => handleResolve(s.key)}
-                className="w-full text-left px-3 py-1.5 rounded hover:bg-zinc-800 text-sm text-zinc-300 transition-colors disabled:opacity-50"
+                className="w-full text-left px-3 py-1.5 rounded hover:bg-zinc-800 text-sm text-zinc-300 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span>{s.label}</span>
                 <span className="text-xs text-zinc-500 ml-2">{s.category}</span>

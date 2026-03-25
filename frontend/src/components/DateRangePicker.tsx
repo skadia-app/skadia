@@ -50,13 +50,13 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
       <div className="flex items-center gap-1.5">
         <button
           onClick={() => setMode(m => m === 'month' ? null : 'month')}
-          className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[var(--color-accent-DEFAULT)] transition-colors"
+          className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[var(--color-accent-DEFAULT)] cursor-pointer transition-colors"
         >
           {MONTHS_FULL[month]}
         </button>
         <button
           onClick={() => setMode(m => m === 'year' ? null : 'year')}
-          className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[var(--color-accent-DEFAULT)] transition-colors"
+          className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[var(--color-accent-DEFAULT)] cursor-pointer transition-colors"
         >
           {year}
         </button>
@@ -70,7 +70,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
               key={m}
               onClick={() => { goToMonth(new Date(year, i)); setMode(null) }}
               style={i === month ? { backgroundColor: 'var(--color-accent-DEFAULT)', color: '#fff' } : undefined}
-              className={`px-1 py-1.5 rounded text-xs transition-colors ${
+              className={`px-1 py-1.5 rounded text-xs cursor-pointer transition-colors ${
                 i === month ? '' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
             >
@@ -92,7 +92,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
               data-active={y === year ? 'true' : undefined}
               onClick={() => { goToMonth(new Date(y, month)); setMode(null) }}
               style={y === year ? { backgroundColor: 'var(--color-accent-DEFAULT)', color: '#fff' } : undefined}
-              className={`w-full px-3 py-1.5 text-xs text-left font-medium transition-colors ${
+              className={`w-full px-3 py-1.5 text-xs text-left font-medium cursor-pointer transition-colors ${
                 y === year ? '' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
             >
@@ -182,7 +182,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(v => !v)}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors whitespace-nowrap ${
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border cursor-pointer transition-colors whitespace-nowrap ${
           hasFilter
             ? 'border-accent-400 bg-orange-50 dark:bg-orange-950/30 text-accent-600 dark:text-orange-400'
             : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -208,7 +208,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
               <button
                 key={s.label}
                 onClick={() => { const [f, t] = s.getRange(); onChange(toLocalISO(f), toLocalISO(t)); setOpen(false) }}
-                className="px-3 py-1.5 text-xs text-left rounded-lg text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors whitespace-nowrap"
+                className="px-3 py-1.5 text-xs text-left rounded-lg text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors whitespace-nowrap"
               >
                 {s.label}
               </button>

@@ -351,7 +351,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                 <button
                   onClick={handleCreateLocationOnly}
                   disabled={!newLocName.trim()}
-                  className="px-2.5 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40 cursor-pointer"
+                  className="px-2.5 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Nur erstellen
                 </button>

@@ -137,7 +137,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
           <button
             onClick={() => cancelMutation.mutate(activeOsmJob.id)}
             disabled={cancelMutation.isPending}
-            className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-40 transition-colors"
+            className="cursor-pointer flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <XCircle className="w-3.5 h-3.5" />
             Abbrechen
@@ -161,7 +161,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         {diskData && (
           <button
             onClick={() => setDiskExpanded(!diskExpanded)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="cursor-pointer flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Database className="w-3 h-3" />
             {formatBytes(diskData.total_bytes)} OSM-Daten
@@ -252,7 +252,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                       <button
                         onClick={() => setUpdateTarget(reg)}
                         disabled={!!activeOsmJob}
-                        className="p-1 text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 transition-colors disabled:opacity-40"
+                        className="cursor-pointer p-1 text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Region neu importieren"
                       >
                         <RefreshCw className="w-4 h-4" />
@@ -277,7 +277,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                           })
                         }}
                         disabled={deleteMutation.isPending}
-                        className="p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40"
+                        className="cursor-pointer p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Aus Tracking entfernen"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -350,7 +350,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                 <button
                   onClick={() => brouterLocalMut.mutate(brouterLocalRegions)}
                   disabled={importedRegions.length === 0 || brouterLocalMut.isPending || !!activeBrouterBuild}
-                  className="text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+                  className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterLocalMut.isPending || activeBrouterBuild ? 'Läuft…' : 'Generieren'}
                 </button>
@@ -370,7 +370,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                 <button
                   onClick={() => brouterDlMut.mutate(brouterDlRegions)}
                   disabled={brouterDlMut.isPending || !!activeBrouterDl}
-                  className="text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+                  className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
                   {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
                 </button>

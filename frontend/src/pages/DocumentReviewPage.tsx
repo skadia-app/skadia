@@ -229,7 +229,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
               disabled={isRejecting}
               className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                         disabled:opacity-50 cursor-pointer transition-colors"
+                         disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               Ablehnen
             </button>
@@ -247,7 +247,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onClick={handleSaveAndConfirm}
                   disabled={isConfirming}
                   className="px-3 py-1.5 text-sm rounded-lg text-white
-                             hover:opacity-90 disabled:opacity-50 cursor-pointer transition-colors"
+                             hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                   style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
                 >
                   Speichern & Bestätigen
@@ -267,7 +267,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   onClick={onConfirm}
                   disabled={isConfirming}
                   className="px-3 py-1.5 text-sm rounded-lg text-white
-                             hover:opacity-90 disabled:opacity-50 cursor-pointer transition-colors"
+                             hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                   style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
                 >
                   Bestätigen

@@ -367,7 +367,7 @@ export default function ChatPage() {
         <div ref={sessionDropdownRef} className="relative flex-1 min-w-0">
           <button
             onClick={() => setSessionsOpen(o => !o)}
-            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors truncate"
+            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors truncate"
           >
             <span className="truncate text-neutral-700 dark:text-neutral-300">
               {activeSession
@@ -402,7 +402,7 @@ export default function ChatPage() {
                         e.stopPropagation()
                         handleDeleteSession(session.id)
                       }}
-                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex-shrink-0"
+                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0"
                       title="Sitzung löschen"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

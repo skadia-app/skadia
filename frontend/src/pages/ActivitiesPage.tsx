@@ -163,7 +163,7 @@ function ZipSubMenu({
     <button
       disabled={zipLoading}
       onClick={() => { onZip(ids, 'original'); onClose() }}
-      className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50"
+      className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -202,7 +202,7 @@ function ZipDropdown({
       <button
         onClick={() => onDownload(ids, 'original')}
         disabled={loading}
-        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50"
+        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? 'Lädt…' : 'Herunterladen'}
       </button>
@@ -214,7 +214,7 @@ function ZipDropdown({
       <button
         onClick={() => setOpen(prev => !prev)}
         disabled={loading}
-        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+        className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? 'Lädt…' : 'Herunterladen'}
         <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1015,7 +1015,7 @@ export default function ActivitiesPage() {
             {searchInput && (
               <button
                 onClick={() => handleSearchChange('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-xs"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors text-xs"
               >
                 &times;
               </button>
@@ -1061,8 +1061,8 @@ export default function ActivitiesPage() {
                   onClick={() => onPageSizeChange(size)}
                   className={
                     size === pageSize
-                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                      ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                      : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
                   }
                 >
                   {size}
@@ -1073,8 +1073,8 @@ export default function ActivitiesPage() {
                 title="Endlos scrollen"
                 className={
                   isInfinite
-                    ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                    : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                    ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                    : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
                 }
               >
                 ∞
@@ -1301,7 +1301,7 @@ export default function ActivitiesPage() {
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
-                       disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                       disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             ← Zurück
           </button>
@@ -1339,7 +1339,7 @@ export default function ActivitiesPage() {
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
-                       disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                       disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             Weiter →
           </button>
@@ -1425,7 +1425,7 @@ function ActivityRow({
           {isMultisport && (
             <button
               onClick={e => { e.stopPropagation(); onExpand?.(activity.id) }}
-              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors shrink-0"
+              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors shrink-0"
               title="Disziplinen anzeigen"
             >
               <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
@@ -1576,7 +1576,7 @@ function GroupModal({
           <button
             onClick={handleCreate}
             disabled={loading}
-            className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 cursor-pointer"
+            className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {loading ? 'Erstelle...' : 'Gruppe erstellen'}
           </button>

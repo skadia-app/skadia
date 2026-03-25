@@ -90,7 +90,7 @@ function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
           </pre>
           <button
             onClick={() => setExpanded(false)}
-            className="mt-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
+            className="mt-1 text-xs text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
           >
             Einklappen
           </button>
@@ -98,7 +98,7 @@ function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
       ) : (
         <button
           onClick={() => setExpanded(true)}
-          className="max-w-[180px] truncate text-left text-xs text-neutral-500 hover:text-neutral-800 hover:underline dark:hover:text-neutral-200"
+          className="max-w-[180px] truncate text-left text-xs text-neutral-500 hover:text-neutral-800 hover:underline dark:hover:text-neutral-200 cursor-pointer"
           title={preview}
         >
           {preview}
@@ -299,7 +299,7 @@ export default function AdminAuditLogPage() {
           <button
             onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
             disabled={offset === 0}
-            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
             Zurueck
           </button>
@@ -309,7 +309,7 @@ export default function AdminAuditLogPage() {
           <button
             onClick={() => setOffset(offset + PAGE_SIZE)}
             disabled={offset + PAGE_SIZE >= total}
-            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
             Weiter
           </button>

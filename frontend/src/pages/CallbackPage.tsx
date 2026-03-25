@@ -44,7 +44,7 @@ export default function CallbackPage() {
           <p className="text-sm text-red-500">{error}</p>
           <button
             onClick={() => navigate('/login', { replace: true })}
-            className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+            className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
           >
             Zurück zur Anmeldung
           </button>

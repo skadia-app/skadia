@@ -92,7 +92,7 @@ function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearch
                 setQuery('')
                 setOpen(false)
               }}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 truncate"
+              className="cursor-pointer w-full px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 truncate"
             >
               {a.title ?? 'Unbenannte Aktivität'}
               <span className="ml-2 text-xs text-neutral-400">
@@ -148,14 +148,14 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => assignMutation.mutate()}
           disabled={!selectedActivityId || assignMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {assignMutation.isPending ? 'Wird zugeordnet…' : 'Zuordnen'}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         >
           Verwerfen
         </button>
@@ -201,7 +201,7 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
               key={c.activity_id}
               type="button"
               onClick={() => { setSelectedActivityId(c.activity_id); setSelectedActivityTitle(c.activity_title) }}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
+              className={`cursor-pointer w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
                 selectedActivityId === c.activity_id
                   ? 'bg-accent-DEFAULT/10 border border-accent-DEFAULT text-accent-DEFAULT'
                   : 'border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
@@ -225,14 +225,14 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => assignMutation.mutate()}
           disabled={!selectedActivityId || assignMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {assignMutation.isPending ? 'Wird zugeordnet…' : 'Zuordnen'}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         >
           Verwerfen
         </button>
@@ -276,7 +276,7 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
             key={t.value}
             type="button"
             onClick={() => setPdfType(t.value)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+            className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors ${
               pdfType === t.value
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
@@ -299,14 +299,14 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => categorizeMutation.mutate()}
           disabled={categorizeMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {categorizeMutation.isPending ? 'Wird gespeichert…' : 'Kategorisieren'}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         >
           Verwerfen
         </button>
@@ -350,14 +350,14 @@ function DuplicateItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 transition-colors"
         >
           Behalten
         </button>
         <button
           onClick={() => deleteMutation.mutate()}
           disabled={deleteMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 transition-colors"
         >
           {deleteMutation.isPending ? 'Wird gelöscht…' : 'Löschen'}
         </button>
@@ -389,14 +389,14 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
         <button
           onClick={() => retryMutation.mutate()}
           disabled={retryMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {retryMutation.isPending ? 'Wird gestartet…' : 'Erneut versuchen'}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         >
           Verwerfen
         </button>
@@ -447,7 +447,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
       <button
         onClick={() => dismissMutation.mutate()}
         disabled={dismissMutation.isPending}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+        className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
       </button>
@@ -490,7 +490,7 @@ function FallbackItem({ item, onRefresh }: ItemProps) {
       <button
         onClick={() => dismissMutation.mutate()}
         disabled={dismissMutation.isPending}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+        className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
       </button>
@@ -569,7 +569,7 @@ export default function ImportQueueTab() {
     return (
       <div className="flex items-center justify-center py-12 text-red-500 text-sm">
         Fehler beim Laden der Warteschlange.
-        <button onClick={() => refetch()} className="ml-2 underline">Erneut versuchen</button>
+        <button onClick={() => refetch()} className="cursor-pointer ml-2 underline">Erneut versuchen</button>
       </div>
     )
   }

@@ -47,7 +47,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
       <div className="flex items-center justify-between mb-3">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-2 group"
+          className="flex items-center gap-2 cursor-pointer group"
         >
           <svg
             className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '' : 'rotate-90'}`}
@@ -71,7 +71,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700
                        hover:text-accent-600 dark:hover:text-orange-400
-                       transition-colors"
+                       cursor-pointer transition-colors"
             title="Segment aus dem Track dieser Aktivitaet erstellen"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -126,7 +126,7 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => navigate('/segments/' + effort.segment_id)}
-                        className="text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT transition-colors text-left"
+                        className="text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT cursor-pointer transition-colors text-left"
                       >
                         {effort.segment_name ?? 'Unbenannt'}
                       </button>

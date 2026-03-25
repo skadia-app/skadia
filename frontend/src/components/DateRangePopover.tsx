@@ -67,7 +67,7 @@ export default function DateRangePopover({
       <button
         onClick={() => setIsOpen(prev => !prev)}
         className="px-3 py-1.5 text-xs font-semibold rounded-md border border-neutral-200 dark:border-neutral-700
-                   text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors
+                   text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors
                    min-w-fit whitespace-nowrap"
       >
         {dateLabel}

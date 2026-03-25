@@ -39,7 +39,7 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
             onClick={() => navigate(`/activities/${act.activity_id}`)}
             className="text-left p-3 border border-neutral-200 dark:border-neutral-700 rounded-lg
                        hover:border-neutral-300 dark:hover:border-neutral-600
-                       hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+                       hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
           >
             <div className="font-medium text-sm truncate text-neutral-900 dark:text-neutral-100">
               {act.title || 'Aktivität'}

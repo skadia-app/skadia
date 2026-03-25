@@ -65,7 +65,7 @@ export default function UserMenu() {
         onClick={() => setOpen(prev => !prev)}
         aria-label="Benutzermenü öffnen"
         aria-expanded={open}
-        className="flex items-center justify-center w-8 h-8 rounded-full bg-accent-DEFAULT text-white text-sm font-semibold select-none hover:opacity-90 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-2"
+        className="flex items-center justify-center w-8 h-8 rounded-full bg-accent-DEFAULT text-white text-sm font-semibold select-none hover:opacity-90 cursor-pointer transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-2"
       >
         {initial}
       </button>
@@ -104,7 +104,7 @@ export default function UserMenu() {
               onClick={() => { void handleLogout() }}
               className={cn(
                 'flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 dark:text-red-400',
-                'hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors',
+                'hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer transition-colors',
               )}
             >
               <LogoutIcon />

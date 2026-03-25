@@ -169,7 +169,7 @@ export default function DeviceDetailPage() {
             <button
               onClick={() => renameMutation.mutate(nameInput)}
               disabled={renameMutation.isPending}
-              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors cursor-pointer disabled:opacity-50"
+              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title="Speichern"
             >
               <Check className="w-5 h-5" />
@@ -296,7 +296,7 @@ export default function DeviceDetailPage() {
           disabled={deleteMutation.isPending}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 dark:border-rose-800
                      text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20
-                     transition-colors cursor-pointer disabled:opacity-50"
+                     transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Trash2 className="w-4 h-4" />
           Löschen
@@ -334,7 +334,7 @@ export default function DeviceDetailPage() {
               }}
               disabled={!mergeTargetId || mergeMutation.isPending}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600
-                         transition-colors cursor-pointer disabled:opacity-50"
+                         transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mergeMutation.isPending ? 'Wird zusammengeführt...' : 'Zusammenführen'}
             </button>
@@ -380,7 +380,7 @@ export default function DeviceDetailPage() {
                   }}
                   disabled={isFetching}
                   className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400
-                             hover:border-accent-400 dark:hover:border-accent-600 hover:text-neutral-900 dark:hover:text-neutral-100 transition-all cursor-pointer disabled:opacity-50"
+                             hover:border-accent-400 dark:hover:border-accent-600 hover:text-neutral-900 dark:hover:text-neutral-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isFetching ? 'Lade...' : 'Mehr laden'}
                 </button>

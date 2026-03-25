@@ -258,7 +258,7 @@ function ScanResultsView({ result, onContinue }: ScanResultsProps) {
       </div>
       <button
         onClick={() => onContinue(result)}
-        className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+        className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
       >
         Weiter zur Konfiguration →
       </button>
@@ -874,7 +874,7 @@ function ImportPanel({
           }}
           placeholder={dirPlaceholder}
           disabled={(phase === 'import' && importing) || uploadStatus !== 'idle'}
-          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
         />
         {/* Action buttons — only in scan phase before results are shown */}
         {phase === 'scan' && uploadStatus === 'idle' && !scanResult && (
@@ -904,7 +904,7 @@ function ImportPanel({
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+              className="cursor-pointer flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l-3 3m3-3l3 3" />
@@ -973,7 +973,7 @@ function ImportPanel({
         {phase === 'config' && (
           <button
             onClick={() => { setPhase('scan'); setScanResult(null); setScanError(null); setScanning(false) }}
-            className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            className="cursor-pointer mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             ← Zurück zur Analyse
           </button>
@@ -993,7 +993,7 @@ function ImportPanel({
                 setLog([])
                 setImportOptions({ conflict_strategy: 'enrich_missing' })
               }}
-              className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              className="cursor-pointer mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
             >
               ← Neuen Import starten
             </button>
@@ -1308,7 +1308,7 @@ function KomootImportPanel() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="deine@email.de"
                   disabled={loginLoading || scanLoading}
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
               <div>
@@ -1321,7 +1321,7 @@ function KomootImportPanel() {
                   onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleLogin() }}
                   disabled={loginLoading || scanLoading}
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50"
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
               <label className="flex items-start gap-2.5 cursor-pointer">
@@ -1378,7 +1378,7 @@ function KomootImportPanel() {
                 <button
                   onClick={handleDeleteCredentials}
                   disabled={deletingCredentials}
-                  className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 cursor-pointer transition-colors"
+                  className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 >
                   {deletingCredentials ? 'Lösche…' : 'Löschen'}
                 </button>
@@ -1456,7 +1456,7 @@ function KomootImportPanel() {
 
             <button
               onClick={() => { setPhase('login'); setScanResult(null); setLoginError(null); setScanError(null) }}
-              className="block mt-2 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+              className="cursor-pointer block mt-2 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
             >
               ← Neu anmelden
             </button>
@@ -1553,7 +1553,7 @@ function KomootImportPanel() {
                   setJobId(null)
                   setLog([])
                 }}
-                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+                className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
               >
                 ← Neuen Import starten
               </button>
@@ -1610,7 +1610,7 @@ export default function ImportPage() {
           <button
             key={tabId}
             onClick={() => setActiveTab(tabId)}
-            className={`relative px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`cursor-pointer relative px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === tabId
                 ? 'border-accent-DEFAULT text-accent-DEFAULT'
                 : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'

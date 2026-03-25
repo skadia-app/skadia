@@ -290,7 +290,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             <button
               onClick={onClose}
               disabled={mutation.isPending}
-              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-border text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
+              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-border text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Abbrechen
             </button>
@@ -308,7 +308,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                 })
               }}
               disabled={!canStart}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-50 transition-colors"
+              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {mutation.isPending ? 'Wird gestartet…' : 'Import starten'}
             </button>

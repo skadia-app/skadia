@@ -517,7 +517,7 @@ export default function ImportHub() {
       <button
         onClick={() => setOpen(v => !v)}
         aria-label="Import-Hub öffnen"
-        className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+        className={`cursor-pointer relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
           ${open
             ? 'bg-accent-DEFAULT text-white'
             : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800'
@@ -584,7 +584,7 @@ export default function ImportHub() {
                   </span>
                   <button
                     onClick={() => setUploadState({ type: 'idle' })}
-                    className="ml-auto text-xs text-green-600 dark:text-green-400 hover:underline shrink-0"
+                    className="cursor-pointer ml-auto text-xs text-green-600 dark:text-green-400 hover:underline shrink-0"
                   >
                     Weitere
                   </button>
@@ -614,7 +614,7 @@ export default function ImportHub() {
                   </p>
                   <button
                     onClick={() => setUploadState({ type: 'idle' })}
-                    className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                    className="cursor-pointer text-xs text-red-600 dark:text-red-400 hover:underline"
                   >
                     Erneut versuchen
                   </button>
@@ -634,7 +634,7 @@ export default function ImportHub() {
 
               <button
                 onClick={() => { setOpen(false); navigate('/activities/manual') }}
-                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+                className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <PencilIcon className="w-5 h-5 shrink-0 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
                 <span className="flex-1 font-medium">Aktivität manuell erstellen</span>
@@ -656,7 +656,7 @@ export default function ImportHub() {
 
               <button
                 onClick={() => handleImporterLink('garmin')}
-                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+                className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <GarminBadge />
                 <span className="flex-1 font-medium">Garmin Connect</span>
@@ -665,7 +665,7 @@ export default function ImportHub() {
 
               <button
                 onClick={() => handleImporterLink('strava')}
-                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+                className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <StravaBadge />
                 <span className="flex-1 font-medium">Strava</span>
@@ -674,7 +674,7 @@ export default function ImportHub() {
 
               <button
                 onClick={() => handleImporterLink('komoot')}
-                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+                className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <KomootBadge />
                 <span className="flex-1 font-medium">Komoot</span>
@@ -694,7 +694,7 @@ export default function ImportHub() {
 
               <button
                 onClick={() => { setOpen(false); navigate('/settings') }}
-                className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
+                className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <span className="shrink-0">
                   {hotfolderEnabled === null ? (

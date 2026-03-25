@@ -761,7 +761,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       <div className="flex gap-2">
         <button
           onClick={() => setZoneMode('circle')}
-          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${
             zoneMode === 'circle'
               ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -771,7 +771,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         </button>
         <button
           onClick={() => setZoneMode('polygon')}
-          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${
             zoneMode === 'polygon'
               ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'

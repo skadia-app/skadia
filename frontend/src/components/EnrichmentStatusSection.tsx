@@ -118,7 +118,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
     <div>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center gap-2 mb-3 group"
+        className="flex items-center gap-2 mb-3 cursor-pointer group"
       >
         <svg
           className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '' : 'rotate-90'}`}

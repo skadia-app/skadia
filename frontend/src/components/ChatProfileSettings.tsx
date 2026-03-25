@@ -215,7 +215,7 @@ function CollapsibleSection({ title, children, defaultOpen = false }: Collapsibl
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
       >
         <span>{title}</span>
         <svg
@@ -323,7 +323,7 @@ export default function ChatProfileSettings() {
             <button
               type="button"
               onClick={() => setLocal(null)}
-              className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline transition-colors"
+              className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline cursor-pointer transition-colors"
             >
               Abbrechen
             </button>
@@ -332,7 +332,7 @@ export default function ChatProfileSettings() {
             type="button"
             onClick={() => saveMutation.mutate(setting)}
             disabled={!isDirty || saveMutation.isPending}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             {saveMutation.isPending ? 'Speichern…' : 'Speichern'}
           </button>

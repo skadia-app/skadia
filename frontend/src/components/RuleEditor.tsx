@@ -1611,7 +1611,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                   type="button"
                   onClick={() => toggleRoundTrip(!hasRoundTripCondition)}
                   className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer"
-                  style={{ backgroundColor: hasRoundTripCondition ? '#f97316' : '#d4d4d4' }}
+                  style={{ backgroundColor: hasRoundTripCondition ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
                   role="switch"
                   aria-checked={hasRoundTripCondition}
                 >

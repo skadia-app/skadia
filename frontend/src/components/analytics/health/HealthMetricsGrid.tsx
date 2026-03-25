@@ -77,7 +77,7 @@ function MetricCard({ metric }: MetricCardProps) {
   return (
     <button
       onClick={() => setExpanded(e => !e)}
-      className="w-full text-left rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 hover:border-neutral-300 dark:hover:border-neutral-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-neutral-400"
+      className="w-full text-left rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 hover:border-neutral-300 dark:hover:border-neutral-700 cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-neutral-400"
     >
       <div className="flex items-start justify-between mb-1">
         <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium truncate pr-2">

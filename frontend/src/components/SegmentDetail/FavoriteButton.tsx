@@ -30,7 +30,7 @@ export function FavoriteButton({ segmentId }: FavoriteButtonProps) {
     <button
       onClick={() => mutation.mutate(isFavorite)}
       disabled={mutation.isPending}
-      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
         isFavorite
           ? 'border-accent-DEFAULT/50 text-accent-DEFAULT bg-accent-DEFAULT/10'
           : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'

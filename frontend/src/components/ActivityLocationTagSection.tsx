@@ -134,7 +134,7 @@ export default function ActivityLocationTagSection({ activityId, currentTags, lo
                 key={tag.id}
                 onClick={() => assignMutation.mutate(tag.id)}
                 disabled={assignMutation.isPending}
-                className="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 disabled:opacity-50 transition-opacity"
+                className="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
                 style={getTagBadgeStyle(tag.color)}
               >
                 {tag.name}

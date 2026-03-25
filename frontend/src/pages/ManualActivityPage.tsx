@@ -195,9 +195,9 @@ export default function ManualActivityPage() {
                             type="button"
                             onClick={() => handleSportChange(s.sportType)}
                             className={[
-                              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                              'cursor-pointer rounded-full px-3 py-1 text-xs font-medium transition-colors',
                               sportType === s.sportType
-                                ? 'bg-orange-500 text-white'
+                                ? 'bg-accent-DEFAULT text-white'
                                 : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700',
                             ].join(' ')}
                           >
@@ -220,7 +220,7 @@ export default function ManualActivityPage() {
                 <select
                   value={subType}
                   onChange={e => setSubType(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 >
                   <option value="">— keine —</option>
                   {selectedSportDef.subTypes.map(st => (
@@ -239,7 +239,7 @@ export default function ManualActivityPage() {
                   value={date}
                   onChange={e => setDate(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 />
               </div>
               <div>
@@ -249,7 +249,7 @@ export default function ManualActivityPage() {
                   value={time}
                   onChange={e => setTime(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 />
               </div>
             </div>
@@ -265,7 +265,7 @@ export default function ManualActivityPage() {
                     value={durH}
                     onChange={e => setDurH(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                   <p className="mt-0.5 text-center text-xs text-neutral-500">h</p>
                 </div>
@@ -278,7 +278,7 @@ export default function ManualActivityPage() {
                     value={durM}
                     onChange={e => setDurM(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                   <p className="mt-0.5 text-center text-xs text-neutral-500">min</p>
                 </div>
@@ -291,7 +291,7 @@ export default function ManualActivityPage() {
                     value={durS}
                     onChange={e => setDurS(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                   <p className="mt-0.5 text-center text-xs text-neutral-500">sek</p>
                 </div>
@@ -311,7 +311,7 @@ export default function ManualActivityPage() {
                   value={distanceKm}
                   onChange={e => setDistanceKm(e.target.value)}
                   placeholder="0.0"
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-12 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-12 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-neutral-500">km</span>
               </div>
@@ -330,7 +330,7 @@ export default function ManualActivityPage() {
                     value={elevGain}
                     onChange={e => setElevGain(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
                 </div>
@@ -346,7 +346,7 @@ export default function ManualActivityPage() {
                     value={elevLoss}
                     onChange={e => setElevLoss(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
                 </div>
@@ -364,7 +364,7 @@ export default function ManualActivityPage() {
                 onChange={e => setTitle(e.target.value)}
                 placeholder="Aktivitätstitel"
                 maxLength={200}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
               />
             </div>
 
@@ -378,7 +378,7 @@ export default function ManualActivityPage() {
                 onChange={e => setDescription(e.target.value)}
                 placeholder="Notizen zur Aktivität..."
                 rows={4}
-                className="w-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
+                className="w-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
               />
             </div>
           </div>
@@ -403,7 +403,7 @@ export default function ManualActivityPage() {
                         type="button"
                         onClick={() => toggleTag(tag.id)}
                         className={[
-                          'rounded-full px-3 py-1 text-xs font-medium transition-all',
+                          'cursor-pointer rounded-full px-3 py-1 text-xs font-medium transition-all',
                           selected
                             ? 'ring-2 ring-white/30 ring-offset-1 ring-offset-white dark:ring-offset-neutral-950'
                             : 'opacity-70 hover:opacity-100',
@@ -429,7 +429,7 @@ export default function ManualActivityPage() {
               <select
                 value={gearId}
                 onChange={e => setGearId(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-orange-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
               >
                 <option value="">— keine —</option>
                 {gearList.map(gear => (
@@ -452,7 +452,7 @@ export default function ManualActivityPage() {
                   onClick={() => setIsEbike(v => !v)}
                   className={[
                     'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                    isEbike ? 'bg-orange-500' : 'bg-neutral-300 dark:bg-neutral-600',
+                    isEbike ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600',
                   ].join(' ')}
                 >
                   <span
@@ -478,7 +478,7 @@ export default function ManualActivityPage() {
                 onClick={() => setIsVirtual(v => !v)}
                 className={[
                   'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                  isVirtual ? 'bg-orange-500' : 'bg-neutral-300 dark:bg-neutral-600',
+                  isVirtual ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600',
                 ].join(' ')}
               >
                 <span
@@ -534,7 +534,7 @@ export default function ManualActivityPage() {
                     <button
                       type="button"
                       onClick={() => setRpe(null)}
-                      className="text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-600 dark:hover:text-neutral-400"
+                      className="cursor-pointer text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-600 dark:hover:text-neutral-400"
                     >
                       Zurücksetzen
                     </button>
@@ -556,9 +556,9 @@ export default function ManualActivityPage() {
                     title={opt.label}
                     onClick={() => setFeel(feel === opt.value ? null : opt.value)}
                     className={[
-                      'flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-xl transition-all',
+                      'cursor-pointer flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-xl transition-all',
                       feel === opt.value
-                        ? 'bg-orange-500/20 ring-1 ring-orange-500'
+                        ? 'bg-accent-DEFAULT/20 ring-1 ring-accent-DEFAULT'
                         : 'opacity-60 hover:bg-neutral-200 hover:opacity-100 dark:hover:bg-neutral-800',
                     ].join(' ')}
                   >
@@ -574,7 +574,7 @@ export default function ManualActivityPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full rounded-lg bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-orange-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-lg bg-accent-DEFAULT px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-accent-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? 'Wird gespeichert...' : 'Aktivität erstellen'}
             </button>

@@ -274,7 +274,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                       }
                     }}
                     disabled={!newName.trim() || createMapMutation.isPending}
-                    className="flex-1 text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+                    className="flex-1 text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     Erstellen
                   </button>
@@ -389,7 +389,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                     }
                   }}
                   disabled={editSaving || !editName.trim()}
-                  className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {editSaving ? 'Speichern...' : 'Speichern'}
                 </button>

@@ -425,8 +425,8 @@ function HistorySection() {
                 disabled={offset === 0}
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
                 className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700
-                           hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40
-                           disabled:cursor-not-allowed transition-colors"
+                           hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed
+                           disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 Zurück
               </button>
@@ -434,8 +434,8 @@ function HistorySection() {
                 disabled={offset + PAGE_SIZE >= total}
                 onClick={() => setOffset(offset + PAGE_SIZE)}
                 className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700
-                           hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40
-                           disabled:cursor-not-allowed transition-colors"
+                           hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed
+                           disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 Weiter
               </button>

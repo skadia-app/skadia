@@ -104,7 +104,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                     <button
                       key={opt.id}
                       onClick={() => setSelectedSports(prev => ({ ...prev, [key]: opt.id }))}
-                      className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+                      className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium border cursor-pointer transition-colors ${
                         selectedSports[key] === opt.id
                           ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                           : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
@@ -130,13 +130,13 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                     ? 'Bitte zuerst eine Sportart auswählen'
                     : undefined
                 }
-                className="flex-1 bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
+                className="flex-1 bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
               >
                 Editor öffnen
               </button>
               <button
                 onClick={() => setDismissed(prev => new Set([...prev, key]))}
-                className="flex-1 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors"
+                className="flex-1 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-600 dark:text-neutral-400 cursor-pointer transition-colors"
               >
                 Separate Aktivitäten
               </button>

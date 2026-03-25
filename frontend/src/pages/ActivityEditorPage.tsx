@@ -616,7 +616,7 @@ export default function ActivityEditorPage() {
             {editRpe != null && (
               <button
                 onClick={() => { setEditRpe(null); setMetaDirty(true) }}
-                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
                 title="RPE entfernen"
               >
                 Entfernen
@@ -647,7 +647,7 @@ export default function ActivityEditorPage() {
                     setMetaDirty(true)
                   }}
                   title={label}
-                  className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                  className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-colors ${
                     isSelected
                       ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20'
                       : 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800'
@@ -845,7 +845,7 @@ export default function ActivityEditorPage() {
                   onChange={(e) => setGpsMethod(e.target.value as 'interpolate' | 'remove')}
                   className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
                              text-sm text-neutral-700 dark:text-neutral-300 px-3 py-2
-                             focus:outline-none focus:ring-1 focus:ring-orange-500"
+                             focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 >
                   <option value="interpolate">Interpolieren</option>
                   <option value="remove">Entfernen</option>

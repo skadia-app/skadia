@@ -431,7 +431,7 @@ export default function PhotoGeoAssignmentOverlay({
                 <button
                   key={key}
                   onClick={() => setMapStyle(key)}
-                  className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
                     mapStyle === key
                       ? 'bg-accent-DEFAULT text-white'
                       : 'bg-neutral-900/90 text-neutral-300 hover:bg-neutral-800 hover:text-white'

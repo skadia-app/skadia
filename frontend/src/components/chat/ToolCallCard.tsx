@@ -22,7 +22,7 @@ export default function ToolCallCard({ toolName, args, result }: ToolCallCardPro
     <div className="my-1 rounded border border-neutral-200 dark:border-neutral-700 text-sm">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+        className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
       >
         <Wrench className="w-3 h-3" />
         <span className="font-mono text-xs">{toolName}</span>

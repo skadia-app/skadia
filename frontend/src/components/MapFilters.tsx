@@ -587,7 +587,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Kartenebenen</span>
                 <button
                   onClick={() => navigate('/map/summits')}
-                  className="w-full text-left text-xs text-accent-DEFAULT hover:underline mb-2"
+                  className="cursor-pointer w-full text-left text-xs text-accent-DEFAULT hover:underline mb-2"
                 >
                   Gipfelsammlung öffnen →
                 </button>
