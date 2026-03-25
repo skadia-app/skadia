@@ -212,7 +212,7 @@ func (h *Handler) autoAssignPhoto(
 				ParentID:    &actID,
 			}, bytes.NewReader(thumbData))
 		}
-	} else {
+	} else if h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
 			slog.Error("upload media: s3 upload photo failed", "error", err)
 			errMsg := "failed to store photo"
@@ -305,7 +305,7 @@ func (h *Handler) queueMediaFile(
 			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 		}
 		queueFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), tempBucket, s3Key, data, ct); err != nil {
 			slog.Error("upload media: s3 temp upload failed", "error", err)
 			errMsg := "failed to store file"

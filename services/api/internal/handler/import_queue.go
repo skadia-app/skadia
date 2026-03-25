@@ -165,6 +165,10 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 		bucket = *item.S3Bucket
 	}
 
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
+		return
+	}
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, thumbKey)
 	if err != nil {
 		slog.Error("get queue item thumb: s3 download failed", "id", id, "key", thumbKey, "error", err)

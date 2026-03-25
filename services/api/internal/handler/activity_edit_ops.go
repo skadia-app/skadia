@@ -682,6 +682,9 @@ func (h *Handler) mergeActivityTags(ctx context.Context, targetID, sourceID, use
 // appendSidecarEdits loads the existing S3 sidecar, appends the given edits, and saves it back.
 // Errors are logged as warnings (best-effort); the primary operation is not rolled back.
 func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID string, edits []editor.Edit) {
+	if h.Storage == nil {
+		return
+	}
 	bucket := editorBucket()
 	key := editorKey(userID, activityID)
 

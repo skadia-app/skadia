@@ -266,7 +266,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		imageFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
 			slog.Error("s3 upload marker image failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)

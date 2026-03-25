@@ -129,6 +129,9 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	// Track uploaded S3 keys for cleanup on failure (legacy path).
 	var uploadedKeys []string
 	cleanupS3 := func() {
+		if h.Storage == nil {
+			return
+		}
 		for _, key := range uploadedKeys {
 			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
 				slog.Warn("s3 orphan cleanup failed", "key", key, "error", delErr)
@@ -144,6 +147,10 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	if photoFileID == "" {
 		// Legacy S3 upload — FileStore not available.
+		if h.Storage == nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "storage not configured", r.URL.Path)
+			return
+		}
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
 			slog.Error("s3 upload route photo failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
@@ -153,7 +160,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upload thumbnail (always via S3 — thumbnails are not stored in FileStore).
-	if thumbData != nil {
+	if thumbData != nil && h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
 			slog.Warn("s3 upload route thumb failed", "error", err)
 			s3KeyThumb = s3Key
@@ -166,7 +173,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Upload preview.
 	var s3KeyPreview *string
-	if previewData != nil {
+	if previewData != nil && h.Storage != nil {
 		key := fmt.Sprintf("route-photos/%s/%s/%s_preview.jpg", userID, routeID, hash)
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, key, previewData, "image/jpeg"); err != nil {
 			slog.Warn("s3 upload route preview failed", "error", err)
@@ -234,7 +241,7 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Warn("delete route photo: FileStore.Delete failed", "file_id", fileID, "error", delErr)
 		}
-	} else {
+	} else if h.Storage != nil {
 		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
 		if s3KeyThumb != s3Key {
 			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3KeyThumb)

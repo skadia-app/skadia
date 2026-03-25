@@ -211,7 +211,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 					return nil, &importError{importErrStorage, "failed to store file"}
 				}
 				msFileID = rec.ID
-			} else {
+			} else if h.Storage != nil {
 				s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 				if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
 					slog.Error("import_url: S3 upload for multisport failed", "error", uploadErr)
@@ -326,7 +326,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			return nil, &importError{importErrStorage, "failed to store file"}
 		}
 		fileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
 		if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
 			slog.Error("import_url: S3 upload failed", "error", uploadErr)

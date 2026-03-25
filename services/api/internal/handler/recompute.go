@@ -469,6 +469,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	if info == nil || info.FileKey == "" {
 		return fmt.Errorf("no original file stored for activity %s", activityID)
 	}
+	if h.Storage == nil {
+		return fmt.Errorf("storage not configured; cannot reprocess activity %s", activityID)
+	}
 
 	// 2. Download original file from Garage.
 	fileBytes, err := h.Storage.Download(ctx, info.FileKey)
@@ -701,7 +704,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 	meta := sidecar.GenerateMetaV3(activityID, data, activity)
 	metaBytes, mErr := meta.Marshal()
-	if mErr == nil {
+	if mErr == nil && h.Storage != nil {
 		if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
 			slog.Error("reprocess: meta upload failed", "id", activityID, "error", err)
 		}

@@ -214,7 +214,7 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Legacy S3 fallback: runs when FileStore is nil or this photo has no file_id yet.
-	if h.FileStore == nil || fileID == "" {
+	if h.Storage != nil && (h.FileStore == nil || fileID == "") {
 		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
 		if keyThumb != key {
 			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyThumb)
@@ -236,6 +236,10 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 	photo, err := h.DB.GetActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		return
+	}
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
 		return
 	}
 	data, _, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
@@ -272,6 +276,10 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 	}
 
 	// Legacy S3 fallback.
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
+		return
+	}
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
 	if err != nil {
 		slog.Error("s3 download photo failed", "error", err)
@@ -381,6 +389,9 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fi
 	}
 
 	// Legacy S3 fallback.
+	if h.Storage == nil {
+		return
+	}
 	bucket := mediaBucketName()
 	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
 	if err := h.Storage.UploadToBucket(ctx, bucket, key, sidecarBytes, "application/json"); err != nil {
@@ -414,6 +425,10 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Use S3 preview key if available, otherwise fall back to original S3 key.
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
+		return
+	}
 	key := photo.S3KeyPreview
 	if key == "" {
 		key = photo.S3Key
@@ -458,6 +473,12 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		slog.Error("recompute previews: failed to create background job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+
+	if h.Storage == nil {
+		_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, false, "")
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"job_id": jobID})
 		return
 	}
 
@@ -599,6 +620,11 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 	}
 
 	if len(badPhotos) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
+		return
+	}
+
+	if h.Storage == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
 		return
 	}

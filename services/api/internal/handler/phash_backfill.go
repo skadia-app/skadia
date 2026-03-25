@@ -62,6 +62,11 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.Storage == nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
+		return
+	}
+
 	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "phash_backfill", nil, nil, int64(len(photos)))
 	if err != nil {
 		slog.Error("phash backfill: failed to create background job", "error", err)

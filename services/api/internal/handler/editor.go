@@ -69,7 +69,7 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 			rc.Close()
 		}
 	}
-	if rawData == nil {
+	if rawData == nil && h.Storage != nil {
 		// Legacy S3 path.
 		key := editorKey(userID, activityID)
 		downloaded, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
@@ -161,7 +161,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sidecarFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		key := editorKey(userID, activityID)
 		if err := h.Storage.UploadToBucket(r.Context(), editorBucket(), key, raw, "application/json"); err != nil {
 			slog.Error("editor: upload sidecar failed", "id", activityID, "error", err)
@@ -224,7 +224,7 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 		if delErr := h.FileStore.Delete(r.Context(), userID, sidecarFileID); delErr != nil {
 			slog.Warn("editor: FileStore.Delete sidecar failed", "id", activityID, "file_id", sidecarFileID, "error", delErr)
 		}
-	} else {
+	} else if h.Storage != nil {
 		key := editorKey(userID, activityID)
 		if err := h.Storage.DeleteFromBucket(r.Context(), editorBucket(), key); err != nil {
 			slog.Warn("editor: s3 delete sidecar failed", "id", activityID, "error", err)
@@ -410,7 +410,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 				rc.Close()
 			}
 		}
-		if rawSidecar == nil {
+		if rawSidecar == nil && h.Storage != nil {
 			key := editorKey(userID, activityID)
 			rawSidecar, _, _ = h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
 		}
