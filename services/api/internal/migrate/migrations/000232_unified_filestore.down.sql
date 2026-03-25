@@ -21,7 +21,7 @@ DROP TRIGGER IF EXISTS trg_file_attachment_ownership ON file_attachments;
 DROP FUNCTION IF EXISTS check_file_attachment_ownership();
 
 DROP INDEX IF EXISTS idx_user_files_edit_upsert;
-DROP TABLE IF EXISTS migration_filestore_journal;
+DROP TABLE IF EXISTS migration_shadowfs_journal;
 DROP TABLE IF EXISTS file_attachments;
 DROP TABLE IF EXISTS user_files;
 DROP TABLE IF EXISTS user_file_schemas;
