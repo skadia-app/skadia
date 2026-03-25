@@ -274,7 +274,12 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	imageURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
+	var imageURL string
+	if imageFileID != "" {
+		imageURL = fmt.Sprintf("/api/v1/files/%s", imageFileID)
+	} else {
+		imageURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
+	}
 	updateReq := model.UpdateMarkerRequest{ImageURL: &imageURL}
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 	if httputil.HandleDBErr(w, r, err, "marker not found") {

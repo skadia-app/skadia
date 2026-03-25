@@ -88,6 +88,19 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		rawData = downloaded
 	}
 
+	if rawData == nil {
+		// No sidecar stored anywhere — return empty sidecar.
+		empty := &editor.EditSidecar{
+			Version:    1,
+			ActivityID: activityID,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+			Edits:      []editor.Edit{},
+		}
+		httputil.WriteJSON(w, http.StatusOK, empty)
+		return
+	}
+
 	var sidecar editor.EditSidecar
 	if err := json.Unmarshal(rawData, &sidecar); err != nil {
 		slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)

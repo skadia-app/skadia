@@ -56,6 +56,25 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ShadowFS path (preferred): look up file_id by matching the S3 key pattern in user_files.
+	if h.ShadowFS != nil {
+		var fileID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id::text FROM user_files WHERE user_id = $1 AND storage_path = $2 AND status = 'active' LIMIT 1`,
+			userID, key,
+		).Scan(&fileID)
+		if fileID != "" {
+			resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, fileID)
+			if resolveErr == nil {
+				serveResolvedFile(w, r, resolved)
+				return
+			}
+			slog.Warn("media proxy: ShadowFS.Resolve failed, falling back to S3",
+				"file_id", fileID, "key", key, "error", resolveErr)
+		}
+	}
+
+	// Legacy S3 fallback.
 	if h.Storage == nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
 		return

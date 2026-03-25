@@ -105,37 +105,44 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// registerInShadowFS stores the photo in ShadowFS and links file_id on the DB row.
+	registerInShadowFS := func(photoID string) {
+		if h.ShadowFS == nil {
+			return
+		}
+		actIDPtr := &activityID
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			ParentType:  func() *string { s := "activity"; return &s }(),
+			ParentID:    actIDPtr,
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Warn("upload photo: ShadowFS.Put failed (non-fatal)", "photo_id", photoID, "error", putErr)
+			return
+		}
+		// Link file_id on the activity_photos row.
+		if _, execErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE activity_photos SET file_id = $1 WHERE id = $2 AND user_id = $3`,
+			rec.ID, photoID, userID,
+		); execErr != nil {
+			slog.Warn("upload photo: link file_id failed", "photo_id", photoID, "file_id", rec.ID, "error", execErr)
+		}
+	}
+
 	switch result.Status {
 	case "duplicate_exact", "duplicate_phash":
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 	case "replaced":
-		// Higher-resolution variant replaced an existing photo.
+		// Higher-resolution variant replaced an existing photo — also register in ShadowFS.
+		registerInShadowFS(result.PhotoID)
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
 	default:
 		// "created" — register in ShadowFS (preferred) and return the full photo record.
-		if h.ShadowFS != nil {
-			actIDPtr := &activityID
-			rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-				UserID:      userID,
-				FileType:    "media",
-				ContentType: ct,
-				FileName:    header.Filename,
-				SizeBytes:   int64(len(data)),
-				ParentType:  func() *string { s := "activity"; return &s }(),
-				ParentID:    actIDPtr,
-			}, bytes.NewReader(data))
-			if putErr != nil {
-				slog.Warn("upload photo: ShadowFS.Put failed (non-fatal)", "error", putErr)
-			} else {
-				// Link file_id on the activity_photos row.
-				if _, execErr := h.DB.Pool.Exec(r.Context(),
-					`UPDATE activity_photos SET file_id = $1 WHERE id = $2 AND user_id = $3`,
-					rec.ID, result.PhotoID, userID,
-				); execErr != nil {
-					slog.Warn("upload photo: link file_id failed", "photo_id", result.PhotoID, "file_id", rec.ID, "error", execErr)
-				}
-			}
-		}
+		registerInShadowFS(result.PhotoID)
 
 		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
 		if err != nil {
@@ -239,19 +246,32 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
-		return
+
+	// Try S3 first (thumbs are generated artifacts stored in S3).
+	if h.Storage != nil && photo.S3KeyThumb != "" {
+		data, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
+		if dlErr == nil {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "private, max-age=86400")
+			w.Write(data)
+			return
+		}
+		slog.Warn("stream photo thumb: S3 download failed, trying ShadowFS fallback",
+			"photo_id", photoID, "error", dlErr)
 	}
-	data, _, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
-	if err != nil {
-		slog.Error("s3 download thumb failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load thumbnail", r.URL.Path)
-		return
+
+	// ShadowFS fallback: serve original via Resolve (redirect/serve).
+	if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
+		resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *photo.FileID)
+		if resolveErr == nil {
+			serveResolvedFile(w, r, resolved)
+			return
+		}
+		slog.Warn("stream photo thumb: ShadowFS.Resolve failed",
+			"photo_id", photoID, "file_id", *photo.FileID, "error", resolveErr)
 	}
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "thumbnail not available", r.URL.Path)
 }
 
 func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request) {
@@ -477,7 +497,7 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if h.Storage == nil {
+	if h.Storage == nil && h.ShadowFS == nil {
 		_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, false, "")
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"job_id": jobID})
 		return
@@ -491,8 +511,28 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		anyFailed := false
 
 		for _, photo := range photos {
-			data, _, err := h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
-			if err != nil {
+			// ShadowFS path (preferred): read via file_id when available.
+			var data []byte
+			if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
+				rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
+				if getErr == nil {
+					data, _ = io.ReadAll(rc)
+					rc.Close()
+				} else {
+					slog.Warn("recompute previews: ShadowFS.Get failed, falling back to S3",
+						"photo_id", photo.ID, "file_id", *photo.FileID, "error", getErr)
+				}
+			}
+			// Legacy S3 fallback.
+			if data == nil && h.Storage != nil && photo.S3Key != "" {
+				var dlErr error
+				data, _, dlErr = h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
+				if dlErr != nil {
+					slog.Warn("recompute previews: S3 download failed",
+						"photo_id", photo.ID, "error", dlErr)
+				}
+			}
+			if data == nil {
 				anyFailed = true
 				processed++
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)

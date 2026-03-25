@@ -377,12 +377,15 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		coverFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
 			slog.Error("s3 upload tag cover failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
 			return
 		}
+	} else {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "no storage configured", r.URL.Path)
+		return
 	}
 
 	// Thumbnail generieren (800×800 px, quadratisch).
@@ -390,7 +393,12 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	// In beiden Fällen (kein Thumb oder Thumb-Upload-Fehler) verwenden wir coverURL als Thumb,
 	// damit ein Re-Upload eines kleinen Bildes keinen veralteten Thumb aus dem Vorgänger-Upload hinterlässt.
 	thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
-	coverURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
+	var coverURL string
+	if coverFileID != "" {
+		coverURL = fmt.Sprintf("/api/v1/files/%s", coverFileID)
+	} else {
+		coverURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
+	}
 	thumbURL := coverURL // Fallback: Cover ist sein eigenes Thumbnail
 	thumbData, thumbErr := imageutil.Resize(data, 800, 800, 85)
 	if h.Storage != nil && thumbErr == nil && thumbData != nil {
