@@ -306,28 +306,35 @@ func main() {
 		reconcileRenderer := shadowfs.NewSchemaRenderer()
 		reconcileJob := shadowfs.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
 		shutdown.Go("shadowfs-reconciliation", func(ctx context.Context) {
+			doReconcile := func() {
+				slog.Info("shadowfs reconcile: starting run")
+				result, err := reconcileJob.Run(ctx, nil)
+				if err != nil {
+					slog.Error("shadowfs reconcile: run failed", "error", err)
+				} else {
+					slog.Info("shadowfs reconcile: run complete",
+						"orphaned", result.OrphanedFiles,
+						"dangling", result.DanglingRecords,
+						"size_fixes", result.SizeMismatches,
+						"archived_cleaned", result.ArchivedCleaned,
+						"temp_cleaned", result.TempCleaned,
+						"duplicates", result.DuplicatePaths,
+						"purging_cleaned", result.PurgingCleaned,
+						"rename_fixed", result.RenameFixed,
+						"archive_warnings", len(result.ArchiveWarnings),
+					)
+				}
+			}
+
+			// L27: Run one immediate reconciliation on first startup.
+			doReconcile()
+
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					slog.Info("shadowfs reconcile: starting daily run")
-					result, err := reconcileJob.Run(ctx, nil)
-					if err != nil {
-						slog.Error("shadowfs reconcile: daily run failed", "error", err)
-					} else {
-						slog.Info("shadowfs reconcile: daily run complete",
-							"orphaned", result.OrphanedFiles,
-							"dangling", result.DanglingRecords,
-							"size_fixes", result.SizeMismatches,
-							"archived_cleaned", result.ArchivedCleaned,
-							"temp_cleaned", result.TempCleaned,
-							"duplicates", result.DuplicatePaths,
-							"purging_cleaned", result.PurgingCleaned,
-							"rename_fixed", result.RenameFixed,
-							"archive_warnings", len(result.ArchiveWarnings),
-						)
-					}
+					doReconcile()
 				case <-ctx.Done():
 					return
 				}
