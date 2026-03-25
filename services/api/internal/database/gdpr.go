@@ -9,9 +9,28 @@ import (
 	"time"
 )
 
+// HealthHypertables lists health tables backed by TimescaleDB hypertables.
+var HealthHypertables = []string{
+	"health_daily_summary", "health_sleep", "health_snapshots",
+	"health_hrv_night_values",
+}
+
+// HealthRegularTables lists health tables stored as regular PostgreSQL tables.
+var HealthRegularTables = []string{
+	"health_weight_entries", "health_blood_pressure", "health_fitness_age",
+	"health_stress_snapshots", "health_spo2_snapshots",
+	"health_training_load", "health_readiness_scores",
+}
+
+// AllHealthTables returns a combined slice of all health tables (hypertables + regular).
+func AllHealthTables() []string {
+	return append(append([]string{}, HealthHypertables...), HealthRegularTables...)
+}
+
 // PurgeDeletedUsers finds users whose deleted_at is >30 days ago and purges them.
 // Intended to be called by a daily cleanup job.
-func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string) error {
+// s3Cleanup is an optional callback for S3 object cleanup; pass nil to skip.
+func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string, s3Cleanup func(userID string) error) error {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '30 days'`)
 	if err != nil {
@@ -33,7 +52,7 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string) er
 	}
 
 	for _, uid := range userIDs {
-		if err := db.DeleteUserData(ctx, uid, shadowFSBasePath); err != nil {
+		if err := db.DeleteUserData(ctx, uid, shadowFSBasePath, s3Cleanup); err != nil {
 			slog.Error("GDPR purge failed for user", "user_id", uid, "error", err)
 			// Continue with other users — don't let one failure block the rest.
 		}
@@ -51,8 +70,9 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string) er
 //
 //	cascades to ~45 dependent tables via ON DELETE CASCADE.
 //
-// Phase 3: Best-effort external storage cleanup (ShadowFS on disk).
-func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath string) error {
+// Phase 3: Best-effort external storage cleanup (ShadowFS on disk + optional S3).
+// s3Cleanup is an optional callback for S3 object cleanup; pass nil to skip.
+func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath string, s3Cleanup func(userID string) error) error {
 	slog.Info("GDPR purge starting", "user_id", userID)
 
 	// Track purge in background_jobs for UI visibility.
@@ -105,12 +125,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	}
 
 	// Health hypertables (no CASCADE from users).
-	healthHypertables := []string{
-		"health_daily_summary",
-		"health_hrv_snapshots",
-		"health_hrv_night_values",
-	}
-	for _, table := range healthHypertables {
+	for _, table := range HealthHypertables {
 		if _, err := db.Pool.Exec(ctx,
 			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, table), userID); err != nil {
 			slog.Warn("GDPR: delete health hypertable failed", "table", table, "error", err)
@@ -118,17 +133,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 	}
 
 	// Health regular tables (no CASCADE from users).
-	healthTables := []string{
-		"health_sleep",
-		"health_weight_entries",
-		"health_blood_pressure",
-		"health_fitness_age",
-		"health_stress_snapshots",
-		"health_spo2_snapshots",
-		"health_training_load",
-		"health_readiness_scores",
-	}
-	for _, table := range healthTables {
+	for _, table := range HealthRegularTables {
 		if _, err := db.Pool.Exec(ctx,
 			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, table), userID); err != nil {
 			slog.Warn("GDPR: delete health table failed", "table", table, "error", err)
@@ -214,10 +219,12 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 		}
 	}
 
-	// TODO: S3 object cleanup (activity photos, gear documents, exports).
-	// S3 objects are keyed by user_id prefix — needs S3 client access.
-	// For now, orphaned S3 objects are harmless (no PII in keys, content
-	// is only accessible via authenticated API which no longer resolves the user).
+	// S3 object cleanup (activity photos, gear documents, exports).
+	if s3Cleanup != nil {
+		if err := s3Cleanup(userID); err != nil {
+			slog.Warn("GDPR: S3 cleanup failed", "user_id", userID, "error", err)
+		}
+	}
 
 	markJobDone("completed", "")
 	slog.Info("GDPR purge complete", "user_id", userID,
