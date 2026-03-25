@@ -454,6 +454,9 @@ func main() {
 				r.Get("/settings/ml", h.GetMLSystemSettings)
 				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
+				// FileStore registry
+				r.Post("/storage/populate-registry", h.StartRegistryPopulation)
+
 				// Photo batch operations
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
 				r.Post("/photos/recompute-thumbnails", h.RecomputePhotoThumbnails)

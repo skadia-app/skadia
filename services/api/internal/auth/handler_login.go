@@ -15,6 +15,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -32,9 +33,10 @@ type Handler struct {
 	Config      *config.Config
 	Mailer      *Mailer
 	RL          *middleware.RateLimiter // for per-email rate limiting (body-parsed)
-	secret      []byte                 // decoded JWT secret
-	isHTTPS     bool                   // derived from Config.AppURL at init
-	shutdownCtx context.Context        // server lifecycle context for background goroutines
+	FileStore   filestore.FileStore     // unified storage (nil = legacy ShadowFS only)
+	secret      []byte                  // decoded JWT secret
+	isHTTPS     bool                    // derived from Config.AppURL at init
+	shutdownCtx context.Context         // server lifecycle context for background goroutines
 }
 
 // NewHandler creates an auth handler. shutdownCtx should be the server's

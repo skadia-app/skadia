@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -120,13 +121,34 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			msTracker.Processing(r.Context())
 			msTracker.SetFileHash(r.Context(), hashStr)
 
-			// S3 upload first (shared by all children)
+			// Upload file — FileStore path preferred; legacy S3 as fallback.
 			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
-				slog.Error("s3 upload for multisport failed", "error", uploadErr)
-				msTracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
-				httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
-				return
+			var msFileID string
+			if h.FileStore != nil {
+				rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+					UserID:      userID,
+					FileType:    "activity",
+					ContentType: "application/octet-stream",
+					FileName:    filename,
+					SizeBytes:   int64(len(decompressed)),
+					FileHash:    hashStr,
+					Tags:        map[string]string{"format": format},
+				}, bytes.NewReader(decompressed))
+				if putErr != nil {
+					slog.Error("filestore upload for multisport failed", "error", putErr)
+					msTracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+					httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
+					return
+				}
+				msFileID = rec.ID
+			} else {
+				// Legacy S3 path (will be removed after migration)
+				if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
+					slog.Error("s3 upload for multisport failed", "error", uploadErr)
+					msTracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
+					httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
+					return
+				}
 			}
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
@@ -141,6 +163,16 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 
 			msTracker.Completed(r.Context(), msResult.ParentID)
+
+			// Store file_id on parent activity when FileStore was used.
+			if msFileID != "" {
+				if _, execErr := h.DB.Pool.Exec(r.Context(),
+					`UPDATE activities SET file_id = $1 WHERE id = $2`,
+					msFileID, msResult.ParentID,
+				); execErr != nil {
+					slog.Warn("failed to set file_id on multisport parent", "parent_id", msResult.ParentID, "error", execErr)
+				}
+			}
 
 			// Return parent activity
 			parentAct, _ := h.DB.GetActivity(r.Context(), msResult.ParentID)
@@ -193,13 +225,41 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// For created/enriched/replaced: upload to S3 + PostProcess
+		// For created/enriched/replaced: upload to FileStore (preferred) or S3 (legacy).
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-		if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
-			slog.Error("S3 upload failed", "error", uploadErr)
-			tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
-			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
-			return
+		var fitFileID string
+		if h.FileStore != nil {
+			rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+				UserID:      userID,
+				FileType:    "activity",
+				ContentType: "application/octet-stream",
+				FileName:    filename,
+				SizeBytes:   int64(len(decompressed)),
+				FileHash:    hashStr,
+				Tags: map[string]string{
+					"format": format,
+					"year":   data.StartedAt.Format("2006"),
+					"month":  data.StartedAt.Format("01"),
+					"day":    data.StartedAt.Format("02"),
+					"time":   data.StartedAt.Format("15-04"),
+					"sport":  data.SportType,
+				},
+			}, bytes.NewReader(decompressed))
+			if putErr != nil {
+				slog.Error("filestore upload failed", "error", putErr)
+				tracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+				httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+				return
+			}
+			fitFileID = rec.ID
+		} else {
+			// Legacy S3 path (will be removed after migration)
+			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
+				slog.Error("S3 upload failed", "error", uploadErr)
+				tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", uploadErr))
+				httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+				return
+			}
 		}
 
 		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
@@ -207,6 +267,16 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 			return
+		}
+
+		// Store file_id on activity when FileStore was used.
+		if fitFileID != "" {
+			if _, execErr := h.DB.Pool.Exec(r.Context(),
+				`UPDATE activities SET file_id = $1 WHERE id = $2`,
+				fitFileID, fitResult.ActivityID,
+			); execErr != nil {
+				slog.Warn("failed to set file_id on fit activity", "activity_id", fitResult.ActivityID, "error", execErr)
+			}
 		}
 
 		h.postInsertActivity(r.Context(), userID, fitActivity, data, decompressed, s3Key, format, filename)
@@ -296,19 +366,47 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For created/enriched/replaced: upload to Garage + PostProcess
+	// For created/enriched/replaced: upload to FileStore (preferred) or Garage/S3 (legacy).
 	ext := format
 	if ext == "" {
 		ext = strings.TrimPrefix(filepath.Ext(filename), ".")
 	}
 	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, ext)
-
 	contentType := "application/xml"
-	if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
-		slog.Error("S3 upload failed", "error", err)
-		tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", err))
-		httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
-		return
+
+	var gpxFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: contentType,
+			FileName:    filename,
+			SizeBytes:   int64(len(decompressed)),
+			FileHash:    hashStr,
+			Tags: map[string]string{
+				"format": format,
+				"year":   data.StartedAt.Format("2006"),
+				"month":  data.StartedAt.Format("01"),
+				"day":    data.StartedAt.Format("02"),
+				"time":   data.StartedAt.Format("15-04"),
+				"sport":  data.SportType,
+			},
+		}, bytes.NewReader(decompressed))
+		if putErr != nil {
+			slog.Error("filestore upload failed", "error", putErr)
+			tracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+			return
+		}
+		gpxFileID = rec.ID
+	} else {
+		// Legacy S3 path (will be removed after migration)
+		if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
+			slog.Error("S3 upload failed", "error", err)
+			tracker.Error(r.Context(), fmt.Errorf("S3 upload: %w", err))
+			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
+			return
+		}
 	}
 
 	gpxActivity, _ := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)
@@ -316,6 +414,16 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 		return
+	}
+
+	// Store file_id on activity when FileStore was used.
+	if gpxFileID != "" {
+		if _, execErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE activities SET file_id = $1 WHERE id = $2`,
+			gpxFileID, gpxResult.ActivityID,
+		); execErr != nil {
+			slog.Warn("failed to set file_id on gpx/tcx activity", "activity_id", gpxResult.ActivityID, "error", execErr)
+		}
 	}
 
 	h.postInsertActivity(r.Context(), userID, gpxActivity, data, decompressed, s3Key, format, filename)
