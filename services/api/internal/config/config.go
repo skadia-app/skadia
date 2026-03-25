@@ -27,6 +27,24 @@ type Config struct {
 	HotfolderUserID  string // User ID that hotfolder imports are attributed to
 	MaxUploadSize    int64  // Maximum upload size in bytes (default 50 MB)
 
+	// FileStore (unified storage)
+	StorageBackend      string // "local" (default) or "s3"
+	LibraryBasePath     string // e.g. /data/library
+	LibraryKeepVersions int    // 0=delete, 1=keep last, -1=keep all
+	LibrarySyncEnabled    bool
+	LibrarySyncAutoImport bool
+	MaxUserStorageBytes   int64  // Safety-valve quota (0=unlimited, default 50GB)
+
+	// S3 (generic — works with Garage, AWS, MinIO, etc.)
+	S3Endpoint       string
+	S3AccessKey      string
+	S3SecretKey      string
+	S3Bucket         string
+	S3Region         string
+	S3ForcePathStyle bool
+	S3BucketActivity string // Optional: separate bucket for activities
+	S3BucketMedia    string // Optional: separate bucket for media
+
 	// LLM / LiteLLM
 	LiteLLMConfigPath  string // writable path to litellm config.yaml
 	LiteLLMInternalURL string // e.g. http://litellm:4000
@@ -82,6 +100,23 @@ func Load() (*Config, error) {
 		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
+		StorageBackend:      getEnvDefault("STORAGE_BACKEND", "local"),
+		LibraryBasePath:     getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
+		LibraryKeepVersions: parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
+		LibrarySyncEnabled:  os.Getenv("LIBRARY_SYNC_ENABLED") != "false",
+		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") != "false",
+		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), 50*1024*1024*1024),
+
+		// S3 with fallback to GARAGE_* for backward compatibility
+		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
+		S3AccessKey:      getEnvDefault("S3_ACCESS_KEY", os.Getenv("GARAGE_ACCESS_KEY")),
+		S3SecretKey:      getEnvDefault("S3_SECRET_KEY", os.Getenv("GARAGE_SECRET_KEY")),
+		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
+		S3Region:         getEnvDefault("S3_REGION", "garage"),
+		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") != "false",
+		S3BucketActivity: os.Getenv("S3_BUCKET_ACTIVITY"),
+		S3BucketMedia:    os.Getenv("S3_BUCKET_MEDIA"),
+
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
 		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
@@ -115,11 +150,13 @@ func Load() (*Config, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
-	if cfg.GarageAccessKey == "" {
-		return nil, fmt.Errorf("GARAGE_ACCESS_KEY is required")
-	}
-	if cfg.GarageSecretKey == "" {
-		return nil, fmt.Errorf("GARAGE_SECRET_KEY is required")
+	if cfg.StorageBackend == "s3" {
+		if cfg.S3AccessKey == "" {
+			return nil, fmt.Errorf("S3_ACCESS_KEY (or GARAGE_ACCESS_KEY) is required when STORAGE_BACKEND=s3")
+		}
+		if cfg.S3SecretKey == "" {
+			return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY) is required when STORAGE_BACKEND=s3")
+		}
 	}
 
 	return cfg, nil
@@ -138,6 +175,17 @@ func parseIntDefault(s string, defaultVal int) int {
 	}
 	v, err := strconv.Atoi(s)
 	if err != nil {
+		return defaultVal
+	}
+	return v
+}
+
+func parseMaxStorageBytes(s string, defaultVal int64) int64 {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 0 {
 		return defaultVal
 	}
 	return v
