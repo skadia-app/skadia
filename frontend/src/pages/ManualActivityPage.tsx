@@ -448,7 +448,8 @@ export default function ManualActivityPage() {
                 </div>
                 <Toggle
                   checked={isEbike}
-                  onChange={() => setIsEbike(v => !v)}
+                  onChange={(v) => setIsEbike(v)}
+                  aria-label="E-Bike"
                 />
               </div>
             )}
@@ -461,7 +462,8 @@ export default function ManualActivityPage() {
               </div>
               <Toggle
                 checked={isVirtual}
-                onChange={() => setIsVirtual(v => !v)}
+                onChange={(v) => setIsVirtual(v)}
+                aria-label="Virtuell"
               />
             </div>
 

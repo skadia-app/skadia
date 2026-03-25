@@ -871,6 +871,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             checked={offsetPinEnabled}
             onChange={() => setOffsetPinEnabled(v => !v)}
             color="#3B82F6"
+            aria-label="Versetzten Pin aktivieren"
           />
           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Versetzter Pin</span>
         </div>

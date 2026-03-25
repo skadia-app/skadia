@@ -1611,6 +1611,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 <Toggle
                   checked={hasRoundTripCondition}
                   onChange={() => toggleRoundTrip(!hasRoundTripCondition)}
+                  aria-label="Rundtour"
                 />
               </div>
             </div>

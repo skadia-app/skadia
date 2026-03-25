@@ -97,7 +97,7 @@ function SliderField({ label, value, min, max, step, unit, hint, onChange }: Sli
         step={step}
         value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#3b82f6)] bg-neutral-200 dark:bg-neutral-700"
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
       />
       {hint && (
         <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">{hint}</p>
@@ -127,7 +127,7 @@ function SwitchField({ label, value, hint, onChange }: SwitchFieldProps) {
         aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative inline-flex h-4 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none mt-0.5 ${
-          value ? 'bg-[var(--color-accent-DEFAULT,#3b82f6)]' : 'bg-neutral-300 dark:bg-neutral-600'
+          value ? 'bg-[var(--color-accent-DEFAULT,#F97316)]' : 'bg-neutral-300 dark:bg-neutral-600'
         }`}
       >
         <span
@@ -162,7 +162,7 @@ function IntSegmented({ label, value, min, max, hint, onChange }: IntSegmentedPr
             onClick={() => onChange(opt)}
             className={`flex-1 text-xs py-0.5 rounded transition-colors cursor-pointer ${
               value === opt
-                ? 'bg-[var(--color-accent-DEFAULT,#3b82f6)] text-white font-medium'
+                ? 'bg-[var(--color-accent-DEFAULT,#F97316)] text-white font-medium'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
@@ -237,7 +237,7 @@ function HighwayCostSlider({
         className={`w-full h-1.5 rounded-full appearance-none ${
           blocked
             ? 'cursor-not-allowed bg-neutral-200 dark:bg-neutral-700'
-            : 'cursor-pointer accent-[var(--color-accent-DEFAULT,#3b82f6)] bg-neutral-200 dark:bg-neutral-700'
+            : 'cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700'
         }`}
       />
       {hint && (
@@ -411,7 +411,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               title={p.description}
               className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 currentProfile === p.name
-                  ? 'bg-[var(--color-accent-DEFAULT,#3b82f6)] text-white'
+                  ? 'bg-[var(--color-accent-DEFAULT,#F97316)] text-white'
                   : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
               }`}
             >

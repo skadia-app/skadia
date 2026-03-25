@@ -143,6 +143,7 @@ function AutomatischeAnalysenSection() {
                 }}
                 disabled={isLoading || mut.isPending || mlUnavailable}
                 className="mt-0.5"
+                aria-label={`${module.label} aktivieren`}
               />
             </div>
           )
@@ -482,6 +483,7 @@ function MLServiceSection() {
               <Toggle
                 checked={enabled}
                 onChange={() => toggleJob(key, !enabled)}
+                aria-label={`${label} aktivieren`}
               />
             </div>
           )
@@ -555,6 +557,7 @@ function NotificationSettingsSection() {
               <Toggle
                 checked={enabled}
                 onChange={() => toggleNotify(key, !enabled)}
+                aria-label={`${label} aktivieren`}
               />
             </div>
           )
@@ -764,6 +767,7 @@ export default function SettingsPage() {
             checked={!!settings?.hotfolder_enabled}
             onChange={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
             disabled={toggleMutation.isPending}
+            aria-label="Hotfolder aktivieren"
           />
         </div>
 
@@ -1777,6 +1781,7 @@ function HeatmapSettingsSection() {
               setLocalFilterMap(next)
               setLocalFilterActivity(next)
             }}
+            aria-label="Teleportationslücken ausblenden"
           />
         </div>
         <p className="text-xs text-neutral-400 mb-4">
