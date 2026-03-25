@@ -47,6 +47,23 @@ type ProfileConfig struct {
 
 	// A*
 	Pass0Coefficient *float32 `json:"pass0_coefficient,omitempty"`
+
+	// Highway cost overrides (nil = profile default)
+	PathCost         *float32 `json:"path_cost,omitempty"`
+	TrackCost        *float32 `json:"track_cost,omitempty"`
+	TrackGrade1Cost  *float32 `json:"track_grade1_cost,omitempty"`
+	TrackGrade2Cost  *float32 `json:"track_grade2_cost,omitempty"`
+	TrackGrade3Cost  *float32 `json:"track_grade3_cost,omitempty"`
+	FootwayCost      *float32 `json:"footway_cost,omitempty"`
+	CyclewayCost     *float32 `json:"cycleway_cost,omitempty"`
+	BridlewayCost    *float32 `json:"bridleway_cost,omitempty"`
+	PedestrianCost   *float32 `json:"pedestrian_cost,omitempty"`
+	ResidentialCost  *float32 `json:"residential_cost,omitempty"`
+	ServiceCost      *float32 `json:"service_cost,omitempty"`
+	UnclassifiedCost *float32 `json:"unclassified_cost,omitempty"`
+	TertiaryCost     *float32 `json:"tertiary_cost,omitempty"`
+	SecondaryCost    *float32 `json:"secondary_cost,omitempty"`
+	PrimaryCost      *float32 `json:"primary_cost,omitempty"`
 }
 
 // --- Pointer helpers ---
@@ -223,6 +240,21 @@ func mergeProfile(base, override ProfileConfig) ProfileConfig {
 	mergePtr(&m.TurnCost, override.TurnCost)
 	mergePtr(&m.InitialCostRoad, override.InitialCostRoad)
 	mergePtr(&m.Pass0Coefficient, override.Pass0Coefficient)
+	mergePtr(&m.PathCost, override.PathCost)
+	mergePtr(&m.TrackCost, override.TrackCost)
+	mergePtr(&m.TrackGrade1Cost, override.TrackGrade1Cost)
+	mergePtr(&m.TrackGrade2Cost, override.TrackGrade2Cost)
+	mergePtr(&m.TrackGrade3Cost, override.TrackGrade3Cost)
+	mergePtr(&m.FootwayCost, override.FootwayCost)
+	mergePtr(&m.CyclewayCost, override.CyclewayCost)
+	mergePtr(&m.BridlewayCost, override.BridlewayCost)
+	mergePtr(&m.PedestrianCost, override.PedestrianCost)
+	mergePtr(&m.ResidentialCost, override.ResidentialCost)
+	mergePtr(&m.ServiceCost, override.ServiceCost)
+	mergePtr(&m.UnclassifiedCost, override.UnclassifiedCost)
+	mergePtr(&m.TertiaryCost, override.TertiaryCost)
+	mergePtr(&m.SecondaryCost, override.SecondaryCost)
+	mergePtr(&m.PrimaryCost, override.PrimaryCost)
 	return m
 }
 
