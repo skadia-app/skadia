@@ -6,6 +6,7 @@ import ActiveJobsIndicator from '@/components/ActiveJobsIndicator'
 import NotificationCenter from '@/components/NotificationCenter'
 import { EmailVerifiedBanner } from '@/components/EmailVerifiedBanner'
 import UserMenu from '@/components/UserMenu'
+import { useUser } from '@/providers/UserProvider'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -24,6 +25,7 @@ const navItems = [
 
 export default function Layout() {
   const { theme, toggle } = useTheme()
+  const { isAdmin } = useUser()
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col">
@@ -47,6 +49,21 @@ export default function Layout() {
                 {label}
               </NavLink>
             ))}
+            {isAdmin && (
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) =>
+                  cn(
+                    'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                  )
+                }
+              >
+                Admin
+              </NavLink>
+            )}
           </nav>
 
           <ImportHub />
