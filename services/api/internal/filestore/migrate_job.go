@@ -2,23 +2,41 @@ package filestore
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// MigrateJob populates user_files from existing domain tables.
+// MigrateJob populates user_files from existing domain tables (Phase 1)
+// and physically moves files to the Library structure (Phase 2).
 type MigrateJob struct {
 	pool         *pgxpool.Pool
-	shadowFSBase string // legacy ShadowFS base path
-	s3Bucket     string // legacy S3 bucket name
+	shadowFSBase string           // legacy ShadowFS base path
+	s3Bucket     string           // legacy S3 bucket name
+	basePath     string           // Library base path for file moves
+	renderer     *SchemaRenderer  // schema renderer for target paths
 }
 
 // NewMigrateJob creates a new migration job.
 func NewMigrateJob(pool *pgxpool.Pool, shadowFSBase, s3Bucket string) *MigrateJob {
 	return &MigrateJob{pool: pool, shadowFSBase: shadowFSBase, s3Bucket: s3Bucket}
+}
+
+// NewMigrateJobWithLibrary creates a migration job configured for file moves.
+func NewMigrateJobWithLibrary(pool *pgxpool.Pool, basePath, shadowFSBase, s3Bucket string, renderer *SchemaRenderer) *MigrateJob {
+	return &MigrateJob{
+		pool:         pool,
+		shadowFSBase: shadowFSBase,
+		s3Bucket:     s3Bucket,
+		basePath:     basePath,
+		renderer:     renderer,
+	}
 }
 
 // Run executes the full registry population. It is idempotent: each row is
@@ -654,4 +672,503 @@ func (m *MigrateJob) extractS3Key(url string) string {
 		return strings.TrimPrefix(url, "/")
 	}
 	return ""
+}
+
+// ── Phase 2: File Move ───────────────────────────────────────────────────────
+
+// moveEntry represents a user_files row that needs its physical file relocated.
+type moveEntry struct {
+	fileID      string
+	userID      string
+	fileType    string
+	storagePath string // current relative path
+	fileName    string
+	hasSidecar  bool
+	contentType string
+}
+
+// RunFileMove physically moves local files from legacy ShadowFS locations
+// to the new Library directory structure. It is idempotent: journal entries
+// with phase='move' and status='done' are skipped on restart.
+func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
+	if m.basePath == "" {
+		return fmt.Errorf("filestore migrate: basePath not configured")
+	}
+	if m.renderer == nil {
+		return fmt.Errorf("filestore migrate: renderer not configured")
+	}
+
+	slog.Info("filestore migrate: starting file move (Phase 2)", "job_id", jobID)
+
+	// Count total files to move for progress tracking.
+	var total int64
+	err := m.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM user_files
+		WHERE storage_backend = 'local' AND status = 'active'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM migration_filestore_journal j
+		    WHERE j.file_id = user_files.id AND j.phase = 'move' AND j.status = 'done'
+		  )`).Scan(&total)
+	if err != nil {
+		return fmt.Errorf("filestore migrate: count pending: %w", err)
+	}
+
+	m.pool.Exec(ctx, //nolint:errcheck
+		`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`, total, jobID)
+
+	slog.Info("filestore migrate: files to move", "total", total, "job_id", jobID)
+
+	const pageSize = 500
+	var moved, skipped, failed int
+
+	for {
+		rows, err := m.pool.Query(ctx, `
+			SELECT uf.id, uf.user_id, uf.file_type, uf.storage_path, uf.file_name,
+			       uf.has_sidecar, uf.content_type
+			FROM user_files uf
+			WHERE uf.storage_backend = 'local' AND uf.status = 'active'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM migration_filestore_journal j
+			    WHERE j.file_id = uf.id AND j.phase = 'move' AND j.status = 'done'
+			  )
+			ORDER BY uf.user_id, uf.id
+			LIMIT $1`, pageSize)
+		if err != nil {
+			return fmt.Errorf("filestore migrate: query batch: %w", err)
+		}
+
+		var batch []moveEntry
+		for rows.Next() {
+			var e moveEntry
+			if err := rows.Scan(&e.fileID, &e.userID, &e.fileType, &e.storagePath,
+				&e.fileName, &e.hasSidecar, &e.contentType); err != nil {
+				rows.Close()
+				return fmt.Errorf("filestore migrate: scan: %w", err)
+			}
+			batch = append(batch, e)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("filestore migrate: rows: %w", err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		for _, e := range batch {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			if err := m.moveOneFile(ctx, e); err != nil {
+				failed++
+				slog.Warn("filestore migrate: move failed",
+					"file_id", e.fileID, "path", e.storagePath, "error", err)
+				// Record failure in journal for debugging; continue with next file.
+				m.pool.Exec(ctx, //nolint:errcheck
+					`INSERT INTO migration_filestore_journal (source_table, source_id, phase, status, user_id, file_id, old_path, error_msg)
+					 VALUES ('user_files', $1::uuid, 'move', 'failed', $2, $3, $4, $5)
+					 ON CONFLICT (source_table, source_id, phase) DO UPDATE
+					     SET status = 'failed', error_msg = EXCLUDED.error_msg`,
+					e.fileID, e.userID, e.fileID, e.storagePath, err.Error())
+			} else {
+				moved++
+			}
+
+			// Update progress every file (cheap single-row UPDATE).
+			m.pool.Exec(ctx, //nolint:errcheck
+				`UPDATE background_jobs SET progress_current = $1 WHERE id = $2`,
+				int64(moved+skipped+failed), jobID)
+
+			if (moved+failed)%100 == 0 && (moved+failed) > 0 {
+				slog.Info("filestore migrate: progress",
+					"moved", moved, "failed", failed, "job_id", jobID)
+			}
+		}
+
+		if len(batch) < pageSize {
+			break
+		}
+	}
+
+	slog.Info("filestore migrate: file move complete",
+		"moved", moved, "skipped", skipped, "failed", failed, "job_id", jobID)
+	return nil
+}
+
+// moveOneFile moves a single local file to its Library path and updates the registry.
+func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
+	// Compute the target Library path.
+	userDir, err := m.getUserDir(ctx, e.userID)
+	if err != nil {
+		return fmt.Errorf("get user dir: %w", err)
+	}
+
+	ext := filepath.Ext(e.fileName)
+	typeDir := DirForType(e.fileType)
+
+	// Get user schema for this file type.
+	schema := m.renderer.DefaultSchema(e.fileType)
+	var userSchema string
+	schemaErr := m.pool.QueryRow(ctx,
+		`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = $2`,
+		e.userID, e.fileType).Scan(&userSchema)
+	if schemaErr == nil && userSchema != "" {
+		schema = userSchema
+	}
+
+	// Build tags from existing metadata for schema rendering.
+	tags := m.buildTagsFromPath(e.storagePath, e.fileType)
+
+	rendered := m.renderer.RenderPath(e.fileType, schema, tags, ext)
+	newRelPath := filepath.Join(userDir, typeDir, rendered)
+
+	// If the path is already correct, mark as done and skip.
+	if filepath.Clean(e.storagePath) == filepath.Clean(newRelPath) {
+		return m.journalMoveDone(ctx, e, e.storagePath, newRelPath)
+	}
+
+	// Resolve collisions in the target path.
+	newRelPath = ResolveCollision(m.basePath, newRelPath)
+
+	oldFull := filepath.Join(m.basePath, e.storagePath)
+	newFull := filepath.Join(m.basePath, newRelPath)
+
+	// Verify old file exists.
+	if _, err := os.Stat(oldFull); err != nil {
+		if os.IsNotExist(err) {
+			// File is missing on disk — mark done (registry-only migration).
+			return m.journalMoveDone(ctx, e, e.storagePath, newRelPath)
+		}
+		return fmt.Errorf("stat old: %w", err)
+	}
+
+	// Create target directories.
+	if err := os.MkdirAll(filepath.Dir(newFull), 0o755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	// Attempt atomic rename first.
+	if err := os.Rename(oldFull, newFull); err != nil {
+		// Cross-device: fall back to copy+delete.
+		if !errors.Is(err, os.ErrInvalid) && !isCrossDevice(err) {
+			return fmt.Errorf("rename: %w", err)
+		}
+		if err := copyFile(oldFull, newFull); err != nil {
+			return fmt.Errorf("copy: %w", err)
+		}
+		if err := os.Remove(oldFull); err != nil && !os.IsNotExist(err) {
+			slog.Warn("filestore migrate: remove old after copy",
+				"path", oldFull, "error", err)
+		}
+	}
+
+	// Move sidecar files if present.
+	if e.hasSidecar {
+		m.moveSidecar(oldFull, newFull, e.fileType)
+	}
+
+	// Update storage_path in the registry.
+	if _, err := m.pool.Exec(ctx,
+		`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
+		newRelPath, e.fileID); err != nil {
+		return fmt.Errorf("update storage_path: %w", err)
+	}
+
+	// Clean empty directories left behind.
+	cleanEmptyDirs(filepath.Dir(oldFull), m.basePath)
+
+	return m.journalMoveDone(ctx, e, e.storagePath, newRelPath)
+}
+
+// journalMoveDone records a completed move in the journal.
+func (m *MigrateJob) journalMoveDone(ctx context.Context, e moveEntry, oldPath, newPath string) error {
+	_, err := m.pool.Exec(ctx, `
+		INSERT INTO migration_filestore_journal (source_table, source_id, phase, status, user_id, file_id, old_path, new_path)
+		VALUES ('user_files', $1::uuid, 'move', 'done', $2, $3, $4, $5)
+		ON CONFLICT (source_table, source_id, phase) DO UPDATE
+		    SET status = 'done', new_path = EXCLUDED.new_path`,
+		e.fileID, e.userID, e.fileID, oldPath, newPath)
+	return err
+}
+
+// moveSidecar moves sidecar files that accompany the main file.
+func (m *MigrateJob) moveSidecar(oldFull, newFull, fileType string) {
+	type sidecar struct{ old, new string }
+	var sidecars []sidecar
+
+	switch fileType {
+	case "activity":
+		sidecars = append(sidecars, sidecar{
+			old: oldFull + ".meta",
+			new: newFull + ".meta",
+		})
+	case "media":
+		oldExt := filepath.Ext(oldFull)
+		oldStem := strings.TrimSuffix(oldFull, oldExt)
+		newExt := filepath.Ext(newFull)
+		newStem := strings.TrimSuffix(newFull, newExt)
+		sidecars = append(sidecars, sidecar{
+			old: oldStem + ".meta.json",
+			new: newStem + ".meta.json",
+		})
+	}
+
+	for _, sc := range sidecars {
+		if _, err := os.Stat(sc.old); err != nil {
+			continue // sidecar doesn't exist
+		}
+		if err := os.MkdirAll(filepath.Dir(sc.new), 0o755); err != nil {
+			slog.Warn("filestore migrate: mkdir sidecar", "path", sc.new, "error", err)
+			continue
+		}
+		if err := os.Rename(sc.old, sc.new); err != nil {
+			if isCrossDevice(err) || errors.Is(err, os.ErrInvalid) {
+				if cpErr := copyFile(sc.old, sc.new); cpErr != nil {
+					slog.Warn("filestore migrate: copy sidecar", "from", sc.old, "error", cpErr)
+					continue
+				}
+				os.Remove(sc.old) //nolint:errcheck
+			} else {
+				slog.Warn("filestore migrate: rename sidecar", "from", sc.old, "error", err)
+			}
+		}
+	}
+}
+
+// buildTagsFromPath extracts schema variables from an existing storage path.
+// This is a best-effort extraction used to render the target path for files
+// that were registered without explicit tags.
+func (m *MigrateJob) buildTagsFromPath(storagePath, fileType string) map[string]string {
+	tags := make(map[string]string)
+
+	// Extract date components from paths like "username/activities/2025/03/15_14-30_running.fit"
+	parts := strings.Split(filepath.Clean(storagePath), string(filepath.Separator))
+
+	// Walk parts looking for 4-digit year.
+	for i, p := range parts {
+		if len(p) == 4 && p >= "2000" && p <= "2099" {
+			tags["year"] = p
+			if i+1 < len(parts) && len(parts[i+1]) == 2 {
+				tags["month"] = parts[i+1]
+			}
+		}
+	}
+
+	// Extract sport/title from filename (last segment before extension).
+	if len(parts) > 0 {
+		base := parts[len(parts)-1]
+		ext := filepath.Ext(base)
+		stem := strings.TrimSuffix(base, ext)
+		// For activity files: "15_14-30_running" → day=15, time=14-30, sport=running
+		segments := strings.SplitN(stem, "_", 4)
+		if fileType == "activity" && len(segments) >= 3 {
+			tags["day"] = segments[0]
+			tags["time"] = segments[1]
+			tags["sport"] = segments[2]
+		} else {
+			tags["title"] = stem
+		}
+	}
+
+	return tags
+}
+
+// getUserDir returns the relative user directory name.
+func (m *MigrateJob) getUserDir(ctx context.Context, userID string) (string, error) {
+	var dirName *string
+	err := m.pool.QueryRow(ctx,
+		`SELECT library_dir_name FROM users WHERE id = $1`, userID).Scan(&dirName)
+	if err != nil {
+		return "", fmt.Errorf("query user: %w", err)
+	}
+	name := userID
+	if dirName != nil && *dirName != "" {
+		name = *dirName
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return "", fmt.Errorf("invalid library_dir_name: %q", name)
+	}
+	return name, nil
+}
+
+// ── Rollback ─────────────────────────────────────────────────────────────────
+
+// RunRollback reverses Phase 2 file moves by reading journal entries with
+// phase='move' and status='done', and moving files back to their old paths.
+func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
+	if m.basePath == "" {
+		return fmt.Errorf("filestore migrate: basePath not configured")
+	}
+
+	slog.Info("filestore migrate: starting rollback", "job_id", jobID)
+
+	var total int64
+	err := m.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM migration_filestore_journal
+		WHERE phase = 'move' AND status = 'done'
+		  AND old_path IS NOT NULL AND new_path IS NOT NULL
+		  AND old_path != new_path`).Scan(&total)
+	if err != nil {
+		return fmt.Errorf("filestore migrate rollback: count: %w", err)
+	}
+
+	m.pool.Exec(ctx, //nolint:errcheck
+		`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`, total, jobID)
+
+	slog.Info("filestore migrate: entries to rollback", "total", total, "job_id", jobID)
+
+	const pageSize = 500
+	var rolled, failed int
+
+	for {
+		type jEntry struct {
+			sourceID string
+			fileID   string
+			userID   string
+			oldPath  string
+			newPath  string
+		}
+
+		rows, err := m.pool.Query(ctx, `
+			SELECT source_id, file_id, user_id, old_path, new_path
+			FROM migration_filestore_journal
+			WHERE phase = 'move' AND status = 'done'
+			  AND old_path IS NOT NULL AND new_path IS NOT NULL
+			  AND old_path != new_path
+			ORDER BY source_id
+			LIMIT $1`, pageSize)
+		if err != nil {
+			return fmt.Errorf("filestore migrate rollback: query: %w", err)
+		}
+
+		var batch []jEntry
+		for rows.Next() {
+			var j jEntry
+			if err := rows.Scan(&j.sourceID, &j.fileID, &j.userID, &j.oldPath, &j.newPath); err != nil {
+				rows.Close()
+				return fmt.Errorf("filestore migrate rollback: scan: %w", err)
+			}
+			batch = append(batch, j)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("filestore migrate rollback: rows: %w", err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		for _, j := range batch {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			newFull := filepath.Join(m.basePath, j.newPath)
+			oldFull := filepath.Join(m.basePath, j.oldPath)
+
+			moveErr := func() error {
+				// Only move if the file exists at the new location.
+				if _, err := os.Stat(newFull); err != nil {
+					if os.IsNotExist(err) {
+						return nil // nothing to move back
+					}
+					return err
+				}
+
+				if err := os.MkdirAll(filepath.Dir(oldFull), 0o755); err != nil {
+					return fmt.Errorf("mkdir: %w", err)
+				}
+
+				if err := os.Rename(newFull, oldFull); err != nil {
+					if !isCrossDevice(err) && !errors.Is(err, os.ErrInvalid) {
+						return err
+					}
+					if err := copyFile(newFull, oldFull); err != nil {
+						return err
+					}
+					os.Remove(newFull) //nolint:errcheck
+				}
+
+				// Clean empty directories at the new location.
+				cleanEmptyDirs(filepath.Dir(newFull), m.basePath)
+				return nil
+			}()
+
+			if moveErr != nil {
+				failed++
+				slog.Warn("filestore migrate rollback: move failed",
+					"file_id", j.fileID, "error", moveErr)
+				continue
+			}
+
+			// Restore storage_path in user_files.
+			m.pool.Exec(ctx, //nolint:errcheck
+				`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
+				j.oldPath, j.fileID)
+
+			// Remove journal entry so it can be re-migrated.
+			m.pool.Exec(ctx, //nolint:errcheck
+				`DELETE FROM migration_filestore_journal
+				 WHERE source_table = 'user_files' AND source_id = $1::uuid AND phase = 'move'`,
+				j.sourceID)
+
+			rolled++
+
+			m.pool.Exec(ctx, //nolint:errcheck
+				`UPDATE background_jobs SET progress_current = $1 WHERE id = $2`,
+				int64(rolled+failed), jobID)
+
+			if (rolled+failed)%100 == 0 && (rolled+failed) > 0 {
+				slog.Info("filestore migrate rollback: progress",
+					"rolled", rolled, "failed", failed, "job_id", jobID)
+			}
+		}
+
+		if len(batch) < pageSize {
+			break
+		}
+	}
+
+	slog.Info("filestore migrate: rollback complete",
+		"rolled", rolled, "failed", failed, "job_id", jobID)
+	return nil
+}
+
+// ── cross-device helpers ─────────────────────────────────────────────────────
+
+// isCrossDevice checks if an error is EXDEV (cross-device link).
+func isCrossDevice(err error) bool {
+	// os.Rename returns *os.LinkError wrapping syscall.EXDEV on Linux.
+	return err != nil && strings.Contains(err.Error(), "cross-device")
+}
+
+// copyFile copies src to dst preserving permissions. dst is created with O_EXCL.
+func copyFile(src, dst string) error {
+	sf, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sf.Close()
+
+	info, err := sf.Stat()
+	if err != nil {
+		return err
+	}
+
+	df, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := df.Close(); err == nil {
+			err = cerr
+		}
+	}()
+
+	if _, err = io.Copy(df, sf); err != nil {
+		os.Remove(dst) //nolint:errcheck
+		return err
+	}
+	return nil
 }
