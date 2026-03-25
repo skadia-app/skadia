@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,7 +121,7 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		h.socialError(w, r, "invalid_state")
 		return
 	}
-	if r.URL.Query().Get("state") != stateCookie.Value {
+	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("state")), []byte(stateCookie.Value)) != 1 {
 		h.socialError(w, r, "invalid_state")
 		return
 	}
