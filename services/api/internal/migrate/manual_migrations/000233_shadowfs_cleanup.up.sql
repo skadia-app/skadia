@@ -1,16 +1,29 @@
 -- 000233_shadowfs_cleanup.up.sql
 -- Drops legacy S3/ShadowFS columns now that the Unified ShadowFS migration is complete.
 
--- Pre-check: ensure migration is complete
+-- Pre-check: STRICT guard — this migration must NEVER run automatically.
+-- It requires ALL files to be migrated to ShadowFS registry first.
 DO $$
 BEGIN
+    -- Guard 1: Any activities without file_id but with legacy file references?
+    IF EXISTS (SELECT 1 FROM activities WHERE file_id IS NULL AND (local_file_path IS NOT NULL OR original_file_key IS NOT NULL)) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % activities have legacy file refs but no file_id — run registry population first',
+            (SELECT COUNT(*) FROM activities WHERE file_id IS NULL AND (local_file_path IS NOT NULL OR original_file_key IS NOT NULL));
+    END IF;
+    -- Guard 2: Any photos without file_id but with legacy S3 keys?
+    IF EXISTS (SELECT 1 FROM activity_photos WHERE file_id IS NULL AND s3_key IS NOT NULL) THEN
+        RAISE EXCEPTION 'shadowfs cleanup blocked: % photos have legacy S3 keys but no file_id',
+            (SELECT COUNT(*) FROM activity_photos WHERE file_id IS NULL AND s3_key IS NOT NULL);
+    END IF;
+    -- Guard 3: Journal has pending/failed entries?
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_shadowfs_journal') THEN
         IF EXISTS (SELECT 1 FROM migration_shadowfs_journal WHERE status IN ('pending', 'failed')) THEN
-            RAISE EXCEPTION 'shadowfs migration not complete: pending/failed entries remain in migration_shadowfs_journal';
+            RAISE EXCEPTION 'shadowfs cleanup blocked: pending/failed entries remain in migration_shadowfs_journal';
         END IF;
     END IF;
+    -- Guard 4: File move job still running?
     IF EXISTS (SELECT 1 FROM background_jobs WHERE job_type IN ('shadowfs_file_move', 'shadowfs_rollback') AND status = 'running') THEN
-        RAISE EXCEPTION 'shadowfs file move job is still running';
+        RAISE EXCEPTION 'shadowfs cleanup blocked: file move job is still running';
     END IF;
 END $$;
 
