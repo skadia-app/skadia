@@ -477,6 +477,7 @@ func main() {
 			r.Delete("/tags/{id}/cover-image", h.ClearTagCoverImage)
 
 			r.Get("/me", h.GetMe)
+			r.Patch("/me", h.UpdateMe)
 
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
