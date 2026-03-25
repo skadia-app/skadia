@@ -79,6 +79,9 @@ func run(ctx context.Context) error {
 
 	var entries []entry
 
+	// Scan statistics for the summary line.
+	var totalMeta, totalFiles, totalErrors int
+
 	// Determine the scan root: either a specific user dir or all users.
 	scanRoot := *libraryBase
 	if *userDir != "" {
@@ -98,16 +101,20 @@ func run(ctx context.Context) error {
 			return nil
 		}
 
+		totalMeta++
+
 		// Read and parse .meta sidecar.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			slog.Error("meta lesen fehlgeschlagen", "path", path, "error", err)
+			totalErrors++
 			return nil
 		}
 
 		var meta sidecar.MetaFile
 		if err := json.Unmarshal(data, &meta); err != nil {
 			slog.Error("meta parsen fehlgeschlagen", "path", path, "error", err)
+			totalErrors++
 			return nil
 		}
 
@@ -125,13 +132,17 @@ func run(ctx context.Context) error {
 		}
 		if statErr != nil {
 			slog.Error("stat activity file fehlgeschlagen", "path", activityPath, "error", statErr)
+			totalErrors++
 			return nil
 		}
+
+		totalFiles++
 
 		// Compute path relative to libraryBase (this becomes storage_path).
 		relPath, err := filepath.Rel(*libraryBase, activityPath)
 		if err != nil {
 			slog.Error("rel path berechnen fehlgeschlagen", "path", activityPath, "error", err)
+			totalErrors++
 			return nil
 		}
 
@@ -157,6 +168,9 @@ func run(ctx context.Context) error {
 	if scanErr != nil {
 		return fmt.Errorf("scan failed: %w", scanErr)
 	}
+
+	fmt.Printf("Scan complete: %d .meta files found, %d activity files present, %d parse errors\n",
+		totalMeta, totalFiles, totalErrors)
 
 	total := len(entries)
 	slog.Info("scan abgeschlossen", "total", total)
@@ -414,13 +428,18 @@ func restoreOne(
 		}
 	}
 
-	// Register file in user_files (ON CONFLICT DO NOTHING — idempotent).
-	_, regErr := db.Pool.Exec(ctx,
+	// Register file in user_files and link back to activity.file_id.
+	// ON CONFLICT: if the row already exists (idempotent re-run), still attempt
+	// to update activities.file_id so previously-missed links are repaired.
+	var fileID string
+	regErr := db.Pool.QueryRow(ctx,
 		`INSERT INTO user_files
 			(user_id, file_type, storage_backend, storage_path, content_type,
 			 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
 		VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
-		ON CONFLICT (storage_backend, storage_path) DO NOTHING`,
+		ON CONFLICT (storage_backend, storage_path) DO UPDATE
+			SET updated_at = user_files.updated_at
+		RETURNING id`,
 		userID,
 		relPath,
 		contentType,
@@ -428,9 +447,18 @@ func restoreOne(
 		fileSize,
 		fileHash,
 		activityID,
-	)
+	).Scan(&fileID)
 	if regErr != nil {
 		slog.Warn("user_files Eintrag fehlgeschlagen", "path", relPath, "error", regErr)
+	} else if fileID != "" {
+		// Link the activity to its file registry entry.
+		if _, err := db.Pool.Exec(ctx,
+			`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+			fileID, activityID,
+		); err != nil {
+			slog.Warn("activities.file_id verknüpfen fehlgeschlagen",
+				"activity_id", activityID, "file_id", fileID, "error", err)
+		}
 	}
 
 	return "OK", nil

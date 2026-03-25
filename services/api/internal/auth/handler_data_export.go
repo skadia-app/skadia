@@ -153,6 +153,115 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		slog.Error("data export: planned_routes query failed", "error", err)
 	}
 
+	// Activity weather
+	awRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, activity_id, query_point, model_used, temperature_c, feels_like_c,
+		        humidity_pct, wind_speed_ms, wind_gust_ms, wind_dir_deg, pressure_hpa,
+		        cloud_cover_pct, precipitation_mm, snow_mm, visibility_m,
+		        weather_code, weather_description, is_daylight, uv_index, created_at
+		 FROM activity_weather aw
+		 WHERE aw.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "activity_weather.json", awRows)
+	} else {
+		slog.Error("data export: activity_weather query failed", "error", err)
+	}
+
+	// Workouts
+	woRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, user_id, name, sport_type, description, created_at
+		 FROM workouts WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "workouts.json", woRows)
+	} else {
+		slog.Error("data export: workouts query failed", "error", err)
+	}
+
+	// Workout steps
+	wsRows, err := h.DB.Pool.Query(ctx,
+		`SELECT ws.id, ws.workout_id, ws.step_order, ws.step_type, ws.duration_type,
+		        ws.duration_value, ws.target_type, ws.target_value_low, ws.target_value_high,
+		        ws.notes
+		 FROM workout_steps ws
+		 JOIN workouts w ON w.id = ws.workout_id
+		 WHERE w.user_id = $1
+		 ORDER BY ws.workout_id, ws.step_order`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "workout_steps.json", wsRows)
+	} else {
+		slog.Error("data export: workout_steps query failed", "error", err)
+	}
+
+	// Devices
+	devRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, user_id, manufacturer, product_name, serial_number, software_version,
+		        device_type, battery_status, first_seen_at, last_seen_at, created_at
+		 FROM devices WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "devices.json", devRows)
+	} else {
+		slog.Error("data export: devices query failed", "error", err)
+	}
+
+	// Segment efforts
+	seRows, err := h.DB.Pool.Query(ctx,
+		`SELECT se.id, se.segment_id, se.activity_id, se.started_at, se.elapsed_time_s,
+		        se.moving_time_s, se.distance_m, se.avg_heart_rate, se.max_heart_rate,
+		        se.avg_power_w, se.avg_cadence, se.avg_speed_ms
+		 FROM segment_efforts se
+		 WHERE se.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "segment_efforts.json", seRows)
+	} else {
+		slog.Error("data export: segment_efforts query failed", "error", err)
+	}
+
+	// Chat threads
+	ctRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, user_id, title, model, created_at, updated_at
+		 FROM chat_threads WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "chat_threads.json", ctRows)
+	} else {
+		slog.Error("data export: chat_threads query failed", "error", err)
+	}
+
+	// Chat messages
+	cmRows, err := h.DB.Pool.Query(ctx,
+		`SELECT cm.id, cm.thread_id, cm.role, cm.content, cm.tool_calls,
+		        cm.token_count, cm.created_at
+		 FROM chat_messages cm
+		 JOIN chat_threads ct ON ct.id = cm.thread_id
+		 WHERE ct.user_id = $1
+		 ORDER BY cm.created_at`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "chat_messages.json", cmRows)
+	} else {
+		slog.Error("data export: chat_messages query failed", "error", err)
+	}
+
+	// Route photos
+	rpRows, err := h.DB.Pool.Query(ctx,
+		`SELECT rp.id, rp.route_id, rp.original_name, rp.width, rp.height,
+		        rp.sort_order, rp.created_at
+		 FROM route_photos rp
+		 WHERE rp.user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "route_photos.json", rpRows)
+	} else {
+		slog.Error("data export: route_photos query failed", "error", err)
+	}
+
+	// Gear documents
+	gdRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, gear_id, user_id, document_type, original_name, notes, created_at
+		 FROM gear_documents WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "gear_documents.json", gdRows)
+	} else {
+		slog.Error("data export: gear_documents query failed", "error", err)
+	}
+
 	// Health data (TimescaleDB hypertables — SELECT * is intentional for full export)
 	var exportedTables []string
 	for _, table := range database.AllHealthTables() {
@@ -181,7 +290,9 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		"exported_at": time.Now().Format(time.RFC3339),
 		"tables": append([]string{
 			"account", "profile", "activities", "gear", "tags",
-			"segments", "planned_routes",
+			"segments", "planned_routes", "activity_weather",
+			"workouts", "workout_steps", "devices", "segment_efforts",
+			"chat_threads", "chat_messages", "route_photos", "gear_documents",
 		}, exportedTables...),
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
@@ -249,15 +360,27 @@ func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
 
 // streamShadowFSToZip walks the user's ShadowFS directory and copies each file into the zip.
 func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
+	const maxLegacyZipBytes int64 = 10 << 30 // 10 GB — matches S3ShadowFS.StreamToZip limit
+
 	userDir := filepath.Join(basePath, userID)
 	if _, err := os.Stat(userDir); os.IsNotExist(err) {
 		return
 	}
 
+	var totalBytes int64
 	err := filepath.Walk(userDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
+
+		// Enforce 10 GB limit (same as the ShadowFS/S3 path above).
+		totalBytes += info.Size()
+		if totalBytes > maxLegacyZipBytes {
+			slog.Warn("data export: legacy ShadowFS zip exceeds 10 GB limit, stopping",
+				"user_id", userID, "total_bytes", totalBytes)
+			return fmt.Errorf("zip export exceeds 10 GB limit")
+		}
+
 		rel, relErr := filepath.Rel(userDir, path)
 		if relErr != nil {
 			return nil

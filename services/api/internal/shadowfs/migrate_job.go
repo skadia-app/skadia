@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -59,11 +60,13 @@ func (m *MigrateJob) Run(ctx context.Context, jobID string) error {
 		{"custom_map_markers", m.migrateCustomMapMarkers},
 	}
 
+	var stepErrors []error
 	for _, s := range steps {
 		n, err := s.fn(ctx)
 		totalMigrated += n
 		if err != nil {
 			slog.Error("shadowfs migration: step failed", "step", s.name, "error", err)
+			stepErrors = append(stepErrors, fmt.Errorf("step %s: %w", s.name, err))
 		} else {
 			slog.Info("shadowfs migration: step done", "step", s.name, "migrated", n)
 		}
@@ -75,7 +78,7 @@ func (m *MigrateJob) Run(ctx context.Context, jobID string) error {
 	}
 
 	slog.Info("shadowfs migration: complete", "total_migrated", totalMigrated, "job_id", jobID)
-	return nil
+	return errors.Join(stepErrors...)
 }
 
 // ── activities ───────────────────────────────────────────────────────────────
@@ -168,6 +171,7 @@ func (m *MigrateJob) registerActivityLocal(ctx context.Context, id, userID, loca
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	var fileID string
+	var xmaxLocal uint32
 	err = tx.QueryRow(ctx, `
 		INSERT INTO user_files (user_id, file_type, storage_backend, storage_path,
 		                        content_type, file_name, parent_type, parent_id)
@@ -175,11 +179,15 @@ func (m *MigrateJob) registerActivityLocal(ctx context.Context, id, userID, loca
 		        COALESCE(NULLIF(REGEXP_REPLACE($2, '^.*/', ''), ''), 'activity.fit'),
 		        'activity', $3::uuid)
 		ON CONFLICT (storage_backend, storage_path) DO UPDATE SET updated_at = NOW()
-		RETURNING id`,
+		RETURNING id, xmax`,
 		userID, localPath, id,
-	).Scan(&fileID)
+	).Scan(&fileID, &xmaxLocal)
 	if err != nil {
 		return err
+	}
+	if xmaxLocal != 0 {
+		slog.Info("shadowfs migration: ON CONFLICT update (existing registry entry)",
+			"table", "activities", "source_id", id, "file_id", fileID, "path", localPath)
 	}
 
 	if _, err = tx.Exec(ctx,
@@ -212,6 +220,7 @@ func (m *MigrateJob) registerActivityS3(ctx context.Context, id, userID, s3Key s
 	storagePath := m.s3Path(s3Key)
 
 	var fileID string
+	var xmaxS3 uint32
 	err = tx.QueryRow(ctx, `
 		INSERT INTO user_files (user_id, file_type, storage_backend, storage_path,
 		                        content_type, file_name, parent_type, parent_id)
@@ -219,11 +228,15 @@ func (m *MigrateJob) registerActivityS3(ctx context.Context, id, userID, s3Key s
 		        COALESCE(NULLIF(REGEXP_REPLACE($3, '^.*/', ''), ''), 'activity.fit'),
 		        'activity', $4::uuid)
 		ON CONFLICT (storage_backend, storage_path) DO UPDATE SET updated_at = NOW()
-		RETURNING id`,
+		RETURNING id, xmax`,
 		userID, storagePath, s3Key, id,
-	).Scan(&fileID)
+	).Scan(&fileID, &xmaxS3)
 	if err != nil {
 		return err
+	}
+	if xmaxS3 != 0 {
+		slog.Info("shadowfs migration: ON CONFLICT update (existing registry entry)",
+			"table", "activities", "source_id", id, "file_id", fileID, "path", storagePath)
 	}
 
 	if _, err = tx.Exec(ctx,
@@ -608,16 +621,21 @@ func (m *MigrateJob) registerS3FileCol(
 	}
 
 	var fileID string
+	var xmaxGen uint32
 	err = tx.QueryRow(ctx, `
 		INSERT INTO user_files (user_id, file_type, storage_backend, storage_path,
 		                        content_type, file_name)
 		VALUES ($1, $2, 's3', $3, $4, $5)
 		ON CONFLICT (storage_backend, storage_path) DO UPDATE SET updated_at = NOW()
-		RETURNING id`,
+		RETURNING id, xmax`,
 		userID, fileType, storagePath, contentType, fileName,
-	).Scan(&fileID)
+	).Scan(&fileID, &xmaxGen)
 	if err != nil {
 		return err
+	}
+	if xmaxGen != 0 {
+		slog.Info("shadowfs migration: ON CONFLICT update (existing registry entry)",
+			"table", table, "source_id", id, "file_id", fileID, "path", storagePath)
 	}
 
 	// Dynamic column name is safe: fileIDCol is always a compile-time constant
@@ -699,6 +717,12 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 	}
 
 	slog.Info("shadowfs migrate: starting file move (Phase 2)", "job_id", jobID)
+
+	// H5: Recover any pending journal entries from a previous crashed run.
+	if err := m.recoverPendingMoves(ctx); err != nil {
+		slog.Error("shadowfs migrate: recover pending moves failed", "error", err)
+		// Non-fatal: continue with the main migration.
+	}
 
 	// Count total files to move for progress tracking.
 	var total int64
@@ -834,13 +858,25 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 	oldFull := filepath.Join(m.basePath, e.storagePath)
 	newFull := filepath.Join(m.basePath, newRelPath)
 
-	// Verify old file exists.
+	// H5: Write a pending journal entry BEFORE the rename so that a crash between
+	// rename and DB update can be recovered on restart.
+	// Verify old file exists first to avoid pointless journal writes.
 	if _, err := os.Stat(oldFull); err != nil {
 		if os.IsNotExist(err) {
 			// File is missing on disk — mark done (registry-only migration).
 			return m.journalMoveDone(ctx, e, e.storagePath, newRelPath)
 		}
 		return fmt.Errorf("stat old: %w", err)
+	}
+
+	// Write pending journal entry before making any filesystem changes.
+	if _, err := m.pool.Exec(ctx, `
+		INSERT INTO migration_shadowfs_journal (source_table, source_id, phase, status, user_id, file_id, old_path, new_path)
+		VALUES ('user_files', $1::uuid, 'move', 'pending', $2, $3, $4, $5)
+		ON CONFLICT (source_table, source_id, phase) DO UPDATE
+		    SET status = 'pending', new_path = EXCLUDED.new_path, old_path = EXCLUDED.old_path`,
+		e.fileID, e.userID, e.fileID, e.storagePath, newRelPath); err != nil {
+		return fmt.Errorf("journal pending: %w", err)
 	}
 
 	// Create target directories.
@@ -994,6 +1030,77 @@ func (m *MigrateJob) getUserDir(ctx context.Context, userID string) (string, err
 
 // ── Rollback ─────────────────────────────────────────────────────────────────
 
+// recoverPendingMoves re-applies any journal entries from a previous run that
+// were left in 'pending' state (e.g. due to a crash mid-migration). For each
+// such entry it retries the rename and on success marks the entry as 'done'.
+// Non-fatal errors are logged and skipped so the main migration can proceed.
+func (m *MigrateJob) recoverPendingMoves(ctx context.Context) error {
+	rows, err := m.pool.Query(ctx, `
+		SELECT file_id, user_id, old_path, new_path
+		FROM migration_shadowfs_journal
+		WHERE phase = 'move' AND status = 'pending'`)
+	if err != nil {
+		return fmt.Errorf("query pending moves: %w", err)
+	}
+	defer rows.Close()
+
+	type pendingMove struct {
+		fileID, userID, oldPath, newPath string
+	}
+	var items []pendingMove
+	for rows.Next() {
+		var p pendingMove
+		if err := rows.Scan(&p.fileID, &p.userID, &p.oldPath, &p.newPath); err != nil {
+			return fmt.Errorf("scan pending move: %w", err)
+		}
+		items = append(items, p)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate pending moves: %w", err)
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+	slog.Info("shadowfs migrate: recovering pending moves", "count", len(items))
+
+	for _, p := range items {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		oldFull := filepath.Join(m.basePath, p.oldPath)
+		newFull := filepath.Join(m.basePath, p.newPath)
+
+		// If new path already exists, the rename succeeded — just mark done.
+		if _, statErr := os.Stat(newFull); statErr == nil {
+			if _, execErr := m.pool.Exec(ctx, `
+				UPDATE migration_shadowfs_journal SET status = 'done'
+				WHERE file_id = $1 AND phase = 'move'`, p.fileID); execErr != nil {
+				slog.Error("shadowfs migrate: recover: mark done failed", "file_id", p.fileID, "error", execErr)
+			}
+			continue
+		}
+
+		if mkErr := os.MkdirAll(filepath.Dir(newFull), 0o755); mkErr != nil {
+			slog.Error("shadowfs migrate: recover: mkdir failed", "file_id", p.fileID, "error", mkErr)
+			continue
+		}
+		if renErr := os.Rename(oldFull, newFull); renErr != nil {
+			slog.Error("shadowfs migrate: recover: rename failed",
+				"file_id", p.fileID, "from", oldFull, "to", newFull, "error", renErr)
+			continue
+		}
+		if _, execErr := m.pool.Exec(ctx, `
+			UPDATE migration_shadowfs_journal SET status = 'done'
+			WHERE file_id = $1 AND phase = 'move'`, p.fileID); execErr != nil {
+			slog.Error("shadowfs migrate: recover: mark done failed", "file_id", p.fileID, "error", execErr)
+		}
+		slog.Info("shadowfs migrate: recovered pending move",
+			"file_id", p.fileID, "from", p.oldPath, "to", p.newPath)
+	}
+	return nil
+}
+
 // RunRollback reverses Phase 2 file moves by reading journal entries with
 // phase='move' and status='done', and moving files back to their old paths.
 func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
@@ -1140,11 +1247,11 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 // isCrossDevice checks if an error is EXDEV (cross-device link).
 func isCrossDevice(err error) bool {
 	// os.Rename returns *os.LinkError wrapping syscall.EXDEV on Linux.
-	return err != nil && strings.Contains(err.Error(), "cross-device")
+	return errors.Is(err, syscall.EXDEV)
 }
 
 // copyFile copies src to dst preserving permissions. dst is created with O_EXCL.
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	sf, err := os.Open(src)
 	if err != nil {
 		return err

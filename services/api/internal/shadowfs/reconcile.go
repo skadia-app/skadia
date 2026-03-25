@@ -101,6 +101,11 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 // Files on disk with no registry entry. Only considers files with mtime >1h ago.
 // Logs only — does NOT delete.
 // By design: orphaned files are logged but NOT auto-deleted. Manual cleanup via admin dashboard. This prevents data loss from false positives during concurrent writes.
+//
+// Memory constraint: all registry storage_paths are loaded into a map for O(1)
+// lookup during the filesystem walk. At ~100 bytes per path this is ~10 MB for
+// 100k files, which is acceptable. For future large deployments (>100k files)
+// consider a batched/streaming approach (e.g., sort both sets and merge-scan).
 func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResult) error {
 	// Build a set of all known storage_paths from the registry.
 	rows, err := j.pool.Query(ctx,
@@ -120,6 +125,13 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate registry paths: %w", err)
+	}
+
+	const largeRegistryThreshold = 100_000
+	if len(knownPaths) > largeRegistryThreshold {
+		slog.Warn("shadowfs reconcile: registry is very large, checkOrphanedFiles loads all paths into memory",
+			"count", len(knownPaths),
+			"hint", "consider batched reconciliation for registries with >100k files")
 	}
 
 	cutoff := time.Now().Add(-1 * time.Hour)
@@ -175,7 +187,9 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileResult) error {
 	rows, err := j.pool.Query(ctx,
 		`SELECT id, storage_path, user_id FROM user_files
-		 WHERE storage_backend = 'local' AND status != 'purging'`)
+		 WHERE storage_backend = 'local' AND status != 'purging'
+		   AND is_renaming = false
+		   AND updated_at < NOW() - INTERVAL '1 hour'`)
 	if err != nil {
 		return fmt.Errorf("query records: %w", err)
 	}
@@ -198,6 +212,19 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate records: %w", err)
+	}
+
+	// I12: Sanity check — if >50% of records appear dangling, something is wrong
+	// (e.g. basePath mount missing). Skip deletion to prevent mass data loss.
+	var totalLocal int64
+	if countErr := j.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM user_files WHERE storage_backend = 'local' AND status != 'purging'`,
+	).Scan(&totalLocal); countErr == nil && totalLocal > 0 {
+		if float64(len(toDelete))/float64(totalLocal) > 0.5 {
+			slog.Error("shadowfs reconcile: >50% of local records appear dangling — skipping deletion (possible mount issue)",
+				"dangling", len(toDelete), "total", totalLocal)
+			return nil
+		}
 	}
 
 	for _, d := range toDelete {
@@ -397,16 +424,20 @@ func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult)
 		}
 
 		// Check if this file is referenced by an active import_queue entry.
-		fileName := filepath.Base(path)
+		// import_queue only stores original_filename (no storage_path column),
+		// so we match by bare filename. This is safe-side behaviour: a false
+		// positive (same filename for a different user's temp file) causes us
+		// to skip deletion rather than risk removing a file still in use.
+		// Future: add a storage_path column to import_queue for exact matching.
 		var exists bool
 		if err := j.pool.QueryRow(ctx,
 			`SELECT EXISTS(
 				SELECT 1 FROM import_queue
 				WHERE status IN ('pending', 'processing')
-				  AND file_name = $1
-			)`, fileName).Scan(&exists); err != nil {
+				  AND original_filename = $1
+			)`, filepath.Base(path)).Scan(&exists); err != nil {
 			slog.Error("shadowfs reconcile: import_queue check failed",
-				"file", fileName, "error", err)
+				"file", relPath, "error", err)
 			return nil
 		}
 		if exists {
@@ -582,16 +613,31 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 					"file_id", item.id, "target", targetFull, "error", err)
 				continue
 			}
+
+			// M25: Store intended target in storage_path BEFORE rename so a crash
+			// between rename and finalize can still be recovered (Case 3 catches it).
+			if _, err := j.pool.Exec(ctx,
+				`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
+				targetRel, item.id); err != nil {
+				slog.Error("shadowfs reconcile: failed to store rename target",
+					"file_id", item.id, "error", err)
+				continue
+			}
+
 			if err := os.Rename(currentFull, targetFull); err != nil {
+				// Revert storage_path on failure.
+				j.pool.Exec(ctx, //nolint:errcheck
+					`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
+					item.storagePath, item.id)
 				slog.Error("shadowfs reconcile: rename retry failed",
 					"file_id", item.id, "from", currentFull, "to", targetFull, "error", err)
 				continue
 			}
 			cleanEmptyDirs(filepath.Dir(currentFull), j.basePath)
 			if _, err := j.pool.Exec(ctx,
-				`UPDATE user_files SET storage_path = $1, is_renaming = false, updated_at = NOW()
-				 WHERE id = $2`, targetRel, item.id); err != nil {
-				slog.Error("shadowfs reconcile: failed to update renamed path",
+				`UPDATE user_files SET is_renaming = false, updated_at = NOW()
+				 WHERE id = $1`, item.id); err != nil {
+				slog.Error("shadowfs reconcile: failed to finalize renamed path",
 					"file_id", item.id, "error", err)
 				continue
 			}
