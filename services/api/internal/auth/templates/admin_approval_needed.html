@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.AppName}} — Neue Registrierung wartet auf Freigabe</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 0;">
+  <tr>
+    <td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
+        <tr>
+          <td style="background-color:#1a1a2e;padding:24px 32px;">
+            <span style="color:#ffffff;font-size:20px;font-weight:bold;">{{.AppName}}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px;">
+            <h2 style="margin:0 0 16px 0;color:#1a1a2e;font-size:22px;">Neue Registrierung wartet auf Freigabe</h2>
+            <p style="margin:0 0 16px 0;color:#444444;font-size:15px;line-height:1.6;">
+              Hallo Admin,
+            </p>
+            <p style="margin:0 0 24px 0;color:#444444;font-size:15px;line-height:1.6;">
+              ein neuer Nutzer hat sich bei {{.AppName}} registriert und wartet auf deine Freigabe:
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;background-color:#f8f8f8;border-radius:6px;padding:16px;width:100%;">
+              <tr>
+                <td style="color:#666666;font-size:13px;padding:4px 0;">Benutzername:</td>
+                <td style="color:#1a1a2e;font-size:13px;font-weight:bold;padding:4px 0;">{{.Username}}</td>
+              </tr>
+              <tr>
+                <td style="color:#666666;font-size:13px;padding:4px 0;">E-Mail:</td>
+                <td style="color:#1a1a2e;font-size:13px;padding:4px 0;">{{.Email}}</td>
+              </tr>
+            </table>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+              <tr>
+                <td style="background-color:#2563eb;border-radius:6px;padding:12px 28px;">
+                  <a href="{{.AdminURL}}" style="color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;">
+                    Zur Nutzerverwaltung
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px 0;color:#666666;font-size:13px;line-height:1.5;">
+              Falls der Button nicht funktioniert, kopiere diesen Link in deinen Browser:
+            </p>
+            <p style="margin:0 0 24px 0;">
+              <a href="{{.AdminURL}}" style="color:#2563eb;font-size:13px;word-break:break-all;">{{.AdminURL}}</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f4f4f4;padding:16px 32px;border-top:1px solid #e0e0e0;">
+            <p style="margin:0;color:#888888;font-size:12px;text-align:center;">
+              &copy; {{.AppName}} &mdash; <a href="{{.AppURL}}" style="color:#888888;">{{.AppURL}}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

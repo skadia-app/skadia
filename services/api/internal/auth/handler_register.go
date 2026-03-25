@@ -118,6 +118,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	slog.Info("auth.register", "user_id", user.ID, "mode", h.Config.RegistrationMode)
 	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "register", middleware.ClientIP(r), r.UserAgent(), map[string]string{"mode": h.Config.RegistrationMode})
 
+	// In approval mode, notify admins about the pending registration.
+	if h.Config.RegistrationMode == "approval" {
+		if h.Mailer.IsConfigured() {
+			go h.notifyAdminsNewRegistration(user)
+		}
+	}
+
 	// Generate verification token.
 	token, err := GenerateToken()
 	if err != nil {
