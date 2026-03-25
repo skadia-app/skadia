@@ -1,4 +1,4 @@
--- 000233_filestore_cleanup.up.sql
+-- 000233_shadowfs_cleanup.up.sql
 -- Drops legacy S3/ShadowFS columns now that the Unified ShadowFS migration is complete.
 
 -- Pre-check: ensure migration is complete
