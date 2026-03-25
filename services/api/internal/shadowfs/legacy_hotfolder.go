@@ -138,7 +138,7 @@ func (w *Watcher) loop() {
 					return
 				}
 				delete(pending, filePath)
-				// I20: Add to processWg inside the lock to prevent race with Stop().
+				// Add to processWg inside the lock to prevent race with Stop().
 				w.processWg.Add(1)
 				mu.Unlock()
 				defer w.processWg.Done()

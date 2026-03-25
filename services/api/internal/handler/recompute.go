@@ -29,6 +29,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -713,17 +714,38 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 7. Rewrite sidecar metadata (v3 with user-editable fields).
-	metaKey := info.FileKey + ".meta"
+	// 7. Rewrite sidecar metadata (v3 with user-editable fields) — ShadowFS preferred, S3 fallback.
 	activity, actErr := h.DB.GetActivity(ctx, activityID)
 	if actErr != nil {
 		slog.Error("reprocess: get activity for meta failed", "id", activityID, "error", actErr)
 	}
 	meta := sidecar.GenerateMetaV3(activityID, data, activity)
 	metaBytes, mErr := meta.Marshal()
-	if mErr == nil && h.Storage != nil {
-		if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-			slog.Error("reprocess: meta upload failed", "id", activityID, "error", err)
+	if mErr == nil && metaBytes != nil {
+		metaWritten := false
+		if h.ShadowFS != nil && activity != nil && activity.FileID != nil && *activity.FileID != "" {
+			metaName := fmt.Sprintf("%s.meta", activityID)
+			_, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "edit",
+				ContentType: "application/json",
+				FileName:    metaName,
+				SizeBytes:   int64(len(metaBytes)),
+				ParentType:  func() *string { s := "activity"; return &s }(),
+				ParentID:    &activityID,
+				Tags:        map[string]string{"role": "meta_sidecar"},
+			}, bytes.NewReader(metaBytes))
+			if putErr == nil {
+				metaWritten = true
+			} else {
+				slog.Warn("reprocess: ShadowFS meta write failed, falling back to S3", "id", activityID, "error", putErr)
+			}
+		}
+		if !metaWritten && h.Storage != nil {
+			metaKey := info.FileKey + ".meta"
+			if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
+				slog.Error("reprocess: meta upload failed", "id", activityID, "error", err)
+			}
 		}
 	}
 

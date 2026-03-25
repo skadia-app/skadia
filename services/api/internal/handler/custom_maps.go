@@ -252,6 +252,18 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	s3Key := fmt.Sprintf("marker-images/%s/%s%s", userID, markerID, ext)
 	bucket := "skadia-media"
 
+	// Delete old marker image before uploading the new one to avoid orphans.
+	var oldImageFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(image_file_id::text, '') FROM custom_map_markers WHERE id = $1 AND user_id = $2`,
+		markerID, userID,
+	).Scan(&oldImageFileID)
+	if oldImageFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldImageFileID); delErr != nil {
+			slog.Warn("upload marker image: ShadowFS.Delete old image failed", "marker_id", markerID, "file_id", oldImageFileID, "error", delErr)
+		}
+	}
+
 	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var imageFileID string
 	if h.ShadowFS != nil {

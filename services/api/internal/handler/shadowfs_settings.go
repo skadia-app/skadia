@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -14,8 +15,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 var allowedFileTypes = []string{"activity", "media", "document", "health", "route"}
@@ -197,6 +199,12 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid library_dir_name", r.URL.Path)
 		return
 	}
+	// L24: Reject names that look like UUIDs — they would collide with the
+	// user-ID fallback path (data/library/{uuid}/). Pattern: 8-4-4-4-12 hex.
+	if len(name) == 36 && name[8] == '-' && name[13] == '-' && name[18] == '-' && name[23] == '-' {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "library_dir_name must not be in UUID format", r.URL.Path)
+		return
+	}
 
 	_, err := h.DB.Pool.Exec(r.Context(),
 		`UPDATE users SET library_dir_name = $1 WHERE id = $2`,
@@ -364,28 +372,9 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Pinned connection for advisory lock — must not be returned to pool mid-lock.
-	conn, err := h.DB.Pool.Acquire(ctx)
-	if err != nil {
-		slog.Error("rename-execute: acquire conn", "error", err, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
-		return
-	}
-	defer conn.Release()
-
-	h64 := fnv.New64a()
-	h64.Write([]byte(userID + ":" + fileType)) //nolint:errcheck
-	lockKey := int64(h64.Sum64())
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
-		slog.Error("rename-execute: advisory lock", "error", err, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
-		return
-	}
-	defer conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, lockKey) //nolint:errcheck
-
 	// Guard: check for an already-running rename job for this user+type.
 	var existingCount int
-	if err := conn.QueryRow(ctx,
+	if err := h.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM background_jobs
 		 WHERE job_type = 'shadowfs_rename' AND user_id = $1 AND status = 'running'`,
 		userID,
@@ -401,7 +390,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 
 	// Register background job for ActiveJobsIndicator visibility.
 	var jobID string
-	if err := conn.QueryRow(ctx,
+	if err := h.DB.Pool.QueryRow(ctx,
 		`INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
 		 VALUES (gen_random_uuid(), 'shadowfs_rename', $1, 'running', NOW())
 		 RETURNING id`,
@@ -411,10 +400,46 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
 	}
-	defer conn.Exec(ctx, //nolint:errcheck
-		`UPDATE background_jobs SET status = 'completed', completed_at = NOW() WHERE id = $1`,
-		jobID,
-	)
+
+	// Return immediately — actual rename work runs in background.
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"job_id": jobID,
+	})
+
+	// Run the rename work in background via shutdown.Go for graceful-shutdown awareness.
+	shutdown.Go("rename-execute:"+userID+":"+fileType, func(bgCtx context.Context) {
+		h.executeFileRenameBackground(bgCtx, userID, fileType, basePath, jobID)
+	})
+}
+
+// executeFileRenameBackground performs the actual file rename work in a background goroutine.
+func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileType, basePath, jobID string) {
+	defer func() {
+		if _, err := h.DB.Pool.Exec(ctx,
+			`UPDATE background_jobs SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+			jobID,
+		); err != nil {
+			slog.Warn("rename-execute: complete job failed", "job_id", jobID, "error", err)
+		}
+	}()
+
+	// Pinned connection for advisory lock — must not be returned to pool mid-lock.
+	conn, err := h.DB.Pool.Acquire(ctx)
+	if err != nil {
+		slog.Error("rename-execute: acquire conn", "error", err, "user_id", userID)
+		return
+	}
+	defer conn.Release()
+
+	h64 := fnv.New64a()
+	h64.Write([]byte(userID + ":" + fileType)) //nolint:errcheck
+	lockKey := int64(h64.Sum64())
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
+		slog.Error("rename-execute: advisory lock", "error", err, "user_id", userID)
+		return
+	}
+	defer conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, lockKey) //nolint:errcheck
 
 	// Fetch the current (already-saved) schema for this user+type.
 	renderer := shadowfs.NewSchemaRenderer()
@@ -433,7 +458,6 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		`SELECT library_dir_name FROM users WHERE id = $1`, userID,
 	).Scan(&libraryDirName); err != nil {
 		slog.Error("rename-execute: query library_dir_name", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
 	}
 	userDir := userID
@@ -451,7 +475,6 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	)
 	if queryErr != nil {
 		slog.Error("rename-execute: query files", "error", queryErr)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
 	}
 
@@ -473,7 +496,6 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	fileRows.Close()
 	if err := fileRows.Err(); err != nil {
 		slog.Error("rename-execute: rows error", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
 	}
 
@@ -488,7 +510,6 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 			ids,
 		); err != nil {
 			slog.Error("rename-execute: mark is_renaming", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 			return
 		}
 	}
@@ -583,10 +604,6 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("rename-execute: done", "user_id", userID, "file_type", fileType, "renamed", renamed)
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"renamed": renamed,
-	})
 }
 
 // copyFileRename copies src to dst using O_EXCL — never overwrites an existing file.

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -115,7 +117,7 @@ func Load() (*Config, error) {
 		S3SecretKey:      getEnvDefault("S3_SECRET_KEY", os.Getenv("GARAGE_SECRET_KEY")),
 		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
 		S3Region:         getEnvDefault("S3_REGION", "garage"),
-		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") != "false",
+		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "true",
 		S3BucketActivity: os.Getenv("S3_BUCKET_ACTIVITY"),
 		S3BucketMedia:    os.Getenv("S3_BUCKET_MEDIA"),
 
@@ -153,6 +155,20 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
 
+	// M24: DEV_AUTH production guard — refuse to enable in non-localhost deployments.
+	// Parse APP_URL and check hostname exactly to prevent bypass via localhost.evil.com.
+	if cfg.DevAuth {
+		appParsed, parseErr := url.Parse(cfg.AppURL)
+		if parseErr != nil || (appParsed.Hostname() != "localhost" && appParsed.Hostname() != "127.0.0.1") {
+			return nil, fmt.Errorf("DEV_AUTH=true is only allowed when APP_URL points to localhost; got APP_URL=%q", cfg.AppURL)
+		}
+	}
+
+	// M48: Warn when SMTP is configured without TLS.
+	if cfg.SMTPTLSMode == "none" && cfg.SMTPHost != "" {
+		slog.Warn("SMTP_TLS=none: SMTP traffic is unencrypted — credentials and emails are transmitted in plaintext")
+	}
+
 	// L29: Validate STORAGE_BACKEND.
 	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
 		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
@@ -164,6 +180,10 @@ func Load() (*Config, error) {
 		}
 		if cfg.S3SecretKey == "" {
 			return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY) is required when STORAGE_BACKEND=s3")
+		}
+		// Garage requires path-style access. Warn if ForcePathStyle is off with a Garage-like region.
+		if !cfg.S3ForcePathStyle && cfg.S3Region == "garage" {
+			slog.Warn("S3_FORCE_PATH_STYLE is not set but S3_REGION=garage — Garage requires path-style access; set S3_FORCE_PATH_STYLE=true")
 		}
 	}
 
@@ -189,6 +209,7 @@ func validateLibraryBasePath(p string) error {
 		"/", "/etc", "/var", "/usr", "/home",
 		"/tmp", "/proc", "/sys", "/dev", "/root",
 		"/bin", "/sbin", "/boot", "/run",
+		"/data", "/tmp",
 	}
 	for _, dangerous := range blocked {
 		if p == dangerous {
@@ -227,6 +248,7 @@ func parseMaxStorageBytes(s string, defaultVal int64) int64 {
 	}
 	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || v < 0 {
+		slog.Warn("MAX_USER_STORAGE_BYTES parse error, using default", "value", s, "default", defaultVal)
 		return defaultVal
 	}
 	return v
@@ -238,6 +260,7 @@ func parseMaxUploadSize(s string, defaultVal int64) int64 {
 	}
 	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || v <= 0 {
+		slog.Warn("MAX_UPLOAD_SIZE parse error, using default", "value", s, "default", defaultVal)
 		return defaultVal
 	}
 	return v

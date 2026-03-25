@@ -100,11 +100,17 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 	return warnings, nil
 }
 
+// sanitize normalises a single variable value for use inside a file path component.
+// Backtick (`) is intentionally not stripped — it is a valid filename character
+// on Linux (the only supported deployment platform) and carries no security risk here.
 func sanitize(s string) string {
 	s = norm.NFC.String(s)
 	s = strings.ReplaceAll(s, "\x00", "")
 	s = illegalChars.ReplaceAllString(s, "_")
 	s = strings.ReplaceAll(s, "..", "_")
+	// Strip leading dots from individual path components (e.g. ".hidden" -> "hidden").
+	// Intermediate dots within a component (e.g. "file.fit") are intentionally kept.
+	// Path-level dot-dot ("..") is blocked above; full path validation is done by validateLocalPath.
 	s = strings.TrimLeft(s, ".")
 	return strings.TrimSpace(s)
 }

@@ -132,6 +132,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"shadowfs_migration":       "Dateispeicher-Registry-Migration",
 		"shadowfs_file_move":       "Dateispeicher-Dateimigration",
 		"shadowfs_rollback":        "Dateispeicher-Rollback",
+		"shadowfs_rename":          "Dateispeicher-Umbenennung",
 		"gdpr_purge":               "DSGVO-Datenlöschung",
 	}
 	label := labels[jobType]

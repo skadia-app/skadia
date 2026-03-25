@@ -25,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
@@ -216,14 +217,35 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Refresh sidecar .meta with updated user fields.
+	// Refresh sidecar .meta with updated user fields — ShadowFS preferred, legacy S3 fallback.
 	freshAct, _ := h.DB.GetActivity(r.Context(), id)
-	if h.Storage != nil && freshAct != nil && freshAct.SidecarMetaKey != "" {
+	if freshAct != nil {
 		meta := sidecar.GenerateMetaV3(id, nil, freshAct)
 		metaBytes, _ := meta.Marshal()
 		if metaBytes != nil {
-			if err := h.Storage.Upload(r.Context(), freshAct.SidecarMetaKey, metaBytes, "application/json"); err != nil {
-				slog.Error("update activity: sidecar upload failed", "id", id, "error", err)
+			written := false
+			if h.ShadowFS != nil && freshAct.FileID != nil && *freshAct.FileID != "" {
+				metaName := fmt.Sprintf("%s.meta", id)
+				_, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+					UserID:      userID,
+					FileType:    "edit",
+					ContentType: "application/json",
+					FileName:    metaName,
+					SizeBytes:   int64(len(metaBytes)),
+					ParentType:  func() *string { s := "activity"; return &s }(),
+					ParentID:    &id,
+					Tags:        map[string]string{"role": "meta_sidecar"},
+				}, bytes.NewReader(metaBytes))
+				if putErr == nil {
+					written = true
+				} else {
+					slog.Warn("update activity: ShadowFS meta write failed, falling back to S3", "id", id, "error", putErr)
+				}
+			}
+			if !written && h.Storage != nil && freshAct.SidecarMetaKey != "" {
+				if err := h.Storage.Upload(r.Context(), freshAct.SidecarMetaKey, metaBytes, "application/json"); err != nil {
+					slog.Error("update activity: sidecar upload failed", "id", id, "error", err)
+				}
 			}
 		}
 	}
@@ -349,9 +371,28 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up ShadowFS files for each activity before bulk-deleting the DB rows.
+	// Query child activity IDs of multisport parents so their files are cleaned up too.
+	childRows, _ := h.DB.Pool.Query(r.Context(),
+		`SELECT id FROM activities WHERE parent_id = ANY($1::uuid[]) AND user_id = $2`,
+		body.IDs, userID,
+	)
+	var childIDs []string
+	if childRows != nil {
+		for childRows.Next() {
+			var cid string
+			if err := childRows.Scan(&cid); err == nil {
+				childIDs = append(childIDs, cid)
+			}
+		}
+		childRows.Close()
+	}
+
+	// Clean up ShadowFS files for each activity (including children) before bulk-deleting the DB rows.
 	for _, actID := range body.IDs {
 		h.cleanupActivityFiles(r.Context(), userID, actID)
+	}
+	for _, cid := range childIDs {
+		h.cleanupActivityFiles(r.Context(), userID, cid)
 	}
 
 	deleted, err := h.DB.DeleteActivities(r.Context(), userID, body.IDs)
@@ -364,51 +405,71 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
-// cleanupActivityFiles deletes all ShadowFS files associated with an activity:
+// cleanupActivityFiles deletes all ShadowFS and legacy S3 files associated with an activity:
 // the activity file, edit sidecar, photo originals, and photo sidecars.
 // Errors are logged as warnings (best-effort). Must be called before the DB row is deleted.
+// NOTE: Cleanup issues multiple sequential DB queries (one per file type). For large bulk
+// deletes this could be batched into a single query per type; acceptable for current scale.
 func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID string) {
-	if h.ShadowFS == nil {
+	if h.ShadowFS == nil && h.Storage == nil {
 		return
 	}
 
-	// Activity original file.
-	var actFileID string
+	// Activity original file (ShadowFS) + legacy S3 fallback.
+	var actFileID, fileHash, origFormat string
 	_ = h.DB.Pool.QueryRow(ctx,
-		`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+		`SELECT COALESCE(file_id::text, ''), COALESCE(file_hash, ''), COALESCE(original_file_format, 'fit')
+		 FROM activities WHERE id = $1 AND user_id = $2`,
 		activityID, userID,
-	).Scan(&actFileID)
-	if actFileID != "" {
+	).Scan(&actFileID, &fileHash, &origFormat)
+	if actFileID != "" && h.ShadowFS != nil {
 		if err := h.ShadowFS.Delete(ctx, userID, actFileID); err != nil {
 			slog.Warn("cleanup activity files: shadowfs delete failed", "file_id", actFileID, "error", err)
 		}
 	}
-
-	// Edit sidecar file.
-	var editFileID string
-	_ = h.DB.Pool.QueryRow(ctx,
-		`SELECT COALESCE(id::text, '') FROM user_files
-		 WHERE file_type = 'edit' AND parent_type = 'activity' AND parent_id = $1 AND user_id = $2`,
-		activityID, userID,
-	).Scan(&editFileID)
-	if editFileID != "" {
-		if err := h.ShadowFS.Delete(ctx, userID, editFileID); err != nil {
-			slog.Warn("cleanup activity files: shadowfs delete edit sidecar failed", "file_id", editFileID, "error", err)
+	if fileHash != "" && h.Storage != nil {
+		legacyKey := fmt.Sprintf("%s/%s.%s", userID, fileHash, origFormat)
+		if err := h.Storage.DeleteFromBucket(ctx, "skadia-originals", legacyKey); err != nil {
+			slog.Warn("cleanup activity files: s3 delete failed", "key", legacyKey, "error", err)
 		}
 	}
 
-	// Photo originals.
+	// Edit sidecar file.
+	if h.ShadowFS != nil {
+		var editFileID string
+		_ = h.DB.Pool.QueryRow(ctx,
+			`SELECT COALESCE(id::text, '') FROM user_files
+			 WHERE file_type = 'edit' AND parent_type = 'activity' AND parent_id = $1 AND user_id = $2`,
+			activityID, userID,
+		).Scan(&editFileID)
+		if editFileID != "" {
+			if err := h.ShadowFS.Delete(ctx, userID, editFileID); err != nil {
+				slog.Warn("cleanup activity files: shadowfs delete edit sidecar failed", "file_id", editFileID, "error", err)
+			}
+		}
+	}
+
+	// Photo originals (ShadowFS) + legacy S3 fallback.
 	photoRows, photoErr := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(file_id::text, '') FROM activity_photos
-		 WHERE activity_id = $1 AND user_id = $2 AND file_id IS NOT NULL`,
+		`SELECT COALESCE(file_id::text, ''), COALESCE(s3_bucket, ''), COALESCE(s3_key, ''), COALESCE(s3_key_thumb, '')
+		 FROM activity_photos WHERE activity_id = $1 AND user_id = $2`,
 		activityID, userID,
 	)
 	if photoErr == nil {
 		for photoRows.Next() {
-			var photoFileID string
-			if scanErr := photoRows.Scan(&photoFileID); scanErr == nil && photoFileID != "" {
+			var photoFileID, photoBucket, photoKey, photoKeyThumb string
+			if scanErr := photoRows.Scan(&photoFileID, &photoBucket, &photoKey, &photoKeyThumb); scanErr != nil {
+				continue
+			}
+			if photoFileID != "" && h.ShadowFS != nil {
 				if err := h.ShadowFS.Delete(ctx, userID, photoFileID); err != nil {
 					slog.Warn("cleanup activity files: shadowfs delete photo failed", "file_id", photoFileID, "error", err)
+				}
+			}
+			if photoBucket != "" && photoKey != "" && h.Storage != nil {
+				_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKey)
+				if photoKeyThumb != "" && photoKeyThumb != photoKey {
+					_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKeyThumb)
 				}
 			}
 		}
@@ -416,23 +477,25 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 	}
 
 	// Photo sidecar files (parent_type='photo').
-	sidecarRows, sidecarErr := h.DB.Pool.Query(ctx,
-		`SELECT uf.id::text FROM user_files uf
-		 JOIN activity_photos ap ON ap.id::text = uf.parent_id
-		 WHERE ap.activity_id = $1 AND ap.user_id = $2
-		   AND uf.user_id = $2 AND uf.parent_type = 'photo'`,
-		activityID, userID,
-	)
-	if sidecarErr == nil {
-		for sidecarRows.Next() {
-			var sidecarID string
-			if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
-				if err := h.ShadowFS.Delete(ctx, userID, sidecarID); err != nil {
-					slog.Warn("cleanup activity files: shadowfs delete photo sidecar failed", "sidecar_id", sidecarID, "error", err)
+	if h.ShadowFS != nil {
+		sidecarRows, sidecarErr := h.DB.Pool.Query(ctx,
+			`SELECT uf.id::text FROM user_files uf
+			 JOIN activity_photos ap ON ap.id::text = uf.parent_id
+			 WHERE ap.activity_id = $1 AND ap.user_id = $2
+			   AND uf.user_id = $2 AND uf.parent_type = 'photo'`,
+			activityID, userID,
+		)
+		if sidecarErr == nil {
+			for sidecarRows.Next() {
+				var sidecarID string
+				if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
+					if err := h.ShadowFS.Delete(ctx, userID, sidecarID); err != nil {
+						slog.Warn("cleanup activity files: shadowfs delete photo sidecar failed", "sidecar_id", sidecarID, "error", err)
+					}
 				}
 			}
+			sidecarRows.Close()
 		}
-		sidecarRows.Close()
 	}
 }
 

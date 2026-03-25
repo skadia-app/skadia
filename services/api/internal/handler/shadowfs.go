@@ -192,6 +192,15 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Validate schema before persisting (M16).
+	if req.Schema != "" {
+		renderer := shadowfs.NewSchemaRenderer()
+		if _, err := renderer.ValidateSchema("activity", req.Schema); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+	}
+
 	// Update schema if provided.
 	if req.Schema != "" {
 		if err := h.DB.UpdateUserFileNamingSchema(r.Context(), userID, req.Schema); err != nil {

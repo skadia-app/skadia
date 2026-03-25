@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getFileSchemas,
@@ -6,6 +6,7 @@ import {
   getLibraryDir,
   updateLibraryDir,
   type FileType,
+  type LibraryDirResponse,
 } from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
 
@@ -15,6 +16,8 @@ const LABELS = {
   title: 'Dateibenennung',
   description: 'Benennungsschema für jeden Dateityp. Variablen werden durch Werte des jeweiligen Eintrags ersetzt.',
   availableVars: 'Verfügbare Variablen',
+  schemaTemplate: 'Schema-Template',
+  insertVariable: 'Variable einfügen',
   preview: 'Vorschau',
   save: 'Speichern',
   saving: 'Speichert...',
@@ -35,6 +38,10 @@ const LABELS = {
 } as const
 
 // ── Variable definitions per type ─────────────────────────────────────────
+// IMPORTANT: Keep in sync with backend variable list defined in
+// services/api/internal/shadowfs/schema.go (SchemaRenderer.Render) and
+// services/api/internal/shadowfs/legacy_template.go.
+// Any new variable added on the backend MUST also be added here.
 
 interface VarDef {
   key: string
@@ -127,6 +134,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
+  const pendingCursorRef = useRef<number | null>(null)
   const [open, setOpen] = useState(false)
   const [localValue, setLocalValue] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -146,8 +154,14 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
     mutationFn: () => updateFileSchema(fileType, currentValue),
     onSuccess: (data) => {
       setWarnings(data.warnings ?? [])
-      setLocalValue(null)
-      queryClient.invalidateQueries({ queryKey: ['file-schemas'] })
+      // Invalidate first, then clear localValue only after the cache reflects
+      // the newly saved schema — prevents a flash where initialSchema still
+      // shows the old value while localValue is already null.
+      queryClient.invalidateQueries({ queryKey: ['file-schemas'] }).then(() => {
+        if (data.schema === currentValue) {
+          setLocalValue(null)
+        }
+      })
       addToast({ type: 'success', title: LABELS.saved })
     },
     onError: (err: unknown) => {
@@ -156,18 +170,26 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
     },
   })
 
+  // After insertVariable sets localValue, restore cursor position.
+  // Dependency on localValue ensures this only runs after insertVariable
+  // (or manual typing), not on every parent re-render.
+  useEffect(() => {
+    if (pendingCursorRef.current !== null && inputRef.current) {
+      const pos = pendingCursorRef.current
+      pendingCursorRef.current = null
+      inputRef.current.setSelectionRange(pos, pos)
+      inputRef.current.focus()
+    }
+  }, [localValue])
+
   function insertVariable(variable: string) {
     const input = inputRef.current
     if (!input) return
     const start = input.selectionStart ?? currentValue.length
     const end = input.selectionEnd ?? currentValue.length
     const next = currentValue.slice(0, start) + variable + currentValue.slice(end)
+    pendingCursorRef.current = start + variable.length
     setLocalValue(next)
-    requestAnimationFrame(() => {
-      const pos = start + variable.length
-      input.setSelectionRange(pos, pos)
-      input.focus()
-    })
   }
 
   const vars = TYPE_VARIABLES[fileType]
@@ -182,6 +204,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                    hover:bg-neutral-100 dark:hover:bg-neutral-800
                    transition-colors"
         aria-expanded={open}
+        aria-controls={`schema-body-${fileType}`}
       >
         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
           {LABELS.types[fileType]}
@@ -207,15 +230,19 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
 
       {/* Body */}
       {open && (
-        <div className="px-4 py-4 space-y-3 bg-white dark:bg-neutral-900/30">
+        <div id={`schema-body-${fileType}`} className="px-4 py-4 space-y-3 bg-white dark:bg-neutral-900/30">
           {/* Input + Save */}
           <div>
-            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-              Schema-Template
+            <label
+              htmlFor={`schema-input-${fileType}`}
+              className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1"
+            >
+              {LABELS.schemaTemplate}
             </label>
             <div className="flex gap-2">
               <input
                 ref={inputRef}
+                id={`schema-input-${fileType}`}
                 type="text"
                 value={currentValue}
                 onChange={e => setLocalValue(e.target.value)}
@@ -247,6 +274,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                 <button
                   key={v.key}
                   onClick={() => insertVariable(v.key)}
+                  aria-label={`${LABELS.insertVariable}: ${v.key}`}
                   className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
                              border border-neutral-200 dark:border-neutral-700
                              bg-neutral-50 dark:bg-neutral-800
@@ -275,8 +303,8 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
           {/* Warnings from API */}
           {warnings.length > 0 && (
             <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-1">
-              {warnings.map((w, i) => (
-                <p key={i} className="text-xs text-amber-700 dark:text-amber-400">{w}</p>
+              {warnings.map((w) => (
+                <p key={w} className="text-xs text-amber-700 dark:text-amber-400">{w}</p>
               ))}
             </div>
           )}
@@ -310,15 +338,16 @@ function LibraryDirSection() {
   const currentValue = localValue ?? data?.library_dir_name ?? ''
   const isDirty = localValue !== null && localValue !== data?.library_dir_name
 
-  const mut = useMutation({
+  const mut = useMutation<LibraryDirResponse>({
     mutationFn: () => updateLibraryDir(currentValue),
     onSuccess: (res) => {
       if (res.status === 'library_dir_name_taken') {
         addToast({ type: 'warning', title: 'Verzeichnisname bereits vergeben' })
         return
       }
-      setLocalValue(null)
-      queryClient.invalidateQueries({ queryKey: ['library-dir'] })
+      queryClient.invalidateQueries({ queryKey: ['library-dir'] }).then(() => {
+        setLocalValue(null)
+      })
       addToast({ type: 'success', title: LABELS.savedLibDir })
     },
     onError: (err: unknown) => {
@@ -346,6 +375,7 @@ function LibraryDirSection() {
             value={currentValue}
             onChange={e => setLocalValue(e.target.value)}
             placeholder={LABELS.libraryDirPlaceholder}
+            maxLength={100}
             className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
                        bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
                        placeholder:text-neutral-400 dark:placeholder:text-neutral-600
@@ -384,7 +414,7 @@ export default function FileSchemaSettings() {
 
   // Build lookup by file_type for O(1) access
   const schemaMap = useMemo(() => {
-    const map: Record<string, string> = {}
+    const map: Partial<Record<FileType, string>> = {}
     for (const s of schemas ?? []) {
       map[s.file_type] = s.schema
     }

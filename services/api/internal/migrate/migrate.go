@@ -36,10 +36,15 @@ func Run(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("read current migration version: %w", err)
 	}
 
-	// Check for dirty state
+	// Check for dirty state — distinguish "no row" (version 0, empty table) from real errors.
 	var dirty bool
 	err = pool.QueryRow(ctx, `SELECT dirty FROM schema_migrations WHERE version = $1`, current).Scan(&dirty)
-	if err == nil && dirty {
+	if err != nil {
+		// pgx.ErrNoRows means current==0 and table is empty — not dirty.
+		if current != 0 {
+			return fmt.Errorf("check dirty state for version %d: %w", current, err)
+		}
+	} else if dirty {
 		return fmt.Errorf("migration version %d is dirty; manual intervention required", current)
 	}
 
@@ -73,6 +78,17 @@ func Run(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].version < pending[j].version })
+
+	// L49: Warn about gaps in migration numbering (may indicate missing files).
+	if len(pending) > 0 {
+		expected := current + 1
+		for _, m := range pending {
+			if m.version != expected {
+				slog.Warn("migration number gap detected", "expected", expected, "found", m.version)
+			}
+			expected = m.version + 1
+		}
+	}
 
 	if len(pending) == 0 {
 		slog.Info("migrations up to date", "version", current)

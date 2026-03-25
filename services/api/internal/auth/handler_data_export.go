@@ -89,21 +89,25 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	}
 	writeZipJSON(zw, "account.json", acct)
 
-	// User profile (physiological data)
+	// M31: User profile (physiological data + timezone, locale, unit_system).
 	profileRows, err := h.DB.Pool.Query(ctx,
 		`SELECT birth_date, gender, height_cm, weight_kg, ftp_w, lthr_bpm,
-		        max_hr_bpm, max_hr_detected_bpm, resting_hr_bpm
+		        max_hr_bpm, max_hr_detected_bpm, resting_hr_bpm,
+		        timezone, locale, unit_system
 		 FROM users WHERE id = $1`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "profile.json", profileRows)
 	}
 
 	// Activities metadata (without streams — too large)
+	// M30: Include geo columns (start_lat, start_lng, end_lat, end_lng, route_geom as GeoJSON).
 	actRows, err := h.DB.Pool.Query(ctx,
 		`SELECT id, title, sport_type, sub_type, started_at, elapsed_time_s, moving_time_s,
 		        distance_m, elevation_gain_m, elevation_loss_m, avg_heart_rate, max_heart_rate,
 		        avg_power_w, total_calories, description, is_virtual, is_indoor, source,
-		        gear_id, start_city, start_country, created_at
+		        gear_id, start_city, start_country,
+		        start_lat, start_lng, end_lat, end_lng,
+		        created_at
 		 FROM activities WHERE user_id = $1 ORDER BY started_at DESC`, userID)
 	if err == nil {
 		exportRowsToZip(zw, "activities.json", actRows)

@@ -2,10 +2,14 @@ package shadowfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,7 +39,10 @@ func ResolveActivityFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, a
 		activityID, userID,
 	).Scan(&fileID, &localPath, &s3Key)
 	if err != nil {
-		return nil, fmt.Errorf("activity not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("activity not found")
+		}
+		return nil, fmt.Errorf("query activity: %w", err)
 	}
 
 	// New path: file_id → ShadowFS
@@ -44,10 +51,14 @@ func ResolveActivityFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, a
 	}
 
 	// Legacy fallback: direct filesystem path from pre-ShadowFS era.
-	// No validateLocalPath check — this column is dropped in migration 000233.
-	// Until then, the path was written by trusted server code (ShadowFS).
+	// Column is dropped in migration 000233. Validate before opening:
+	// the path was written by trusted server code, but sanitize for defense-in-depth.
 	if localPath != nil && *localPath != "" {
-		f, err := os.Open(*localPath)
+		cleaned := filepath.Clean(*localPath)
+		if !filepath.IsAbs(cleaned) || strings.Contains(cleaned, "..") {
+			return nil, fmt.Errorf("legacy local_file_path failed validation: %q", *localPath)
+		}
+		f, err := os.Open(cleaned)
 		if err == nil {
 			return f, nil
 		}
@@ -113,7 +124,10 @@ func ResolveMediaFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, tabl
 	)
 	err := pool.QueryRow(ctx, query, rowID, userID).Scan(&fileID, &s3Key)
 	if err != nil {
-		return nil, fmt.Errorf("record not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("record not found")
+		}
+		return nil, fmt.Errorf("query %s: %w", tableName, err)
 	}
 
 	if fileID != nil && *fileID != "" {

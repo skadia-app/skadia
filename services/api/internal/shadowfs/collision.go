@@ -13,7 +13,11 @@ import (
 // exists at basePath + relativePath. Returns the collision-free relative path.
 func ResolveCollision(basePath, relativePath string) string {
 	full := filepath.Join(basePath, relativePath)
-	if _, err := os.Stat(full); os.IsNotExist(err) {
+	if _, err := os.Stat(full); err != nil {
+		// os.Stat failed — either the file doesn't exist (no collision) or there was
+		// a permissions/IO error. In both cases we return relativePath. If a permission
+		// error caused a false "no collision", the subsequent O_EXCL open in writeFile
+		// will fail and trigger the race-retry loop, so no data is silently overwritten.
 		return relativePath
 	}
 
@@ -22,7 +26,7 @@ func ResolveCollision(basePath, relativePath string) string {
 
 	for i := 1; i < 1000; i++ {
 		candidate := fmt.Sprintf("%s_%d%s", stem, i, ext)
-		if _, err := os.Stat(filepath.Join(basePath, candidate)); os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(basePath, candidate)); err != nil {
 			return candidate
 		}
 	}

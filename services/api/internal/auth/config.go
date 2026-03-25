@@ -82,7 +82,9 @@ func ValidateConfig(cfg *config.Config) {
 		log.Fatalf("REGISTRATION_MODE must be invite|open|approval, got: %s", cfg.RegistrationMode)
 	}
 
-	// SMTP warning (not fatal — works without for invite mode)
+	// SMTP warning (not fatal — works without for invite mode).
+	// SMTP_TLS defaults to "starttls" (port 587). Supported values: "starttls" | "ssl" | "none".
+	// Do NOT use "none" in production — credentials are sent in plaintext.
 	if cfg.SMTPHost == "" {
 		slog.Warn("SMTP not configured — email features disabled")
 		if cfg.RegistrationMode == "open" {

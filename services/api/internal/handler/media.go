@@ -56,7 +56,9 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ShadowFS path (preferred): look up file_id by matching the S3 key pattern in user_files.
+	// ShadowFS path (preferred): look up file_id by matching the S3 key as storage_path.
+	// This lookup works once migration 000232 has been applied and files have been migrated
+	// to user_files. Falls through to the legacy S3 path for pre-migration files.
 	if h.ShadowFS != nil {
 		var fileID string
 		_ = h.DB.Pool.QueryRow(r.Context(),

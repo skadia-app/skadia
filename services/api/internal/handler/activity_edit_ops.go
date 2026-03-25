@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -675,7 +676,7 @@ func (h *Handler) mergeActivityTags(ctx context.Context, targetID, sourceID, use
 				JOIN tags t ON t.id = at_join.tag_id
 				WHERE at_join.activity_id = a.id
 			), '{}'::TEXT[]
-		),
+		)
 		WHERE a.id = $1`, targetID,
 	)
 	return nil
@@ -690,14 +691,28 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 		return
 	}
 
+	// Advisory lock to serialize concurrent read-modify-write on the same activity's sidecar.
+	conn, acqErr := h.DB.Pool.Acquire(ctx)
+	if acqErr != nil {
+		slog.Warn("edit-ops: acquire conn for advisory lock failed", "activity_id", activityID, "error", acqErr)
+		return
+	}
+	defer conn.Release()
+	lockKey := int64(fnv32a(activityID))
+	if _, lockErr := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); lockErr != nil {
+		slog.Warn("edit-ops: advisory lock failed", "activity_id", activityID, "error", lockErr)
+		return
+	}
+	defer conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, lockKey) //nolint:errcheck
+
 	// ── Load existing sidecar ──────────────────────────────────────────────
 	var rawData []byte
 
 	// Try ShadowFS first (via sidecar_file_id on the activity).
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(ctx,
-		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
-		activityID,
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	).Scan(&sidecarFileID)
 
 	if sidecarFileID != "" && h.ShadowFS != nil {
@@ -760,8 +775,8 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 			slog.Warn("edit-ops: ShadowFS.Put sidecar failed", "activity_id", activityID, "error", putErr)
 		} else {
 			if _, dbErr := h.DB.Pool.Exec(ctx,
-				`UPDATE activities SET has_edits = true, sidecar_file_id = $1 WHERE id = $2`,
-				rec.ID, activityID,
+				`UPDATE activities SET has_edits = true, sidecar_file_id = $1 WHERE id = $2 AND user_id = $3`,
+				rec.ID, activityID, userID,
 			); dbErr != nil {
 				slog.Warn("edit-ops: failed to set sidecar_file_id", "activity_id", activityID, "error", dbErr)
 			}
@@ -780,5 +795,12 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 	}
 
 	// Ensure has_edits flag is set.
-	_, _ = h.DB.Pool.Exec(ctx, `UPDATE activities SET has_edits = true WHERE id = $1`, activityID)
+	_, _ = h.DB.Pool.Exec(ctx, `UPDATE activities SET has_edits = true WHERE id = $1 AND user_id = $2`, activityID, userID)
+}
+
+// fnv32a returns a stable FNV-1a hash for use as advisory lock key.
+func fnv32a(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s)) //nolint:errcheck
+	return h.Sum32()
 }

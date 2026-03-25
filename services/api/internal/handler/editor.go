@@ -58,8 +58,8 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 	var rawData []byte
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
-		activityID,
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	).Scan(&sidecarFileID)
 
 	if sidecarFileID != "" && h.ShadowFS != nil {
@@ -161,8 +161,8 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 	// Resolve existing sidecar_file_id so we can delete the old file before writing the new one.
 	var oldSidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
-		activityID,
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	).Scan(&oldSidecarFileID)
 
 	if h.ShadowFS != nil {
@@ -199,16 +199,16 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	// Mark activity as having edits and link sidecar file.
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET has_edits = true WHERE id = $1`,
-		activityID,
+		`UPDATE activities SET has_edits = true WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	)
 	if err != nil {
 		slog.Warn("editor: failed to set has_edits flag", "id", activityID, "error", err)
 	}
 	if sidecarFileID != "" {
 		if _, dbErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE activities SET sidecar_file_id = $1 WHERE id = $2`,
-			sidecarFileID, activityID,
+			`UPDATE activities SET sidecar_file_id = $1 WHERE id = $2 AND user_id = $3`,
+			sidecarFileID, activityID, userID,
 		); dbErr != nil {
 			slog.Warn("editor: failed to set sidecar_file_id", "id", activityID, "error", dbErr)
 		}
@@ -242,8 +242,8 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 	// Resolve sidecar_file_id for ShadowFS deletion (best-effort).
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
-		activityID,
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	).Scan(&sidecarFileID)
 
 	// ShadowFS delete (preferred); legacy S3 delete as fallback.
@@ -260,8 +260,8 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 
 	// Clear has_edits flag and sidecar_file_id.
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET has_edits = false, edits_applied_at = NULL, sidecar_file_id = NULL WHERE id = $1`,
-		activityID,
+		`UPDATE activities SET has_edits = false, edits_applied_at = NULL, sidecar_file_id = NULL WHERE id = $1 AND user_id = $2`,
+		activityID, userID,
 	)
 	if err != nil {
 		slog.Warn("editor: failed to clear has_edits flag", "id", activityID, "error", err)
@@ -428,8 +428,8 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 		var rawSidecar []byte
 		var sfID string
 		_ = h.DB.Pool.QueryRow(r.Context(),
-			`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
-			activityID,
+			`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+			activityID, userID,
 		).Scan(&sfID)
 		if sfID != "" && h.ShadowFS != nil {
 			if rc, getErr := h.ShadowFS.Get(r.Context(), userID, sfID); getErr == nil {
@@ -470,8 +470,8 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 	// Mark edits as applied
 	now := time.Now()
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET edits_applied_at = $2 WHERE id = $1`,
-		activityID, now,
+		`UPDATE activities SET edits_applied_at = $2 WHERE id = $1 AND user_id = $3`,
+		activityID, now, userID,
 	)
 	if err != nil {
 		slog.Warn("editor: failed to set edits_applied_at", "id", activityID, "error", err)

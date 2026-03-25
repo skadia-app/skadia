@@ -99,6 +99,16 @@ func run(ctx context.Context) error {
 		if info.IsDir() {
 			return nil
 		}
+		// L36: Validate symlinks don't escape the scan root.
+		realPath, evalErr := filepath.EvalSymlinks(path)
+		if evalErr != nil {
+			slog.Warn("symlink eval failed, skipping", "path", path, "error", evalErr)
+			return nil
+		}
+		if !strings.HasPrefix(realPath, filepath.Clean(scanRoot)) {
+			slog.Warn("symlink escapes scan root, skipping", "path", path, "real", realPath)
+			return nil
+		}
 		if !strings.HasSuffix(path, ".meta") {
 			return nil
 		}
@@ -223,16 +233,28 @@ func run(ctx context.Context) error {
 			return id
 		}
 		var id string
-		// Match by library_dir_name first, fall back to UUID equality.
+		var resolvedDirName *string
+		// M28: Cross-validate: match by library_dir_name first, fall back to UUID equality.
+		// Also fetch library_dir_name to verify the directory actually belongs to the matched user.
 		err := db.Pool.QueryRow(ctx,
-			`SELECT id FROM users
+			`SELECT id, library_dir_name FROM users
 			 WHERE library_dir_name = $1
 			    OR (library_dir_name IS NULL AND id::text = $1)
 			 LIMIT 1`,
 			dirName,
-		).Scan(&id)
+		).Scan(&id, &resolvedDirName)
 		if err != nil {
 			slog.Warn("user_id für userDir nicht gefunden", "dir", dirName, "error", err)
+			return ""
+		}
+		// Cross-validate: the directory name must match either the user's library_dir_name or their UUID.
+		expectedDir := id
+		if resolvedDirName != nil && *resolvedDirName != "" {
+			expectedDir = *resolvedDirName
+		}
+		if dirName != expectedDir {
+			slog.Warn("user directory mismatch — possible UUID spoofing",
+				"dir", dirName, "user_id", id, "expected_dir", expectedDir)
 			return ""
 		}
 		userIDCache[dirName] = id
@@ -309,6 +331,9 @@ func restoreOne(
 		actData, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), filepath.Base(activityPath))
 	case "tcx":
 		actData, err = tcximport.ParseTCX(bytes.NewReader(fileBytes), filepath.Base(activityPath))
+	default:
+		// L53: Explicit default case prevents nil actData panic for unsupported formats.
+		return "", fmt.Errorf("unsupported format: %s", format)
 	}
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", format, err)
@@ -318,6 +343,8 @@ func restoreOne(
 	match, err := importer.CheckTier1(ctx, db, userID, fileBytes, actData, 0, 0, 0)
 	if err != nil {
 		slog.Warn("duplikat-check fehlgeschlagen, importiere trotzdem", "error", err)
+		// L52: Treat match as nil when CheckTier1 returns error — don't act on partial results.
+		match = nil
 	}
 
 	var activityID string

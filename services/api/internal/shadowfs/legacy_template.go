@@ -1,6 +1,5 @@
 // Legacy ShadowFS functions retained for backward compatibility with the hotfolder watcher
-// All functions here are retained for backward compatibility with the hotfolder watcher
-// and the legacy rename handlers. Do not add new code to this package.
+// and the legacy rename handlers. Do not add new code to this file.
 package shadowfs
 
 import (
@@ -92,7 +91,7 @@ func RenderPath(info ActivityInfo, schema string) string {
 	return result
 }
 
-// LegacyDefaultSchema is the default file naming schema for the legacy ShadowFS.
+// DefaultSchema is the default file naming schema for the legacy ShadowFS.
 // Kept as a package-level const for backward compatibility (referenced by shadow-fs
 // settings handlers and hotfolder).
 const DefaultSchema = "{year}-{month}-{day}_{sport}_{subCategory}_{title}_{city}"
